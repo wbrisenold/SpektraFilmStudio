@@ -1,0 +1,6 @@
+SpektraFilmFast source export
+Upstream repository: https://github.com/wbrisenold/SpektraFilmFast
+Base commit: df0eb829c9921b3f7db0d92db34fc12a3a386d63
+Local export revision: 0.5.2
+
+This source export applies the requested fixed 1080px edit-workfile policy, People/Face Groups, Reset All Edits UI, and associated QA/documentation updates on top of the latest GitHub main commit identified above.

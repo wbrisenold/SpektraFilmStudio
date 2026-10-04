@@ -1,0 +1,4 @@
+module CSpektraBridge [system] {
+  header "include/SpektraAppBridge.h"
+  export *
+}
