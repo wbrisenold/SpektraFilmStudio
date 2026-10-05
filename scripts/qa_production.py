@@ -39,6 +39,9 @@ decoder = text("ImageDecoder.swift")
 interaction = text("InteractionPerformance.swift")
 controls = text("ControlsView.swift")
 selftest = text("ProductionSelfTest.swift")
+# Loaded up front: pass 7 asserts against it, so it must not be defined later in
+# the file or the suite dies with NameError instead of reporting a real failure.
+skin_ref = text("SkinToneReference.swift")
 all_src = "\n".join(p.read_text() for p in SRC.glob("*.swift"))
 
 # Pass 4: import hot path
@@ -130,15 +133,18 @@ require(warm[0] > warm[2], f"higher Kelvin is not warmer: {warm}")
 require(cool[2] > cool[0], f"lower Kelvin is not cooler: {cool}")
 require("let magentaGain = pow(2.0, tintStops)" in interaction and "let greenGain = 1.0 / magentaGain" in interaction, "tint direction/gain contract missing")
 
-# Pass 7: clipping behavior + numeric sanity
-require("let outputPeak = max(outR, max(outG, outB))" in analysis, "final-output highlight analysis missing")
-require("let isHardHighlight = outputPeak >= highlightThreshold" in analysis, "hard highlight clipping is not final-output-only")
-require("let isHardShadow = outputLuma <= shadowThreshold" in analysis, "hard shadow clipping is not final-output-only")
+# Pass 7: darktable-derived final-output clipping behavior + numeric sanity
+require("canonicalLinearSRGBUnclamped" in skin_ref, "unclamped final-output canonical RGB path missing")
+require("private static func clippingFlags" in analysis, "darktable-style clipping classifier missing")
+require("case .fullGamut" in analysis and "case .anyRGB" in analysis and "case .luminance" in analysis and "case .saturation" in analysis, "clipping preview modes incomplete")
+require("255, 0, 0, 255" in analysis and "0, 0, 255, 255" in analysis, "darktable red/blue hard clipping look missing")
+require("clippingLinearPixels" in analysis, "hard clipping is not using unclamped final-output pixels")
 require("source: PixelBufferF32?" not in analysis and "sceneLuma" not in analysis and "sourcePeak" not in analysis, "diagnostics still inspect pre-film/source values")
-hi = 0.18 * (2 ** 4)
-lo = 0.18 * (2 ** -8)
-require(hi >= 0.998, "reference highlight exposure test failed")
-require(lo <= 0.002, "reference shadow exposure test failed")
+require("ClippingPreviewMode" in models and "fullGamut" in models, "full-gamut clipping preference missing")
+hi = 0.9999
+lo = 2 ** -12.69
+require(abs(hi - 0.9999) < 1e-12, "darktable current upper default sanity failed")
+require(abs(lo - 0.00015133150634020836) < 1e-12, "darktable -12.69 EV lower reference failed")
 
 # Pass 8: directional skin behavior + UI
 skin_d = delta(angle(0.70, 0.45, 0.35))
@@ -148,9 +154,13 @@ require(abs(skin_d) < 12, f"skin reference sanity failed: {skin_d}")
 require(magenta_d < 0, f"magenta direction sign wrong: {magenta_d}")
 require(green_d > 0, f"green direction sign wrong: {green_d}")
 require("SubjectSkinMaskEngine" in analysis and "OpenSourceSkinClassifier" in analysis, "subject-aware open-source skin classification is missing")
-require("196, 94, 120" in analysis, "muted magenta-direction skin cue missing")
-require("74, 150, 142" in analysis, "muted green-direction skin cue missing")
-require("TOO MAGENTA" in preview and "TOO GREEN" in preview and "Too Magenta" in text("EditorScopePanelView.swift") and "Too Green" in text("EditorScopePanelView.swift"), "directional skin legend/readout missing")
+require("refineSkinMask" in analysis and "soft-union" in analysis, "spatially pooled skin-mask cleanup missing")
+require("rr = 44; gg = 214; bb = 174" in analysis, "too-green cyan/green skin overlay missing")
+require("rr = 229; gg = 65; bb = 177" in analysis, "too-magenta skin overlay missing")
+require("rr = 238; gg = 184; bb = 72" in analysis, "on-target gold skin overlay missing")
+require("TOO MAGENTA" in preview and "TOO GREEN" in preview and "ON TARGET" in preview and "Too Magenta" in text("EditorScopePanelView.swift") and "Too Green" in text("EditorScopePanelView.swift"), "directional skin legend/readout missing")
+require("contentMode: .fit" in text("EditView.swift"), "Edit filmstrip thumbnails are still crop/fill")
+require("editFilmstripHeight" in text("EditView.swift") and "DragGesture" in text("EditView.swift"), "resizable persistent Edit filmstrip missing")
 require("skinMagentaPercent" in models and "skinGreenPercent" in models, "direction metrics missing")
 
 # Pass 9: export isolation/reliability
@@ -332,8 +342,7 @@ require("scopeEnabled = true" in models and "Always on in Edit" in settings, "sc
 print("v0.5 studio-workflow acceptance checks passed")
 
 
-# Skin diagnostics / As-Shot Skin WB production guards.
-skin_ref = text("SkinToneReference.swift")
+# Skin diagnostics / As-Shot Skin WB production guards. (skin_ref loaded above.)
 require("ScopeWalker" in skin_ref and "referenceAngleDegrees" in skin_ref, "open-source calibrated skin-line reference missing")
 require("canonicalDisplayRGB" in skin_ref and "outputRoleIndex" in skin_ref, "skin diagnostics are not colorspace/output-role aware")
 require("displayR:" in text("SubjectSkinMask.swift") and "displayEncode(linearR)" not in text("SubjectSkinMask.swift"), "skin classifier still double-gamma encodes renderer output")

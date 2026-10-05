@@ -74,9 +74,16 @@ grep -q 'let exportSettings = job.settings' Sources/SpektraFilmFast/AppModel.swi
 ! grep -q 'resizedForExport(settings: job.settings)' Sources/SpektraFilmFast/AppModel.swift
 # 5. Hard-clip indicators must come from the FINAL output buffer, never the
 #    pre-conversion linear one (this was a real behavioural bug in v0.6.0).
+#    Asserted behaviourally, not by expression text: the clip source must be
+#    filled from output.pixels. Later refactors route it through
+#    clippingFlags()/clippingLinearPixels; that is fine as long as the origin
+#    is the final output. Pinning the exact expression broke on such a
+#    refactor even though behaviour was preserved (AI_PITFALLS.md 16).
 ! grep -q 'sourcePeak' Sources/SpektraFilmFast/StudioAnalysis.swift
-grep -q 'let isHardHighlight = outputPeak >= highlightThreshold' Sources/SpektraFilmFast/StudioAnalysis.swift
-grep -q 'let isHardShadow = outputLuma <= shadowThreshold' Sources/SpektraFilmFast/StudioAnalysis.swift
+grep -q 'clippingLinearPixels\[p\] = linear' Sources/SpektraFilmFast/StudioAnalysis.swift
+grep -q 'output.pixels\[sourceIndex\]' Sources/SpektraFilmFast/StudioAnalysis.swift
+grep -q 'let isHardHighlight' Sources/SpektraFilmFast/StudioAnalysis.swift
+grep -q 'let isHardShadow' Sources/SpektraFilmFast/StudioAnalysis.swift
 
 echo "Running production regression checks..."
 python3 scripts/qa_production.py
@@ -91,6 +98,7 @@ find . -type f \
   -not -path './.git/*' \
   -not -name 'SOURCE_MANIFEST.sha256' \
   -not -name '.DS_Store' \
+  -not -path './.batch-edit-backup-*' \
   -print | sed 's#^./##' | LC_ALL=C sort > "$EXPECTED_LIST"
 awk '{ $1=""; sub(/^ +/, ""); print }' SOURCE_MANIFEST.sha256 | LC_ALL=C sort > "$MANIFEST_LIST"
 if ! diff -u "$EXPECTED_LIST" "$MANIFEST_LIST"; then

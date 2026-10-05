@@ -623,6 +623,53 @@ private enum PrimeraDensityMath {
     }
 }
 
+
+private enum AutoContrastMath {
+    private static let bins = 16_384
+
+    static func bounds(_ pixels: [Float]) -> (black: Double, white: Double)? {
+        guard pixels.count >= 4 else { return nil }
+        var histogram = [Int](repeating: 0, count: bins)
+
+        for p in stride(from: 0, to: pixels.count, by: 4) {
+            let r = max(0.0, min(1.0, Double(pixels[p])))
+            let g = max(0.0, min(1.0, Double(pixels[p + 1])))
+            let b = max(0.0, min(1.0, Double(pixels[p + 2])))
+            let y = max(0.0, min(1.0, 0.2627 * r + 0.6780 * g + 0.0593 * b))
+            let index = min(bins - 1, max(0, Int((y * Double(bins - 1)).rounded(.down))))
+            histogram[index] += 1
+        }
+
+        // Ignore one-off bins the same way mature open Levels implementations avoid
+        // letting a single hot/dead pixel define the whole photograph.
+        let low = histogram.firstIndex(where: { $0 > 1 }) ?? histogram.firstIndex(where: { $0 > 0 })
+        let high = histogram.lastIndex(where: { $0 > 1 }) ?? histogram.lastIndex(where: { $0 > 0 })
+        guard let low, let high, high > low else { return nil }
+
+        let black = Double(low) / Double(bins - 1)
+        let white = Double(high) / Double(bins - 1)
+        guard white - black > 1.0e-6 else { return nil }
+        return (black, white)
+    }
+
+    static func apply(
+        r: Double, g: Double, b: Double,
+        bounds: (black: Double, white: Double)
+    ) -> (Double, Double, Double) {
+        let y = 0.2627 * r + 0.6780 * g + 0.0593 * b
+        let width = bounds.white - bounds.black
+        guard width > 1.0e-9 else { return (r, g, b) }
+
+        let targetY = (y - bounds.black) / width
+        if y <= 1.0e-9 {
+            return targetY <= 0 ? (0, 0, 0) : (r, g, b)
+        }
+
+        let ratio = targetY / y
+        return (r * ratio, g * ratio, b * ratio)
+    }
+}
+
 extension PixelBufferF32 {
     func applyingHostGrade(tone: ToneSettings?, density: ColorDensitySettings?) -> PixelBufferF32 {
         let tone = tone ?? ToneSettings()
@@ -632,6 +679,7 @@ extension PixelBufferF32 {
             && abs(points[0].x) < 1e-9 && abs(points[0].y) < 1e-9
             && abs(points[1].x - 1) < 1e-9 && abs(points[1].y - 1) < 1e-9
 
+        let autoContrastBounds = tone.autoContrast ? AutoContrastMath.bounds(pixels) : nil
         let exposureScale = pow(2.0, max(-10, min(10, tone.exposureEV)))
         let whiteGain = SourcedToneMath.whiteGain(tone.whites)
         let blackOffset = SourcedToneMath.blackOffset(tone.blacks)
@@ -640,16 +688,23 @@ extension PixelBufferF32 {
             && abs(tone.highlights) < 1e-12 && abs(tone.shadows) < 1e-12
             && abs(tone.highlightRecovery) < 1e-12 && abs(tone.shadowRecovery) < 1e-12
             && abs(tone.whites) < 1e-12 && abs(tone.blacks) < 1e-12
-            && abs(tone.whitePoint) < 1e-12 && abs(tone.blackPoint) < 1e-12 && identityCurve
+            && abs(tone.whitePoint) < 1e-12 && abs(tone.blackPoint) < 1e-12
+            && !tone.autoContrast && identityCurve
         if toneIdentity && (density == nil || density!.isIdentity) { return self }
 
         var output = pixels
         for p in stride(from: 0, to: output.count, by: 4) {
             if (p & 16383) == 0, Task.isCancelled { return self }
 
-            var r = Double(output[p]) * exposureScale
-            var g = Double(output[p+1]) * exposureScale
-            var b = Double(output[p+2]) * exposureScale
+            var r = Double(output[p])
+            var g = Double(output[p+1])
+            var b = Double(output[p+2])
+            if let autoContrastBounds {
+                (r, g, b) = AutoContrastMath.apply(r: r, g: g, b: b, bounds: autoContrastBounds)
+            }
+            r *= exposureScale
+            g *= exposureScale
+            b *= exposureScale
             (r,g,b) = SourcedToneMath.filmicBrightness(r: r, g: g, b: b, value: tone.brightness)
             (r,g,b) = SourcedToneMath.midtones(r: r, g: g, b: b, value: tone.midtones)
             (r,g,b) = SourcedToneMath.applyLinearTone(

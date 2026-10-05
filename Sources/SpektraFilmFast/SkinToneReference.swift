@@ -96,7 +96,7 @@ enum SkinToneReference {
         14, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25
     ]
 
-    static func canonicalDisplayRGB(
+    static func canonicalLinearSRGBUnclamped(
         r: Float, g: Float, b: Float,
         look: RenderLook
     ) -> (Float, Float, Float)? {
@@ -115,7 +115,11 @@ enum SkinToneReference {
         case 16: // Linear P3-D65
             linearSRGB = mul(p3ToSRGB, (rr, gg, bb))
         case 17: // sRGB
-            return (clamp01(r), clamp01(g), clamp01(b))
+            linearSRGB = (
+                srgbDecode(rr),
+                srgbDecode(gg),
+                srgbDecode(bb)
+            )
         case 18: // Display P3, sRGB transfer
             linearSRGB = mul(p3ToSRGB, (
                 srgbDecode(rr), srgbDecode(gg), srgbDecode(bb)
@@ -163,9 +167,37 @@ enum SkinToneReference {
         }
 
         return (
-            Float(clamp01(srgbEncode(linearSRGB.0))),
-            Float(clamp01(srgbEncode(linearSRGB.1))),
-            Float(clamp01(srgbEncode(linearSRGB.2)))
+            Float(linearSRGB.0),
+            Float(linearSRGB.1),
+            Float(linearSRGB.2)
+        )
+    }
+
+    static func canonicalDisplayRGBUnclamped(
+        r: Float, g: Float, b: Float,
+        look: RenderLook
+    ) -> (Float, Float, Float)? {
+        guard let linear = canonicalLinearSRGBUnclamped(r: r, g: g, b: b, look: look) else {
+            return nil
+        }
+        return (
+            Float(srgbEncode(Double(linear.0))),
+            Float(srgbEncode(Double(linear.1))),
+            Float(srgbEncode(Double(linear.2)))
+        )
+    }
+
+    static func canonicalDisplayRGB(
+        r: Float, g: Float, b: Float,
+        look: RenderLook
+    ) -> (Float, Float, Float)? {
+        guard let display = canonicalDisplayRGBUnclamped(r: r, g: g, b: b, look: look) else {
+            return nil
+        }
+        return (
+            clamp01(display.0),
+            clamp01(display.1),
+            clamp01(display.2)
         )
     }
 

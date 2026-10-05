@@ -295,7 +295,8 @@ the analysis bug it really was.
 ```bash
 find . -type f -not -path './.build/*' -not -path './dist/*' \
   -not -path './.git/*' -not -name 'SOURCE_MANIFEST.sha256' \
-  -not -name '.DS_Store' -print | sed 's#^./##' | LC_ALL=C sort \
+  -not -name '.DS_Store' \
+  -not -path './.batch-edit-backup-*' -print | sed 's#^./##' | LC_ALL=C sort \
   | while IFS= read -r f; do shasum -a 256 "$f"; done > SOURCE_MANIFEST.sha256
 ```
 

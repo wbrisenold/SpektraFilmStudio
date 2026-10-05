@@ -19,6 +19,48 @@ actor StudioAnalysisEngine {
     static let scopeSize = 256
     private let subjectMaskEngine = SubjectSkinMaskEngine()
 
+
+    // Independent Swift adaptation of darktable's final-view overexposure tests.
+    private static func clippingFlags(
+        r: Float,
+        g: Float,
+        b: Float,
+        mode: ClippingPreviewMode,
+        upper: Float,
+        lower: Float
+    ) -> (highlight: Bool, shadow: Bool) {
+        let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        let anyRGBUpper = r >= upper || g >= upper || b >= upper
+        let allRGBLower = r <= lower && g <= lower && b <= lower
+        let luminanceUpper = luminance >= upper
+        let luminanceLower = luminance <= lower
+
+        func saturationExceeded(_ channel: Float) -> Bool {
+            let delta = channel - luminance
+            let denom = max(1.0e-12, luminance * luminance + channel * channel)
+            return sqrt((delta * delta) / denom) > upper
+        }
+
+        let saturationUpper =
+            saturationExceeded(r) || saturationExceeded(g) || saturationExceeded(b)
+
+        switch mode {
+        case .anyRGB:
+            return (anyRGBUpper, allRGBLower)
+        case .luminance:
+            return (luminanceUpper, luminanceLower)
+        case .saturation:
+            guard luminance < upper && luminance > lower else { return (false, false) }
+            return (saturationUpper || anyRGBUpper, false)
+        case .fullGamut:
+            if luminanceUpper { return (true, false) }
+            if luminanceLower { return (false, true) }
+            if saturationUpper || anyRGBUpper { return (true, false) }
+            if allRGBLower { return (false, true) }
+            return (false, false)
+        }
+    }
+
     func analyze(
         output: PixelBufferF32,
         look: RenderLook,
@@ -46,6 +88,7 @@ actor StudioAnalysisEngine {
         try SkinToneReference.validate(look)
 
         var diagnosticPixels = [Float](repeating: 0, count: sampledPixels * 4)
+        var clippingLinearPixels = [Float](repeating: 0, count: sampledPixels * 4)
         for oy in 0..<overlayHeight {
             if oy & 31 == 0 { try Task.checkCancellation() }
             let y = min(height - 1, oy * analysisStep)
@@ -58,6 +101,12 @@ actor StudioAnalysisEngine {
                     g: output.pixels[sourceIndex + 1],
                     b: output.pixels[sourceIndex + 2],
                     look: look
+                ),
+                let linear = SkinToneReference.canonicalLinearSRGBUnclamped(
+                    r: output.pixels[sourceIndex],
+                    g: output.pixels[sourceIndex + 1],
+                    b: output.pixels[sourceIndex + 2],
+                    look: look
                 ) else {
                     throw DiagnosticColorError.unsupportedOutputSpace(SkinToneReference.outputSpaceIndex(look))
                 }
@@ -65,6 +114,10 @@ actor StudioAnalysisEngine {
                 diagnosticPixels[p + 1] = rgb.1
                 diagnosticPixels[p + 2] = rgb.2
                 diagnosticPixels[p + 3] = 1
+                clippingLinearPixels[p] = linear.0
+                clippingLinearPixels[p + 1] = linear.1
+                clippingLinearPixels[p + 2] = linear.2
+                clippingLinearPixels[p + 3] = 1
             }
         }
         let diagnosticBuffer = PixelBufferF32(
@@ -124,13 +177,23 @@ actor StudioAnalysisEngine {
                 let outG = diagnosticBuffer.pixels[diagnosticIndex + 1]
                 let outB = diagnosticBuffer.pixels[diagnosticIndex + 2]
 
-                // Clipping indicators must reflect the FINAL displayed output, never a
-                // pre-conversion buffer value. Reading peak/luma from the linear `output`
-                // buffer made hard-clip marks disagree with what the photographer sees.
+                let clipR = clippingLinearPixels[diagnosticIndex]
+                let clipG = clippingLinearPixels[diagnosticIndex + 1]
+                let clipB = clippingLinearPixels[diagnosticIndex + 2]
+                let hardClip = Self.clippingFlags(
+                    r: clipR,
+                    g: clipG,
+                    b: clipB,
+                    mode: preferences.clippingPreviewMode,
+                    upper: highlightThreshold,
+                    lower: shadowThreshold
+                )
+                let isHardHighlight = hardClip.highlight
+                let isHardShadow = hardClip.shadow
+
+                // Preserve SpektraFilmFast's final-display early warning as a softer layer.
                 let outputLuma = 0.2126 * outR + 0.7152 * outG + 0.0722 * outB
                 let outputPeak = max(outR, max(outG, outB))
-                let isHardHighlight = outputPeak >= highlightThreshold
-                let isHardShadow = outputLuma <= shadowThreshold
                 let isHighlightRisk = isHardHighlight || outputPeak >= highlightRiskThreshold
                 let isShadowRisk = isHardShadow || outputLuma <= shadowRiskThreshold
                 if isHighlightRisk { highlightCount += 1 }
@@ -171,31 +234,15 @@ actor StudioAnalysisEngine {
                 }
 
                 if preferences.clippingEnabled && isHardHighlight {
-                    // Hard highlight clipping: strong red.
-                    setRGBA(&overlay, overlayIndex, 236, 66, 74, 226)
+                    // darktable default look: solid red = over-clipped.
+                    setRGBA(&overlay, overlayIndex, 255, 0, 0, 255)
                 } else if preferences.clippingEnabled && isHardShadow {
-                    // Hard shadow clipping/crush: strong blue.
-                    setRGBA(&overlay, overlayIndex, 57, 91, 232, 226)
+                    // darktable default look: solid blue = under-clipped.
+                    setRGBA(&overlay, overlayIndex, 0, 0, 255, 255)
                 } else if preferences.clippingEnabled && isHighlightRisk {
-                    // Highlight risk before mathematical clipping.
-                    setRGBA(&overlay, overlayIndex, 238, 156, 67, 132)
+                    setRGBA(&overlay, overlayIndex, 255, 0, 0, 92)
                 } else if preferences.clippingEnabled && isShadowRisk {
-                    // Shadow risk before mathematical zero. This catches visibly underexposed
-                    // regions while there is still recoverable tonal information.
-                    setRGBA(&overlay, overlayIndex, 68, 144, 205, 132)
-                } else if wantsSkinOverlay && candidate {
-                    // Restrained grading overlay: preserve facial detail and signal direction
-                    // without the neon false-color blanket used by the old implementation.
-                    let excess = max(0.0, abs(deviation) - tolerance)
-                    let severity = min(1.0, excess / 28.0)
-                    let alpha = UInt8(clamping: Int((baseSkinOpacity * (0.18 + 0.44 * severity) * 255.0).rounded()))
-                    if deviation < -tolerance {
-                        setRGBA(&overlay, overlayIndex, 196, 94, 120, max(alpha, 34)) // muted rose
-                    } else if deviation > tolerance {
-                        setRGBA(&overlay, overlayIndex, 74, 150, 142, max(alpha, 34)) // muted teal
-                    } else {
-                        setRGBA(&overlay, overlayIndex, 204, 158, 102, UInt8(clamping: Int(baseSkinOpacity * 52.0)))
-                    }
+                    setRGBA(&overlay, overlayIndex, 0, 0, 255, 92)
                 }
 
                 if wantsScope {
@@ -213,7 +260,27 @@ actor StudioAnalysisEngine {
             }
         }
 
+        if wantsSkinAnalysis {
+            skinMask = refineSkinMask(
+                mask: skinMask,
+                diagnostic: diagnosticBuffer,
+                subjectMask: subjectMask,
+                width: overlayWidth,
+                height: overlayHeight
+            )
+        }
+
         if wantsSkinOverlay {
+            paintSkinDirectionOverlay(
+                mask: skinMask,
+                diagnostic: diagnosticBuffer,
+                overlay: &overlay,
+                width: overlayWidth,
+                height: overlayHeight,
+                tolerance: tolerance,
+                opacity: baseSkinOpacity,
+                preserveExistingOverlay: preferences.clippingEnabled
+            )
             drawSkinBoundary(mask: skinMask, overlay: &overlay, width: overlayWidth, height: overlayHeight)
         }
 
@@ -272,6 +339,148 @@ actor StudioAnalysisEngine {
         SkinToneReference.angularDifferenceDegrees(lhs, rhs)
     }
 
+
+    /// Primera Skin-inspired spatial pooling / soft-union for a cleaner, more robust mask.
+    private func refineSkinMask(
+        mask: [UInt8],
+        diagnostic: PixelBufferF32,
+        subjectMask: SubjectMaskPayload,
+        width: Int,
+        height: Int
+    ) -> [UInt8] {
+        guard width > 2, height > 2, mask.count == width * height else { return mask }
+        var refined = mask
+        let radius = max(1, min(3, max(width, height) / 500))
+        let offsets = [
+            (-radius, 0), (radius, 0), (0, -radius), (0, radius),
+            (-radius, -radius), (radius, -radius), (-radius, radius), (radius, radius)
+        ]
+        let sigmaChroma = 0.060
+        let inv2SigmaChroma2 = 1.0 / (2.0 * sigmaChroma * sigmaChroma)
+
+        for y in 0..<height {
+            for x in 0..<width {
+                let i = y * width + x
+                let own = Double(mask[i]) / 255.0
+                let person = Double(subjectMask.alpha(x: x, y: y)) / 255.0
+                let inFace = subjectMask.isInsideFace(x: x, y: y)
+                if person < (inFace ? 0.08 : 0.22) {
+                    refined[i] = 0
+                    continue
+                }
+
+                let p = i * 4
+                let r = Double(diagnostic.pixels[p])
+                let g = Double(diagnostic.pixels[p + 1])
+                let b = Double(diagnostic.pixels[p + 2])
+                let sum = r + g + b
+                if sum < 0.01 {
+                    refined[i] = mask[i]
+                    continue
+                }
+
+                let gn = g / sum
+                let dn = (r - b) / sum
+                var weightedMask = own
+                var weightSum = 1.0
+
+                for (dx, dy) in offsets {
+                    let sx = min(width - 1, max(0, x + dx))
+                    let sy = min(height - 1, max(0, y + dy))
+                    let si = sy * width + sx
+                    let sp = si * 4
+                    let sr = Double(diagnostic.pixels[sp])
+                    let sg = Double(diagnostic.pixels[sp + 1])
+                    let sb = Double(diagnostic.pixels[sp + 2])
+                    let ssum = sr + sg + sb
+                    if ssum < 0.01 { continue }
+
+                    let sgn = sg / ssum
+                    let sdn = (sr - sb) / ssum
+                    let dgn = sgn - gn
+                    let ddn = sdn - dn
+                    let similarity = exp(-(dgn * dgn + ddn * ddn) * inv2SigmaChroma2)
+                    let neighborPerson = Double(subjectMask.alpha(x: sx, y: sy)) / 255.0
+                    let w = similarity * max(0.0, min(1.0, neighborPerson * 1.35))
+                    weightSum += w
+                    weightedMask += w * (Double(mask[si]) / 255.0)
+                }
+
+                let pooled = weightedMask / max(1.0e-9, weightSum)
+                var union = 1.0 - (1.0 - own) * (1.0 - pooled)
+
+                if own < 0.10 && pooled < (inFace ? 0.10 : 0.18) {
+                    union = 0
+                } else if inFace && pooled > 0.12 {
+                    union = max(union, min(1.0, pooled * 1.15))
+                }
+
+                refined[i] = UInt8(clamping: Int((max(0.0, min(1.0, union)) * 255.0).rounded()))
+            }
+        }
+        return refined
+    }
+
+    /// Local three-zone false-color readout:
+    /// cyan/green = too green, gold = on target, magenta = too magenta.
+    private func paintSkinDirectionOverlay(
+        mask: [UInt8],
+        diagnostic: PixelBufferF32,
+        overlay: inout [UInt8],
+        width: Int,
+        height: Int,
+        tolerance: Double,
+        opacity: Double,
+        preserveExistingOverlay: Bool
+    ) {
+        guard mask.count == width * height, overlay.count == width * height * 4 else { return }
+        let visibleOpacity = max(0.38, min(0.90, opacity))
+
+        for i in 0..<(width * height) {
+            let strength = Double(mask[i]) / 255.0
+            guard strength > 0.06 else { continue }
+
+            let p = i * 4
+            if preserveExistingOverlay && overlay[p + 3] > 0 { continue }
+
+            let r = diagnostic.pixels[p]
+            let g = diagnostic.pixels[p + 1]
+            let b = diagnostic.pixels[p + 2]
+            let chroma = chromaPosition(r: r, g: g, b: b)
+            guard chroma.luma > 0.01, chroma.luma < 0.995, chroma.radius > 0.008 else { continue }
+
+            let deviation = angularDifferenceDegrees(chroma.angleDegrees, Self.skinReferenceDegrees)
+            let excess = max(0.0, abs(deviation) - tolerance)
+            let severity = min(1.0, excess / max(10.0, tolerance * 1.75))
+
+            let rr: UInt8
+            let gg: UInt8
+            let bb: UInt8
+            let alphaScale: Double
+
+            if deviation > tolerance {
+                rr = 44; gg = 214; bb = 174
+                alphaScale = 0.62 + 0.38 * severity
+            } else if deviation < -tolerance {
+                rr = 229; gg = 65; bb = 177
+                alphaScale = 0.62 + 0.38 * severity
+            } else {
+                rr = 238; gg = 184; bb = 72
+                alphaScale = 0.34
+            }
+
+            let alpha = UInt8(clamping: Int(
+                (255.0 * visibleOpacity * alphaScale * sqrt(strength)).rounded()
+            ))
+            setRGBA(
+                &overlay,
+                p,
+                rr, gg, bb,
+                max(alpha, deviation > tolerance || deviation < -tolerance ? 74 : 36)
+            )
+        }
+    }
+
     private func drawSkinBoundary(mask: [UInt8], overlay: inout [UInt8], width: Int, height: Int) {
         guard width > 2, height > 2, overlay.count == width * height * 4 else { return }
         for y in 1..<(height - 1) {
@@ -281,8 +490,8 @@ actor StudioAnalysisEngine {
                 let edge = mask[i - 1] <= 80 || mask[i + 1] <= 80 || mask[i - width] <= 80 || mask[i + width] <= 80
                 if edge {
                     let p = i * 4
-                    // Soft champagne outline that reads as a professional mask edge.
-                    blendRGBA(&overlay, p, 220, 190, 146, 92)
+                    // Keep the edge subtle so the directional false color stays readable.
+                    blendRGBA(&overlay, p, 255, 255, 255, 42)
                 }
             }
         }

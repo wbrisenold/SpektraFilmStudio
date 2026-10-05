@@ -69,6 +69,10 @@ struct PreviewView: View {
                     )
                 }
 
+                if !model.showingBefore && model.project.preferences.skinCheckEnabled {
+                    skinOverlayLegend
+                }
+
                 if model.isRendering {
                     HStack(spacing: 7) {
                         ProgressView().controlSize(.mini)
@@ -99,6 +103,31 @@ struct PreviewView: View {
             }
         }
         .ignoresSafeArea()
+    }
+
+
+    private var skinOverlayLegend: some View {
+        HStack(spacing: 10) {
+            legendSwatch(Color(red: 44.0 / 255.0, green: 214.0 / 255.0, blue: 174.0 / 255.0), "TOO GREEN")
+            legendSwatch(Color(red: 238.0 / 255.0, green: 184.0 / 255.0, blue: 72.0 / 255.0), "ON TARGET")
+            legendSwatch(Color(red: 229.0 / 255.0, green: 65.0 / 255.0, blue: 177.0 / 255.0), "TOO MAGENTA")
+        }
+        .font(.caption2.weight(.semibold))
+        .padding(.horizontal, 10)
+        .frame(height: 28)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(12)
+        .allowsHitTesting(false)
+    }
+
+    private func legendSwatch(_ color: Color, _ label: String) -> some View {
+        HStack(spacing: 4) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(color)
+                .frame(width: 10, height: 10)
+            Text(label)
+        }
     }
 
     private var viewerStatus: some View {

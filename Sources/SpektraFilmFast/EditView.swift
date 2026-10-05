@@ -1,7 +1,10 @@
 import SwiftUI
+import AppKit
 
 struct EditWorkspaceView: View {
     @ObservedObject var model: AppModel
+    @AppStorage("editFilmstripHeight") private var filmstripHeight = 156.0
+    @State private var filmstripResizeStart: Double?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -29,60 +32,188 @@ struct EditWorkspaceView: View {
         .background(StudioPalette.canvas)
     }
 
+    private var clampedFilmstripHeight: CGFloat {
+        CGFloat(min(320.0, max(128.0, filmstripHeight)))
+    }
+
+    private var filmstripThumbnailHeight: CGFloat {
+        max(52, clampedFilmstripHeight - 76)
+    }
+
+    private var filmstripThumbnailWidth: CGFloat {
+        min(224, max(96, filmstripThumbnailHeight * 1.45))
+    }
+
+    private var filmstripResizeHandle: some View {
+        ZStack {
+            StudioPalette.panel
+            Capsule()
+                .fill(Color.secondary.opacity(0.42))
+                .frame(width: 38, height: 3)
+        }
+        .frame(height: 8)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    if filmstripResizeStart == nil {
+                        filmstripResizeStart = filmstripHeight
+                    }
+                    let start = filmstripResizeStart ?? filmstripHeight
+                    filmstripHeight = min(320, max(128, start - Double(value.translation.height)))
+                }
+                .onEnded { _ in filmstripResizeStart = nil }
+        )
+        .help("Drag vertically to resize the filmstrip.")
+    }
+
     private var filmstrip: some View {
         VStack(spacing: 0) {
-            HStack {
+            filmstripResizeHandle
+
+            HStack(spacing: 8) {
                 Text("Filmstrip")
                     .font(.caption.weight(.semibold))
                 Text("\(model.visibleImages.count)")
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
+
+                if model.librarySelection.count > 1 {
+                    Text("\(model.librarySelection.count) selected")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.accentColor.opacity(0.16), in: Capsule())
+                }
+
                 Spacer()
+
+                Image(systemName: "rectangle.bottomthird.inset.filled")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Slider(value: $filmstripHeight, in: 128...320)
+                    .frame(width: 92)
+                    .help("Resize filmstrip thumbnails.")
+                Button { filmstripHeight = 156 } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                }
+                .buttonStyle(.plain)
+                .help("Reset filmstrip size.")
+
                 if let image = model.selectedImage {
                     Text(image.fileName)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .frame(maxWidth: 170, alignment: .trailing)
                 }
             }
             .padding(.horizontal, 10)
-            .frame(height: 28)
+            .frame(height: 30)
             .background(StudioPalette.panel)
 
             ScrollView(.horizontal) {
-                LazyHStack(spacing: 7) {
+                LazyHStack(spacing: 8) {
                     ForEach(model.visibleImages) { image in
-                        VStack(spacing: 4) {
-                            LocalThumbnail(url: image.url)
-                                .frame(width: 106, height: 70)
-                                .clipShape(RoundedRectangle(cornerRadius: 5))
+                        let highlighted = model.librarySelection.contains(image.id)
+                        let active = model.project.selectedImageID == image.id
 
-                            HStack(spacing: 4) {
-                                if image.rating > 0 {
-                                    Text("\(image.rating)★")
-                                        .font(.caption2.monospacedDigit())
+                        VStack(spacing: 4) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 7)
+                                    .fill(Color.black.opacity(0.28))
+
+                                LocalThumbnail(url: image.url, contentMode: .fit)
+                                    .padding(4)
+                                    .frame(width: filmstripThumbnailWidth, height: filmstripThumbnailHeight)
+
+                                VStack {
+                                    HStack {
+                                        if image.flag == .picked {
+                                            Image(systemName: "flag.fill")
+                                                .foregroundStyle(.green)
+                                        } else if image.flag == .rejected {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .foregroundStyle(.red)
+                                        }
+
+                                        if image.rating > 0 {
+                                            Text("\(image.rating)★")
+                                                .font(.caption2.monospacedDigit().weight(.semibold))
+                                                .padding(.horizontal, 5)
+                                                .frame(height: 18)
+                                                .background(.regularMaterial, in: Capsule())
+                                        }
+
+                                        Spacer()
+
+                                        if highlighted {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .font(.system(size: 15, weight: .semibold))
+                                                .symbolRenderingMode(.hierarchical)
+                                        }
+                                    }
+                                    Spacer()
+                                    if active {
+                                        HStack {
+                                            Circle()
+                                                .fill(Color.accentColor)
+                                                .frame(width: 7, height: 7)
+                                            Text("ACTIVE")
+                                                .font(.system(size: 8, weight: .bold))
+                                            Spacer()
+                                        }
+                                        .foregroundStyle(.primary)
+                                    }
                                 }
-                                if image.flag == .picked {
-                                    Image(systemName: "flag.fill").font(.caption2)
-                                } else if image.flag == .rejected {
-                                    Image(systemName: "xmark.circle.fill").font(.caption2)
-                                }
+                                .padding(6)
                             }
-                            .foregroundStyle(.secondary)
-                            .frame(height: 12)
+                            .frame(width: filmstripThumbnailWidth, height: filmstripThumbnailHeight)
+                            .clipShape(RoundedRectangle(cornerRadius: 7))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 7)
+                                    .stroke(
+                                        active ? Color.accentColor :
+                                            (highlighted ? Color.accentColor.opacity(0.58) : Color.white.opacity(0.10)),
+                                        lineWidth: active ? 2.5 : (highlighted ? 1.5 : 1)
+                                    )
+                            }
+
+                            Text(image.fileName)
+                                .font(.caption2)
+                                .foregroundStyle(active ? .primary : .secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .frame(width: filmstripThumbnailWidth)
                         }
                         .padding(4)
-                        .studioSelection(model.project.selectedImageID == image.id)
+                        .studioSelection(highlighted)
                         .contentShape(Rectangle())
-                        .onTapGesture { model.selectImage(image.id, renderPreview: true) }
+                        .onTapGesture {
+                            let flags = NSEvent.modifierFlags
+                            model.selectLibraryImage(
+                                image.id,
+                                additive: flags.contains(.command),
+                                range: flags.contains(.shift)
+                            )
+                        }
+                        .contextMenu {
+                            Button("Select Only") { model.selectLibraryImage(image.id) }
+                            Divider()
+                            Button("Copy Selected Edits") { model.copyLook() }
+                            Button("Paste to Highlighted") { model.pasteLook() }
+                            if model.librarySelection.count > 1 {
+                                Button("Clear Multi-Selection") { model.clearLibrarySelection() }
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 8)
-                .padding(.vertical, 7)
+                .padding(.vertical, 6)
             }
             .background(StudioPalette.recessed)
         }
-        .frame(height: StudioLayout.filmstripHeight)
+        .frame(height: clampedFilmstripHeight)
     }
 }
 
@@ -149,8 +280,26 @@ private struct EditorInspectorView: View {
             HStack(spacing: 2) {
                 StudioIconButton(systemImage: "arrow.uturn.backward", help: "Undo the last edit") { model.undo() }
                 StudioIconButton(systemImage: "arrow.uturn.forward", help: "Redo the last undone edit") { model.redo() }
-                StudioIconButton(systemImage: "doc.on.doc", help: "Copy all current image adjustments") { model.copyLook() }
-                StudioIconButton(systemImage: "doc.on.clipboard", help: "Paste copied adjustments onto this image") { model.pasteLook() }
+                StudioIconButton(systemImage: "doc.on.doc", help: "Copy the enabled edit categories") { model.copyLook() }
+                StudioIconButton(systemImage: "doc.on.clipboard", help: "Paste the enabled edit categories to the highlighted photo(s)") { model.pasteLook() }
+                Menu {
+                    Section("Copy / Paste Categories") {
+                        ForEach(LookCopyCategory.allCases) { category in
+                            Toggle(category.rawValue, isOn: Binding(
+                                get: { model.lookCopyCategoryEnabled(category) },
+                                set: { model.setLookCopyCategory(category, enabled: $0) }
+                            ))
+                        }
+                    }
+                    Divider()
+                    Button("Copy Selected Edits") { model.copyLook() }
+                    Button("Paste to Highlighted") { model.pasteLook() }
+                } label: {
+                    Image(systemName: "checklist")
+                }
+                .menuStyle(.borderlessButton)
+                .frame(width: 24)
+                .help("Choose which edit categories Option-Command-C / Option-Command-V copy and paste.")
             }
 
             Button { model.resetLook() } label: {

@@ -6,3 +6,4 @@ DerivedData/
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
 .env
+.batch-edit-backup-*/

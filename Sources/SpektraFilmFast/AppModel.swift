@@ -13,6 +13,48 @@ private struct SourcePreviewKey: Hashable, Sendable {
     let bypassImportTransform: Bool
 }
 
+
+enum LookCopyCategory: String, CaseIterable, Identifiable, Sendable {
+    case whiteBalance = "White Balance / RAW"
+    case exposure = "Exposure / Auto"
+    case tone = "Tone / Curve"
+    case colorDensity = "Color Density"
+    case film = "Film / Print / Effects"
+    case geometry = "Crop / Geometry"
+    var id: String { rawValue }
+}
+
+struct LookCopyOptions: Equatable, Sendable {
+    var whiteBalance = true
+    var exposure = true
+    var tone = true
+    var colorDensity = true
+    var film = true
+    var geometry = true
+
+    func enabled(_ category: LookCopyCategory) -> Bool {
+        switch category {
+        case .whiteBalance: whiteBalance
+        case .exposure: exposure
+        case .tone: tone
+        case .colorDensity: colorDensity
+        case .film: film
+        case .geometry: geometry
+        }
+    }
+
+    mutating func set(_ category: LookCopyCategory, _ enabled: Bool) {
+        switch category {
+        case .whiteBalance: whiteBalance = enabled
+        case .exposure: exposure = enabled
+        case .tone: tone = enabled
+        case .colorDensity: colorDensity = enabled
+        case .film: film = enabled
+        case .geometry: geometry = enabled
+        }
+    }
+}
+
 private struct PreviewRenderRequest: Sendable {
     let generation: Int
     let imageID: UUID
@@ -114,6 +156,7 @@ final class AppModel: ObservableObject {
     @Published var librarySearch = ""
     @Published var libraryThumbnailSize: Double = 176
     @Published var librarySelection: Set<UUID> = []
+    @Published var lookCopyOptions = LookCopyOptions()
     @Published var libraryAlbumFilter: UUID? = nil
     @Published var librarySmartCollectionFilter: UUID? = nil
     @Published var libraryPeopleGroupFilter: UUID? = nil
@@ -966,7 +1009,10 @@ final class AppModel: ObservableObject {
             undoStack.append(baselineLook)
             redoStack.removeAll()
             project.images[i].look = committedLook
-            status = "Edit committed · rendering exact preview…"
+            propagateBatchEdit(from: committedLook, activeIndex: i, changedParameter: settledParameter)
+            status = batchEditIDs.count > 1
+                ? "Edit committed to \(batchEditIDs.count) photos · rendering exact preview…"
+                : "Edit committed · rendering exact preview…"
         }
 
         activeEditBaseline = nil
@@ -1005,6 +1051,7 @@ final class AppModel: ObservableObject {
         }
         project.images[i].look.values[name] = value
         project.images[i].look.normalizeForProOnly()
+        propagateBatchEdit(from: project.images[i].look, activeIndex: i, changedParameter: name)
         scheduleIdleRefinement(changedParameter: name)
     }
 
@@ -1499,6 +1546,13 @@ final class AppModel: ObservableObject {
             redoStack.removeAll()
         }
         mutate(&project.images[i].look.raw)
+        let batchParameter: String
+        switch field {
+        case .temperature: batchParameter = "rawTemperature"
+        case .tint: batchParameter = "rawTint"
+        case nil: batchParameter = "raw"
+        }
+        propagateBatchEdit(from: project.images[i].look, activeIndex: i, changedParameter: batchParameter)
         refreshWhiteBalanceReference(for: project.images[i])
         scheduleIdleRefinement()
     }
@@ -1564,6 +1618,12 @@ final class AppModel: ObservableObject {
         let target = min(10, max(-10, value))
         mutateTone(interactive: interactive, changedParameter: "hostExposure") { tone in
             tone.exposureEV = target
+        }
+    }
+
+    func setAutoContrast(_ enabled: Bool) {
+        mutateTone(interactive: false, changedParameter: "hostAutoContrast") {
+            $0.autoContrast = enabled
         }
     }
 
@@ -1660,6 +1720,7 @@ final class AppModel: ObservableObject {
         var tone = project.images[i].look.tone ?? ToneSettings()
         mutate(&tone)
         project.images[i].look.tone = tone
+        propagateBatchEdit(from: project.images[i].look, activeIndex: i, changedParameter: changedParameter)
         scheduleIdleRefinement(changedParameter: changedParameter, delayMilliseconds: 30)
     }
 
@@ -1708,6 +1769,11 @@ final class AppModel: ObservableObject {
         case "magenta": project.images[i].look.colorDensity?.magenta = clamped
         default: return
         }
+        propagateBatchEdit(
+            from: project.images[i].look,
+            activeIndex: i,
+            changedParameter: "density.\(key)"
+        )
         scheduleIdleRefinement(changedParameter: "density.\(key)", delayMilliseconds: 30)
     }
 
@@ -1767,6 +1833,11 @@ final class AppModel: ObservableObject {
         mutate(&geometry)
         geometry.crop.clamp()
         project.images[i].look.geometry = geometry
+        propagateBatchEdit(
+            from: project.images[i].look,
+            activeIndex: i,
+            changedParameter: changedParameter
+        )
         if isCropToolActive {
             publishGeometryPreview(look: project.images[i].look)
         } else {
@@ -1901,6 +1972,149 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private var batchEditIDs: Set<UUID> {
+        guard let active = project.selectedImageID,
+              librarySelection.count > 1,
+              librarySelection.contains(active) else {
+            return Set([project.selectedImageID].compactMap { $0 })
+        }
+        return librarySelection
+    }
+
+    func lookCopyCategoryEnabled(_ category: LookCopyCategory) -> Bool {
+        lookCopyOptions.enabled(category)
+    }
+
+    func setLookCopyCategory(_ category: LookCopyCategory, enabled: Bool) {
+        var options = lookCopyOptions
+        options.set(category, enabled)
+        lookCopyOptions = options
+    }
+
+    private func propagateBatchEdit(
+        from source: RenderLook,
+        activeIndex: Int,
+        changedParameter: String?
+    ) {
+        let ids = batchEditIDs
+        guard ids.count > 1 else { return }
+
+        for index in project.images.indices
+        where index != activeIndex && ids.contains(project.images[index].id) {
+            var target = project.images[index].look
+            target.normalizeForProOnly()
+
+            switch changedParameter {
+            case "rawTemperature", "rawTint", "whiteBalance", "raw":
+                let keepLens = target.raw.lensCorrection
+                target.raw = source.raw
+                target.raw.lensCorrection = keepLens
+
+            case "hostExposure", "hostBrightness", "hostContrast", "hostMidtones",
+                 "hostHighlights", "hostShadows", "hostHighlightRecovery",
+                 "hostShadowRecovery", "hostWhites", "hostBlacks",
+                 "hostWhitePoint", "hostBlackPoint", "hostToneCurve", "hostAutoContrast":
+                var t = target.tone ?? ToneSettings()
+                let s = source.tone ?? ToneSettings()
+                switch changedParameter {
+                case "hostExposure": t.exposureEV = s.exposureEV
+                case "hostBrightness": t.brightness = s.brightness
+                case "hostContrast": t.contrast = s.contrast
+                case "hostMidtones": t.midtones = s.midtones
+                case "hostHighlights": t.highlights = s.highlights
+                case "hostShadows": t.shadows = s.shadows
+                case "hostHighlightRecovery": t.highlightRecovery = s.highlightRecovery
+                case "hostShadowRecovery": t.shadowRecovery = s.shadowRecovery
+                case "hostWhites": t.whites = s.whites
+                case "hostBlacks": t.blacks = s.blacks
+                case "hostWhitePoint": t.whitePoint = s.whitePoint
+                case "hostBlackPoint": t.blackPoint = s.blackPoint
+                case "hostToneCurve": t.curvePoints = s.curvePoints
+                case "hostAutoContrast": t.autoContrast = s.autoContrast
+                default: break
+                }
+                target.tone = t
+
+            case let parameter? where parameter.hasPrefix("density."):
+                var d = target.colorDensity ?? ColorDensitySettings()
+                let s = source.colorDensity ?? ColorDensitySettings()
+                switch parameter {
+                case "density.master": d.master = s.master
+                case "density.red": d.red = s.red
+                case "density.yellow": d.yellow = s.yellow
+                case "density.green": d.green = s.green
+                case "density.cyan": d.cyan = s.cyan
+                case "density.blue": d.blue = s.blue
+                case "density.magenta": d.magenta = s.magenta
+                case "density.preserveLuma": d.preserveLuma = s.preserveLuma
+                default: break
+                }
+                target.colorDensity = d
+
+            case "crop", "geometry", "geometryRotation", "geometryVertical",
+                 "geometryHorizontal", "geometryAspect", "geometryScale",
+                 "geometryXOffset", "geometryYOffset", "geometryAutoCrop",
+                 "geometryFlipH", "geometryFlipV":
+                target.geometry = source.geometry
+
+            case let parameter?:
+                if let value = source.values[parameter] {
+                    target.values[parameter] = value
+                }
+
+            case nil:
+                break
+            }
+
+            target.normalizeForProOnly()
+            project.images[index].look = target
+        }
+    }
+
+    private func mergedLookForPaste(source: RenderLook, target original: RenderLook) -> RenderLook {
+        var source = source
+        var target = original
+        source.normalizeForProOnly()
+        target.normalizeForProOnly()
+
+        let exposureKeys: Set<String> = ["filmExposureEv", "autoExposure", "autoExposureMethod"]
+
+        if lookCopyOptions.whiteBalance { target.raw = source.raw }
+
+        if lookCopyOptions.film {
+            for (key, value) in source.values where !exposureKeys.contains(key) {
+                target.values[key] = value
+            }
+        }
+
+        if lookCopyOptions.exposure {
+            for key in exposureKeys {
+                if let value = source.values[key] { target.values[key] = value }
+            }
+            var t = target.tone ?? ToneSettings()
+            let s = source.tone ?? ToneSettings()
+            t.exposureEV = s.exposureEV
+            t.autoContrast = s.autoContrast
+            target.tone = t
+        }
+
+        if lookCopyOptions.tone {
+            let exposureEV = target.tone?.exposureEV ?? 0
+            let autoContrast = target.tone?.autoContrast ?? false
+            target.tone = source.tone
+            if !lookCopyOptions.exposure {
+                target.tone?.exposureEV = exposureEV
+                target.tone?.autoContrast = autoContrast
+            }
+        }
+
+        if lookCopyOptions.colorDensity { target.colorDensity = source.colorDensity }
+        if lookCopyOptions.geometry { target.geometry = source.geometry }
+
+        target.normalizeForProOnly()
+        return target
+    }
+
     func undo() {
         cancelIdleRefinement()
         guard let i = selectedIndex, let previous = undoStack.popLast() else { return }
@@ -1923,18 +2137,47 @@ final class AppModel: ObservableObject {
         var copy = selectedLook
         copy.normalizeForProOnly()
         copiedLook = copy
-        if let image = selectedImage { status = "Copied look from \(image.fileName)" }
+        if let image = selectedImage {
+            status = "Copied selected edit categories from \(image.fileName)"
+        }
     }
 
     func pasteLook() {
         cancelIdleRefinement()
-        guard var copiedLook, let i = selectedIndex else { return }
+        guard var copiedLook, let activeIndex = selectedIndex else { return }
         copiedLook.normalizeForProOnly()
-        undoStack.append(project.images[i].look)
+
+        let ids = batchEditIDs
+        undoStack.append(project.images[activeIndex].look)
         redoStack.removeAll()
-        project.images[i].look = copiedLook
-        status = "Pasted look"
-        scheduleIdleRefinement()
+
+        var pastedCount = 0
+        var autoWBTargets: [ProjectImageRecord] = []
+        for index in project.images.indices where ids.contains(project.images[index].id) {
+            let merged = mergedLookForPaste(source: copiedLook, target: project.images[index].look)
+            project.images[index].look = merged
+            pastedCount += 1
+            if lookCopyOptions.whiteBalance, merged.raw.whiteBalanceMode == .auto {
+                autoWBTargets.append(project.images[index])
+            }
+        }
+
+        Task { [weak self] in
+            guard let self else { return }
+            for image in autoWBTargets {
+                await decoder.invalidateAutoWhiteBalance(url: image.url)
+            }
+            for image in project.images where ids.contains(image.id) {
+                await renderedDiskCache.invalidate(url: image.url)
+                removeRenderedFrames(for: image.id)
+            }
+            if project.selectedImageID != nil {
+                refreshWhiteBalanceReference()
+                scheduleIdleRefinement(changedParameter: "paste")
+            }
+        }
+
+        status = "Pasted selected edits to \(pastedCount) photo\(pastedCount == 1 ? "" : "s") · auto settings recalculate per photo"
     }
 
     func resetLook() {
@@ -2410,6 +2653,11 @@ final class AppModel: ObservableObject {
 
     func setClippingEnabled(_ enabled: Bool) {
         project.preferences.clippingEnabled = enabled
+        refreshStudioAnalysis()
+    }
+
+    func setClippingPreviewMode(_ mode: ClippingPreviewMode) {
+        project.preferences.clippingPreviewMode = mode
         refreshStudioAnalysis()
     }
 

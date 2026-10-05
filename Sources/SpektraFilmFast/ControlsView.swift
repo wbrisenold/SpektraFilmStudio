@@ -208,18 +208,28 @@ struct ControlsView: View {
     private var toneSection: some View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 10) {
-                DraftScalarSlider(
-                    label: "Exposure (EV)",
-                    committedValue: model.selectedLook.tone?.exposureEV ?? 0,
-                    range: -10...10,
-                    precision: 2,
-                    helpText: "Changes the whole image brighter or darker before the film look. +1 is one stop brighter. -1 is one stop darker.",
-                    resetValue: 0,
-                    onReset: { model.setExposureEV(0, interactive: false) },
-                    onBegin: { model.beginEditGesture() },
-                    onChange: { value in model.setExposureEV(value, interactive: true) },
-                    onEnd: { model.endEditGesture() }
-                )
+                // Exact same native values as the Film section. Both UI locations stay linked.
+                if let descriptor = catalog.parameters.first(where: { $0.name == "filmExposureEv" }) {
+                    ParameterControlRow(
+                        model: model,
+                        descriptor: descriptor,
+                        options: catalog.options(for: descriptor)
+                    )
+                }
+
+                if let descriptor = catalog.parameters.first(where: { $0.name == "autoExposure" }) {
+                    ParameterControlRow(
+                        model: model,
+                        descriptor: descriptor,
+                        options: catalog.options(for: descriptor)
+                    )
+                }
+
+                Toggle("Auto Contrast", isOn: Binding(
+                    get: { model.selectedLook.tone?.autoContrast ?? false },
+                    set: { model.setAutoContrast($0) }
+                ))
+                .help("Automatically stretches this photo's meaningful luminance range to the black and white limits before the film render. It recalculates per photo instead of copying fixed endpoints.")
 
                 DraftScalarSlider(
                     label: "Brightness",

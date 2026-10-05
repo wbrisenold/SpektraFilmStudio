@@ -3,15 +3,21 @@ import SwiftUI
 // ponytail: internal, not private — EditView and ExportView also use it.
 struct LocalThumbnail: View {
     let url: URL
+    var contentMode: ContentMode = .fill
     @State private var image: CGImage?
     @State private var failed = false
+
+    init(url: URL, contentMode: ContentMode = .fill) {
+        self.url = url
+        self.contentMode = contentMode
+    }
 
     var body: some View {
         Group {
             if let image {
                 Image(decorative: image, scale: 1)
                     .resizable()
-                    .scaledToFill()
+                    .aspectRatio(contentMode: contentMode)
             } else {
                 ZStack {
                     Rectangle().fill(.quaternary)

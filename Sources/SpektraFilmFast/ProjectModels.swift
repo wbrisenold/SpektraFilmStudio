@@ -250,6 +250,10 @@ struct ToneSettings: Codable, Equatable, Hashable, Sendable {
     var blacks: Double = 0
     var whitePoint: Double = 0
     var blackPoint: Double = 0
+    // Dynamic, per-image automatic black/white level placement. The actual endpoints
+    // are derived from the current developed image on every render; they are not copied
+    // as fixed values between photographs.
+    var autoContrast = false
     var curvePoints: [ToneCurvePoint] = [
         ToneCurvePoint(x: 0, y: 0),
         ToneCurvePoint(x: 1, y: 1)
@@ -257,7 +261,8 @@ struct ToneSettings: Codable, Equatable, Hashable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case exposureEV, brightness, contrast, midtones, highlights, shadows,
-             highlightRecovery, shadowRecovery, whites, blacks, whitePoint, blackPoint, curvePoints
+             highlightRecovery, shadowRecovery, whites, blacks, whitePoint, blackPoint,
+             autoContrast, curvePoints
     }
 
     init() {}
@@ -276,6 +281,7 @@ struct ToneSettings: Codable, Equatable, Hashable, Sendable {
         blacks = try c.decodeIfPresent(Double.self, forKey: .blacks) ?? 0
         whitePoint = try c.decodeIfPresent(Double.self, forKey: .whitePoint) ?? 0
         blackPoint = try c.decodeIfPresent(Double.self, forKey: .blackPoint) ?? 0
+        autoContrast = try c.decodeIfPresent(Bool.self, forKey: .autoContrast) ?? false
         curvePoints = try c.decodeIfPresent([ToneCurvePoint].self, forKey: .curvePoints) ?? [
             ToneCurvePoint(x: 0, y: 0), ToneCurvePoint(x: 1, y: 1)
         ]
@@ -588,6 +594,14 @@ enum SkinCheckMode: String, Codable, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
 }
 
+enum ClippingPreviewMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case fullGamut = "Full Gamut"
+    case anyRGB = "Any RGB Channel"
+    case luminance = "Luminance Only"
+    case saturation = "Saturation Only"
+    var id: String { rawValue }
+}
+
 struct AppPreferences: Codable, Equatable, Hashable, Sendable {
     static let editProxyLongEdge = 1080
     // Editing uses one persistent 1080px linear working file. Live and idle editing stay at
@@ -609,13 +623,14 @@ struct AppPreferences: Codable, Equatable, Hashable, Sendable {
     var writeXMPAutomatically = false
 
     var clippingEnabled = false
-    // "Risk" thresholds warn before detail is mathematically clipped. The hard thresholds
-    // remain available separately so the overlay can distinguish "getting dangerous" from
-    // "already clipped/crushed."
+    var clippingPreviewMode: ClippingPreviewMode = .fullGamut
+    // "Risk" thresholds remain SpektraFilmFast's early display warning. The hard thresholds
+    // below follow darktable's current final-output clipping defaults more closely.
     var exposureHighlightRiskThreshold = 0.95
     var exposureShadowRiskThreshold = 0.02
-    var clippingHighlightThreshold = 0.998
-    var clippingShadowThreshold = 0.002
+    var clippingHighlightThreshold = 0.9999
+    // darktable's 8-bit sRGB black reference: -12.69 EV relative to white.
+    var clippingShadowThreshold = 0.00015133150634020836
     var skinCheckEnabled = false
     var skinCheckMode: SkinCheckMode = .both
     var skinToleranceDegrees = 12.0
@@ -633,7 +648,7 @@ struct AppPreferences: Codable, Equatable, Hashable, Sendable {
         case workingFileLongEdge, previewLongEdge, interactiveLongEdge, fullResolutionPreview, bypassImportTransform
         case cacheMemoryMode, localDiskCacheGB, autosaveEnabled, autoAdvanceRatings, paperBackground
         case scopeEnabled, scopeMode, scopeTargetFPS, autoAnalyzeCull, writeXMPAutomatically
-        case clippingEnabled, exposureHighlightRiskThreshold, exposureShadowRiskThreshold
+        case clippingEnabled, clippingPreviewMode, exposureHighlightRiskThreshold, exposureShadowRiskThreshold
         case clippingHighlightThreshold, clippingShadowThreshold
         case skinCheckEnabled, skinCheckMode, skinToleranceDegrees, skinOverlayOpacity
         case shortcutPrevious, shortcutNext, shortcutPick, shortcutReject, shortcutUnflag
@@ -663,10 +678,19 @@ struct AppPreferences: Codable, Equatable, Hashable, Sendable {
         writeXMPAutomatically = try c.decodeIfPresent(Bool.self, forKey: .writeXMPAutomatically) ?? false
 
         clippingEnabled = try c.decodeIfPresent(Bool.self, forKey: .clippingEnabled) ?? false
+        clippingPreviewMode = try c.decodeIfPresent(ClippingPreviewMode.self, forKey: .clippingPreviewMode) ?? .fullGamut
         exposureHighlightRiskThreshold = try c.decodeIfPresent(Double.self, forKey: .exposureHighlightRiskThreshold) ?? 0.95
         exposureShadowRiskThreshold = try c.decodeIfPresent(Double.self, forKey: .exposureShadowRiskThreshold) ?? 0.02
-        clippingHighlightThreshold = try c.decodeIfPresent(Double.self, forKey: .clippingHighlightThreshold) ?? 0.998
-        clippingShadowThreshold = try c.decodeIfPresent(Double.self, forKey: .clippingShadowThreshold) ?? 0.002
+
+        let decodedHighlightClip = try c.decodeIfPresent(Double.self, forKey: .clippingHighlightThreshold) ?? 0.9999
+        clippingHighlightThreshold = abs(decodedHighlightClip - 0.998) < 1.0e-12
+            ? 0.9999
+            : decodedHighlightClip
+
+        let decodedShadowClip = try c.decodeIfPresent(Double.self, forKey: .clippingShadowThreshold) ?? 0.00015133150634020836
+        clippingShadowThreshold = abs(decodedShadowClip - 0.002) < 1.0e-12
+            ? 0.00015133150634020836
+            : decodedShadowClip
         skinCheckEnabled = try c.decodeIfPresent(Bool.self, forKey: .skinCheckEnabled) ?? false
         skinCheckMode = try c.decodeIfPresent(SkinCheckMode.self, forKey: .skinCheckMode) ?? .both
         skinToleranceDegrees = try c.decodeIfPresent(Double.self, forKey: .skinToleranceDegrees) ?? 12.0

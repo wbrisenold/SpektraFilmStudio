@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 
 struct SettingsView: View {
     @ObservedObject var model: AppModel
@@ -132,6 +133,16 @@ struct SettingsView: View {
             }
 
             Section("Exposure Warning") {
+                Picker("Clipping preview", selection: Binding(
+                    get: { model.project.preferences.clippingPreviewMode },
+                    set: { model.setClippingPreviewMode($0) }
+                )) {
+                    ForEach(ClippingPreviewMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .help("Darktable-style final-output clipping test. Full Gamut combines luminance, RGB-channel, and saturation/gamut warnings and is the default.")
+
                 LabeledContent("Bright warning") {
                     HStack {
                         Slider(value: Binding(
@@ -168,24 +179,24 @@ struct SettingsView: View {
                                 set: { model.setClippingHighlightThreshold($0) }
                             ), in: 0.95...1.0)
                             .help("Marks pixels that are essentially at pure white. This is the stronger red warning.")
-                            Button { model.setClippingHighlightThreshold(0.998) } label: { Image(systemName: "arrow.counterclockwise") }
-                                .buttonStyle(.plain).help("Reset hard highlight clipping to 99.8%.")
-                            Text(model.project.preferences.clippingHighlightThreshold, format: .percent.precision(.fractionLength(1)))
-                                .monospacedDigit().frame(width: 52)
+                            Button { model.setClippingHighlightThreshold(0.9999) } label: { Image(systemName: "arrow.counterclockwise") }
+                                .buttonStyle(.plain).help("Reset hard highlight clipping to darktable's current source default of 99.99%.")
+                            Text(model.project.preferences.clippingHighlightThreshold, format: .percent.precision(.fractionLength(2)))
+                                .monospacedDigit().frame(width: 58)
                         }
                     }
 
                     LabeledContent("Hard shadow") {
                         HStack {
                             Slider(value: Binding(
-                                get: { model.project.preferences.clippingShadowThreshold },
-                                set: { model.setClippingShadowThreshold($0) }
-                            ), in: 0.0...0.02)
-                            .help("Marks pixels that are essentially at black. This is the stronger blue warning.")
-                            Button { model.setClippingShadowThreshold(0.002) } label: { Image(systemName: "arrow.counterclockwise") }
-                                .buttonStyle(.plain).help("Reset hard shadow clipping to 0.2%.")
-                            Text(model.project.preferences.clippingShadowThreshold, format: .percent.precision(.fractionLength(1)))
-                                .monospacedDigit().frame(width: 52)
+                                get: { log2(max(1.0e-12, model.project.preferences.clippingShadowThreshold)) },
+                                set: { ev in model.setClippingShadowThreshold(pow(2.0, ev)) }
+                            ), in: -22.0 ... -4.0)
+                            .help("Lower clipping threshold in EV relative to white, matching darktable's clipping-warning convention.")
+                            Button { model.setClippingShadowThreshold(pow(2.0, -12.69)) } label: { Image(systemName: "arrow.counterclockwise") }
+                                .buttonStyle(.plain).help("Reset to -12.69 EV, darktable's 8-bit sRGB black reference.")
+                            Text("\(log2(max(1.0e-12, model.project.preferences.clippingShadowThreshold)), specifier: "%.2f") EV")
+                                .monospacedDigit().frame(width: 72)
                         }
                     }
                 }
@@ -200,7 +211,7 @@ struct SettingsView: View {
                 }
                 .font(.caption2)
 
-                Text("Exposure warnings are calculated from the final rendered image after White Balance, tone/curves, SpektraFilm stock/print processing, and Crop/Geometry. They are display-only and never exported.")
+                Text("Hard clipping follows darktable-style Full Gamut / RGB / luminance / saturation tests with red-over and blue-under defaults. SpektraFilmFast keeps an additional translucent risk layer before hard clipping. All tests use the final rendered image after White Balance, tone/curves, SpektraFilm stock/print processing, and Crop/Geometry; they are display-only and never exported.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 

@@ -52,7 +52,7 @@ actor SubjectSkinMaskEngine {
         var faces: [CGRect] = []
         let faceRequest = VNDetectFaceRectanglesRequest()
         let segmentation = VNGeneratePersonSegmentationRequest()
-        segmentation.qualityLevel = .balanced
+        segmentation.qualityLevel = .accurate
         segmentation.outputPixelFormat = kCVPixelFormatType_OneComponent8
         let handler = VNImageRequestHandler(cgImage: cg, options: [:])
         try handler.perform([segmentation, faceRequest])
@@ -72,11 +72,29 @@ actor SubjectSkinMaskEngine {
         let rowBytes = CVPixelBufferGetBytesPerRow(pixelBuffer)
         var out = [UInt8](repeating: 0, count: width * height)
         for y in 0..<height {
-            let sy = min(sourceHeight - 1, max(0, Int((Double(y) + 0.5) * Double(sourceHeight) / Double(height))))
-            let row = base.advanced(by: sy * rowBytes).assumingMemoryBound(to: UInt8.self)
+            let syf = min(
+                Double(sourceHeight - 1),
+                max(0.0, (Double(y) + 0.5) * Double(sourceHeight) / Double(height) - 0.5)
+            )
+            let y0 = Int(floor(syf))
+            let y1 = min(sourceHeight - 1, y0 + 1)
+            let fy = syf - Double(y0)
+            let row0 = base.advanced(by: y0 * rowBytes).assumingMemoryBound(to: UInt8.self)
+            let row1 = base.advanced(by: y1 * rowBytes).assumingMemoryBound(to: UInt8.self)
+
             for x in 0..<width {
-                let sx = min(sourceWidth - 1, max(0, Int((Double(x) + 0.5) * Double(sourceWidth) / Double(width))))
-                out[y * width + x] = row[sx]
+                let sxf = min(
+                    Double(sourceWidth - 1),
+                    max(0.0, (Double(x) + 0.5) * Double(sourceWidth) / Double(width) - 0.5)
+                )
+                let x0 = Int(floor(sxf))
+                let x1 = min(sourceWidth - 1, x0 + 1)
+                let fx = sxf - Double(x0)
+
+                let top = Double(row0[x0]) * (1.0 - fx) + Double(row0[x1]) * fx
+                let bottom = Double(row1[x0]) * (1.0 - fx) + Double(row1[x1]) * fx
+                let value = top * (1.0 - fy) + bottom * fy
+                out[y * width + x] = UInt8(clamping: Int(value.rounded()))
             }
         }
         return SubjectMaskPayload(width: width, height: height, personAlpha: out, faceRects: faces)

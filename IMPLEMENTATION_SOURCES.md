@@ -59,7 +59,15 @@ References studied:
 
 - `rgbcurve.c` published built-in node data for technical point-curve presets;
 - non-destructive normalized crop/aspect behavior;
-- perspective/keystone workflow and automatic black-edge handling concepts.
+- perspective/keystone workflow and automatic black-edge handling concepts;
+- `src/iop/levels.c` automatic/manual Levels behavior: 16,384-bin histogram analysis,
+  black/white boundary discovery, and chroma-preserving luminance scaling. SpektraFilmFast's
+  Auto Contrast is an independent Swift adaptation for its linear RGB buffer;
+- `src/iop/overexposed.c` and darktable's clipping-warning UI: Full Gamut / Any RGB /
+  Luminance / Saturation modes, red-over / blue-under display language, upper/lower
+  threshold semantics, and the -12.69 EV 8-bit sRGB black reference. SpektraFilmFast
+  independently implements the behavior against its own final post-film/post-geometry
+  render buffer; no darktable source file is bundled.
 
 ## RawTherapee
 
@@ -77,7 +85,7 @@ Used as a cross-check for mature RAW-editor interaction/clipping conventions and
 References studied:
 
 - `PrimeraHue.dctl` density behavior: subjective color density, complementary RGB/CMY controls, optional luminance preservation;
-- `PrimeraSkin.dctl` / project documentation: rg-chromaticity skin qualification and a diagnostic convention in which green-side and magenta-side skin deviations are visibly distinct.
+- `src/frag/skintone.dctlf`, `src/PrimeraSkin/body.dctlc`, and project documentation: rg-chromaticity skin qualification, spatial mask pooling / soft-union to fill noisy qualification holes, and the three-zone Show Mask convention in which green/cyan-side, on-skin gold, and magenta-side deviations are visibly distinct.
 
 SpektraFilmFast combines these color ideas with final-render subject isolation; it does not bundle the DCTL files.
 
