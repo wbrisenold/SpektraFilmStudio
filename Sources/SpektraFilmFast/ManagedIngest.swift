@@ -259,7 +259,8 @@ actor ManagedIngestService {
 
         if fm.fileExists(atPath: destination.path) {
             let existingHash = try await sha256(url: destination)
-            let sourceHash = expectedHash ?? (try await sha256(url: source))
+            let sourceHash: String
+            if let expectedHash { sourceHash = expectedHash } else { sourceHash = try await sha256(url: source) }
             guard existingHash == sourceHash else {
                 throw ManagedIngestError.destinationConflict(destination.lastPathComponent)
             }

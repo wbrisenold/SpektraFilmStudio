@@ -57,6 +57,27 @@ grep -q 'XMPService.shared' Sources/SpektraFilmFast/LibraryCullSupport.swift
 ! grep -q '\[xmpService\]' Sources/SpektraFilmFast/LibraryCullSupport.swift
 grep -q 'String(cString: base)' Sources/SpektraFilmFast/ProofDockService.swift
 
+# --- Swift 6 concurrency traps (each broke a release build; see AI_PITFALLS.md) ---
+# 1. An `async func` does NOT inherit @MainActor inside a Task{}. It is nonisolated
+#    by default, so it must be annotated explicitly or it leaves the main actor.
+grep -q '@MainActor func sample(mired: Double, tint: Double)' Sources/SpektraFilmFast/AppModel.swift
+# 2. `await` cannot live inside an autoclosure (`??`, map, filter, compactMap...).
+#    ManagedIngest must branch explicitly instead of `expectedHash ?? (try await ...)`.
+! grep -qE '\?\? *\(try await' Sources/SpektraFilmFast/ManagedIngest.swift
+grep -q 'let sourceHash: String' Sources/SpektraFilmFast/ManagedIngest.swift
+# 3. NSEvent is not Sendable: the local event monitor must compute a Bool inside the
+#    isolated region and convert to nil/event outside it.
+grep -q 'let handled: Bool = MainActor.assumeIsolated' Sources/SpektraFilmFast/SpektraFilmFastApp.swift
+grep -q 'return handled ? nil : event' Sources/SpektraFilmFast/SpektraFilmFastApp.swift
+# 4. A @Sendable closure must not capture a loop-mutated `var`; hoist copies first.
+grep -q 'let exportSettings = job.settings' Sources/SpektraFilmFast/AppModel.swift
+! grep -q 'resizedForExport(settings: job.settings)' Sources/SpektraFilmFast/AppModel.swift
+# 5. Hard-clip indicators must come from the FINAL output buffer, never the
+#    pre-conversion linear one (this was a real behavioural bug in v0.6.0).
+! grep -q 'sourcePeak' Sources/SpektraFilmFast/StudioAnalysis.swift
+grep -q 'let isHardHighlight = outputPeak >= highlightThreshold' Sources/SpektraFilmFast/StudioAnalysis.swift
+grep -q 'let isHardShadow = outputLuma <= shadowThreshold' Sources/SpektraFilmFast/StudioAnalysis.swift
+
 echo "Running production regression checks..."
 python3 scripts/qa_production.py
 
@@ -69,6 +90,7 @@ find . -type f \
   -not -path './dist/*' \
   -not -path './.git/*' \
   -not -name 'SOURCE_MANIFEST.sha256' \
+  -not -name '.DS_Store' \
   -print | sed 's#^./##' | LC_ALL=C sort > "$EXPECTED_LIST"
 awk '{ $1=""; sub(/^ +/, ""); print }' SOURCE_MANIFEST.sha256 | LC_ALL=C sort > "$MANIFEST_LIST"
 if ! diff -u "$EXPECTED_LIST" "$MANIFEST_LIST"; then

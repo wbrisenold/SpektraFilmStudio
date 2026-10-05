@@ -1,0 +1,57 @@
+name: ci
+
+# The source gate only. It runs the real `swiftc -typecheck` over every Swift file,
+# so Swift 6 isolation/access regressions (AI_PITFALLS.md 10-18) fail here instead of
+# on someone's machine. It does NOT produce a release artifact: the pinned native core
+# needs the macOS 26 SDK, so the local `BUILD_ON_MAC.command` build stays the
+# authoritative compile/link/runtime gate.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-gate:
+    name: Source gate (typecheck + QA)
+    # macos-26 is the arm64 standard runner: free for public repositories. The gate
+    # only type-checks Swift (no linking, no native bootstrap), so arm64 is fine.
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          swift --version
+          xcrun --show-sdk-version
+
+      # Assert the SDK actually has what the pinned native core needs, so a runner
+      # image change fails loudly here rather than deep inside an Objective-C++ build.
+      - name: Check macOS SDK is new enough
+        run: |
+          SDK="$(xcrun --show-sdk-version)"
+          major="${SDK%%.*}"
+          if [[ "$major" -lt 26 ]]; then
+            echo "::error::macOS 26+ SDK required for the pinned native core, found $SDK"
+            exit 1
+          fi
+
+      - name: Verify source
+        run: ./scripts/verify_source.sh
+
+      # verify_source.sh already runs both of these; kept explicit so a future edit
+      # to that script cannot silently drop the acceptance suite.
+      - name: Production reference checks
+        run: python3 scripts/qa_production.py
+
+      - name: Studio-workflow acceptance checks
+        run: ./scripts/qa_10_passes.sh
+
+      - name: Confirm manifest is not stale
+        run: shasum -a 256 -c SOURCE_MANIFEST.sha256

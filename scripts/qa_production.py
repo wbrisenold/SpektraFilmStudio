@@ -131,7 +131,7 @@ require(cool[2] > cool[0], f"lower Kelvin is not cooler: {cool}")
 require("let magentaGain = pow(2.0, tintStops)" in interaction and "let greenGain = 1.0 / magentaGain" in interaction, "tint direction/gain contract missing")
 
 # Pass 7: clipping behavior + numeric sanity
-require("let outputPeak = max(outRRaw" in analysis, "final-output highlight analysis missing")
+require("let outputPeak = max(outR, max(outG, outB))" in analysis, "final-output highlight analysis missing")
 require("let isHardHighlight = outputPeak >= highlightThreshold" in analysis, "hard highlight clipping is not final-output-only")
 require("let isHardShadow = outputLuma <= shadowThreshold" in analysis, "hard shadow clipping is not final-output-only")
 require("source: PixelBufferF32?" not in analysis and "sceneLuma" not in analysis and "sourcePeak" not in analysis, "diagnostics still inspect pre-film/source values")
@@ -231,7 +231,9 @@ require("scopeTargetFPS" in models and "startEditorScopeLoop" in scope_support, 
 require("scopeTask == nil" in scope_support and "scopeGeneration" in scope_support, "scope latest-frame/backpressure guard missing")
 require("Histogram" in models and "Waveform" in models and "RGB Parade" in models and "Vectorscope" in models and "Skin Vector" in models, "scope modes missing")
 require("EditorScopePanelView" in text("EditView.swift") and "editorScopeImage" in scope_panel, "persistent scope UI not integrated into editor inspector")
-require("skinVectorscope" in scope_engine and "drawSkinReference" in scope_engine and "123.0" in scope_engine, "dedicated 123-degree skin vectorscope missing")
+require("skinVectorscope" in scope_engine and "drawSkinReference" in scope_engine, "dedicated skin vectorscope missing")
+require(scope_engine.count("SkinToneReference.referenceAngleDegrees") >= 1, "skin vectorscope does not use the shared derived reference angle")
+require("static let referenceAngleDegrees" in text("SkinToneReference.swift"), "skin reference angle is not derived from a single shared constant")
 require("scopeModeNav" in scope_panel and "rectangle.split.3x1" in scope_panel, "compact scope icon navigation missing")
 require("Task.detached(priority: .utility)" in scope_engine, "scope analysis is not off the UI actor")
 

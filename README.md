@@ -113,17 +113,44 @@ If you have a better algorithm or architecture, show the source and measurements
 
 ## Local Mac build
 
-No GitHub repository or GitHub Actions are required. A Mac is still required to compile the Swift/AppKit/Objective-C++ application executable.
+No GitHub Actions workflow is required for a release. A Mac is still required to compile the Swift/AppKit/Objective-C++ application executable.
 
 Double-click `BUILD_ON_MAC.command` on a Mac with Xcode 26 / the macOS 26 SDK. The local build creates an Intel x86_64 app and:
 
-- `dist/SpektraFilm-0.5.3-macOS-intel.zip`
+- `dist/SpektraFilm-0.6.0-macOS-intel.zip`
 - `dist/SHA256SUMS.txt`
 - `dist/build-info.txt`
 
 The bundled `.metallib` means the Metal shader library itself does not need to be rebuilt. The current native bootstrap may fetch the pinned public Spektrafilm source the first time the Objective-C++ bridge/static library is compiled; this requires no GitHub account and subsequent builds reuse the local cache.
 
 A public release still requires Developer ID signing, hardened runtime, notarization, stapling, Gatekeeper assessment, `--self-test`, and `--studio-soak-test` as documented in `PRODUCTION_QA.md`.
+
+### Toolchain support (Swift 6.2 / Xcode 26)
+
+v0.6.1 and later build cleanly on **Swift 6.2 / Xcode 26**. v0.6.0 as originally
+tagged does not — it was authored against an older toolchain and fails to compile.
+Five defects were fixed and each is now asserted by `scripts/verify_source.sh`, so
+a regression fails the source gate instead of the build:
+
+| Trap | Rule |
+|---|---|
+| `async func` does not inherit `@MainActor` inside `Task {}` | annotate `@MainActor` explicitly |
+| `await` cannot live in an autoclosure (`??`, `map`, `filter`) | branch with `if let` |
+| `NSEvent` is not `Sendable` | return a `Bool` inside the isolated region, convert outside |
+| `@Sendable` closures cannot capture a loop-mutated `var` | hoist `let` copies first |
+| hard-clip diagnostics must read the **final** output buffer | never use pre-conversion values |
+
+`.github/workflows/ci.yml` runs the whole source gate on every push, including a
+real `swiftc -typecheck` of all sources, so these are caught in CI rather than on
+someone's machine. See `AI_PITFALLS.md` §10–18 for the full symptom/cause/fix
+write-ups, and `AI_HANDOFF.md` for the build contract.
+
+Two things to know before editing anything:
+
+- **Any source edit requires regenerating `SOURCE_MANIFEST.sha256`.** A manifest
+  error is often a symptom of a real bug, not the bug itself.
+- **Never hand-edit a checkout that a build wrapper resets to a pinned commit** —
+  put the change in a commit, or the next build erases it.
 
 ## License
 

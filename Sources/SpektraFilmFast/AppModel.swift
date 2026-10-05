@@ -1290,7 +1290,7 @@ final class AppModel: ObservableObject {
                 analysisPrefs.skinCheckEnabled = true
                 analysisPrefs.skinCheckMode = .scope
 
-                func sample(mired: Double, tint: Double) async throws -> (Double, StudioAnalysisMetrics, RawSettings) {
+                @MainActor func sample(mired: Double, tint: Double) async throws -> (Double, StudioAnalysisMetrics, RawSettings) {
                     try Task.checkCancellation()
                     guard generation == skinWhiteBalanceGeneration,
                           project.selectedImageID == imageID else { throw CancellationError() }
@@ -3330,9 +3330,13 @@ final class AppModel: ObservableObject {
                 let (filmOutput, _) = try await exactRenderer.render(renderInput, look: item.look)
                 try Task.checkCancellation()
 
+                // Hoist the captures: `job` is a var mutated across loop iterations, so
+                // capturing it in a @Sendable closure is a Swift 6 concurrency error.
+                let geometrySettings = item.look.geometry
+                let exportSettings = job.settings
                 let output = try await Task.detached(priority: .utility) {
-                    let geometryOutput = GeometryEngine.transformed(filmOutput, settings: item.look.geometry)
-                    return try geometryOutput.resizedForExport(settings: job.settings)
+                    let geometryOutput = GeometryEngine.transformed(filmOutput, settings: geometrySettings)
+                    return try geometryOutput.resizedForExport(settings: exportSettings)
                 }.value
                 try Task.checkCancellation()
 

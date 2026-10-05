@@ -111,18 +111,20 @@ final class ShortcutMonitor {
             // AppKit local event monitors are delivered on the main thread, but Swift 6 does
             // not infer MainActor isolation for this escaping callback. Make the boundary
             // explicit so AppModel access stays actor-correct without per-keypress Tasks.
-            MainActor.assumeIsolated {
-                guard let model else { return event }
-                if NSApp.keyWindow?.firstResponder is NSTextView { return event }
+            // Return Bool (not NSEvent) so the non-Sendable event never crosses the
+            // isolation boundary; the outer closure maps it back to nil/event.
+            let handled: Bool = MainActor.assumeIsolated {
+                guard let model else { return false }
+                if NSApp.keyWindow?.firstResponder is NSTextView { return false }
                 let key = Self.keyName(event)
                 let p = model.project.preferences
                 let inLibrary = model.page == .library
 
-                func applyRating(_ value: Int) {
+                @MainActor func applyRating(_ value: Int) {
                     if inLibrary { model.batchSetRating(value) }
                     else { model.setRating(value) }
                 }
-                func applyFlag(_ value: ProjectFlag) {
+                @MainActor func applyFlag(_ value: ProjectFlag) {
                     if inLibrary { model.batchSetFlag(value) }
                     else { model.setFlag(value) }
                 }
@@ -132,25 +134,26 @@ final class ShortcutMonitor {
                 if event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
                    let value = Int(key), (0...5).contains(value) {
                     applyRating(value)
-                    return nil
+                    return true
                 }
 
                 if inLibrary,
                    event.modifierFlags.contains(.command),
                    key.lowercased() == "a" {
                     model.selectAllVisible()
-                    return nil
+                    return true
                 }
 
                 switch key.lowercased() {
-                case p.shortcutPrevious.lowercased(): model.selectRelative(-1); return nil
-                case p.shortcutNext.lowercased(): model.selectRelative(1); return nil
-                case p.shortcutPick.lowercased(): applyFlag(.picked); return nil
-                case p.shortcutReject.lowercased(): applyFlag(.rejected); return nil
-                case p.shortcutUnflag.lowercased(): applyFlag(.unflagged); return nil
-                default: return event
+                case p.shortcutPrevious.lowercased(): model.selectRelative(-1); return true
+                case p.shortcutNext.lowercased(): model.selectRelative(1); return true
+                case p.shortcutPick.lowercased(): applyFlag(.picked); return true
+                case p.shortcutReject.lowercased(): applyFlag(.rejected); return true
+                case p.shortcutUnflag.lowercased(): applyFlag(.unflagged); return true
+                default: return false
                 }
             }
+            return handled ? nil : event
         }
     }
 

@@ -115,26 +115,22 @@ actor StudioAnalysisEngine {
 
         for oy in 0..<overlayHeight {
             if oy & 31 == 0 { try Task.checkCancellation() }
-            let y = min(height - 1, oy * analysisStep)
             for ox in 0..<overlayWidth {
-                let x = min(width - 1, ox * analysisStep)
-                let sourceIndex = (y * width + x) * 4
                 let overlayIndex = (oy * overlayWidth + ox) * 4
                 let maskIndex = oy * overlayWidth + ox
                 let diagnosticIndex = maskIndex * 4
 
-                let sourceR = output.pixels[sourceIndex]
-                let sourceG = output.pixels[sourceIndex + 1]
-                let sourceB = output.pixels[sourceIndex + 2]
                 let outR = diagnosticBuffer.pixels[diagnosticIndex]
                 let outG = diagnosticBuffer.pixels[diagnosticIndex + 1]
                 let outB = diagnosticBuffer.pixels[diagnosticIndex + 2]
 
+                // Clipping indicators must reflect the FINAL displayed output, never a
+                // pre-conversion buffer value. Reading peak/luma from the linear `output`
+                // buffer made hard-clip marks disagree with what the photographer sees.
                 let outputLuma = 0.2126 * outR + 0.7152 * outG + 0.0722 * outB
                 let outputPeak = max(outR, max(outG, outB))
-                let sourcePeak = max(sourceR, max(sourceG, sourceB))
-                let isHardHighlight = sourcePeak >= highlightThreshold
-                let isHardShadow = sourcePeak <= shadowThreshold
+                let isHardHighlight = outputPeak >= highlightThreshold
+                let isHardShadow = outputLuma <= shadowThreshold
                 let isHighlightRisk = isHardHighlight || outputPeak >= highlightRiskThreshold
                 let isShadowRisk = isHardShadow || outputLuma <= shadowRiskThreshold
                 if isHighlightRisk { highlightCount += 1 }

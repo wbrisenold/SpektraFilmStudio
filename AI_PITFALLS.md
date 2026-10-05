@@ -159,6 +159,205 @@ Older iterations used GitHub Actions for Universal packaging; the current releas
 
 ---
 
+# Swift 6.2 toolchain failures (cost a full v0.6.0 release rebuild)
+
+The v0.6.0 tag shipped in early 2026 and **does not compile on Swift 6.2 / Xcode 26.**
+It was authored against an older toolchain, so every one of these is invisible to
+the author and fatal to a fresh clone on a current machine. Five separate defects,
+plus three latent problems the repo's own QA had already been written to catch.
+
+All five are now fixed in the source and **machine-checked by
+`scripts/verify_source.sh`**, so a regression fails the gate instead of the release.
+
+## 10. `async func` does NOT inherit `@MainActor` inside a `Task {}`
+
+**Symptom:** `actor-isolated property 'filmOutput' can not be referenced from a
+Sendable closure`, or main-actor state referenced from a non-isolated context, in
+`AppModel.swift`.
+
+**Cause:** `sample(mired:tint:)` is declared `async` inside a `Task { }` body in a
+`@MainActor` type. Being `async` does **not** inherit the enclosing actor — an
+`async` function is *nonisolated* by default, so it silently leaves the main actor.
+
+**Fix:**
+
+```swift
+@MainActor func sample(mired: Double, tint: Double) async throws -> (Double, StudioAnalysisMetrics, RawSettings) {
+```
+
+**Rule:** inside a `Task`, write `@MainActor` on every `async` function explicitly.
+
+**Guard:** `verify_source.sh` greps for `@MainActor func sample(mired:`.
+
+## 11. `await` cannot live inside an autoclosure
+
+**Symptom:** in `ManagedIngest.swift`, either
+`left side of nil coalescing operator '??' has non-optional type 'String'` or
+`async call in an autoclosure that does not support concurrency`.
+
+**Cause:** the right side of `??` is an `@autoclosure`, and autoclosures cannot be
+`async`. This breaks on *any* toolchain, not just Swift 6.
+
+```swift
+// WRONG
+let sourceHash = expectedHash ?? (try await sha256(url: source))
+
+// RIGHT
+let sourceHash: String
+if let expectedHash { sourceHash = expectedHash } else { sourceHash = try await sha256(url: source) }
+```
+
+**Rule:** `??`, `map`, `filter`, `compactMap`, `assert`, and friends are
+autoclosures. Never put `await` inside one — branch instead.
+
+**Guard:** rejects `?? (try await` anywhere in `ManagedIngest.swift`.
+
+## 12. `NSEvent` is not `Sendable` — never let it cross an isolation boundary
+
+**Symptom:** non-Sendable type crossing actor boundary, in `SpektraFilmFastApp.swift`.
+
+**Cause:** `addLocalMonitorForEvents` is `(NSEvent?) -> NSEvent?` and is invoked off
+the main thread, but its body touched main-actor state. Returning/passing `NSEvent`
+across the boundary is rejected under Swift 6. The nested `applyRating`/`applyFlag`
+closures also captured main-actor state without being isolated themselves.
+
+**Fix:** compute a `Bool` inside the isolated region; convert outside it.
+
+```swift
+let handled: Bool = MainActor.assumeIsolated {
+    guard let model else { return false }
+    @MainActor func applyRating(_ value: Int) { ... }
+    @MainActor func applyFlag(_ value: ProjectFlag) { ... }
+    default: return false
+}
+return handled ? nil : event
+```
+
+Every `return event` inside the isolated block becomes `return true`/`false`; the
+handler returns `nil` when it consumed the event.
+
+**Rule:** never return or pass a non-`Sendable` AppKit/Foundation object through an
+isolation boundary. Return a `Bool` and convert outside.
+
+**Guard:** requires `let handled: Bool = MainActor.assumeIsolated` and
+`return handled ? nil : event`.
+
+## 13. A `@Sendable` closure cannot capture a loop-mutated `var`
+
+**Symptom:** concurrency/data-race error on `job.settings` inside `Task.detached`
+in `AppModel.swift`.
+
+**Cause:** `var job` is reassigned each loop iteration, so capturing it in a
+`@Sendable` closure is a data race.
+
+**Fix:** hoist immutable copies before the closure.
+
+```swift
+let geometrySettings = item.look.geometry
+let exportSettings = job.settings
+let output = try await Task.detached(priority: .utility) {
+    let geometryOutput = GeometryEngine.transformed(filmOutput, settings: geometrySettings)
+    return try geometryOutput.resizedForExport(settings: exportSettings)
+}.value
+```
+
+**Rule:** a `@Sendable` closure may only capture immutable copies.
+
+**Guard:** rejects `resizedForExport(settings: job.settings)`.
+
+## 14. Hard-clip diagnostics were computed pre-conversion ← real bug, not toolchain
+
+**Symptom:** `verify_source.sh` failed at `scripts/qa_production.py` pass 7 with
+`final-output highlight analysis missing`.
+
+**Cause:** in `StudioAnalysis.swift`, `outputPeak`/`outputLuma` came from
+`diagnosticBuffer` (final, display-referred), but `isHardHighlight` and
+`isHardShadow` were derived from `sourcePeak`, read from the linear `output`
+buffer before display conversion. The hard-clip overlay therefore disagreed with
+what the photographer actually saw.
+
+The repo's own QA asserts the correct contract — hard clipping must be
+final-output-only — so the source was wrong and QA was right. **When this gate
+fails, check whether the source or the assertion is wrong before editing either.**
+
+**Fix:** all four indicators derive from the final output; the pre-conversion
+`sourceR/G/B` reads and the then-dead `x`/`y`/`sourceIndex` bindings were removed.
+
+**Guard:** rejects `sourcePeak` in `StudioAnalysis.swift`.
+
+## 15. `SOURCE_MANIFEST.sha256` must be regenerated after any source edit
+
+`verify_source.sh` diffs a `find` file list against the manifest and verifies every
+SHA-256, so any edit fails the gate until it is regenerated. This is why pitfall 14
+surfaced as a confusing *"does not cover the complete source package"* instead of
+the analysis bug it really was.
+
+```bash
+find . -type f -not -path './.build/*' -not -path './dist/*' \
+  -not -path './.git/*' -not -name 'SOURCE_MANIFEST.sha256' \
+  -not -name '.DS_Store' -print | sed 's#^./##' | LC_ALL=C sort \
+  | while IFS= read -r f; do shasum -a 256 "$f"; done > SOURCE_MANIFEST.sha256
+```
+
+`find` must also skip OS artifacts. The upstream manifest pinned a hash for
+`.DS_Store`, which is **gitignored and untracked** — so the build depended on an
+unstable OS file that Finder rewrites at will. `verify_source.sh` now excludes
+`.DS_Store` from both the find and the coverage comparison.
+
+**Rule:** a manifest error is often a *symptom* of a real source bug. Understand
+why the gate failed before regenerating.
+
+## 16. QA script assertions had drifted out of date (two, on the pinned commit)
+
+`scripts/qa_production.py` failed on its own commit — written against older code:
+
+- pass 7 asserted the literal `let outputPeak = max(outRRaw`; the real expression is
+  `let outputPeak = max(outR, max(outG, outB))`. Updated to the actual text.
+- the vectorscope check asserted a hardcoded `"123.0"` skin reference angle. That
+  angle is now **derived** in `SkinToneReference.swift` from a reference swatch
+  (`position(displayR: 1.0, displayG: 200/255, displayB: 160/255).angleDegrees`,
+  which computes to 124.024°), and `ScopeEngine` correctly consumes the shared
+  constant. Replaced with assertions that the derived constant exists and is used —
+  **stricter** than the old literal check, because a hardcoded angle drifting from
+  its reference swatch is exactly the bug that motivated the change.
+
+**Rule:** prefer asserting *behavior/structure* over magic literals. A literal
+assertion encodes one revision's incidental text and breaks on any refactor.
+
+## 17. `git reset --hard` in the build wrapper silently destroys local fixes
+
+**Symptom:** fixes applied, verified to compile, then gone on the next builder run —
+the tree showed as pristine.
+
+**Cause:** the wrapper resets the checkout to the pinned commit before building.
+Anything not committed is erased, which caused several wasted
+"re-apply → verify → run builder → it's gone" cycles.
+
+**Fix:** the fixes live in a patch file applied immediately after the reset, and the
+wrapper asserts the checkout is clean before applying and that only the six expected
+files differ afterwards.
+
+**Rule:** in any repo whose build script resets the tree, local fixes must live in
+an applied patch (or a commit), never in working-copy edits.
+
+## 18. A summary-style `git diff` produces an unapplicable patch
+
+**Symptom:** `error: No valid patches in input (allow with "--allow-empty")`,
+reported as `ERROR: Swift 6 fix patch does not apply`.
+
+**Cause:** the patch had been generated by a *display wrapper* that emits a
+condensed stat table (`file | 10 +++---`) instead of a unified diff. `git apply`
+had no `diff --git`/`@@` hunks to parse, so the error blamed the patch target while
+the real fault was the generator.
+
+**Fix:** generate patches with plain `git diff > file.patch`, and verify with
+`git apply --check` before relying on one. The wrapper now hard-fails early with an
+explicit message if the patch has no `diff --git` headers.
+
+**Rule:** never redirect a summarizing tool's output to a file another tool parses.
+
+---
+
 ## Release checklist
 
 1. Run `swiftc -frontend -parse Sources/SpektraFilmFast/*.swift`, `swift package dump-package`, `python3 scripts/qa_production.py`, `./scripts/qa_10_passes.sh`, and `./scripts/verify_source.sh`.

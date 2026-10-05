@@ -1,4 +1,4 @@
-# AI Agent Handoff — SpektraFilmFast v0.5.1
+# AI Agent Handoff — SpektraFilmFast v0.6.1
 
 ## Prime directive
 
@@ -8,8 +8,8 @@ Product copy must remain event-agnostic. This is a general high-end still-photo 
 
 ## Release identity
 
-- `VERSION`: `0.5.1`
-- expected local Intel artifact: `SpektraFilm-0.5.1-macOS-intel.zip`
+- `VERSION`: `0.6.1`
+- expected local Intel artifact: `SpektraFilm-0.6.1-macOS-intel.zip`
 - pinned Spektrafilm native core: `8f6651858f439a99b7202b4b8dea59e344dadf5d`
 - bundled Metal library: `Resources/SpektraFilm.metallib`
 - application icon: `Resources/AppIcon.icns` (packaged as `SpektraFilm.icns` by the build script)
@@ -197,8 +197,51 @@ python3 scripts/qa_production.py
 
 On non-macOS, these are source gates only. Apple frameworks cannot be linked/run there.
 
+**On macOS, `verify_source.sh` runs a real `-typecheck`, not `-parse`.** It catches
+cross-file access and isolation errors before packaging, in roughly 20 seconds.
+It also verifies `SOURCE_MANIFEST.sha256` coverage and every bundled resource hash.
+Treat a green `verify_source.sh` on macOS as the minimum bar, not a formality.
+
+## Build/toolchain contract — do not regress
+
+**v0.6.0 as originally tagged does not compile on Swift 6.2 / Xcode 26.** Five
+defects were fixed in this repo and are now **machine-checked by
+`scripts/verify_source.sh`**, so reintroducing any of them fails the gate rather
+than the release. Full symptom/cause/fix write-ups are in `AI_PITFALLS.md`
+(pitfalls 10–18).
+
+| Trap | Rule |
+|---|---|
+| `async func` does **not** inherit `@MainActor` inside `Task {}` | annotate `@MainActor` explicitly on every `async` function in a `Task` |
+| `await` cannot live in an autoclosure (`??`, `map`, `filter`, `compactMap`) | branch with `if let` instead of `??` |
+| `NSEvent` is not `Sendable` | return a `Bool` inside the isolated region; convert to `nil`/`event` outside |
+| `@Sendable` closures cannot capture a loop-mutated `var` | hoist `let` copies of the values first |
+| hard-clip indicators must use the **final** output buffer | never read peak/luma from the pre-conversion linear buffer |
+
+Two rules about the build tooling itself:
+
+- **Any edit to a source file requires regenerating `SOURCE_MANIFEST.sha256`**
+  (command in `AI_PITFALLS.md` §15). A manifest failure is often a *symptom* of a
+  real source bug — read the underlying error before regenerating.
+- **`SOURCE_MANIFEST.sha256` must never pin a gitignored artifact.** It used to
+  hash `.DS_Store`, which Finder rewrites at will; `verify_source.sh` now excludes
+  it explicitly.
+
+Two rules that cost real time during debugging:
+
+- **Do not hand-edit this checkout if a build wrapper resets it.** Local edits are
+  destroyed on the next run; put the change in a commit or an applied patch.
+- **Generate patch files with plain `git diff`.** Some wrappers emit a condensed
+  stat table instead of a unified diff, which `git apply` rejects with the
+  misleading `No valid patches in input`.
+
 ## Mandatory Mac release gate
 
 Run `BUILD_ON_MAC.command` on macOS with Xcode 26 / macOS 26 SDK. Verify Intel x86_64 output, Metal `--self-test`, `--studio-soak-test`, Developer ID hardened-runtime signing, notarization, stapling, and Gatekeeper acceptance before describing a binary as production-approved.
+
+CI (`.github/workflows/ci.yml`) runs the full source gate on every push, so a
+Swift 6 regression is caught before anyone attempts a local release build. The
+local Mac build remains the authoritative compile/link/runtime gate, because the
+pinned native core needs the macOS 26 SDK.
 
 There is no GitHub Actions release requirement in this package. Local Mac build is the authoritative compile/link/runtime gate.
