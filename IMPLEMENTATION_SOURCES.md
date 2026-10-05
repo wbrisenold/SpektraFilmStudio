@@ -7,9 +7,10 @@ SpektraFilmFast is an original Swift/AppKit host around the pinned Spektrafilm n
 - Repository: https://github.com/chaert-s/spektrafilm-ofx
 - Pinned native commit: `8f6651858f439a99b7202b4b8dea59e344dadf5d`
 - Use: film / print / scan / grain / halation / diffusion / color-management renderer and the native app bridge.
+- Vendored: yes, unmodified, under `Native/` (source + generated curves). GPLv3 into a GPLv3 project; see `Native/NOTICE.md`.
 - Funding link discovered: none in the repository at audit time.
 
-The renderer pin is part of the parity contract. Do not unpin without performance, visual-parity, and release validation.
+The renderer pin is part of the parity contract. Do not unpin without performance, visual-parity, and release validation. Because the sources are vendored at that commit, the pin is enforced by the source gate rather than by a network fetch: the build cannot silently move to a newer upstream revision.
 
 ## RapidRAW
 

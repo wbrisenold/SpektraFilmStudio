@@ -14,6 +14,16 @@ pass 1 "Swift source/package validation"
 bash -n BUILD_ON_MAC.command scripts/*.sh
 grep -q 'No GitHub repository or GitHub Actions required' BUILD_ON_MAC.command
 grep -q 'SpektraFilm.metallib' scripts/build_app.sh
+
+# 2b — Build must be self-contained: native core vendored, no network, no Python.
+# A fresh clone has to build offline; anything else re-adds a failure mode that
+# breaks every user when a third-party repo or a package index moves.
+[ -f Native/src/SpektraAppBridge.mm ]
+[ -f Native/src/SpektraMetalRenderer.mm ]
+[ -s Native/generated/SpektraGeneratedProfileCurves.cpp ]
+[ -f Native/NOTICE.md ]
+! grep -qE 'git clone|git ls-remote|spektrafilm-ofx' scripts/bootstrap_native.sh
+! grep -qE 'python3|pip |venv' scripts/bootstrap_native.sh
 pass 2 "Shell syntax and local-build structure"
 
 # 3 — Local Intel x86_64 build + signed release hooks
@@ -21,8 +31,10 @@ grep -q 'swift build -c release --arch x86_64 --scratch-path "$SCRATCH" >&2' scr
 ! grep -q -- '--arch arm64' scripts/build_app.sh scripts/bootstrap_native.sh
 ! grep -q 'lipo -create' scripts/build_app.sh
 grep -q 'SPEKTRAFILM_MIN_FREE_GB' scripts/build_app.sh
-grep -q 'PROFILEGEN_REQUIREMENTS' scripts/bootstrap_native.sh
-grep -q '8f6651858f439a99b7202b4b8dea59e344dadf5d' scripts/bootstrap_native.sh
+# The native core is vendored; the pin lives in the attribution docs, and the
+# build path has no Python profile generator at all.
+grep -q '8f6651858f439a99b7202b4b8dea59e344dadf5d' Native/NOTICE.md
+[ -s Native/generated/SpektraGeneratedProfileCurves.cpp ]
 grep -q -- '--options runtime' scripts/build_app.sh
 grep -q 'notarytool submit' scripts/notarize_app.sh
 grep -q 'spctl --assess' scripts/notarize_app.sh

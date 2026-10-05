@@ -6,7 +6,12 @@ SpektraFilmFast is a macOS application host around the Spektrafilm native core a
 
 - Upstream: https://github.com/chaert-s/spektrafilm-ofx
 - Pinned revision: `8f6651858f439a99b7202b4b8dea59e344dadf5d`
-- Upstream license: GNU GPL v3.0
+- Upstream license: GNU GPL v3.0 (`Native/LICENSE.txt`)
+
+The native core's source files are **vendored in-tree** under `Native/`, unmodified, at the
+pinned revision. It is GPLv3 and this project is GPLv3, so this is license-compatible, and
+the full upstream terms and copyright notices are preserved. Vendoring makes a fresh clone
+build with no network access, no external repository and no Python; see `Native/NOTICE.md`.
 
 The bundled renderer resources (`SpektraFilm.metallib`, spectral data, gamut-compression data) are retained for renderer parity. Preserve applicable upstream copyright/license notices.
 
@@ -14,7 +19,7 @@ The bundled renderer resources (`SpektraFilm.metallib`, spectral data, gamut-com
 
 Behavior, algorithms, workflow patterns, or factual preset data were studied from RapidRAW, Alcedo Studio, darktable, RawTherapee, Primera Suite, DeoTime/vectorscope, filmr, and OpenPost. Exact repositories, revisions where recorded, funding links, and the parts studied are documented in `IMPLEMENTATION_SOURCES.md`.
 
-RapidRAW and OpenPost are AGPL-3.0 projects; Alcedo/darktable/Spektrafilm are GPL-family projects; Primera Suite is MIT. Do not copy new upstream source into this project without re-checking compatibility and preserving the upstream terms. Existing host implementations are written in Swift and the package does not silently vendor those projects' source trees.
+RapidRAW and OpenPost are AGPL-3.0 projects; Alcedo/darktable/Spektrafilm are GPL-family projects; Primera Suite is MIT. Do not copy new upstream source into this project without re-checking compatibility and preserving the upstream terms. Apart from the GPLv3 Spektrafilm native core vendored under `Native/`, existing host implementations are written in Swift and the package does not vendor those other projects' source trees.
 
 ## Vibe-coded disclosure
 

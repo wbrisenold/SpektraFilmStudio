@@ -115,13 +115,59 @@ If you have a better algorithm or architecture, show the source and measurements
 
 No GitHub Actions workflow is required for a release. A Mac is still required to compile the Swift/AppKit/Objective-C++ application executable.
 
+Requirements: macOS and Xcode 26 / the macOS 26 SDK. Nothing else — no network, no
+Python, no pre-existing caches.
+
+```
+git clone https://github.com/wbrisenold/SpektraFilmFast.git
+cd SpektraFilmFast
+./BUILD_ON_MAC.command
+```
+
 Double-click `BUILD_ON_MAC.command` on a Mac with Xcode 26 / the macOS 26 SDK. The local build creates an Intel x86_64 app and:
 
-- `dist/SpektraFilm-0.6.0-macOS-intel.zip`
+- `dist/SpektraFilm-0.6.1-macOS-intel.zip`
 - `dist/SHA256SUMS.txt`
 - `dist/build-info.txt`
 
-The bundled `.metallib` means the Metal shader library itself does not need to be rebuilt. The current native bootstrap may fetch the pinned public Spektrafilm source the first time the Objective-C++ bridge/static library is compiled; this requires no GitHub account and subsequent builds reuse the local cache.
+The bundled `.metallib` means the Metal shader library itself does not need to be rebuilt.
+
+### Self-contained: no external dependencies
+
+The native core (`libSpektraFilmNativeCore.a`) used to be fetched at build time from a
+separate repository. That made every build depend on somebody else's GitHub account
+staying up, so a moved or deleted upstream repository silently broke the build for
+everyone.
+
+It is now **vendored in-tree** under `Native/`, and the spectral curve data the native
+core needs is pre-generated and committed. Consequences:
+
+- **No network access is needed to build.** Only Xcode 26 / the macOS 26 SDK.
+- **No Python, and no pip packages.** The profile-curve generator (which needed numpy,
+  scipy, colour-science and matplotlib) is no longer part of the build path.
+- Nothing outside this repository can break the build.
+
+The vendored files are unmodified GPLv3 sources from
+[`chaert-s/spektrafilm-ofx`](https://github.com/chaert-s/spektrafilm-ofx) at commit
+`8f6651858f439a99b7202b4b8dea59e344dadf5d`, matching this project's own license. See
+`Native/NOTICE.md` for exactly what is included, what was left out and why, and how to
+regenerate or update the native core.
+
+`scripts/verify_source.sh` enforces all of this: if the vendored files go missing, or a
+fetch or Python dependency is reintroduced into the native bootstrap, the source gate
+fails.
+
+### Build reproducibility
+
+The native core and its spectral curve data are committed, so the build does not depend on
+package versions: there is no `pip install` step to drift. The one input that would change
+output — the profile-curve generator's numpy/scipy/colour-science/matplotlib — has been
+removed from the build path entirely, and its generated output is committed instead. The
+versions used to generate it are recorded in `Native/NOTICE.md`.
+
+The build is reproducible in behaviour but **not bit-identical**: SwiftPM emits different
+code layout for different build directories, so `dist/` binaries from two different paths
+differ in bytes while containing the same code, symbols, and resources.
 
 A public release still requires Developer ID signing, hardened runtime, notarization, stapling, Gatekeeper assessment, `--self-test`, and `--studio-soak-test` as documented in `PRODUCTION_QA.md`.
 

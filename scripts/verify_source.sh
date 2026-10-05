@@ -33,10 +33,38 @@ echo "Checking known release/build pitfalls..."
 # Intel-only build contract.
 grep -q 'swift build -c release --arch x86_64 --scratch-path "$SCRATCH" >&2' scripts/build_app.sh
 ! grep -q -- '--arch arm64' scripts/build_app.sh scripts/bootstrap_native.sh
-grep -q '8f6651858f439a99b7202b4b8dea59e344dadf5d' scripts/bootstrap_native.sh
+# The vendored native core is pinned by content: these files ARE the pinned
+# revision, and the revision is recorded in the attribution docs. Assert both.
+grep -q '8f6651858f439a99b7202b4b8dea59e344dadf5d' Native/NOTICE.md
+grep -q '8f6651858f439a99b7202b4b8dea59e344dadf5d' IMPLEMENTATION_SOURCES.md
+grep -q '8f6651858f439a99b7202b4b8dea59e344dadf5d' NOTICE.md
 grep -q 'SPEKTRAFILM_MIN_FREE_GB' scripts/build_app.sh
-grep -q 'PROFILEGEN_REQUIREMENTS' scripts/bootstrap_native.sh
-grep -q 'matplotlib' scripts/bootstrap_native.sh
+# The native core must be VENDORED in-tree, so a fresh clone builds offline. If
+# any of these regress, the build silently depends on a third-party repo again.
+for f in \
+  Native/src/SpektraAppBridge.mm \
+  Native/src/SpektraAppBridge.h \
+  Native/src/SpektraMetalRenderer.mm \
+  Native/src/SpektraMetalRenderer.h \
+  Native/src/SpektraParameters.h \
+  Native/src/SpektraProfileCurves.h \
+  Native/src/SpektraRenderer.h \
+  Native/generated/SpektraGeneratedProfileCurves.cpp \
+  Native/generated/SpektraGeneratedProfileCounts.h \
+  Native/LICENSE.txt \
+  Native/NOTICE.md ; do
+  [[ -f "$f" ]] || { echo "Missing vendored native core file: $f" >&2; exit 2; }
+done
+
+# No build-time fetch of the native core, and no Python profile generator:
+# both would reintroduce a network/dependency failure mode.
+! grep -qE 'git clone|git ls-remote|git checkout|SPEKTRAFILM_NATIVE_REPO|spektrafilm-ofx' scripts/bootstrap_native.sh \
+  || { echo "bootstrap_native.sh must not fetch an external native repo" >&2; exit 2; }
+! grep -qE 'python3|pip |venv|generate_profile_curves' scripts/bootstrap_native.sh \
+  || { echo "bootstrap_native.sh must not need Python (generated curves are committed)" >&2; exit 2; }
+
+# The generated curves are committed precisely so the build needs no Python.
+[[ -s Native/generated/SpektraGeneratedProfileCurves.cpp ]] || { echo "generated profile curves are empty" >&2; exit 2; }
 
 # Swift 6 matrix type-check regression: explicit arithmetic only.
 MATRIX_BLOCK="$(sed -n '/static func \* (lhs: Matrix3, rhs: Matrix3)/,/func inverted()/p' Sources/SpektraFilmFast/GeometryEngine.swift)"
