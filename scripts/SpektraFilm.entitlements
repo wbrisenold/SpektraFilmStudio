@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for SpektraFilm.
+
+  This is intentionally empty.
+
+  Notarization requires the hardened runtime, but the hardened runtime only
+  demands entitlements for capabilities that gate code execution or sandbox
+  access. SpektraFilm uses none of them:
+
+    - no dlopen/dlsym, and no loading of unsigned plugins. The NSBundle calls in
+      Native/src/SpektraMetalRenderer.mm look up bundled resources (the
+      .metallib) by name; they never load executable code.
+    - no JIT and no unsigned executable memory, so no
+      com.apple.security.cs.allow-jit.
+    - not sandboxed and not distributed through the Mac App Store, so no
+      app-sandbox entitlement.
+    - writes only to ~/Library/Application Support and ~/Library/Caches.
+    - no XPC services and no bundled helper executables: the app ships a single
+      binary, so there is no nested code left unsigned.
+    - spawns /usr/bin/ssh (a system binary) from ProofDockService; that needs no
+      entitlement under the hardened runtime.
+
+  Do not add entitlements here speculatively. An entitlement the app does not
+  need is a needless privilege, and Apple may reject a notarization request that
+  asks for capabilities it cannot justify.
+
+  If a future change adds plugin loading, JIT, or a helper binary, add the
+  matching entitlement here and re-verify notarization.
+-->
+<plist version="1.0">
+<dict/>
+</plist>

@@ -189,6 +189,11 @@ differ in bytes while containing the same code, symbols, and resources.
 
 A public release still requires Developer ID signing, hardened runtime, notarization, stapling, Gatekeeper assessment, `--self-test`, and `--studio-soak-test` as documented in `PRODUCTION_QA.md`.
 
+The signing and notarization steps are automated: `./scripts/notarize.sh --check`
+lists anything outstanding, `./scripts/notarize.sh --run` does the work. Both need
+an Apple Developer Program account, which is the one part that cannot be
+automated.
+
 ### Publishing a release
 
 To publish a pre-built app after a change, follow `RELEASING.md` (and the

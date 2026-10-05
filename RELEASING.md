@@ -139,24 +139,74 @@ git fetch --tags origin
 git rev-parse v<VERSION>^{commit}   # must equal git rev-parse origin/main
 ```
 
-## Known limitation: not notarized
+## Notarization (removes the Gatekeeper warning)
 
 Everything above publishes an app that works but shows a Gatekeeper warning.
-Removing that requires steps this repo cannot do for you:
+`scripts/notarize.sh` does the whole job. It will not run until you supply an
+Apple Developer account — that part is genuinely not automatable.
 
-1. Enrol in the [Apple Developer Program](https://developer.apple.com) ($99/yr).
-2. Get a **Developer ID Application** certificate.
-3. Re-sign with it and the **hardened runtime** enabled.
-4. `xcrun notarytool submit` with the app's Apple ID / app-specific password.
-5. `xcrun stapler staple`, then re-verify:
+```bash
+./scripts/notarize.sh --check     # report what's missing; changes nothing
+./scripts/notarize.sh --run       # sign → submit → staple → verify → re-zip
+```
+
+`--check` is safe to run any time and is the fastest way to see what's left.
+
+### One-time setup
+
+1. **Enrol** in the [Apple Developer Program](https://developer.apple.com/programs/enroll/)
+   ($99/yr). Individual or Organisation both work.
+2. **Create a Developer ID Application certificate.**
+   Xcode → Settings → Accounts → Manage Certificates → *+* → **Developer ID**.
+   Or import an existing `.p12`:
    ```
-   codesign -dv --verbose=2 dist/SpektraFilm.app     # Authority = Developer ID
-   codesign -dv --verbose=2 dist/SpektraFilm.app     # flags must include runtime
-   spctl -a -vvv -t exec dist/SpektraFilm.app         # accepted, source=Notarized Developer ID
+   security import cert.p12 -k ~/Library/Keychains/login.keychain-db
+   ```
+3. **Store notary credentials.** These are never written into the repo:
+   ```
+   xcrun notarytool store-credentials spektra --apple-id you@example.com --team-id TEAMID
+   export NOTARY_PROFILE=spektra
+   ```
+   For CI, use an App Store Connect API key instead:
+   ```
+   export NOTARY_KEY_ID=... NOTARY_ISSUER_ID=... NOTARY_KEY_PATH=/path/AuthKey_xxx.p8
    ```
 
-Until that is done, keep the Gatekeeper instructions in every set of release notes.
+Then `./scripts/notarize.sh --check` should be clean, and `--run` publishes a
+zip that opens with no warning and no `xattr` step.
 
-> Do not trust `spctl -a` on your own machine to check this. If Gatekeeper
-> assessments are disabled locally it prints `accepted` with `override=security
-> disabled` and never assessed anything. Check `spctl --status` first.
+### What the script does
+
+Signs with `--options runtime --timestamp` (both required for notarization),
+submits with `--wait`, staples, checks `spctl` reports *notarized*, then rebuilds
+the zip and `SHA256SUMS.txt` from the stapled bundle.
+
+Two details it handles that are easy to get wrong by hand:
+
+- **`notarytool` will not accept a bare `.app`** — only `.zip`/`.dmg`/`.pkg`. The
+  script zips for submission, then rebuilds the distributable zip *after*
+  stapling. Submit the pre-staple zip and your published copy stays unstapled.
+- **`--timestamp` is mandatory** for Developer ID. Without it the signature is
+  not valid for notarization, and there is no error at signing time.
+
+### Why no entitlements
+
+`scripts/SpektraFilm.entitlements` is an intentionally **empty** plist. The
+hardened runtime only requires entitlements for capabilities that gate code
+execution or sandbox access, and the app uses none: no `dlopen`, no JIT, no
+plugins (the `NSBundle` calls look up the bundled `.metallib`, they do not load
+code), not sandboxed, single binary. The reasoning is recorded in that file —
+add to it if a future change introduces plugin loading, JIT, or a helper binary.
+
+### Don't trust `spctl` locally
+
+With Gatekeeper assessments disabled, `spctl -a` prints `accepted` with
+`override=security disabled` and has **not assessed anything**. Check
+`spctl --status` before believing a local pass. The script warns when it sees
+this; confirm the result on a clean Mac or with assessments enabled.
+
+### Once notarized
+
+Drop the "if macOS blocks it" block and the `xattr` command from the release
+notes, and update `PRODUCTION_QA.md` §9 — "notarization, stapling, and Gatekeeper
+assessment succeed" becomes checkable rather than aspirational.

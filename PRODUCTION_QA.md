@@ -94,6 +94,11 @@ For JPEG, HEIC, TIFF8, TIFF16:
 - Apple notarization, stapling, and Gatekeeper assessment succeed.
 - Release ZIP and `SHA256SUMS.txt` verify after an independent download.
 
+Notarization is automated by `scripts/notarize.sh`; see `RELEASING.md` for the
+one-time Apple Developer setup. `./scripts/notarize.sh --check` reports exactly
+what is outstanding. Until it has run, a release is ad-hoc signed, and the
+Gatekeeper workaround in `RELEASING.md` §3 is mandatory in the release notes.
+
 ### 9a. Publishing a GitHub release (after each build)
 
 Repeat this every time the app changes, so people can download the app instead of
