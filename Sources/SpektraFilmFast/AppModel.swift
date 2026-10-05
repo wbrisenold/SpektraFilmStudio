@@ -950,24 +950,9 @@ final class AppModel: ObservableObject {
             if gestureWorkingLook == nil { beginEditGesture() }
             gestureWorkingLook?.values[name] = value
             activeEditChangedParameter = name
-            // First paint an immediate working-frame proxy so the pointer never waits on Metal.
+            // Pointer-rate work is display-only. Do not enqueue the spectral renderer here.
+            // Mouse-up/idle schedules one exact render from the committed settings.
             publishInteractiveProxy(changedParameter: name, rawField: nil)
-            // In parallel, queue the newest native render from the cached working file. The
-            // render loop is latest-wins, so stale slider samples are discarded rather than
-            // accumulating behind the pointer.
-            if let working = gestureWorkingLook {
-                scheduleRender(
-                    interactive: true,
-                    changedParameter: name,
-                    rawField: nil,
-                    longEdgeOverride: project.preferences.interactiveLongEdge,
-                    fullResolutionRequest: false,
-                    cacheResult: false,
-                    reason: "live working render",
-                    useInteractiveRenderPolicy: true,
-                    lookOverride: working
-                )
-            }
             return
         }
 
@@ -1245,25 +1230,9 @@ final class AppModel: ObservableObject {
             case nil: activeEditChangedParameter = nil
             }
 
-            if let field, let working = gestureWorkingLook {
-                // White balance must never be transformed on an already film-rendered frame.
-                // Develop the committed linear source, apply only the WB delta there, then run
-                // the native preview pipeline forward. The 60 Hz scheduler coalesces drag input.
-                scheduleRender(
-                    interactive: true,
-                    changedParameter: activeEditChangedParameter,
-                    rawField: field,
-                    longEdgeOverride: project.preferences.interactiveLongEdge,
-                    fullResolutionRequest: false,
-                    cacheResult: false,
-                    reason: "live white balance",
-                    useInteractiveRenderPolicy: true,
-                    baselineRawOverride: activeEditBaseline?.raw,
-                    lookOverride: working
-                )
-            } else {
-                publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
-            }
+            // WB gets a lightweight visual approximation while the pointer is down.
+            // Exact RAW/camera-space WB is rebuilt once the gesture settles.
+            publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: field)
             return
         }
 
@@ -1421,21 +1390,8 @@ final class AppModel: ObservableObject {
             working.tone = tone
             gestureWorkingLook = working
             activeEditChangedParameter = changedParameter
-            // Paint immediately from the immutable small working frame, then let the newest
-            // native working-file render replace it. This mirrors RapidRAW's instant/settled
-            // preview split without returning to the original RAW during the drag.
+            // Immediate 1080p working-frame feedback; exact spectral work waits for settle.
             publishInteractiveProxy(changedParameter: changedParameter, rawField: nil)
-            scheduleRender(
-                interactive: true,
-                changedParameter: changedParameter,
-                rawField: nil,
-                longEdgeOverride: project.preferences.interactiveLongEdge,
-                fullResolutionRequest: false,
-                cacheResult: false,
-                reason: changedParameter == "hostExposure" ? "live exposure" : "live tone curve",
-                useInteractiveRenderPolicy: true,
-                lookOverride: working
-            )
             return
         }
 
@@ -1476,17 +1432,6 @@ final class AppModel: ObservableObject {
             gestureWorkingLook = working
             activeEditChangedParameter = "density.\(key)"
             publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
-            scheduleRender(
-                interactive: true,
-                changedParameter: activeEditChangedParameter,
-                rawField: nil,
-                longEdgeOverride: project.preferences.interactiveLongEdge,
-                fullResolutionRequest: false,
-                cacheResult: false,
-                reason: "live density",
-                useInteractiveRenderPolicy: true,
-                lookOverride: working
-            )
             return
         }
 
@@ -1657,17 +1602,8 @@ final class AppModel: ObservableObject {
 
     private func publishGeometryPreview(look: RenderLook) {
         guard let base = latestWorkingFilmRenderedBuffer ?? latestFilmRenderedBuffer else {
-            scheduleRender(
-                interactive: true,
-                changedParameter: "geometry",
-                rawField: nil,
-                longEdgeOverride: project.preferences.interactiveLongEdge,
-                fullResolutionRequest: false,
-                cacheResult: false,
-                reason: "live geometry",
-                useInteractiveRenderPolicy: false,
-                lookOverride: look
-            )
+            objectWillChange.send()
+            status = "Live geometry · waiting for working frame"
             return
         }
         interactiveProxyTask?.cancel()
@@ -1872,7 +1808,7 @@ final class AppModel: ObservableObject {
         baselineRaw: RawSettings? = nil,
         rawField: RawInteractiveField? = nil,
         changedParameter: String? = nil,
-        delayMilliseconds: Int = 140
+        delayMilliseconds: Int = 110
     ) {
         cancelIdleRefinement()
         refinementGeneration += 1
@@ -1903,7 +1839,7 @@ final class AppModel: ObservableObject {
         baselineRaw: RawSettings? = nil,
         rawField: RawInteractiveField? = nil,
         changedParameter: String? = nil,
-        delayMilliseconds: Int = 140
+        delayMilliseconds: Int = 110
     ) {
         schedulePreviewRenderAfterIdle(
             baselineRaw: baselineRaw,
@@ -2924,21 +2860,58 @@ final class AppModel: ObservableObject {
             var completed = 0
             var failures: [ExportFailure] = []
 
-            for (offset, image) in selected.enumerated() {
-                do {
-                    let input = try await decoder.fullResolution(
-                        url: image.url,
-                        raw: image.look.raw,
+            var decodeAhead: Task<PixelBufferF32, Error>? = selected.first.map { first in
+                Task {
+                    try await decoder.fullResolution(
+                        url: first.url,
+                        raw: first.look.raw,
                         bypassImportTransform: prefs.bypassImportTransform
                     )
+                }
+            }
+            var reservedOutputPaths = Set<String>()
+
+            for (offset, image) in selected.enumerated() {
+                do {
+                    let input: PixelBufferF32
+                    if let currentDecode = decodeAhead {
+                        input = try await currentDecode.value
+                    } else {
+                        input = try await decoder.fullResolution(
+                            url: image.url,
+                            raw: image.look.raw,
+                            bypassImportTransform: prefs.bypassImportTransform
+                        )
+                    }
+
+                    if offset + 1 < selected.count {
+                        let next = selected[offset + 1]
+                        let combinedPixels = Self.approximatePixelCount(image.url) + Self.approximatePixelCount(next.url)
+                        if combinedPixels > 0 && combinedPixels <= 60_000_000 {
+                            decodeAhead = Task {
+                                try await decoder.fullResolution(
+                                    url: next.url,
+                                    raw: next.look.raw,
+                                    bypassImportTransform: prefs.bypassImportTransform
+                                )
+                            }
+                        } else {
+                            decodeAhead = nil
+                        }
+                    } else {
+                        decodeAhead = nil
+                    }
+
                     let renderInput = input.applyingHostGrade(tone: image.look.tone, density: image.look.colorDensity)
                     let (filmOutput, _) = try await exactRenderer.render(renderInput, look: image.look)
                     let geometryOutput = GeometryEngine.transformed(filmOutput, settings: image.look.geometry)
                     let output = try geometryOutput.resizedForExport(settings: settings)
-                    let name = Self.exportName(image: image, sequence: settings.sequenceStart + offset, settings: settings)
-                    let destination = URL(fileURLWithPath: settings.destinationPath)
-                        .appendingPathComponent(name)
-                        .appendingPathExtension(settings.format.fileExtension)
+                    let destination = Self.exportDestination(
+                        image: image,
+                        sequence: settings.sequenceStart + offset,
+                        settings: settings,
+                        reservedPaths: &reservedOutputPaths
+                    )
                     try await exportEngine.write(output: output, look: image.look, sourceURL: image.url, destination: destination, settings: settings)
                     completed += 1
                 } catch {
@@ -3018,11 +2991,52 @@ final class AppModel: ObservableObject {
 
     private static func exportName(image: ProjectImageRecord, sequence: Int, settings: ExportSettings) -> String {
         let base = image.url.deletingPathExtension().lastPathComponent
-        let expanded = settings.filenameTemplate
+        let sequenceText = String(format: "%04d", sequence)
+        let template = settings.filenameTemplate
+        var expanded = template
             .replacingOccurrences(of: "{name}", with: base)
-            .replacingOccurrences(of: "{sequence}", with: String(format: "%04d", sequence))
+            .replacingOccurrences(of: "{sequence}", with: sequenceText)
+
+        if !template.contains("{name}") && !template.contains("{sequence}") {
+            expanded += "_\(sequenceText)"
+        }
+
         let invalid = CharacterSet(charactersIn: "/:\\").union(.newlines).union(.controlCharacters)
         let safe = expanded.components(separatedBy: invalid).joined(separator: "_").trimmingCharacters(in: .whitespacesAndNewlines)
-        return safe.isEmpty ? "SpektraFilm_\(String(format: "%04d", sequence))" : safe
+        return safe.isEmpty ? "SpektraFilm_\(sequenceText)" : safe
+    }
+
+    private static func exportDestination(
+        image: ProjectImageRecord,
+        sequence: Int,
+        settings: ExportSettings,
+        reservedPaths: inout Set<String>
+    ) -> URL {
+        let directory = URL(fileURLWithPath: settings.destinationPath)
+        let sequenceText = String(format: "%04d", sequence)
+        let baseName = exportName(image: image, sequence: sequence, settings: settings)
+        var candidate = directory.appendingPathComponent(baseName)
+            .appendingPathExtension(settings.format.fileExtension)
+
+        if reservedPaths.contains(candidate.standardizedFileURL.path) {
+            candidate = directory.appendingPathComponent("\(baseName)_\(sequenceText)")
+                .appendingPathExtension(settings.format.fileExtension)
+        }
+        var collision = 2
+        while reservedPaths.contains(candidate.standardizedFileURL.path) {
+            candidate = directory.appendingPathComponent("\(baseName)_\(sequenceText)_\(collision)")
+                .appendingPathExtension(settings.format.fileExtension)
+            collision += 1
+        }
+        reservedPaths.insert(candidate.standardizedFileURL.path)
+        return candidate
+    }
+
+    private static func approximatePixelCount(_ url: URL) -> Int64 {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let w = props[kCGImagePropertyPixelWidth] as? NSNumber,
+              let h = props[kCGImagePropertyPixelHeight] as? NSNumber else { return 0 }
+        return Int64(w.intValue) * Int64(h.intValue)
     }
 }

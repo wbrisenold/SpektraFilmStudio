@@ -79,7 +79,12 @@ enum ExportWriter {
         CGImageDestinationAddImage(dest, image, properties as CFDictionary)
         guard CGImageDestinationFinalize(dest) else { throw ExportWriterError.encoderFinalizeFailed }
 
-        try verify(url: temp, expectedWidth: output.width, expectedHeight: output.height, require16Bit: settings.format == .tiff && settings.tiff16Bit)
+        let validatedBytes = try verify(
+            url: temp,
+            expectedWidth: output.width,
+            expectedHeight: output.height,
+            require16Bit: settings.format == .tiff && settings.tiff16Bit
+        )
 
         if fm.fileExists(atPath: destination.path) {
             _ = try fm.replaceItemAt(destination, withItemAt: temp, backupItemName: nil, options: .usingNewMetadataOnly)
@@ -87,9 +92,13 @@ enum ExportWriter {
             try fm.moveItem(at: temp, to: destination)
         }
 
-        // Verify the final path too. This catches filesystem/replace failures instead
-        // of reporting a studio export as successful when nothing usable was written.
-        try verify(url: destination, expectedWidth: output.width, expectedHeight: output.height, require16Bit: settings.format == .tiff && settings.tiff16Bit)
+        let finalAttrs = try fm.attributesOfItem(atPath: destination.path)
+        let finalBytes = (finalAttrs[.size] as? NSNumber)?.intValue ?? 0
+        guard finalBytes == validatedBytes else {
+            throw ExportWriterError.verificationFailed(
+                "committed file size is \(finalBytes) bytes, expected \(validatedBytes)"
+            )
+        }
     }
 
     private static func sourceMetadata(url: URL, stripGPS: Bool) -> [CFString: Any] {
@@ -110,21 +119,37 @@ enum ExportWriter {
         return result
     }
 
-    private static func verify(url: URL, expectedWidth: Int, expectedHeight: Int, require16Bit: Bool) throws {
+    @discardableResult
+    private static func verify(url: URL, expectedWidth: Int, expectedHeight: Int, require16Bit: Bool) throws -> Int {
         let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
         let bytes = (attrs[.size] as? NSNumber)?.intValue ?? 0
         guard bytes > 0 else { throw ExportWriterError.verificationFailed("file is empty") }
+
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               CGImageSourceGetCount(source) > 0,
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
-            throw ExportWriterError.verificationFailed("ImageIO cannot decode the written file")
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
+            throw ExportWriterError.verificationFailed("ImageIO cannot read the written file")
         }
-        guard image.width == expectedWidth && image.height == expectedHeight else {
-            throw ExportWriterError.verificationFailed("decoded dimensions are \(image.width)×\(image.height), expected \(expectedWidth)×\(expectedHeight)")
+
+        let width = (props[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue ?? 0
+        let height = (props[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue ?? 0
+        guard width == expectedWidth && height == expectedHeight else {
+            throw ExportWriterError.verificationFailed(
+                "encoded dimensions are \(width)×\(height), expected \(expectedWidth)×\(expectedHeight)"
+            )
         }
-        if require16Bit && image.bitsPerComponent < 16 {
-            throw ExportWriterError.verificationFailed("TIFF decoded at \(image.bitsPerComponent)-bit instead of 16-bit")
+
+        if require16Bit {
+            guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+                throw ExportWriterError.verificationFailed("ImageIO cannot decode the 16-bit TIFF")
+            }
+            guard image.bitsPerComponent >= 16 else {
+                throw ExportWriterError.verificationFailed(
+                    "TIFF decoded at \(image.bitsPerComponent)-bit instead of 16-bit"
+                )
+            }
         }
+        return bytes
     }
 }
 

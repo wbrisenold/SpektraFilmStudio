@@ -74,9 +74,10 @@ proxy = text("InteractivePreviewProxy.swift")
 require("vImageConvolve_ARGBFFFF" in proxy, "live diffusion/halation proxy still uses scalar Swift blur")
 interactive_set = app.split("func setParameter", 1)[1].split("func setWhiteBalanceMode", 1)[0]
 require("scheduleRender(interactive: true" not in interactive_set, "scalar pointer ticks still enqueue native spectral renders")
+require('reason: "live working render"' not in app and 'reason: "live white balance"' not in app and 'reason: "live density"' not in app, "continuous edit path still invokes native spectral renderer")
 raw_interactive_set = app.split("func setRawSettings", 1)[1].split("func undo", 1)[0]
-require("scheduleRender(" in raw_interactive_set and "rawField: field" in raw_interactive_set and "baselineRawOverride" in raw_interactive_set, "RAW WB drag is not redeveloping the linear source before the native preview")
-require("publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)" in raw_interactive_set, "non-WB RAW controls lost the fast proxy path")
+require('reason: "live white balance"' not in raw_interactive_set, "RAW WB pointer ticks still enqueue native spectral renders")
+require("publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: field)" in raw_interactive_set, "RAW WB drag lost the display-only proxy path")
 require("SPEKTRAFILM_SPECTRAL_TRANSMITTANCE" in native and '"exp2"' in native, "pinned exact exp2 spectral optimization not enabled")
 require("let quality: RenderedPreviewQuality = .accurate" in app and "case working" not in text("CacheInfrastructure.swift"), "approximate adjusted-preview cache identity returned")
 require("CacheSchema.renderedPreview" in text("CacheInfrastructure.swift"), "rendered preview cache schema token missing")

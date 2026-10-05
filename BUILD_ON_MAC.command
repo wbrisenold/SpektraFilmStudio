@@ -3,7 +3,7 @@ set -u
 cd "$(dirname "$0")"
 
 clear
-echo "SpektraFilm v0.4 local macOS build"
+echo "SpektraFilm Intel local macOS build"
 echo "No GitHub repository or GitHub Actions required."
 echo
 

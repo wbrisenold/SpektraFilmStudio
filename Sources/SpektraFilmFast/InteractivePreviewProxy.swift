@@ -20,10 +20,25 @@ enum InteractivePreviewProxy {
         changedParameter: String?,
         rawField: RawInteractiveField?
     ) -> PixelBufferF32 {
-        if rawField != nil {
-            // White balance is intentionally not approximated on the film-rendered frame.
-            // AppModel sends RAW WB directly through the cached linear working source instead.
-            return baseline
+        if let rawField {
+            let before = baselineLook.raw
+            let after = targetLook.raw
+            switch rawField {
+            case .temperature:
+                let beforeMired = before.whiteBalanceMode == .custom
+                    ? 1_000_000.0 / max(1667.0, min(50000.0, before.temperature))
+                    : (before.temperatureOffsetMired ?? 0)
+                let afterMired = after.whiteBalanceMode == .custom
+                    ? 1_000_000.0 / max(1667.0, min(50000.0, after.temperature))
+                    : (after.temperatureOffsetMired ?? 0)
+                let delta = max(-120.0, min(120.0, afterMired - beforeMired))
+                return baseline.pointTransform(channelStops: (delta / 115.0, 0, -delta / 115.0))
+            case .tint:
+                let beforeTint = before.whiteBalanceMode == .custom ? before.tint : (before.tintOffset ?? 0)
+                let afterTint = after.whiteBalanceMode == .custom ? after.tint : (after.tintOffset ?? 0)
+                let delta = max(-150.0, min(150.0, afterTint - beforeTint))
+                return baseline.pointTransform(channelStops: (delta / 260.0, -delta / 170.0, delta / 260.0))
+            }
         }
 
         if let name = changedParameter {
