@@ -53,7 +53,9 @@ extension AppModel {
         let quality = min(1, max(0.5, jpegQuality))
         let memoryMode = cacheMemoryMode
 
-        Task { [weak self] in
+        proofGenerationTask?.cancel()
+        let generation = projectGeneration
+        proofGenerationTask = Task { [weak self] in
             guard let self else { return }
             do {
                 try FileManager.default.createDirectory(at: galleryDirectory, withIntermediateDirectories: true)
@@ -62,6 +64,7 @@ extension AppModel {
 
                 for (index, image) in chosen.enumerated() {
                     try Task.checkCancellation()
+                    guard generation == projectGeneration else { throw CancellationError() }
                     let input = try await decoder.decode(
                         url: image.url,
                         longEdge: edge,
@@ -107,16 +110,29 @@ extension AppModel {
                     password: password,
                     photos: seeds
                 )
+                guard generation == projectGeneration else { throw CancellationError() }
                 isGeneratingProofs = false
+                proofGenerationTask = nil
                 proofGenerationProgress = 1
                 selectedProofGalleryID = galleryID
                 await refreshProofGalleries()
                 proofStatus = "Proof gallery ready · \(chosen.count) images"
+            } catch is CancellationError {
+                try? FileManager.default.removeItem(at: galleryDirectory)
+                if generation == projectGeneration {
+                    isGeneratingProofs = false
+                    proofGenerationProgress = 0
+                    proofStatus = "Proof generation stopped"
+                }
+                proofGenerationTask = nil
             } catch {
                 try? FileManager.default.removeItem(at: galleryDirectory)
-                isGeneratingProofs = false
-                proofGenerationProgress = 0
-                proofStatus = "Proof generation failed · \(error.localizedDescription)"
+                if generation == projectGeneration {
+                    isGeneratingProofs = false
+                    proofGenerationProgress = 0
+                    proofStatus = "Proof generation failed · \(error.localizedDescription)"
+                }
+                proofGenerationTask = nil
             }
         }
     }

@@ -49,6 +49,7 @@ extension AppModel {
                 do {
                     let payload = try await analyzer.analyze(
                         frame,
+                        look: selectedLook,
                         mode: mode,
                         skinToleranceDegrees: project.preferences.skinToleranceDegrees,
                         skinMaskWidth: latestSkinMaskWidth,

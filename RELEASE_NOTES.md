@@ -43,9 +43,9 @@
 
 ## Reliability and release gates
 
-- Preserved autosave/recovery, dirty-project protection, missing-media relink, verified full-resolution export, Universal macOS packaging, and the pinned renderer core `8f6651858f439a99b7202b4b8dea59e344dadf5d`.
+- Preserved autosave/recovery, dirty-project protection, missing-media relink, verified full-resolution export, Intel x86_64 macOS packaging, and the pinned renderer core `8f6651858f439a99b7202b4b8dea59e344dadf5d`.
 - Updated source QA to require exact committed previews and reject the removed capped working-preview behavior.
-- Final compile/link/Metal validation remains the local Xcode 26 / macOS 26 SDK Universal build gate.
+- Final compile/link/Metal validation remains the local Xcode 26 / macOS 26 SDK Intel x86_64 build gate.
 
 ## v0.5.1 — Studio Workflow
 

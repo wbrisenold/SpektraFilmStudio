@@ -1,3 +1,12 @@
+# v0.6 production-hardening status
+
+The source now includes verified dual-destination ingest, project-scoped background jobs,
+large-import/autosave fixes, durable export recovery/Stop, batch look sync, memory-pressure
+shedding, and the v0.5.4 skin/diagnostic/WB-to-Skin work.
+
+**Production approval still requires the exact Intel macOS build, runtime tests, disk-full/
+disconnect tests, crash-recovery tests, and a multi-thousand-RAW wedding-scale soak.**
+
 # Production Readiness Matrix — v0.5.1
 
 | Audit item | v0.5.1 disposition | Gate |
@@ -14,7 +23,7 @@
 | Scopes crowded edit controls | Dedicated Scopes inspector | manual UI QA |
 | Auto WB regression risk | Functional v0.4 Auto WB/recalculate path retained | source QA + RAW/JPEG visual QA |
 | Export contamination by diagnostics | Diagnostics remain separate from `RenderLook` / `ExportWriter` | source QA + export QA |
-| Universal binary/runtime not provable on Linux source host | Intentionally unresolved here | Local Xcode 26 / macOS 26 SDK Universal build |
+| Intel x86_64 binary/runtime not provable on Linux source host | Intentionally unresolved here | Local Xcode 26 / macOS 26 SDK Intel x86_64 build |
 | Distribution trust | Developer ID + hardened runtime + notarization/stapling/Gatekeeper required | Local Mac release gate |
 
 ## Release status

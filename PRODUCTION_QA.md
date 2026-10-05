@@ -1,6 +1,6 @@
 # Production QA — v0.5.1
 
-`./scripts/qa_10_passes.sh` performs source-level regression passes. **A local Universal build using Xcode 26 / the macOS 26 SDK remains the compile/link/Metal gate.** Run the checks below on the built `.app` before release.
+`./scripts/qa_10_passes.sh` performs source-level regression passes. **A local Intel x86_64 build using Xcode 26 / the macOS 26 SDK remains the compile/link/Metal gate.** Run the checks below on the built `.app` before release.
 
 ## 1. Library / import
 
@@ -86,9 +86,9 @@ For JPEG, HEIC, TIFF8, TIFF16:
 
 ## 9. Build / distribution
 
-- Run `BUILD_ON_MAC.command` from this exact source package and verify it completes the Universal build.
-- Metal `--self-test` and `--studio-soak-test` pass on the locally built Universal app.
-- `lipo -archs` contains `arm64 x86_64`.
+- Run `BUILD_ON_MAC.command` from this exact source package and verify it completes the Intel x86_64 build.
+- Metal `--self-test` and `--studio-soak-test` pass on the locally built Intel x86_64 app.
+- `lipo -archs` contains `x86_64`; arm64 is not required.
 - Info.plist version is `0.5.1`.
 - Release build has Developer ID Application authority + hardened runtime.
 - Apple notarization, stapling, and Gatekeeper assessment succeed.

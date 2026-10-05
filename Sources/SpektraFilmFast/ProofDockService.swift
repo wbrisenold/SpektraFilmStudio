@@ -595,7 +595,10 @@ actor ProofDockService {
             var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
             let result = getnameinfo(sa, socklen_t(sa.pointee.sa_len), &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST)
             if result == 0 {
-                let candidate = String(decoding: host.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+                let candidate = host.withUnsafeBufferPointer { buffer -> String in
+                    guard let base = buffer.baseAddress else { return "" }
+                    return String(cString: base)
+                }
                 if candidate.hasPrefix("192.168.") || candidate.hasPrefix("10.") || candidate.hasPrefix("172.") {
                     return candidate
                 }

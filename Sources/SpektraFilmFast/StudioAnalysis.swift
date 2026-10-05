@@ -15,12 +15,13 @@ struct StudioAnalysisPayload: Sendable {
 }
 
 actor StudioAnalysisEngine {
-    static let skinReferenceDegrees = 123.0
+    static let skinReferenceDegrees = SkinToneReference.referenceAngleDegrees
     static let scopeSize = 256
     private let subjectMaskEngine = SubjectSkinMaskEngine()
 
     func analyze(
         output: PixelBufferF32,
+        look: RenderLook,
         preferences: AppPreferences,
         maxLongEdge: Int
     ) async throws -> StudioAnalysisPayload {
@@ -42,6 +43,36 @@ actor StudioAnalysisEngine {
         let overlayHeight = (height + analysisStep - 1) / analysisStep
         let sampledPixels = max(1, overlayWidth * overlayHeight)
 
+        try SkinToneReference.validate(look)
+
+        var diagnosticPixels = [Float](repeating: 0, count: sampledPixels * 4)
+        for oy in 0..<overlayHeight {
+            if oy & 31 == 0 { try Task.checkCancellation() }
+            let y = min(height - 1, oy * analysisStep)
+            for ox in 0..<overlayWidth {
+                let x = min(width - 1, ox * analysisStep)
+                let sourceIndex = (y * width + x) * 4
+                let p = (oy * overlayWidth + ox) * 4
+                guard let rgb = SkinToneReference.canonicalDisplayRGB(
+                    r: output.pixels[sourceIndex],
+                    g: output.pixels[sourceIndex + 1],
+                    b: output.pixels[sourceIndex + 2],
+                    look: look
+                ) else {
+                    throw DiagnosticColorError.unsupportedOutputSpace(SkinToneReference.outputSpaceIndex(look))
+                }
+                diagnosticPixels[p] = rgb.0
+                diagnosticPixels[p + 1] = rgb.1
+                diagnosticPixels[p + 2] = rgb.2
+                diagnosticPixels[p + 3] = 1
+            }
+        }
+        let diagnosticBuffer = PixelBufferF32(
+            width: overlayWidth,
+            height: overlayHeight,
+            pixels: diagnosticPixels
+        )
+
         let wantsSkinOverlay = preferences.skinCheckEnabled && (preferences.skinCheckMode == .overlay || preferences.skinCheckMode == .both)
         let wantsScope = preferences.skinCheckEnabled && (preferences.skinCheckMode == .scope || preferences.skinCheckMode == .both)
         let wantsSkinAnalysis = preferences.skinCheckEnabled || preferences.scopeMode == .skinVectorscope
@@ -53,7 +84,7 @@ actor StudioAnalysisEngine {
         // wood, walls, flowers and clothing from polluting the skin vectorscope in portrait and event work.
         let subjectMask: SubjectMaskPayload
         if wantsSkinAnalysis {
-            subjectMask = try await subjectMaskEngine.subjectMask(from: output, width: overlayWidth, height: overlayHeight)
+            subjectMask = try await subjectMaskEngine.subjectMask(from: diagnosticBuffer, width: overlayWidth, height: overlayHeight)
         } else {
             subjectMask = .empty(width: overlayWidth, height: overlayHeight)
         }
@@ -90,22 +121,20 @@ actor StudioAnalysisEngine {
                 let sourceIndex = (y * width + x) * 4
                 let overlayIndex = (oy * overlayWidth + ox) * 4
                 let maskIndex = oy * overlayWidth + ox
+                let diagnosticIndex = maskIndex * 4
 
-                let outRRaw = output.pixels[sourceIndex]
-                let outGRaw = output.pixels[sourceIndex + 1]
-                let outBRaw = output.pixels[sourceIndex + 2]
-                let outR = clamp01(outRRaw)
-                let outG = clamp01(outGRaw)
-                let outB = clamp01(outBRaw)
+                let sourceR = output.pixels[sourceIndex]
+                let sourceG = output.pixels[sourceIndex + 1]
+                let sourceB = output.pixels[sourceIndex + 2]
+                let outR = diagnosticBuffer.pixels[diagnosticIndex]
+                let outG = diagnosticBuffer.pixels[diagnosticIndex + 1]
+                let outB = diagnosticBuffer.pixels[diagnosticIndex + 2]
 
-                // Diagnostics intentionally analyze only the final rendered image. This is the
-                // post-WB, post-tone/curve, post-SpektraFilm, post-geometry buffer that the viewer
-                // presents. Film stock/print contrast and every other visible edit therefore
-                // participate in Exposure Warning and Skin analysis.
-                let outputLuma = linearLuma(outRRaw, outGRaw, outBRaw)
-                let outputPeak = max(outRRaw, max(outGRaw, outBRaw))
-                let isHardHighlight = outputPeak >= highlightThreshold
-                let isHardShadow = outputLuma <= shadowThreshold
+                let outputLuma = 0.2126 * outR + 0.7152 * outG + 0.0722 * outB
+                let outputPeak = max(outR, max(outG, outB))
+                let sourcePeak = max(sourceR, max(sourceG, sourceB))
+                let isHardHighlight = sourcePeak >= highlightThreshold
+                let isHardShadow = sourcePeak <= shadowThreshold
                 let isHighlightRisk = isHardHighlight || outputPeak >= highlightRiskThreshold
                 let isShadowRisk = isHardShadow || outputLuma <= shadowRiskThreshold
                 if isHighlightRisk { highlightCount += 1 }
@@ -118,7 +147,7 @@ actor StudioAnalysisEngine {
                 let personConfidence = Double(subjectMask.alpha(x: ox, y: oy)) / 255.0
                 let insideFace = subjectMask.isInsideFace(x: ox, y: oy)
                 let skin = OpenSourceSkinClassifier.classify(
-                    linearR: outR, linearG: outG, linearB: outB, inFaceRegion: insideFace
+                    displayR: outR, displayG: outG, displayB: outB, inFaceRegion: insideFace
                 )
                 let candidate = wantsSkinAnalysis
                     && personConfidence >= (insideFace ? 0.18 : 0.42)
@@ -138,8 +167,8 @@ actor StudioAnalysisEngine {
                     let chromaWeight = 0.65 + 0.35 * min(1.0, Double(chroma.radius) / 0.18)
                     let weight = max(0.02, skin.confidence * personConfidence * chromaWeight)
                     skinWeightSum += weight
-                    skinCbWeightedSum += Double(chroma.cbNormalized) * weight
-                    skinCrWeightedSum += Double(chroma.crNormalized) * weight
+                    skinCbWeightedSum += Double(chroma.uNormalized) * weight
+                    skinCrWeightedSum += Double(chroma.vNormalized) * weight
                     if abs(deviation) <= tolerance { skinWithinWeight += weight }
                     else if deviation < 0 { skinMagentaWeight += weight }
                     else { skinGreenWeight += weight }
@@ -174,8 +203,8 @@ actor StudioAnalysisEngine {
                 }
 
                 if wantsScope {
-                    let sx = Int(((chroma.cbNormalized * 0.5 + 0.5) * Float(scopeSize - 1)).rounded())
-                    let sy = Int((((-chroma.crNormalized) * 0.5 + 0.5) * Float(scopeSize - 1)).rounded())
+                    let sx = Int(((chroma.uNormalized * 0.5 + 0.5) * Float(scopeSize - 1)).rounded())
+                    let sy = Int((((-chroma.vNormalized) * 0.5 + 0.5) * Float(scopeSize - 1)).rounded())
                     if sx >= 0 && sx < scopeSize && sy >= 0 && sy < scopeSize {
                         let si = sy * scopeSize + sx
                         density[si] &+= 1
@@ -239,34 +268,12 @@ actor StudioAnalysisEngine {
         )
     }
 
-    private struct ChromaPosition {
-        var cbNormalized: Float
-        var crNormalized: Float
-        var radius: Float
-        var angleDegrees: Double
-        var luma: Float
+    private func chromaPosition(r: Float, g: Float, b: Float) -> SkinChromaPosition {
+        SkinToneReference.position(displayR: r, displayG: g, displayB: b)
     }
-
-    private func chromaPosition(r: Float, g: Float, b: Float) -> ChromaPosition {
-        let kr: Float = 0.2126, kb: Float = 0.0722, kg: Float = 0.7152
-        let y = kr * r + kg * g + kb * b
-        let cb = (b - y) / (2.0 * (1.0 - kb))
-        let cr = (r - y) / (2.0 * (1.0 - kr))
-        let cbn = max(-1.0, min(1.0, cb * 2.0))
-        let crn = max(-1.0, min(1.0, cr * 2.0))
-        let radius = sqrt(cbn * cbn + crn * crn)
-        var angle = atan2(Double(crn), Double(cbn)) * 180.0 / .pi
-        if angle < 0 { angle += 360.0 }
-        return ChromaPosition(cbNormalized: cbn, crNormalized: crn, radius: radius, angleDegrees: angle, luma: y)
-    }
-
-    private func linearLuma(_ r: Float, _ g: Float, _ b: Float) -> Float { 0.2126 * r + 0.7152 * g + 0.0722 * b }
 
     private func angularDifferenceDegrees(_ lhs: Double, _ rhs: Double) -> Double {
-        var delta = lhs - rhs
-        while delta > 180 { delta -= 360 }
-        while delta < -180 { delta += 360 }
-        return delta
+        SkinToneReference.angularDifferenceDegrees(lhs, rhs)
     }
 
     private func drawSkinBoundary(mask: [UInt8], overlay: inout [UInt8], width: Int, height: Int) {

@@ -50,7 +50,7 @@ The supplied SpektraFilm standalone and pinned public native bridge remain the r
 | JPEG / HEIC / TIFF8 / TIFF16 | verified `ExportWriter` path |
 | Export verification | temp encode → ImageIO read-back → dimension/depth checks → atomic final move |
 | Batch failure resilience | continues per file; reports failures |
-| Universal macOS | arm64 + x86_64 merge with `lipo` |
+| Intel macOS | x86_64-only release build |
 | Required SDK | Local Xcode 26 / macOS 26 SDK |
 | Runtime gate | Metal `--self-test` + `--studio-soak-test` |
 | Production signing | Developer ID + hardened runtime + notarization + stapling + Gatekeeper |
@@ -64,4 +64,4 @@ The supplied SpektraFilm standalone and pinned public native bridge remain the r
 - `./scripts/qa_10_passes.sh`
 - `./scripts/verify_source.sh`
 
-The actual macOS compile/link/Metal runtime gate remains a local Universal build with Xcode 26 / the macOS 26 SDK, followed by the manual checks in `PRODUCTION_QA.md`.
+The actual macOS compile/link/Metal runtime gate remains a local Intel x86_64 build with Xcode 26 / the macOS 26 SDK, followed by the manual checks in `PRODUCTION_QA.md`.

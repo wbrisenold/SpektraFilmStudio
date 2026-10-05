@@ -10,6 +10,45 @@ OUT="$BUILD/native-x86_64"
 COMMIT="8f6651858f439a99b7202b4b8dea59e344dadf5d"
 STAMP="$NATIVE/.native-core-stamp"
 CLEAN="${SPEKTRAFILM_CLEAN:-0}"
+VENV="$BUILD/profilegen-venv"
+PROFILEGEN_REQUIREMENTS=(
+  "numpy>=1.26"
+  "scipy>=1.12"
+  "colour-science>=0.4.4,<0.5"
+  "matplotlib>=3.8"
+)
+
+native_cache_valid() {
+  [[ -f "$NATIVE/libSpektraFilmNativeCore.a" && -f "$STAMP" ]] || return 1
+  [[ "$(cat "$STAMP")" == "$COMMIT:x86_64" ]] || return 1
+  local archs
+  archs="$(lipo -archs "$NATIVE/libSpektraFilmNativeCore.a" 2>/dev/null || true)"
+  [[ " $archs " == *" x86_64 "* ]]
+}
+
+ensure_profilegen_dependencies() {
+  if [[ ! -x "$VENV/bin/python" ]]; then
+    python3 -m venv "$VENV"
+  fi
+
+  if ! "$VENV/bin/python" - <<'PY'
+import importlib.util, sys
+modules = ("numpy", "scipy", "colour", "matplotlib")
+missing = [name for name in modules if importlib.util.find_spec(name) is None]
+if missing:
+    print("Missing profilegen modules: " + ", ".join(missing), file=sys.stderr)
+    raise SystemExit(1)
+PY
+  then
+    "$VENV/bin/python" -m pip install --upgrade pip
+    "$VENV/bin/python" -m pip install "${PROFILEGEN_REQUIREMENTS[@]}"
+  fi
+
+  "$VENV/bin/python" - <<'PY'
+import numpy, scipy, colour, matplotlib
+print("profilegen dependencies ready")
+PY
+}
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "This step needs macOS." >&2
@@ -18,10 +57,11 @@ fi
 
 mkdir -p "$BUILD/vendor" "$GEN" "$NATIVE"
 
-if [[ "$CLEAN" != "1" && -f "$NATIVE/libSpektraFilmNativeCore.a" && -f "$STAMP" &&
-      "$(cat "$STAMP")" == "$COMMIT:x86_64" ]]; then
-  echo "Native core unchanged; using cached x86_64 library." >&2
+if [[ "$CLEAN" != "1" ]] && native_cache_valid; then
+  echo "Native core unchanged; using verified cached x86_64 library." >&2
   exit 0
+elif [[ "$CLEAN" != "1" && -f "$NATIVE/libSpektraFilmNativeCore.a" ]]; then
+  echo "Cached native core is stale or wrong-architecture; rebuilding x86_64." >&2
 fi
 
 if [[ ! -d "$VENDOR/.git" ]]; then
@@ -34,12 +74,7 @@ fi
 git -C "$VENDOR" checkout --quiet --detach "$COMMIT"
 git -C "$VENDOR" submodule update --init --recursive
 
-VENV="$BUILD/profilegen-venv"
-if [[ ! -x "$VENV/bin/python" ]]; then
-  python3 -m venv "$VENV"
-  "$VENV/bin/python" -m pip install --upgrade pip
-  "$VENV/bin/python" -m pip install "numpy>=1.26" "scipy>=1.12" "colour-science>=0.4.4,<0.5"
-fi
+ensure_profilegen_dependencies
 
 if [[ "$CLEAN" == "1" || ! -f "$GEN/SpektraGeneratedProfileCurves.cpp" || ! -f "$GEN/SpektraGeneratedProfileCounts.h" ]]; then
   SPEKTRAFILM_DATA_DIR="$VENDOR/Resources/data" \
@@ -59,6 +94,12 @@ xcrun --sdk macosx clang++ "${COMMON[@]}" -c "$GEN/SpektraGeneratedProfileCurves
 xcrun libtool -static -o "$NATIVE/libSpektraFilmNativeCore.a" \
   "$OUT/SpektraAppBridge.o" "$OUT/SpektraMetalRenderer.o" "$OUT/SpektraGeneratedProfileCurves.o"
 
+ARCHS="$(lipo -archs "$NATIVE/libSpektraFilmNativeCore.a" 2>/dev/null || true)"
+if [[ " $ARCHS " != *" x86_64 "* ]]; then
+  echo "Native core architecture check failed. Expected x86_64, got: ${ARCHS:-unknown}" >&2
+  exit 7
+fi
+
 printf '%s\n' "$COMMIT:x86_64" > "$STAMP"
 echo "Native core ready: $NATIVE/libSpektraFilmNativeCore.a"
-lipo -info "$NATIVE/libSpektraFilmNativeCore.a"
+echo "Native architecture: $ARCHS"

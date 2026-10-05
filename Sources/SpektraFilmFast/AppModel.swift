@@ -65,6 +65,9 @@ final class AppModel: ObservableObject {
     @Published var isExporting = false
     @Published var exportProgress = 0.0
     @Published var exportFailures: [ExportFailure] = []
+    @Published var activeExportJob: ExportJob?
+    @Published var isStoppingExport = false
+    @Published var exportCurrentFileName = ""
     @Published var status = "Ready"
     @Published var showingBefore = false
     @Published var diagnostics = RenderDiagnosticsView()
@@ -94,6 +97,10 @@ final class AppModel: ObservableObject {
         return stored == 0 ? 15 : min(100, max(2, stored))
     }()
     @Published var autoWhiteBalanceStatus = ""
+    @Published var isSkinWhiteBalanceRunning = false
+    @Published var skinWhiteBalanceStatus = ""
+    @Published var diagnosticStatus = ""
+    @Published var diagnosticsAreSettling = false
     @Published var whiteBalanceDisplayTemperature: Double = 5500
     @Published var whiteBalanceDisplayTint: Double = 0
     @Published var isResolvingWhiteBalanceReference = false
@@ -112,6 +119,10 @@ final class AppModel: ObservableObject {
     @Published var libraryPeopleGroupFilter: UUID? = nil
     @Published var isGroupingPeople = false
     @Published var peopleGroupingStatus = ""
+    @Published var isIngesting = false
+    @Published var ingestProgress = 0.0
+    @Published var ingestStatus = ""
+    @Published var hasRecoverableIngest = false
     @Published var collapsedCullStacks: Set<UUID> = []
     @Published var showBackgroundTasks = false
     var librarySelectionAnchor: UUID?
@@ -203,12 +214,20 @@ final class AppModel: ObservableObject {
     private var interactiveProxyTask: Task<Void, Never>?
     private var interactiveProxyGeneration = 0
     private var autosaveTask: Task<Void, Never>?
+    private var autosaveGeneration = 0
+    var exportTask: Task<Void, Never>?
+    var managedIngestTask: Task<Void, Never>?
+    var peopleGroupingTask: Task<Void, Never>?
+    var proofGenerationTask: Task<Void, Never>?
+    var projectGeneration = 0
     private var projectChangeCancellable: AnyCancellable?
     private var cacheVolumeCancellables = Set<AnyCancellable>()
     private var suppressDirtyTracking = false
     private var memoryPressureMonitor: MemoryPressureMonitor?
     private var whiteBalanceReferenceTask: Task<Void, Never>?
     private var whiteBalanceReferenceGeneration = 0
+    private var skinWhiteBalanceTask: Task<Void, Never>?
+    private var skinWhiteBalanceGeneration = 0
     private var didCheckRecovery = false
 
     init() {
@@ -229,13 +248,24 @@ final class AppModel: ObservableObject {
         configureCaches()
         installCacheVolumeObservers()
 
+        Task { [weak self] in
+            guard let self else { return }
+            await restoreExportJobIfNeeded()
+            await refreshRecoverableIngestState()
+        }
+
         projectChangeCancellable = $project.dropFirst().sink { [weak self] _ in
             guard let self, !self.suppressDirtyTracking else { return }
             self.projectDidChange()
         }
-        memoryPressureMonitor = MemoryPressureMonitor { _ in
-            // Memory pressure callback intentionally avoids crossing actor boundaries with
-            // DispatchSource.MemoryPressureEvent under Swift 6 strict concurrency.
+        memoryPressureMonitor = MemoryPressureMonitor { [weak self] event in
+            let level: CachePressureLevel
+            if event.contains(.critical) { level = .critical }
+            else if event.contains(.warning) { level = .warning }
+            else { level = .normal }
+            Task { @MainActor [weak self] in
+                self?.handleMemoryPressure(level)
+            }
         }
     }
 
@@ -510,18 +540,22 @@ final class AppModel: ObservableObject {
     private func startBackgroundImportHydration(_ imported: [(UUID, URL)]) {
         importHydrationTask?.cancel()
         let urls = imported.map { $0.1 }
+        let generation = projectGeneration
+        var indexByID = Dictionary(uniqueKeysWithValues: project.images.indices.map { (project.images[$0].id, $0) })
+
         importHydrationTask = Task { [weak self] in
             guard let self else { return }
-
             async let thumbnailWarmup: Void = thumbnails.prefetch(urls: urls, maxPixels: [480, 1280])
 
-            var metadataByID: [UUID: PhotoMetadata] = [:]
-            var xmpByID: [UUID: XMPSidecarState] = [:]
             let batchSize = 32
             var offset = 0
             while offset < imported.count, !Task.isCancelled {
+                guard generation == projectGeneration else { return }
                 let end = min(imported.count, offset + batchSize)
                 let batch = Array(imported[offset..<end])
+
+                var results: [(UUID, PhotoMetadata?, XMPSidecarState?)] = []
+                results.reserveCapacity(batch.count)
                 await withTaskGroup(of: (UUID, PhotoMetadata?, XMPSidecarState?).self) { group in
                     for (id, url) in batch {
                         group.addTask { [metadataService, xmpService] in
@@ -531,50 +565,58 @@ final class AppModel: ObservableObject {
                             return (id, await metadata, await xmp)
                         }
                     }
-                    for await (id, metadata, xmp) in group {
+                    for await result in group {
                         if Task.isCancelled { break }
-                        if let metadata { metadataByID[id] = metadata }
-                        if let xmp { xmpByID[id] = xmp }
+                        results.append(result)
                     }
                 }
-                offset = end
 
-                // Publish completed metadata in small batches instead of waiting for the
-                // entire import. The library becomes searchable immediately while indexing
-                // continues, and the UI never parses EXIF on its own thread.
-                if !Task.isCancelled, (!metadataByID.isEmpty || !xmpByID.isEmpty) {
-                    var updated = project
+                guard !Task.isCancelled, generation == projectGeneration else { return }
+
+                // Only touch records completed in this batch. The old path copied the entire
+                // project and rescanned every image every 32 files, which scaled poorly on
+                // multi-thousand-image weddings.
+                for (id, metadata, xmp) in results {
+                    let index: Int
+                    if let known = indexByID[id],
+                       known < project.images.count,
+                       project.images[known].id == id {
+                        index = known
+                    } else if let found = project.images.firstIndex(where: { $0.id == id }) {
+                        indexByID[id] = found
+                        index = found
+                    } else {
+                        continue
+                    }
+
+                    var record = project.images[index]
                     var changed = false
-                    for index in updated.images.indices {
-                        let id = updated.images[index].id
-                        if let metadata = metadataByID[id], updated.images[index].metadata != metadata {
-                            updated.images[index].metadata = metadata
-                            updated.images[index].captureDate = metadata.captureDate
+                    if let metadata, record.metadata != metadata {
+                        record.metadata = metadata
+                        record.captureDate = metadata.captureDate
+                        changed = true
+                    }
+                    if let xmp {
+                        if let rating = xmp.rating, record.rating != rating {
+                            record.rating = rating
                             changed = true
                         }
-                        if let xmp = xmpByID[id] {
-                            if let rating = xmp.rating, updated.images[index].rating != rating {
-                                updated.images[index].rating = rating
-                                changed = true
-                            }
-                            if let flag = xmp.flag, updated.images[index].flag != flag {
-                                updated.images[index].flag = flag
-                                changed = true
-                            }
-                            if updated.images[index].colorLabel != xmp.colorLabel, xmp.colorLabel != nil {
-                                updated.images[index].colorLabel = xmp.colorLabel
-                                changed = true
-                            }
+                        if let flag = xmp.flag, record.flag != flag {
+                            record.flag = flag
+                            changed = true
+                        }
+                        if let label = xmp.colorLabel, record.colorLabel != label {
+                            record.colorLabel = label
+                            changed = true
                         }
                     }
-                    if changed { project = updated }
-                    metadataByID.removeAll(keepingCapacity: true)
-                    xmpByID.removeAll(keepingCapacity: true)
+                    if changed { project.images[index] = record }
                 }
+                offset = end
             }
 
             _ = await thumbnailWarmup
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, generation == projectGeneration else { return }
             if project.preferences.autoAnalyzeCull {
                 analyzeForCull(ids: imported.map { $0.0 })
                 status = "Import ready · thumbnails cached · Smart Cull started"
@@ -1182,6 +1224,221 @@ final class AppModel: ObservableObject {
                 reason: "recalculated Auto WB",
                 useInteractiveRenderPolicy: false
             )
+        }
+    }
+
+    func autoWhiteBalanceToSkin() {
+        guard !isSkinWhiteBalanceRunning,
+              let i = selectedIndex,
+              let exactRenderer else { return }
+
+        let image = project.images[i]
+        let originalLook = image.look
+        do {
+            try SkinToneReference.validate(originalLook)
+        } catch {
+            skinWhiteBalanceStatus = error.localizedDescription
+            status = "Skin WB unavailable · \(error.localizedDescription)"
+            return
+        }
+
+        cancelIdleRefinement()
+        invalidateNativePreviewForInteraction()
+        skinWhiteBalanceTask?.cancel()
+        skinWhiteBalanceGeneration += 1
+        let generation = skinWhiteBalanceGeneration
+        let imageID = image.id
+        isSkinWhiteBalanceRunning = true
+        isResolvingWhiteBalanceReference = true
+        skinWhiteBalanceStatus = "Starting from As Shot…"
+        status = "Skin WB · measuring As Shot skin…"
+
+        skinWhiteBalanceTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if generation == skinWhiteBalanceGeneration {
+                    isSkinWhiteBalanceRunning = false
+                    isResolvingWhiteBalanceReference = false
+                    skinWhiteBalanceTask = nil
+                }
+            }
+
+            do {
+                var asShotRaw = originalLook.raw
+                asShotRaw.whiteBalanceMode = .asShot
+                asShotRaw.temperatureOffsetMired = nil
+                asShotRaw.tintOffset = nil
+
+                let reference = await decoder.whiteBalanceReference(url: image.url, raw: asShotRaw)
+                try Task.checkCancellation()
+                guard generation == skinWhiteBalanceGeneration,
+                      project.selectedImageID == imageID else { throw CancellationError() }
+
+                let solverEdge = min(720, max(480, project.preferences.previewLongEdge))
+                let baseLinear = try await decoder.decode(
+                    url: image.url,
+                    longEdge: solverEdge,
+                    raw: asShotRaw,
+                    bypassImportTransform: project.preferences.bypassImportTransform,
+                    cacheMode: .conservative
+                )
+                try Task.checkCancellation()
+
+                let analyzer = StudioAnalysisEngine()
+                var analysisPrefs = project.preferences
+                analysisPrefs.clippingEnabled = false
+                analysisPrefs.skinCheckEnabled = true
+                analysisPrefs.skinCheckMode = .scope
+
+                func sample(mired: Double, tint: Double) async throws -> (Double, StudioAnalysisMetrics, RawSettings) {
+                    try Task.checkCancellation()
+                    guard generation == skinWhiteBalanceGeneration,
+                          project.selectedImageID == imageID else { throw CancellationError() }
+
+                    var raw = asShotRaw
+                    raw.temperatureOffsetMired = abs(mired) < 1.0e-8 ? nil : max(-80, min(80, mired))
+                    raw.tintOffset = abs(tint) < 1.0e-8 ? nil : max(-60, min(60, tint))
+
+                    var look = originalLook
+                    look.raw = raw
+                    let prepared = await Task.detached(priority: .userInitiated) {
+                        let corrected = baseLinear.applyingWhiteBalanceOffsets(
+                            raw,
+                            baseTemperature: reference.temperature,
+                            baseTint: reference.tint
+                        )
+                        return corrected.applyingHostGrade(
+                            tone: look.tone,
+                            density: look.colorDensity
+                        )
+                    }.value
+                    try Task.checkCancellation()
+                    let (filmOutput, _) = try await exactRenderer.render(prepared, look: look)
+                    try Task.checkCancellation()
+                    let final = await Task.detached(priority: .utility) {
+                        GeometryEngine.transformed(filmOutput, settings: look.geometry)
+                    }.value
+                    let payload = try await analyzer.analyze(
+                        output: final,
+                        look: look,
+                        preferences: analysisPrefs,
+                        maxLongEdge: 640
+                    )
+                    return (payload.metrics.skinMeanDeviationDegrees, payload.metrics, raw)
+                }
+
+                let baseline = try await sample(mired: 0, tint: 0)
+                guard baseline.1.skinCandidatePercent >= 0.02,
+                      baseline.1.skinMeasurementConfidencePercent >= 4.0 else {
+                    throw NSError(
+                        domain: "SpektraFilmFast.SkinWB",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey:
+                            "No reliable skin sample was found. Skin WB left the photo unchanged."]
+                    )
+                }
+
+                let startError = baseline.0
+                if abs(startError) <= 1.5 {
+                    skinWhiteBalanceStatus = "As Shot is already on the skin line (\(String(format: "%+.1f°", startError)))."
+                    status = "Skin WB · As Shot already on target"
+                    return
+                }
+
+                skinWhiteBalanceStatus = "Probing temperature and tint from As Shot…"
+                let temperatureProbe = try await sample(mired: 12, tint: 0)
+                let tintProbe = try await sample(mired: 0, tint: 8)
+
+                let gTemp = temperatureProbe.0 - startError
+                let gTint = tintProbe.0 - startError
+                let denom = gTemp * gTemp + gTint * gTint
+                guard denom > 0.01 else {
+                    throw NSError(
+                        domain: "SpektraFilmFast.SkinWB",
+                        code: 2,
+                        userInfo: [NSLocalizedDescriptionKey:
+                            "Skin direction was not responsive enough to white balance. No change was made."]
+                    )
+                }
+
+                var best = baseline
+                var bestMired = 0.0
+                var bestTint = 0.0
+
+                func consider(_ candidate: (Double, StudioAnalysisMetrics, RawSettings), mired: Double, tint: Double) {
+                    let reliable = candidate.1.skinMeasurementConfidencePercent >= 3.0
+                    if reliable && abs(candidate.0) < abs(best.0) {
+                        best = candidate
+                        bestMired = mired
+                        bestTint = tint
+                    }
+                }
+
+                consider(temperatureProbe, mired: 12, tint: 0)
+                consider(tintProbe, mired: 0, tint: 8)
+
+                let normalizedTemp = max(-3.5, min(3.5, -startError * gTemp / denom))
+                let normalizedTint = max(-3.5, min(3.5, -startError * gTint / denom))
+                let proposedMired = max(-80, min(80, normalizedTemp * 12))
+                let proposedTint = max(-60, min(60, normalizedTint * 8))
+
+                for fraction in [1.0, 0.65, 0.4] {
+                    let mired = proposedMired * fraction
+                    let tint = proposedTint * fraction
+                    let candidate = try await sample(mired: mired, tint: tint)
+                    consider(candidate, mired: mired, tint: tint)
+                    if abs(best.0) <= 1.5 { break }
+                }
+
+                guard abs(best.0) + 0.5 < abs(startError) else {
+                    throw NSError(
+                        domain: "SpektraFilmFast.SkinWB",
+                        code: 3,
+                        userInfo: [NSLocalizedDescriptionKey:
+                            "A safer skin-based WB correction could not improve this frame. No change was made."]
+                    )
+                }
+
+                try Task.checkCancellation()
+                guard generation == skinWhiteBalanceGeneration,
+                      project.selectedImageID == imageID,
+                      let currentIndex = project.images.firstIndex(where: { $0.id == imageID }) else {
+                    throw CancellationError()
+                }
+
+                undoStack.append(project.images[currentIndex].look)
+                redoStack.removeAll()
+                project.images[currentIndex].look.raw = best.2
+
+                whiteBalanceBaseTemperature = PixelBufferF32.clampedKelvin(reference.temperature)
+                whiteBalanceBaseTint = reference.tint.isFinite ? reference.tint : 0
+                whiteBalanceDisplayTemperature = PixelBufferF32.kelvin(
+                    baseKelvin: whiteBalanceBaseTemperature,
+                    miredOffset: bestMired
+                )
+                whiteBalanceDisplayTint = whiteBalanceBaseTint + bestTint
+                autoWhiteBalanceStatus = ""
+
+                let tempDirection = bestMired < -0.5 ? "warmer" : (bestMired > 0.5 ? "cooler" : "same temp")
+                let tintDirection = bestTint < -0.5 ? "toward green" : (bestTint > 0.5 ? "toward magenta" : "same tint")
+                skinWhiteBalanceStatus = String(
+                    format: "As Shot → %@, %@ · skin error %+.1f° → %+.1f°",
+                    tempDirection, tintDirection, startError, best.0
+                )
+                status = "Skin WB applied · \(skinWhiteBalanceStatus)"
+                scheduleRender(
+                    interactive: false,
+                    longEdgeOverride: project.preferences.previewLongEdge,
+                    fullResolutionRequest: false,
+                    cacheResult: true,
+                    reason: "Skin WB exact preview",
+                    useInteractiveRenderPolicy: false
+                )
+            } catch is CancellationError {
+            } catch {
+                skinWhiteBalanceStatus = error.localizedDescription
+                status = "Skin WB · \(error.localizedDescription)"
+            }
         }
     }
 
@@ -1793,8 +2050,13 @@ final class AppModel: ObservableObject {
             // gesture. Otherwise a small transient proxy could become the next gesture's baseline
             // and quality would silently ratchet downward.
             status = "Live proxy · \(max(result.width, result.height)) px"
-            refreshStudioAnalysis(interactive: true)
-            requestEditorScopeUpdate()
+            if project.preferences.clippingEnabled || project.preferences.skinCheckEnabled {
+                diagnosticsAreSettling = true
+                diagnosticStatus = "Diagnostics update after the exact render settles"
+                analysisTask?.cancel()
+                analysisOverlay = nil
+                scopeTask?.cancel()
+            }
         }
     }
 
@@ -2112,6 +2374,10 @@ final class AppModel: ObservableObject {
         renderLoopID = nil
         isRendering = false
         selectionPresentationTask?.cancel()
+        skinWhiteBalanceTask?.cancel()
+        skinWhiteBalanceTask = nil
+        skinWhiteBalanceGeneration += 1
+        isSkinWhiteBalanceRunning = false
         interactiveProxyTask?.cancel()
         interactiveProxyTask = nil
         interactiveProxyGeneration += 1
@@ -2119,8 +2385,25 @@ final class AppModel: ObservableObject {
     }
 
     private func invalidateRendering() {
+        projectGeneration += 1
         cancelPreviewForNavigation()
         analysisTask?.cancel()
+        importHydrationTask?.cancel()
+        importHydrationTask = nil
+        cullTask?.cancel()
+        cullTask = nil
+        peopleGroupingTask?.cancel()
+        peopleGroupingTask = nil
+        proofGenerationTask?.cancel()
+        proofGenerationTask = nil
+        managedIngestTask?.cancel()
+        managedIngestTask = nil
+        exportTask?.cancel()
+        exportTask = nil
+        isGroupingPeople = false
+        isGeneratingProofs = false
+        isIngesting = false
+        isExporting = false
     }
 
     // MARK: - Studio diagnostics
@@ -2171,13 +2454,9 @@ final class AppModel: ObservableObject {
     }
 
     func refreshStudioAnalysis(interactive: Bool = false) {
-        if interactive {
-            let now = ProcessInfo.processInfo.systemUptime
-            // Viewer diagnostics are deliberately subordinate to pointer feedback. Ten updates
-            // per second is visually live while avoiding a CPU analysis job for every mouse tick.
-            guard now - lastInteractiveStudioAnalysisUptime >= 0.10 else { return }
-            lastInteractiveStudioAnalysisUptime = now
-        }
+        // Pointer-rate frames are approximate display proxies. Only the exact settled frame owns
+        // clipping and skin measurements.
+        if interactive { return }
         analysisTask?.cancel()
         analysisGeneration += 1
         let generation = analysisGeneration
@@ -2193,8 +2472,10 @@ final class AppModel: ObservableObject {
         analysisTask = Task { [weak self] in
             guard let self else { return }
             do {
+                let analysisLook = latestRenderedLook ?? selectedLook
                 let payload = try await analysisEngine.analyze(
                     output: buffer,
+                    look: analysisLook,
                     preferences: prefs,
                     maxLongEdge: interactive ? 480 : 1200
                 )
@@ -2207,10 +2488,20 @@ final class AppModel: ObservableObject {
                 latestSkinMaskHeight = payload.skinMaskHeight
                 latestSkinMaskAlpha = payload.skinMaskAlpha
                 analysisMetrics = payload.metrics
+                diagnosticStatus = ""
                 isAnalyzing = false
                 requestEditorScopeUpdate()
             } catch {
-                if generation == analysisGeneration { isAnalyzing = false }
+                if generation == analysisGeneration {
+                    isAnalyzing = false
+                    analysisOverlay = nil
+                    scopeTrace = nil
+                    latestSkinMaskWidth = 0
+                    latestSkinMaskHeight = 0
+                    latestSkinMaskAlpha = []
+                    analysisMetrics = StudioAnalysisMetrics()
+                    diagnosticStatus = error.localizedDescription
+                }
             }
         }
     }
@@ -2289,21 +2580,31 @@ final class AppModel: ObservableObject {
     private func scheduleAutosave() {
         autosaveTask?.cancel()
         guard project.preferences.autosaveEnabled else { return }
-        let snapshot = project
-        let target = projectURL
+
+        autosaveGeneration += 1
+        let generation = autosaveGeneration
+        let imageCount = project.images.count
+        let recoveryDelay = imageCount >= 2500 ? 2.8 : (imageCount >= 1000 ? 2.0 : 1.2)
+
         autosaveTask = Task { [weak self, recoveryStore] in
             guard let self else { return }
             do {
-                // Recovery snapshot lands quickly; an unexpected termination should lose at
-                // most a short gesture, not the entire session.
-                try await Task.sleep(for: .milliseconds(1200))
+                try await Task.sleep(for: .seconds(recoveryDelay))
                 try Task.checkCancellation()
+                guard generation == autosaveGeneration else { return }
+
+                // Snapshot only after the debounce wins. Previously this value-type copy happened
+                // immediately on every project mutation, including slider-driven changes.
+                let snapshot = project
+                let target = projectURL
                 try await recoveryStore.save(project: snapshot, projectURL: target)
 
-                // Named projects then autosave atomically after a little more idle time.
                 if let target {
-                    try await Task.sleep(for: .milliseconds(1800))
+                    let namedDelay = imageCount >= 2500 ? 4.0 : 2.0
+                    try await Task.sleep(for: .seconds(namedDelay))
                     try Task.checkCancellation()
+                    guard generation == autosaveGeneration else { return }
+
                     try await Task.detached(priority: .utility) {
                         let encoder = JSONEncoder()
                         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -2311,16 +2612,17 @@ final class AppModel: ObservableObject {
                         let data = try encoder.encode(snapshot)
                         try data.write(to: target, options: .atomic)
                     }.value
-                    guard !Task.isCancelled, self.project == snapshot else { return }
-                    self.isProjectDirty = false
+
+                    guard !Task.isCancelled, generation == autosaveGeneration else { return }
+                    isProjectDirty = false
                     await recoveryStore.clear()
-                    self.status = "Autosaved"
+                    status = "Autosaved"
                 }
             } catch is CancellationError {
                 return
             } catch {
                 guard !Task.isCancelled else { return }
-                self.status = "Autosave warning: \(error.localizedDescription)"
+                status = "Autosave warning: \(error.localizedDescription)"
             }
         }
     }
@@ -2434,12 +2736,7 @@ final class AppModel: ObservableObject {
         trimRenderedFrameCache(to: CacheBudget.renderedFrameBytes(mode: mode))
     }
 
-    private func handleMemoryPressure(_ event: DispatchSource.MemoryPressureEvent) {
-        let level: CachePressureLevel
-        if event.contains(.critical) { level = .critical }
-        else if event.contains(.warning) { level = .warning }
-        else { level = .normal }
-
+    private func handleMemoryPressure(_ level: CachePressureLevel) {
         memoryPressureConstrained = level != .normal
         if level == .warning {
             trimRenderedFrameCache(to: CacheBudget.renderedFrameBytes(mode: .conservative))
@@ -2451,8 +2748,19 @@ final class AppModel: ObservableObject {
             latestInteractiveBaseBuffer = nil
             latestInteractiveBaseLook = nil
             gestureSettleBaselineBuffer = nil
+            gestureBaselineRenderedBuffer = nil
+            latestSourceBuffer = nil
+            latestSourceRaw = nil
+            latestFilmRenderedBuffer = nil
+            if let working = latestWorkingRenderedBuffer {
+                latestRenderedBuffer = working
+                latestRenderedLook = latestWorkingRenderedLook
+            } else {
+                latestRenderedBuffer = nil
+                latestRenderedLook = nil
+            }
             interactiveBaselineTask?.cancel()
-            cacheStatus = "Critical memory pressure · volatile preview caches released"
+            cacheStatus = "Critical memory pressure · full-resolution/transient buffers released"
         }
         Task { [decoder, thumbnails] in
             await decoder.handleMemoryPressure(level)
@@ -2841,94 +3149,260 @@ final class AppModel: ObservableObject {
         status = "Export preset · \(preset.name)"
     }
 
+    var selectedExportCount: Int {
+        project.images.lazy.filter(\.selectedForExport).count
+    }
+
+    var exportPreflightNames: [String] {
+        ExportJobPlanner.previewNames(
+            images: project.images.filter(\.selectedForExport),
+            settings: project.exportSettings,
+            limit: 5
+        )
+    }
+
     func exportSelected() {
-        guard !isExporting, let exactRenderer else { return }
+        guard !isExporting, exactRenderer != nil else { return }
         let selected = project.images.filter(\.selectedForExport)
         guard !selected.isEmpty else { status = "No images selected for export"; return }
         if project.exportSettings.destinationPath.isEmpty { chooseExportDestination() }
         guard !project.exportSettings.destinationPath.isEmpty else { return }
 
-        let settings = project.exportSettings
-        let prefs = project.preferences
-        isExporting = true
+        do {
+            let job = try ExportJobPlanner.makeJob(
+                images: selected,
+                settings: project.exportSettings,
+                bypassImportTransform: project.preferences.bypassImportTransform
+            )
+            activeExportJob = job
+            startExport(job)
+        } catch {
+            status = "Export setup failed · \(error.localizedDescription)"
+        }
+    }
+
+    func stopExport() {
+        guard isExporting, !isStoppingExport else { return }
+        isStoppingExport = true
+        status = "Stopping export…"
+        if var job = activeExportJob {
+            job.state = .stopping
+            job.updatedAt = Date()
+            activeExportJob = job
+            Task { try? await ExportJobJournal.shared.save(job) }
+        }
+        exportTask?.cancel()
+    }
+
+    func resumeExport() {
+        guard !isExporting, var job = activeExportJob, job.remainingCount > 0 else { return }
+        for index in job.items.indices where job.items[index].state == .rendering || job.items[index].state == .writing {
+            job.items[index].state = .pending
+            job.items[index].errorMessage = nil
+        }
+        activeExportJob = job
+        startExport(job)
+    }
+
+    func retryFailedExports() {
+        guard !isExporting, var job = activeExportJob else { return }
+        var changed = false
+        for index in job.items.indices where job.items[index].state == .failed {
+            job.items[index].state = .pending
+            job.items[index].errorMessage = nil
+            changed = true
+        }
+        guard changed else { return }
+        job.state = .stopped
+        job.updatedAt = Date()
+        activeExportJob = job
+        startExport(job)
+    }
+
+    func discardRecoveredExportJob() {
+        guard !isExporting else { return }
+        activeExportJob = nil
         exportProgress = 0
+        exportCurrentFileName = ""
+        Task { await ExportJobJournal.shared.clear() }
+        status = "Export recovery discarded"
+    }
+
+    private func restoreExportJobIfNeeded() async {
+        guard var job = await ExportJobJournal.shared.load() else { return }
+        job.normalizeAfterInterruptedLaunch()
+        if job.state == .completed {
+            await ExportJobJournal.shared.clear()
+            return
+        }
+        activeExportJob = job
+        exportProgress = job.fractionComplete
+        status = "Unfinished export available · \(job.remainingCount) remaining"
+        try? await ExportJobJournal.shared.save(job)
+    }
+
+    private func startExport(_ initialJob: ExportJob) {
+        exportTask?.cancel()
+        isExporting = true
+        isStoppingExport = false
         exportFailures = []
-        status = "Exporting 0 / \(selected.count)…"
+        exportProgress = initialJob.fractionComplete
+        status = "Preparing export queue…"
+        exportTask = Task { [weak self] in
+            await self?.runExportJob(initialJob)
+        }
+    }
 
-        Task { [weak self] in
-            guard let self else { return }
-            var completed = 0
-            var failures: [ExportFailure] = []
-
-            var decodeAhead: Task<PixelBufferF32, Error>? = selected.first.map { first in
-                Task {
-                    try await decoder.fullResolution(
-                        url: first.url,
-                        raw: first.look.raw,
-                        bypassImportTransform: prefs.bypassImportTransform
-                    )
-                }
-            }
-            var reservedOutputPaths = Set<String>()
-
-            for (offset, image) in selected.enumerated() {
-                do {
-                    let input: PixelBufferF32
-                    if let currentDecode = decodeAhead {
-                        input = try await currentDecode.value
-                    } else {
-                        input = try await decoder.fullResolution(
-                            url: image.url,
-                            raw: image.look.raw,
-                            bypassImportTransform: prefs.bypassImportTransform
-                        )
-                    }
-
-                    if offset + 1 < selected.count {
-                        let next = selected[offset + 1]
-                        let combinedPixels = Self.approximatePixelCount(image.url) + Self.approximatePixelCount(next.url)
-                        if combinedPixels > 0 && combinedPixels <= 60_000_000 {
-                            decodeAhead = Task {
-                                try await decoder.fullResolution(
-                                    url: next.url,
-                                    raw: next.look.raw,
-                                    bypassImportTransform: prefs.bypassImportTransform
-                                )
-                            }
-                        } else {
-                            decodeAhead = nil
-                        }
-                    } else {
-                        decodeAhead = nil
-                    }
-
-                    let renderInput = input.applyingHostGrade(tone: image.look.tone, density: image.look.colorDensity)
-                    let (filmOutput, _) = try await exactRenderer.render(renderInput, look: image.look)
-                    let geometryOutput = GeometryEngine.transformed(filmOutput, settings: image.look.geometry)
-                    let output = try geometryOutput.resizedForExport(settings: settings)
-                    let destination = Self.exportDestination(
-                        image: image,
-                        sequence: settings.sequenceStart + offset,
-                        settings: settings,
-                        reservedPaths: &reservedOutputPaths
-                    )
-                    try await exportEngine.write(output: output, look: image.look, sourceURL: image.url, destination: destination, settings: settings)
-                    completed += 1
-                } catch {
-                    failures.append(ExportFailure(fileName: image.fileName, message: error.localizedDescription))
-                }
-
-                exportProgress = Double(offset + 1) / Double(selected.count)
-                status = "Exporting \(offset + 1) / \(selected.count)…"
-            }
-
-            exportFailures = failures
+    private func runExportJob(_ initialJob: ExportJob) async {
+        guard let exactRenderer else {
             isExporting = false
-            if failures.isEmpty {
-                status = "Exported \(completed) image\(completed == 1 ? "" : "s")"
-            } else {
-                status = "Exported \(completed); \(failures.count) failed — see Export report"
+            status = "Export renderer unavailable"
+            return
+        }
+
+        var job = initialJob
+        job.state = .running
+        job.updatedAt = Date()
+        activeExportJob = job
+        try? await ExportJobJournal.shared.save(job)
+
+        defer {
+            isExporting = false
+            isStoppingExport = false
+            exportCurrentFileName = ""
+            exportTask = nil
+        }
+
+        var decodeAhead: Task<PixelBufferF32, Error>?
+        defer { decodeAhead?.cancel() }
+
+        for index in job.items.indices {
+            if job.items[index].state == .completed || job.items[index].state == .failed { continue }
+
+            do {
+                try Task.checkCancellation()
+                let item = job.items[index]
+                let sourceURL = URL(fileURLWithPath: item.sourcePath)
+
+                job.items[index].state = .rendering
+                job.items[index].errorMessage = nil
+                job.updatedAt = Date()
+                activeExportJob = job
+                exportCurrentFileName = item.sourceFileName
+                exportProgress = job.fractionComplete
+                status = "Rendering \(item.sourceFileName)…"
+                try await ExportJobJournal.shared.save(job)
+
+                let input: PixelBufferF32
+                if let decodeAhead {
+                    input = try await decodeAhead.value
+                } else {
+                    input = try await decoder.fullResolution(
+                        url: sourceURL,
+                        raw: item.look.raw,
+                        bypassImportTransform: job.bypassImportTransform
+                    )
+                }
+                decodeAhead = nil
+                try Task.checkCancellation()
+
+                if index + 1 < job.items.count {
+                    let next = job.items[index + 1]
+                    let nextURL = URL(fileURLWithPath: next.sourcePath)
+                    let currentPixels = Self.approximatePixelCount(sourceURL)
+                    let nextPixels = Self.approximatePixelCount(nextURL)
+                    if currentPixels > 0, nextPixels > 0, currentPixels + nextPixels <= 45_000_000 {
+                        decodeAhead = Task {
+                            try await decoder.fullResolution(
+                                url: nextURL,
+                                raw: next.look.raw,
+                                bypassImportTransform: job.bypassImportTransform
+                            )
+                        }
+                    }
+                }
+
+                let renderInput = await Task.detached(priority: .userInitiated) {
+                    input.applyingHostGrade(tone: item.look.tone, density: item.look.colorDensity)
+                }.value
+                try Task.checkCancellation()
+
+                let (filmOutput, _) = try await exactRenderer.render(renderInput, look: item.look)
+                try Task.checkCancellation()
+
+                let output = try await Task.detached(priority: .utility) {
+                    let geometryOutput = GeometryEngine.transformed(filmOutput, settings: item.look.geometry)
+                    return try geometryOutput.resizedForExport(settings: job.settings)
+                }.value
+                try Task.checkCancellation()
+
+                job.items[index].state = .writing
+                job.updatedAt = Date()
+                activeExportJob = job
+                status = "Writing \(URL(fileURLWithPath: item.destinationPath).lastPathComponent)…"
+                try await ExportJobJournal.shared.save(job)
+
+                let destination = URL(fileURLWithPath: item.destinationPath)
+                try await exportEngine.write(
+                    output: output,
+                    look: item.look,
+                    sourceURL: sourceURL,
+                    destination: destination,
+                    settings: job.settings
+                )
+                try Task.checkCancellation()
+
+                let attrs = try? FileManager.default.attributesOfItem(atPath: destination.path)
+                job.items[index].outputBytes = (attrs?[.size] as? NSNumber)?.int64Value
+                job.items[index].state = .completed
+                job.items[index].errorMessage = nil
+                job.updatedAt = Date()
+                activeExportJob = job
+                exportProgress = job.fractionComplete
+                status = "Exported \(job.completedCount) / \(job.items.count)"
+                try await ExportJobJournal.shared.save(job)
+
+            } catch is CancellationError {
+                decodeAhead?.cancel()
+                decodeAhead = nil
+                if job.items[index].state != .completed {
+                    job.items[index].state = .pending
+                    job.items[index].errorMessage = nil
+                }
+                job.state = .stopped
+                job.updatedAt = Date()
+                activeExportJob = job
+                exportProgress = job.fractionComplete
+                try? await ExportJobJournal.shared.save(job)
+                status = "Export stopped · \(job.remainingCount) remaining"
+                return
+
+            } catch {
+                decodeAhead?.cancel()
+                decodeAhead = nil
+                job.items[index].state = .failed
+                job.items[index].errorMessage = error.localizedDescription
+                job.updatedAt = Date()
+                exportFailures.append(ExportFailure(
+                    fileName: job.items[index].sourceFileName,
+                    message: error.localizedDescription
+                ))
+                activeExportJob = job
+                exportProgress = job.fractionComplete
+                try? await ExportJobJournal.shared.save(job)
             }
+        }
+
+        job.state = .completed
+        job.updatedAt = Date()
+        activeExportJob = job
+        exportProgress = 1
+        if job.failedCount == 0 {
+            status = "Export complete · \(job.completedCount) files"
+            await ExportJobJournal.shared.clear()
+        } else {
+            status = "Export finished · \(job.completedCount) complete · \(job.failedCount) failed"
+            try? await ExportJobJournal.shared.save(job)
         }
     }
 

@@ -162,10 +162,30 @@ struct LibraryWorkspaceView: View {
                 }
             }
             Spacer()
-            HStack(spacing: 8) {
-                Button("Import Folder…", systemImage: "folder.badge.plus") { model.importFolder() }
-                Button("Files…", systemImage: "photo.badge.plus") { model.importImages() }
-                    .help("Import individual photos")
+            VStack(spacing: 7) {
+                if model.isIngesting {
+                    ProgressView(value: model.ingestProgress)
+                    Text(model.ingestStatus)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                    Button("Stop Ingest", role: .destructive) { model.stopManagedIngest() }
+                        .buttonStyle(.bordered)
+                } else {
+                    HStack(spacing: 8) {
+                        Button("Ingest + Backup…", systemImage: "externaldrive.badge.plus") { model.beginManagedIngest() }
+                            .help("Copies the card/folder to a primary destination and a second backup, verifies SHA-256 checksums, and can resume after a crash.")
+                        if model.hasRecoverableIngest {
+                            Button("Resume Ingest", systemImage: "arrow.clockwise") { model.resumeManagedIngest() }
+                        }
+                    }
+                    HStack(spacing: 8) {
+                        Button("Reference Folder…", systemImage: "folder.badge.plus") { model.importFolder() }
+                            .help("References photos in place without making managed primary/backup copies.")
+                        Button("Files…", systemImage: "photo.badge.plus") { model.importImages() }
+                            .help("Reference individual photos in place.")
+                    }
+                }
             }
             .buttonStyle(.bordered)
             .padding(10)
@@ -230,6 +250,20 @@ struct LibraryWorkspaceView: View {
 
                     Button("Write XMP Sidecars") { model.writeSelectionXMP() }
                     Button("Read XMP Sidecars") { model.readSelectionXMP() }
+
+                    Divider()
+
+                    Menu("Sync Active Look") {
+                        Button("Tone + Film · keep each photo WB & crop") {
+                            model.syncActiveLookToHighlighted(copyWhiteBalance: false, copyGeometry: false)
+                        }
+                        Button("Include White Balance · keep each crop") {
+                            model.syncActiveLookToHighlighted(copyWhiteBalance: true, copyGeometry: false)
+                        }
+                        Button("Everything · include WB & crop") {
+                            model.syncActiveLookToHighlighted(copyWhiteBalance: true, copyGeometry: true)
+                        }
+                    }
 
                     Divider()
 

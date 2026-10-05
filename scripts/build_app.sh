@@ -8,6 +8,31 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 2
 fi
 
+for tool in xcrun swift lipo python3 git; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "Missing required build tool: $tool" >&2
+    exit 8
+  fi
+done
+
+# Intel-only builds should never retain old arm64 scratch trees. Removing them prevents
+# stale architecture artifacts from being selected and recovers disk space from old builds.
+rm -rf "$ROOT/.build/swift-arm64" "$ROOT/.build/native-arm64"
+
+MIN_FREE_GB="${SPEKTRAFILM_MIN_FREE_GB:-8}"
+if [[ ! "$MIN_FREE_GB" =~ ^[0-9]+$ ]]; then
+  echo "SPEKTRAFILM_MIN_FREE_GB must be an integer." >&2
+  exit 9
+fi
+AVAILABLE_KB="$(df -Pk "$ROOT" | awk 'NR==2 {print $4}')"
+REQUIRED_KB=$((MIN_FREE_GB * 1024 * 1024))
+if [[ -z "$AVAILABLE_KB" || "$AVAILABLE_KB" -lt "$REQUIRED_KB" ]]; then
+  AVAILABLE_GB=$(( ${AVAILABLE_KB:-0} / 1024 / 1024 ))
+  echo "Not enough free disk space for a safe release build: ${AVAILABLE_GB} GB free, ${MIN_FREE_GB} GB required." >&2
+  echo "Remove old .build/dist data or lower SPEKTRAFILM_MIN_FREE_GB only if you know the build fits." >&2
+  exit 10
+fi
+
 VERSION="${SPEKTRAFILM_VERSION:-$(tr -d '[:space:]' < "$ROOT/VERSION")}"
 BUILD_NUMBER="${SPEKTRAFILM_BUILD_NUMBER:-1}"
 CLEAN="${SPEKTRAFILM_CLEAN:-0}"
@@ -27,6 +52,13 @@ if [[ "$CLEAN" == "1" ]]; then
 fi
 
 "$ROOT/scripts/bootstrap_native.sh"
+
+NATIVE_LIB="$ROOT/.build/native/libSpektraFilmNativeCore.a"
+NATIVE_ARCHS="$(lipo -archs "$NATIVE_LIB" 2>/dev/null || true)"
+if [[ " $NATIVE_ARCHS " != *" x86_64 "* ]]; then
+  echo "Native core architecture mismatch before Swift link. Expected x86_64, got: ${NATIVE_ARCHS:-unknown}" >&2
+  exit 11
+fi
 
 SCRATCH="$ROOT/.build/swift-x86_64"
 swift build -c release --arch x86_64 --scratch-path "$SCRATCH" >&2

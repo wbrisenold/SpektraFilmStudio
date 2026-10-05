@@ -9,6 +9,7 @@ struct ScopePayload: Sendable {
 actor ScopeEngine {
     func analyze(
         _ buffer: PixelBufferF32,
+        look: RenderLook,
         mode: ScopeMode,
         skinToleranceDegrees: Double = 12.0,
         skinMaskWidth: Int = 0,
@@ -30,10 +31,10 @@ actor ScopeEngine {
             case .parade:
                 return Self.waveform(buffer, parade: true)
             case .vectorscope:
-                return Self.vectorscope(buffer, skinReference: false, toleranceDegrees: skinToleranceDegrees)
+                return Self.vectorscope(buffer, look: look, skinReference: false, toleranceDegrees: skinToleranceDegrees)
             case .skinVectorscope:
                 return Self.vectorscope(
-                    buffer, skinReference: true, toleranceDegrees: skinToleranceDegrees,
+                    buffer, look: look, skinReference: true, toleranceDegrees: skinToleranceDegrees,
                     skinMaskWidth: skinMaskWidth, skinMaskHeight: skinMaskHeight, skinMaskAlpha: skinMaskAlpha,
                     skinMeanCbNormalized: skinMeanCbNormalized,
                     skinMeanCrNormalized: skinMeanCrNormalized,
@@ -184,6 +185,7 @@ actor ScopeEngine {
 
     private nonisolated static func vectorscope(
         _ buffer: PixelBufferF32,
+        look: RenderLook,
         skinReference: Bool,
         toleranceDegrees: Double,
         skinMaskWidth: Int = 0,
@@ -211,14 +213,31 @@ actor ScopeEngine {
                     guard mi < skinMaskAlpha.count, skinMaskAlpha[mi] > 64 else { continue }
                 }
                 let p = (y * buffer.width + x) * 4
-                let r = clamp01(buffer.pixels[p])
-                let g = clamp01(buffer.pixels[p + 1])
-                let b = clamp01(buffer.pixels[p + 2])
-                let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
-                let cb = (b - luma) / (2 * (1 - 0.0722))
-                let cr = (r - luma) / (2 * (1 - 0.2126))
-                let px = min(size - 1, max(0, Int(((cb + 0.5) * Float(size - 1)).rounded())))
-                let py = min(size - 1, max(0, Int(((0.5 - cr) * Float(size - 1)).rounded())))
+                let rawR = clamp01(buffer.pixels[p])
+                let rawG = clamp01(buffer.pixels[p + 1])
+                let rawB = clamp01(buffer.pixels[p + 2])
+                let r: Float
+                let g: Float
+                let b: Float
+                let px: Int
+                let py: Int
+
+                if skinReference {
+                    guard let canonical = SkinToneReference.canonicalDisplayRGB(
+                        r: rawR, g: rawG, b: rawB, look: look
+                    ) else { continue }
+                    r = canonical.0; g = canonical.1; b = canonical.2
+                    let chroma = SkinToneReference.position(displayR: r, displayG: g, displayB: b)
+                    px = min(size - 1, max(0, Int(((chroma.uNormalized * 0.5 + 0.5) * Float(size - 1)).rounded())))
+                    py = min(size - 1, max(0, Int((((-chroma.vNormalized) * 0.5 + 0.5) * Float(size - 1)).rounded())))
+                } else {
+                    r = rawR; g = rawG; b = rawB
+                    let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+                    let cb = (b - luma) / (2 * (1 - 0.0722))
+                    let cr = (r - luma) / (2 * (1 - 0.2126))
+                    px = min(size - 1, max(0, Int(((cb + 0.5) * Float(size - 1)).rounded())))
+                    py = min(size - 1, max(0, Int(((0.5 - cr) * Float(size - 1)).rounded())))
+                }
                 let index = py * size + px
                 counts[index] = min(UInt16.max, counts[index] &+ 1)
                 sumR[index] += r
@@ -230,7 +249,7 @@ actor ScopeEngine {
         var out = background(size, size)
         drawVectorGrid(&out, size)
         if skinReference {
-            drawSkinReference(&out, size, referenceDegrees: 123.0, toleranceDegrees: toleranceDegrees)
+            drawSkinReference(&out, size, referenceDegrees: SkinToneReference.referenceAngleDegrees, toleranceDegrees: toleranceDegrees)
         }
         drawVectorTargets(&out, size)
 
@@ -296,7 +315,7 @@ actor ScopeEngine {
             Int((center + cb * radiusScale).rounded()),
             Int((center - cr * radiusScale).rounded())
         )
-        let radians = 123.0 * Double.pi / 180.0
+        let radians = SkinToneReference.referenceAngleDegrees * Double.pi / 180.0
         let targetCb = cos(radians) * measuredRadius
         let targetCr = sin(radians) * measuredRadius
         let target = (
@@ -306,7 +325,25 @@ actor ScopeEngine {
 
         // Connector answers the grading question immediately: where detected skin is vs
         // where the same chroma magnitude should land on the reference skin line.
-        drawLine(&out, size, size, measured, target, 224, 184, 116, 145)
+        drawLine(&out, size, size, measured, target, 224, 184, 116, 165)
+
+        let dx = Double(target.0 - measured.0)
+        let dy = Double(target.1 - measured.1)
+        let length = max(1.0, hypot(dx, dy))
+        let ux = dx / length
+        let uy = dy / length
+        let arrow = 8.0
+        let wing = 4.5
+        let left = (
+            Int((Double(target.0) - ux * arrow - uy * wing).rounded()),
+            Int((Double(target.1) - uy * arrow + ux * wing).rounded())
+        )
+        let right = (
+            Int((Double(target.0) - ux * arrow + uy * wing).rounded()),
+            Int((Double(target.1) - uy * arrow - ux * wing).rounded())
+        )
+        drawLine(&out, size, size, left, target, 236, 198, 126, 220)
+        drawLine(&out, size, size, right, target, 236, 198, 126, 220)
 
         let stateColor: (UInt8, UInt8, UInt8)
         if deviationDegrees < -toleranceDegrees {

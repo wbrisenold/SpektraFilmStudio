@@ -94,12 +94,13 @@ struct OpenSourceSkinClassifier {
     /// - geoffsmithBK/primera-suite (MIT), PrimeraHue: rg-chromaticity gate centered around
     ///   green-normalized skin ratios with red-leading-vs-blue discrimination.
     ///
-    /// RGB is display-encoded before applying these display-domain classifiers. The three gates
-    /// are intentionally combined rather than trusting one hue wedge across every complexion.
-    static func classify(linearR: Float, linearG: Float, linearB: Float, inFaceRegion: Bool) -> Result {
-        let r = displayEncode(linearR)
-        let g = displayEncode(linearG)
-        let b = displayEncode(linearB)
+    /// Input must already be canonical display-encoded sRGB. StudioAnalysis performs the
+    /// renderer-output transform once before subject/skin classification. This avoids the old
+    /// double-gamma bug on Rec.709 Gamma 2.4 output.
+    static func classify(displayR: Float, displayG: Float, displayB: Float, inFaceRegion: Bool) -> Result {
+        let r = Double(max(0, min(1, displayR)))
+        let g = Double(max(0, min(1, displayG)))
+        let b = Double(max(0, min(1, displayB)))
 
         let cb = (-0.169 * r - 0.331 * g + 0.500 * b) * 255.0 + 128.0
         let cr = ( 0.500 * r - 0.419 * g - 0.081 * b) * 255.0 + 128.0
@@ -166,11 +167,6 @@ struct OpenSourceSkinClassifier {
         return min(d, 360 - d)
     }
 
-    private static func displayEncode(_ value: Float) -> Double {
-        let x = Double(max(0, min(1, value)))
-        if x <= 0.0031308 { return 12.92 * x }
-        return 1.055 * pow(x, 1.0 / 2.4) - 0.055
-    }
 
     private static func hsv(r: Double, g: Double, b: Double) -> (Double, Double, Double) {
         let maximum = max(r, max(g, b))

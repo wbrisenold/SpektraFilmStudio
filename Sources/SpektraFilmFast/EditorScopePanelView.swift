@@ -21,6 +21,17 @@ struct EditorScopePanelView: View {
 
             scopeModeNav
 
+            if model.diagnosticsAreSettling {
+                Label("Diagnostics waiting for exact render", systemImage: "clock.arrow.circlepath")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else if !model.diagnosticStatus.isEmpty {
+                Label(model.diagnosticStatus, systemImage: "exclamationmark.triangle")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
             ZStack {
                 Color(red: 0.035, green: 0.043, blue: 0.055)
 
@@ -109,6 +120,22 @@ struct EditorScopePanelView: View {
 
             Divider()
 
+            HStack(spacing: 7) {
+                Image(systemName: "arrow.right.circle")
+                    .foregroundStyle(skinStatusColor)
+                Text(skinCorrectionLabel)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("WB to Skin") { model.autoWhiteBalanceToSkin() }
+                    .controlSize(.mini)
+                    .disabled(model.isSkinWhiteBalanceRunning || skinStatusLabel == "No reliable skin sample")
+            }
+            .padding(.horizontal, 7)
+            .frame(height: 26)
+
+            Divider()
+
             HStack(spacing: 0) {
                 scopeMetric("ON TARGET", String(format: "%.0f%%", model.analysisMetrics.skinWithinTolerancePercent))
                 Divider().frame(height: 22)
@@ -135,6 +162,19 @@ struct EditorScopePanelView: View {
         if metrics.skinMeanDeviationDegrees < -tolerance { return "Too Magenta" }
         if metrics.skinMeanDeviationDegrees > tolerance { return "Too Green" }
         return "On Target"
+    }
+
+    private var skinCorrectionLabel: String {
+        switch skinStatusLabel {
+        case "Too Magenta":
+            return "CORRECT → push tint toward GREEN"
+        case "Too Green":
+            return "CORRECT → push tint toward MAGENTA"
+        case "On Target":
+            return "ON LINE → no hue/tint push needed"
+        default:
+            return "Skin correction direction unavailable"
+        }
     }
 
     private var skinStatusColor: Color {

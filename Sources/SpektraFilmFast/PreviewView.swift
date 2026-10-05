@@ -138,10 +138,10 @@ struct PreviewView: View {
         }
         let tolerance = model.project.preferences.skinToleranceDegrees
         if metrics.skinMeanDeviationDegrees < -tolerance {
-            return String(format: "Skin · TOO MAGENTA · %.0f%%", metrics.skinMagentaPercent)
+            return String(format: "Skin · TOO MAGENTA · push GREEN · %.0f%%", metrics.skinMagentaPercent)
         }
         if metrics.skinMeanDeviationDegrees > tolerance {
-            return String(format: "Skin · TOO GREEN · %.0f%%", metrics.skinGreenPercent)
+            return String(format: "Skin · TOO GREEN · push MAGENTA · %.0f%%", metrics.skinGreenPercent)
         }
         return String(format: "Skin · ON TARGET · %.0f%%", metrics.skinWithinTolerancePercent)
     }

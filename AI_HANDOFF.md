@@ -9,7 +9,7 @@ Product copy must remain event-agnostic. This is a general high-end still-photo 
 ## Release identity
 
 - `VERSION`: `0.5.1`
-- expected local Universal artifact: `SpektraFilm-0.5.1-macOS-universal.zip`
+- expected local Intel artifact: `SpektraFilm-0.5.1-macOS-intel.zip`
 - pinned Spektrafilm native core: `8f6651858f439a99b7202b4b8dea59e344dadf5d`
 - bundled Metal library: `Resources/SpektraFilm.metallib`
 - application icon: `Resources/AppIcon.icns` (packaged as `SpektraFilm.icns` by the build script)
@@ -199,6 +199,6 @@ On non-macOS, these are source gates only. Apple frameworks cannot be linked/run
 
 ## Mandatory Mac release gate
 
-Run `BUILD_ON_MAC.command` on macOS with Xcode 26 / macOS 26 SDK. Verify Universal arm64 + x86_64 output, Metal `--self-test`, `--studio-soak-test`, Developer ID hardened-runtime signing, notarization, stapling, and Gatekeeper acceptance before describing a binary as production-approved.
+Run `BUILD_ON_MAC.command` on macOS with Xcode 26 / macOS 26 SDK. Verify Intel x86_64 output, Metal `--self-test`, `--studio-soak-test`, Developer ID hardened-runtime signing, notarization, stapling, and Gatekeeper acceptance before describing a binary as production-approved.
 
 There is no GitHub Actions release requirement in this package. Local Mac build is the authoritative compile/link/runtime gate.

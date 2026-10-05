@@ -16,7 +16,7 @@ You do not need a GitHub repository or GitHub Actions. `Resources/SpektraFilm.me
 4. When the build completes, Finder opens the `dist` folder.
 5. Launch `SpektraFilm.app`.
 
-The build creates a Universal arm64 + x86_64 application. The included `.metallib` is copied directly into the app bundle; the build does not recompile the Metal shader library.
+The build creates an Intel x86_64 application. Apple Silicon is intentionally not built for this release. The included `.metallib` is copied directly into the app bundle; the build does not recompile the Metal shader library.
 
 ## Optional production signing
 

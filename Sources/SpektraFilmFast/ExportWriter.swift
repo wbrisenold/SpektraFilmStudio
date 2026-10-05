@@ -12,6 +12,7 @@ enum ExportWriterError: LocalizedError {
     case cannotCreateImage
     case cannotCreateDestination(String)
     case encoderFinalizeFailed
+    case destinationExists(String)
     case verificationFailed(String)
 
     var errorDescription: String? {
@@ -19,6 +20,7 @@ enum ExportWriterError: LocalizedError {
         case .cannotCreateImage: "Could not construct the export image buffer."
         case .cannotCreateDestination(let type): "ImageIO could not create a \(type) encoder on this Mac."
         case .encoderFinalizeFailed: "Image encoder failed while finalizing the file."
+        case .destinationExists(let name): "Export refused to overwrite existing file: \(name)"
         case .verificationFailed(let reason): "Export verification failed: \(reason)"
         }
     }
@@ -32,6 +34,7 @@ enum ExportWriter {
         destination: URL,
         settings: ExportSettings
     ) throws {
+        try Task.checkCancellation()
         let profile = OutputColorProfile.forLook(look)
         let image: CGImage
         if settings.format == .tiff && settings.tiff16Bit {
@@ -49,8 +52,12 @@ enum ExportWriter {
         case .tiff: type = UTType.tiff.identifier as CFString
         }
 
+        try Task.checkCancellation()
         let fm = FileManager.default
         try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        guard !fm.fileExists(atPath: destination.path) else {
+            throw ExportWriterError.destinationExists(destination.lastPathComponent)
+        }
         let temp = destination.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString)-\(destination.lastPathComponent)")
         defer { try? fm.removeItem(at: temp) }
 
@@ -76,8 +83,10 @@ enum ExportWriter {
             properties[kCGImagePropertyDepth] = settings.tiff16Bit ? 16 : 8
         }
 
+        try Task.checkCancellation()
         CGImageDestinationAddImage(dest, image, properties as CFDictionary)
         guard CGImageDestinationFinalize(dest) else { throw ExportWriterError.encoderFinalizeFailed }
+        try Task.checkCancellation()
 
         let validatedBytes = try verify(
             url: temp,
@@ -86,11 +95,11 @@ enum ExportWriter {
             require16Bit: settings.format == .tiff && settings.tiff16Bit
         )
 
-        if fm.fileExists(atPath: destination.path) {
-            _ = try fm.replaceItemAt(destination, withItemAt: temp, backupItemName: nil, options: .usingNewMetadataOnly)
-        } else {
-            try fm.moveItem(at: temp, to: destination)
+        guard !fm.fileExists(atPath: destination.path) else {
+            throw ExportWriterError.destinationExists(destination.lastPathComponent)
         }
+        try Task.checkCancellation()
+        try fm.moveItem(at: temp, to: destination)
 
         let finalAttrs = try fm.attributesOfItem(atPath: destination.path)
         let finalBytes = (finalAttrs[.size] as? NSNumber)?.intValue ?? 0

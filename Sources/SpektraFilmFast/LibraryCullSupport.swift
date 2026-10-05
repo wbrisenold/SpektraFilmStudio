@@ -119,15 +119,18 @@ extension AppModel {
         }
     }
 
-    /// Burst grouping is intentionally explainable and deterministic. Adjacent frames are
-    /// grouped when capture times are close and/or their perceptual hashes are very similar.
+    /// Burst grouping is intentionally explainable and deterministic. Automatic stacks
+    /// require real capture timestamps plus temporal and visual proximity. Import time is never
+    /// used as a fake capture time because a whole card can be imported within seconds.
     /// The highest technical score becomes rank #1; no photo is deleted automatically.
     private func rebuildCullStacks() {
-        let ordered = project.images.indices.sorted {
-            let lhs = project.images[$0].captureDate ?? project.images[$0].importedAt
-            let rhs = project.images[$1].captureDate ?? project.images[$1].importedAt
-            return lhs < rhs
-        }
+        let ordered = project.images.indices
+            .filter { project.images[$0].captureDate != nil }
+            .sorted {
+                guard let lhs = project.images[$0].captureDate,
+                      let rhs = project.images[$1].captureDate else { return false }
+                return lhs < rhs
+            }
 
         var groups: [[Int]] = []
         var current: [Int] = []
@@ -135,11 +138,15 @@ extension AppModel {
             guard let analysis = project.images[index].cullAnalysis else { continue }
             if let previous = current.last,
                let previousAnalysis = project.images[previous].cullAnalysis {
-                let lhsDate = project.images[previous].captureDate ?? project.images[previous].importedAt
-                let rhsDate = project.images[index].captureDate ?? project.images[index].importedAt
+                guard let lhsDate = project.images[previous].captureDate,
+                      let rhsDate = project.images[index].captureDate else {
+                    if current.count > 1 { groups.append(current) }
+                    current = [index]
+                    continue
+                }
                 let seconds = abs(rhsDate.timeIntervalSince(lhsDate))
                 let hashDistance = Self.hammingDistance(previousAnalysis.perceptualHash, analysis.perceptualHash)
-                if seconds <= 2.2 || hashDistance <= 9 {
+                if seconds <= 3.0 && hashDistance <= 18 {
                     current.append(index)
                 } else {
                     if current.count > 1 { groups.append(current) }
@@ -252,6 +259,34 @@ extension AppModel {
         }
     }
 
+
+    func syncActiveLookToHighlighted(copyWhiteBalance: Bool, copyGeometry: Bool) {
+        guard let source = selectedImage else { return }
+        let ids = librarySelection.isEmpty ? Set([source.id]) : librarySelection
+        guard ids.count > 1 || !ids.contains(source.id) else {
+            status = "Highlight additional photos to sync"
+            return
+        }
+
+        var changed = 0
+        for index in project.images.indices where ids.contains(project.images[index].id) && project.images[index].id != source.id {
+            let targetRaw = project.images[index].look.raw
+            let targetGeometry = project.images[index].look.geometry
+            var synced = source.look
+            if !copyWhiteBalance { synced.raw = targetRaw }
+            if !copyGeometry { synced.geometry = targetGeometry }
+            synced.normalizeForProOnly()
+            if project.images[index].look != synced {
+                project.images[index].look = synced
+                changed += 1
+            }
+        }
+
+        status = "Synced look to \(changed) photo\(changed == 1 ? "" : "s")" +
+            (copyWhiteBalance ? " · WB included" : " · each photo kept its WB") +
+            (copyGeometry ? " · crop included" : " · each photo kept its crop")
+    }
+
     func batchSetClientPicked(_ selected: Bool) {
         let ids = Set(librarySelectedImages.map(\.id))
         guard !ids.isEmpty else { return }
@@ -334,16 +369,19 @@ extension AppModel {
             peopleGroupingStatus = "No photos available"
             return
         }
+        peopleGroupingTask?.cancel()
         isGroupingPeople = true
         peopleGroupingStatus = "Grouping faces locally…"
         let engine = faceGroupingEngine
-        Task { [weak self] in
+        let generation = projectGeneration
+        peopleGroupingTask = Task { [weak self] in
             guard let self else { return }
             let groups = await engine.group(items: items)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, generation == projectGeneration else { return }
             project.peopleGroups = groups
             libraryPeopleGroupFilter = groups.first?.id
             isGroupingPeople = false
+            peopleGroupingTask = nil
             peopleGroupingStatus = groups.isEmpty
                 ? "No repeated faces found"
                 : "Grouped \(groups.count) repeated face\(groups.count == 1 ? "" : "s")"

@@ -93,6 +93,19 @@ struct ControlsView: View {
                         .foregroundStyle(.secondary)
 
                     HStack(spacing: 6) {
+                        Button {
+                            model.autoWhiteBalanceToSkin()
+                        } label: {
+                            if model.isSkinWhiteBalanceRunning {
+                                ProgressView().controlSize(.mini)
+                            } else {
+                                Label("WB to Skin", systemImage: "person.crop.circle.badge.checkmark")
+                            }
+                        }
+                        .controlSize(.small)
+                        .disabled(model.isSkinWhiteBalanceRunning || model.selectedImage == nil)
+                        .help("Starts from this photo's As Shot white balance, measures reliable skin against the vectorscope skin line, then solves a conservative per-photo temperature/tint correction.")
+
                         Menu("From As Shot") {
                             Section("Technical") {
                                 ForEach(WhiteBalanceQuickPreset.technicalPresets) { preset in
@@ -160,6 +173,12 @@ struct ControlsView: View {
                     Text(model.autoWhiteBalanceStatus)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
+                }
+
+                if !model.skinWhiteBalanceStatus.isEmpty {
+                    Text(model.skinWhiteBalanceStatus)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
 
                 Toggle("Vendor Lens Correction", isOn: Binding(

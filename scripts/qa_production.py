@@ -307,7 +307,7 @@ require("SPEKTRAFILM_CODESIGN_IDENTITY" in build_script and "--options runtime" 
 require("notarytool submit" in notarize_script and "stapler staple" in notarize_script and "spctl --assess" in notarize_script, "notarization/Gatekeeper gate incomplete")
 require("Authority=Developer ID Application:" in notarize_script and "hardened runtime" in notarize_script, "release does not verify Developer ID/hardened runtime before notarization")
 require("--self-test" in app_main and "--studio-soak-test" in app_main, "runtime/soak entry points missing")
-require("lipo -create" in build_script and "arm64" in build_script and "x86_64" in build_script, "local Universal build path missing")
+require("--arch x86_64" in build_script and "--arch arm64" not in build_script and "lipo -create" not in build_script, "local Intel x86_64 build path missing or arm64 was reintroduced")
 require("SpektraFilm.metallib" in build_script, "bundled Metal library is not copied into the app")
 require("ProductionSelfTest" in app_main, "app runtime self-test entry point missing")
 require("runCacheRoundTrip" in selftest and "thumbnail SSD" in selftest and "developed-source SSD" in selftest and "decode RAM hits verified" in selftest, "runtime cache hit/miss self-test missing")
@@ -328,3 +328,34 @@ require("skinMaskAlpha" in scope and "skinMaskAlpha[mi] > 64" in scope, "Skin Ve
 require("scopeEnabled = true" in models and "Always on in Edit" in settings, "scopes are not persistent in Edit")
 
 print("v0.5 studio-workflow acceptance checks passed")
+
+
+# Skin diagnostics / As-Shot Skin WB production guards.
+skin_ref = text("SkinToneReference.swift")
+require("ScopeWalker" in skin_ref and "referenceAngleDegrees" in skin_ref, "open-source calibrated skin-line reference missing")
+require("canonicalDisplayRGB" in skin_ref and "outputRoleIndex" in skin_ref, "skin diagnostics are not colorspace/output-role aware")
+require("displayR:" in text("SubjectSkinMask.swift") and "displayEncode(linearR)" not in text("SubjectSkinMask.swift"), "skin classifier still double-gamma encodes renderer output")
+require("func autoWhiteBalanceToSkin()" in app and "whiteBalanceMode = .asShot" in app, "As-Shot Skin WB solver missing")
+require("Skin WB exact preview" in app and "skinWhiteBalanceGeneration" in app, "Skin WB is not cancellable/exact")
+require('Label("WB to Skin"' in controls, "WB to Skin button missing from RAW controls")
+require("CORRECT → push tint toward GREEN" in scope_panel and "arrow.right.circle" in scope_panel, "skin correction direction UI missing")
+require("if interactive { return }" in app and "Diagnostics update after the exact render settles" in app, "diagnostics still report transient proxy measurements")
+
+
+# v0.6 production hardening guards
+export_job = text("ExportJob.swift")
+managed_ingest = text("ManagedIngest.swift")
+export_view = text("ExportView.swift")
+require("self?.handleMemoryPressure(level)" in app and "full-resolution/transient buffers released" in app, "memory pressure is still disconnected")
+require("Snapshot only after the debounce wins" in app and "let snapshot = project" in app, "autosave still snapshots before debounce")
+require("The old path copied the entire" in app and "var updated = project" not in app.split("startBackgroundImportHydration",1)[1].split("Workspace transitions",1)[0], "import hydration still copies/rescans the whole project")
+require("projectGeneration += 1" in app and "peopleGroupingTask" in app and "proofGenerationTask" in app, "project-scoped task cancellation missing")
+require("Import time is never" in cull_support and "seconds <= 3.0 && hashDistance <= 18" in cull_support, "burst grouping can still use import time/hash-only chaining")
+require("syncActiveLookToHighlighted" in cull_support and 'Menu("Sync Active Look")' in library, "batch look sync missing")
+require("SHA256" in managed_ingest and "primary + backup verified" in managed_ingest and "active-ingest.json" in managed_ingest, "verified resumable ingest missing")
+require('Button("Ingest + Backup…"' in library and 'Button("Resume Ingest"' in library, "managed ingest UI missing")
+require("active-export.json" in export_job and "normalizeAfterInterruptedLaunch" in export_job, "crash-resumable export journal missing")
+require('expanded += "_\\(sequenceText)"' in export_job, "static export templates do not auto-number")
+require("replaceItemAt" not in text("ExportWriter.swift") and "destinationExists" in text("ExportWriter.swift"), "export writer can still overwrite existing files")
+require("func stopExport()" in app and "exportTask?.cancel()" in app and 'Stop Export' in export_view, "hard Stop Export missing")
+require("ExportJobPlanner.previewNames" in app and "Preflight" in export_view, "export filename preflight missing")

@@ -1,4 +1,4 @@
-# SpektraFilmFast 0.5.2 — Studio Workflow
+# SpektraFilmFast 0.5.3 — Studio Workflow
 
 SpektraFilmFast is a non-destructive macOS still-photo studio built around the Spektrafilm native Metal renderer. It combines Library, Cull, client Proofs, film-oriented editing, professional scopes, crop/geometry, and delivery/export in one application.
 
@@ -115,9 +115,9 @@ If you have a better algorithm or architecture, show the source and measurements
 
 No GitHub repository or GitHub Actions are required. A Mac is still required to compile the Swift/AppKit/Objective-C++ application executable.
 
-Double-click `BUILD_ON_MAC.command` on a Mac with Xcode 26 / the macOS 26 SDK. The local build creates a Universal arm64 + x86_64 app and:
+Double-click `BUILD_ON_MAC.command` on a Mac with Xcode 26 / the macOS 26 SDK. The local build creates an Intel x86_64 app and:
 
-- `dist/SpektraFilm-0.5.2-macOS-universal.zip`
+- `dist/SpektraFilm-0.5.3-macOS-intel.zip`
 - `dist/SHA256SUMS.txt`
 - `dist/build-info.txt`
 

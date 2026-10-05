@@ -39,7 +39,7 @@ catches no type errors, so it goes green on code that cannot compile. It also
 `bash -n`s the shell scripts (syntax only, no execution).
 
 **Never treat a green `source-checks` as evidence of buildability.** Only
-`build-universal` proves that.
+the local Intel x86_64 release build proves that.
 
 ## 4. `Package.swift` is `swift-tools-version: 6.0` → Swift 6 strict concurrency
 
@@ -151,7 +151,7 @@ Deleting the wrong SHA on the basis of the first command alone moves your tag.
 
 ## 8. Historical GitHub workflow notes are not part of the current release path
 
-Older iterations used GitHub Actions for Universal packaging. The current package intentionally uses `BUILD_ON_MAC.command` as the authoritative compile/link/runtime gate. Do not restore token-permission or `gh workflow run` steps unless the project explicitly returns to a hosted release workflow.
+Older iterations used GitHub Actions for Universal packaging; the current release is Intel x86_64 only. The current package intentionally uses `BUILD_ON_MAC.command` as the authoritative compile/link/runtime gate. Do not restore token-permission or `gh workflow run` steps unless the project explicitly returns to a hosted release workflow.
 
 ## 9. Debug-tracing scripts must live in `scripts/`
 

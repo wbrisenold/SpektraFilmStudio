@@ -16,14 +16,18 @@ grep -q 'No GitHub repository or GitHub Actions required' BUILD_ON_MAC.command
 grep -q 'SpektraFilm.metallib' scripts/build_app.sh
 pass 2 "Shell syntax and local-build structure"
 
-# 3 — Local Universal build + signed release hooks
-grep -q 'swift build -c release --arch "$ARCH" --scratch-path "$SCRATCH" >&2' scripts/build_app.sh
-grep -q 'lipo -create' scripts/build_app.sh
+# 3 — Local Intel x86_64 build + signed release hooks
+grep -q 'swift build -c release --arch x86_64 --scratch-path "$SCRATCH" >&2' scripts/build_app.sh
+! grep -q -- '--arch arm64' scripts/build_app.sh scripts/bootstrap_native.sh
+! grep -q 'lipo -create' scripts/build_app.sh
+grep -q 'SPEKTRAFILM_MIN_FREE_GB' scripts/build_app.sh
+grep -q 'PROFILEGEN_REQUIREMENTS' scripts/bootstrap_native.sh
 grep -q '8f6651858f439a99b7202b4b8dea59e344dadf5d' scripts/bootstrap_native.sh
 grep -q -- '--options runtime' scripts/build_app.sh
 grep -q 'notarytool submit' scripts/notarize_app.sh
 grep -q 'spctl --assess' scripts/notarize_app.sh
-pass 3 "Local Universal build and Developer ID/notarization hooks present"
+grep -q 'macOS-intel.zip' scripts/notarize_app.sh
+pass 3 "Local Intel x86_64 build and Developer ID/notarization hooks present"
 
 # 4 — Import/library hot path and local caches
 python3 scripts/qa_production.py >/dev/null
@@ -100,7 +104,7 @@ pass 9 "Full-resolution export remains diagnostics-free and verified"
 
 # 10 — Runtime gates, migration, resources/version
 VERSION="$(tr -d '[:space:]' < VERSION)"
-[[ "$VERSION" == "0.5.2" ]]
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]
 grep -q -- '--self-test' Sources/SpektraFilmFast/SpektraFilmFastApp.swift
 grep -q -- '--studio-soak-test' Sources/SpektraFilmFast/SpektraFilmFastApp.swift
 grep -q 'formatVersion = 6' Sources/SpektraFilmFast/ProjectModels.swift
@@ -111,5 +115,5 @@ grep -q 'Label("Reset All"' Sources/SpektraFilmFast/EditView.swift
 shasum -a 256 Resources/AppIcon.icns Resources/SpektraFilm.metallib Resources/SpektraHanatos2025Spectra.f32 Resources/SpektraOutputGamutCompression.f32 >/dev/null
 pass 10 "Runtime/soak entry points, migration, resource integrity"
 
-printf '\n10/10 v0.5.2 studio-workflow production-source QA passes completed.\n'
-printf 'A release is only production-approved after a local macOS 26 SDK Universal build + runtime/soak + Developer ID notarization gates pass.\n'
+printf '\n10/10 %s studio-workflow production-source QA passes completed.\n' "$VERSION"
+printf 'A release is only production-approved after a local macOS 26 SDK Intel x86_64 build + runtime/soak + Developer ID notarization gates pass.\n'

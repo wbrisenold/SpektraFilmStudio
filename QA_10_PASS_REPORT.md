@@ -13,4 +13,4 @@
 9. Export isolation and verified JPEG/HEIC/TIFF8/TIFF16 paths.
 10. v0.5.2 version/resource/source-manifest/runtime-distribution gates.
 
-These source checks do not substitute for a local macOS 26 SDK Universal build, the Metal self-test/renderer soak, Developer ID signing/notarization, or the real studio soak described in `PRODUCTION_QA.md`.
+These source checks do not substitute for a local macOS 26 SDK Intel x86_64 build, the Metal self-test/renderer soak, Developer ID signing/notarization, or the real studio soak described in `PRODUCTION_QA.md`.

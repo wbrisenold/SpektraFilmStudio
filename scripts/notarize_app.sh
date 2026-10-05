@@ -5,7 +5,7 @@ cd "$ROOT"
 
 VERSION="${SPEKTRAFILM_VERSION:-$(tr -d '[:space:]' < VERSION)}"
 APP="$ROOT/dist/SpektraFilm.app"
-ZIP="$ROOT/dist/SpektraFilm-${VERSION}-macOS-universal.zip"
+ZIP="$ROOT/dist/SpektraFilm-${VERSION}-macOS-intel.zip"
 
 : "${APPLE_ID:?APPLE_ID is required for notarization}"
 : "${APPLE_APP_SPECIFIC_PASSWORD:?APPLE_APP_SPECIFIC_PASSWORD is required for notarization}"

@@ -108,40 +108,48 @@ final class ShortcutMonitor {
     func install(model: AppModel) {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak model] event in
-            guard let model else { return event }
-            if NSApp.keyWindow?.firstResponder is NSTextView { return event }
-            let key = Self.keyName(event)
-            let p = model.project.preferences
-            let inLibrary = model.page == .library
-            func applyRating(_ value: Int) {
-                if inLibrary { Task { await model.batchSetRating(value) } } else { Task { await model.setRating(value) } }
-            }
-            func applyFlag(_ value: ProjectFlag) {
-                if inLibrary { Task { await model.batchSetFlag(value) } } else { Task { await model.setFlag(value) } }
-            }
+            // AppKit local event monitors are delivered on the main thread, but Swift 6 does
+            // not infer MainActor isolation for this escaping callback. Make the boundary
+            // explicit so AppModel access stays actor-correct without per-keypress Tasks.
+            MainActor.assumeIsolated {
+                guard let model else { return event }
+                if NSApp.keyWindow?.firstResponder is NSTextView { return event }
+                let key = Self.keyName(event)
+                let p = model.project.preferences
+                let inLibrary = model.page == .library
 
-            // Lightroom-style number keys work anywhere; in Library they apply to the
-            // highlighted set instead of silently changing only the active thumbnail.
-            if event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
-               let value = Int(key), (0...5).contains(value) {
-                applyRating(value)
-                return nil
-            }
+                func applyRating(_ value: Int) {
+                    if inLibrary { model.batchSetRating(value) }
+                    else { model.setRating(value) }
+                }
+                func applyFlag(_ value: ProjectFlag) {
+                    if inLibrary { model.batchSetFlag(value) }
+                    else { model.setFlag(value) }
+                }
 
-            if inLibrary,
-               event.modifierFlags.contains(.command),
-               key.lowercased() == "a" {
-                model.selectAllVisible()
-                return nil
-            }
+                // Lightroom-style number keys work anywhere; in Library they apply to the
+                // highlighted set instead of silently changing only the active thumbnail.
+                if event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
+                   let value = Int(key), (0...5).contains(value) {
+                    applyRating(value)
+                    return nil
+                }
 
-            switch key.lowercased() {
-            case p.shortcutPrevious.lowercased(): model.selectRelative(-1); return nil
-            case p.shortcutNext.lowercased(): model.selectRelative(1); return nil
-            case p.shortcutPick.lowercased(): applyFlag(.picked); return nil
-            case p.shortcutReject.lowercased(): applyFlag(.rejected); return nil
-            case p.shortcutUnflag.lowercased(): applyFlag(.unflagged); return nil
-            default: return event
+                if inLibrary,
+                   event.modifierFlags.contains(.command),
+                   key.lowercased() == "a" {
+                    model.selectAllVisible()
+                    return nil
+                }
+
+                switch key.lowercased() {
+                case p.shortcutPrevious.lowercased(): model.selectRelative(-1); return nil
+                case p.shortcutNext.lowercased(): model.selectRelative(1); return nil
+                case p.shortcutPick.lowercased(): applyFlag(.picked); return nil
+                case p.shortcutReject.lowercased(): applyFlag(.rejected); return nil
+                case p.shortcutUnflag.lowercased(): applyFlag(.unflagged); return nil
+                default: return event
+                }
             }
         }
     }
