@@ -94,6 +94,41 @@ For JPEG, HEIC, TIFF8, TIFF16:
 - Apple notarization, stapling, and Gatekeeper assessment succeed.
 - Release ZIP and `SHA256SUMS.txt` verify after an independent download.
 
+### 9a. Publishing a GitHub release (after each build)
+
+Repeat this every time the app changes, so people can download the app instead of
+building it. See `RELEASING.md` for the full checklist.
+
+```bash
+# 1. Build clean, so the published artifact is reproducible from the commit.
+#    (SPEKTRAFILM_CLEAN=1 forces a from-scratch build and sets incremental_build=no.)
+SPEKTRAFILM_CLEAN=1 ./BUILD_ON_MAC.command
+
+# 2. Sanity-check the artifact before publishing anything.
+codesign --verify --deep --strict dist/SpektraFilm.app
+lipo -archs dist/SpektraFilm.app/Contents/MacOS/SpektraFilm      # expect x86_64
+grep incremental_build dist/build-info.txt                        # expect incremental_build=no
+unzip -t dist/SpektraFilm-*.zip                                   # expect No errors
+
+# 3. Tag the exact commit you built, and publish.
+git rev-parse --short HEAD            # record this; the release must point at it
+gh release create v<VERSION> \
+  dist/SpektraFilm-<VERSION>-macOS-intel.zip dist/SHA256SUMS.txt \
+  --target main \
+  --title "SpektraFilm <VERSION> — Intel (x86_64) macOS app" \
+  --notes-file RELEASE_NOTES.md
+
+# 4. Confirm the published bytes match what you built.
+gh release download v<VERSION> --pattern '*.zip' --dir /tmp/relcheck
+shasum -a 256 /tmp/relcheck/*.zip dist/SpektraFilm-<VERSION>-macOS-intel.zip
+```
+
+Release notes must state the Gatekeeper workaround, because the local build is
+ad-hoc signed and not notarized. See the "first open" section of `RELEASING.md`.
+
+The tag must point at the commit that was built, so `git rev-parse v<VERSION>^{commit}`
+must equal `git rev-parse origin/main`. Do not move a published tag; publish a new version instead.
+
 ## 10. Studio soak
 
 Run at least a one-hour real edit/cull/export session with repeated photo switching, Cull analysis, cache hits, scopes, RAW edits, and exports. Watch for runaway RAM/thread count/CPU after idle, stale-frame flashes, blank previews, or UI hangs.

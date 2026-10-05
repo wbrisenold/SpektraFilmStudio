@@ -115,8 +115,26 @@ If you have a better algorithm or architecture, show the source and measurements
 
 No GitHub Actions workflow is required for a release. A Mac is still required to compile the Swift/AppKit/Objective-C++ application executable.
 
-Requirements: macOS and Xcode 26 / the macOS 26 SDK. Nothing else — no network, no
-Python, no pre-existing caches.
+### Downloading a pre-built app
+
+You do not have to build anything. Pre-built Intel apps are published as GitHub
+releases:
+
+- <https://github.com/wbrisenold/SpektraFilmFast/releases>
+
+Download the `.zip`, drag `SpektraFilm.app` into Applications, and launch it.
+Requires macOS 15 or newer; on Apple Silicon, install Rosetta 2 first
+(`softwareupdate --install-rosetta`).
+
+The published builds are ad-hoc signed and not notarized, so macOS shows a
+"cannot be opened because the developer cannot be verified" warning on first
+open. That is expected — right-click the app and choose **Open**, or run
+`xattr -dr com.apple.quarantine /Applications/SpektraFilm.app`. Each release's
+notes repeat these steps.
+
+### Building from source
+
+Requirements: macOS and Xcode 26 / the macOS 26 SDK. Nothing else — no network, no Python, no pre-existing caches.
 
 ```
 git clone https://github.com/wbrisenold/SpektraFilmFast.git
@@ -170,6 +188,12 @@ code layout for different build directories, so `dist/` binaries from two differ
 differ in bytes while containing the same code, symbols, and resources.
 
 A public release still requires Developer ID signing, hardened runtime, notarization, stapling, Gatekeeper assessment, `--self-test`, and `--studio-soak-test` as documented in `PRODUCTION_QA.md`.
+
+### Publishing a release
+
+To publish a pre-built app after a change, follow `RELEASING.md` (and the
+checklist in `PRODUCTION_QA.md` §9a): build with `SPEKTRAFILM_CLEAN=1`, verify the
+artifact, then `gh release create` with the zip and `SHA256SUMS.txt`.
 
 ### Toolchain support (Swift 6.2 / Xcode 26)
 
