@@ -124,7 +124,7 @@ struct ProofsWorkspaceView: View {
             ContentUnavailableView(
                 "Client Proofing Stays Here",
                 systemImage: "person.2.crop.square.stack",
-                description: Text("Cull, create a client gallery, send the short link, sync their picks, then keep editing without leaving SpektraFilm.")
+                description: Text("Cull, create a client gallery, send the short link, sync their picks, then keep editing without leaving SpektraFilm Studio.")
             )
         }
     }

@@ -649,6 +649,8 @@ final class AppModel: ObservableObject {
 
                 var results: [(UUID, PhotoMetadata?, XMPSidecarState?)] = []
                 results.reserveCapacity(batch.count)
+                let metadataService = self.metadataService
+                let xmpService = self.xmpService
                 await withTaskGroup(of: (UUID, PhotoMetadata?, XMPSidecarState?).self) { group in
                     for (id, url) in batch {
                         group.addTask { [metadataService, xmpService] in
@@ -822,6 +824,7 @@ final class AppModel: ObservableObject {
                 guard !Task.isCancelled, project.selectedImageID == image.id, page != .edit else { return }
                 // Build the persistent linear workfile for the active photo and its nearest
                 // neighbors. These are temporary cache files only; the originals stay untouched.
+                let decoder = self.decoder
                 await withTaskGroup(of: Void.self) { group in
                     for candidate in candidates {
                         group.addTask { [decoder] in
@@ -3193,7 +3196,7 @@ final class AppModel: ObservableObject {
         }
 
         let alert = NSAlert()
-        alert.messageText = "Recover unsaved SpektraFilm work?"
+        alert.messageText = "Recover unsaved SpektraFilm Studio work?"
         alert.informativeText = "A recovery snapshot from \(recovery.savedAt.formatted()) was found. Recover it or discard the snapshot."
         alert.addButton(withTitle: "Recover")
         alert.addButton(withTitle: "Discard")
@@ -3226,7 +3229,7 @@ final class AppModel: ObservableObject {
         guard isProjectDirty else { return true }
         let alert = NSAlert()
         alert.messageText = "Save changes before quitting?"
-        alert.informativeText = "Unsaved changes are still in this SpektraFilm project."
+        alert.informativeText = "Unsaved changes are still in this SpektraFilm Studio project."
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Don't Save")
@@ -3327,7 +3330,7 @@ final class AppModel: ObservableObject {
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
         panel.prompt = "Use for Cache"
-        panel.message = "Choose any writable local or mounted external-drive folder. SpektraFilmFast will create a visible ‘SpektraFilmFast Cache’ folder inside it."
+        panel.message = "Choose any writable local or mounted external-drive folder. SpektraFilm Studio will create a visible ‘SpektraFilmFast Cache’ folder inside it."
         if !cacheDirectoryParentPath.isEmpty {
             panel.directoryURL = URL(fileURLWithPath: cacheDirectoryParentPath, isDirectory: true)
         }
@@ -4473,7 +4476,7 @@ final class AppModel: ObservableObject {
 
         let invalid = CharacterSet(charactersIn: "/:\\").union(.newlines).union(.controlCharacters)
         let safe = expanded.components(separatedBy: invalid).joined(separator: "_").trimmingCharacters(in: .whitespacesAndNewlines)
-        return safe.isEmpty ? "SpektraFilm_\(sequenceText)" : safe
+        return safe.isEmpty ? "SpektraFilmStudio_\(sequenceText)" : safe
     }
 
     private static func exportDestination(

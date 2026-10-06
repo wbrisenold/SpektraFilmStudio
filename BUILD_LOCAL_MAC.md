@@ -14,7 +14,7 @@ You do not need a GitHub repository or GitHub Actions. `Resources/SpektraFilm.me
 2. Double-click `BUILD_ON_MAC.command`.
 3. macOS may ask whether to open the command file; approve it.
 4. When the build completes, Finder opens the `dist` folder.
-5. Launch `SpektraFilm.app`.
+5. Launch `SpektraFilmStudio.app`.
 
 The build creates an Intel x86_64 application. Apple Silicon is intentionally not built for this release. The included `.metallib` is copied directly into the app bundle; the build does not recompile the Metal shader library.
 

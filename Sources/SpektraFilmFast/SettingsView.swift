@@ -104,7 +104,7 @@ struct SettingsView: View {
                         .textSelection(.enabled)
                 }
 
-                Text("The cache can live on an internal SSD, another local volume, or a mounted external drive. SpektraFilmFast creates a visible “SpektraFilmFast Cache” folder inside the selected location. If that drive is disconnected, disk caching is marked unavailable instead of silently moving elsewhere.")
+                Text("The cache can live on an internal SSD, another local volume, or a mounted external drive. SpektraFilm Studio creates a visible “SpektraFilmFast Cache” folder inside the selected location. If that drive is disconnected, disk caching is marked unavailable instead of silently moving elsewhere.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -216,7 +216,7 @@ struct SettingsView: View {
                 }
                 .font(.caption2)
 
-                Text("Hard clipping follows darktable-style Full Gamut / RGB / luminance / saturation tests with red-over and blue-under defaults. SpektraFilmFast keeps an additional translucent risk layer before hard clipping. All tests use the final rendered image after White Balance, tone/curves, SpektraFilm stock/print processing, and Crop/Geometry; they are display-only and never exported.")
+                Text("Hard clipping follows darktable-style Full Gamut / RGB / luminance / saturation tests with red-over and blue-under defaults. SpektraFilm Studio keeps an additional translucent risk layer before hard clipping. All tests use the final rendered image after White Balance, tone/curves, SpektraFilm stock/print processing, and Crop/Geometry; they are display-only and never exported.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 

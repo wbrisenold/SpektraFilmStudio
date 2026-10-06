@@ -22,10 +22,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-APP="dist/SpektraFilm.app"
+APP="dist/SpektraFilmStudio.app"
 ENTITLEMENTS="scripts/SpektraFilm.entitlements"
-VERSION="$(tr -d '[:space:]' < VERSION 2>/dev/null || echo unknown)"
-ZIP_NAME="SpektraFilm-${VERSION}-macOS-intel.zip"
+ZIP_NAME="SpektraFilmStudio-${VERSION}-macOS-intel.zip"
 
 MODE="--check"
 [ "${1:-}" = "--run" ] && MODE="--run"
@@ -143,7 +142,7 @@ check_artifact() {
   echo
   echo "== architecture =="
   local arch
-  arch="$(lipo -archs "$APP/Contents/MacOS/SpektraFilm" 2>/dev/null || echo unknown)"
+  arch="$(lipo -archs "$APP/Contents/MacOS/SpektraFilmStudio" 2>/dev/null || echo unknown)"
   note "built arch: $arch"
   if [ "$arch" != "x86_64" ]; then
     warn "expected x86_64 for this release line; got '$arch'"
@@ -227,7 +226,7 @@ PY
   echo
   echo "== rebuilding distributable zip from the stapled bundle =="
   rm -f "dist/$ZIP_NAME"
-  ( cd dist && ditto -c -k --sequesterRsrc --keepParent SpektraFilm.app "$ZIP_NAME" )
+  ( cd dist && ditto -c -k --sequesterRsrc --keepParent SpektraFilmStudio.app "$ZIP_NAME" )
   rm -f "$submit_zip"
   note "rebuilt dist/$ZIP_NAME"
 }
@@ -263,7 +262,7 @@ do_verify() {
 
 # -------------------------------------------------------------------- main ---
 
-echo "SpektraFilm notarization  (version $VERSION, mode $MODE)"
+echo "SpektraFilm Studio notarization  (version $VERSION, mode $MODE)"
 echo
 
 if [ "$MODE" = "--check" ]; then

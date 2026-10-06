@@ -28,6 +28,11 @@ struct LensCharacterPanel: View {
         .overlay { RoundedRectangle(cornerRadius: 8).stroke(StudioPalette.subtleBorder, lineWidth: 0.5) }
     }
     @ViewBuilder private func scalar(_ name:String,_ current:Double,_ range:ClosedRange<Double>,_ set:@escaping(Double)->Void)->some View {
-        VStack(alignment:.leading,spacing:3){HStack{Text(name).font(.caption2);Spacer();Text(current,format:.number.precision(.fractionLength(2))).font(.caption2.monospacedDigit())};Slider(value:Binding(get:{current},set:set),in:range)}
+        let setter = ScalarSetter(apply: set)
+        VStack(alignment:.leading,spacing:3){HStack{Text(name).font(.caption2);Spacer();Text(current,format:.number.precision(.fractionLength(2))).font(.caption2.monospacedDigit())};Slider(value:Binding(get:{current},set:{ setter.apply($0) }),in:range)}
     }
+}
+
+private struct ScalarSetter: @unchecked Sendable {
+    let apply: (Double) -> Void
 }

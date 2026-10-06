@@ -126,7 +126,7 @@ actor ManagedIngestService {
             ))
         }
 
-        var job = ManagedIngestJob(
+        let job = ManagedIngestJob(
             sourceRoot: source,
             primaryRoot: primary,
             backupRoot: backup,

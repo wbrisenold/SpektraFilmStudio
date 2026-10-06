@@ -42,7 +42,7 @@ actor RawForgeDenoiseService {
 
     nonisolated static func executableURL() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".local/share/SpektraFilmFast/rawforge-venv/bin/rawforgeonnx")
+            .appendingPathComponent(".local/share/SpektraFilmFast/rawforge-venv/bin/rawforge")
     }
 
     nonisolated static func strength(raw: RawSettings, iso: Int?) -> (luma: Double, chroma: Double) {

@@ -6,10 +6,10 @@ let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 let nativeLib = root + "/.build/native"
 
 let package = Package(
-    name: "SpektraFilmFast",
+    name: "SpektraFilmStudio",
     platforms: [.macOS(.v15)],
     products: [
-        .executable(name: "SpektraFilmFast", targets: ["SpektraFilmFast"])
+        .executable(name: "SpektraFilmStudio", targets: ["SpektraFilmStudio"])
     ],
     targets: [
         .systemLibrary(
@@ -21,10 +21,10 @@ let package = Package(
             path: "Sources/SemanticMaskNative",
             publicHeadersPath: "include",
             cxxSettings: [.unsafeFlags(["-I\(root)/Vendor/onnxruntime/include"])],
-            linkerSettings: [.unsafeFlags(["-L\(root)/Vendor/onnxruntime/lib", "-lonnxruntime", "-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
+            linkerSettings: [.unsafeFlags(["-L\(root)/Vendor/onnxruntime/lib", "-lonnxruntime"])]
         ),
         .executableTarget(
-            name: "SpektraFilmFast",
+            name: "SpektraFilmStudio",
             dependencies: ["CSpektraBridge", "SemanticMaskNative"],
             path: "Sources/SpektraFilmFast",
             linkerSettings: [

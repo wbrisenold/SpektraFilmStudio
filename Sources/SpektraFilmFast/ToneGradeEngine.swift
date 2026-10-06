@@ -1,6 +1,11 @@
 import Foundation
 import Dispatch
 
+private struct RowAccess: @unchecked Sendable {
+    let base: UnsafeMutablePointer<Float>
+    let count: Int
+}
+
 // Tone controls are intentionally traceable to concrete open-source implementations:
 // - Exposure semantics and ACEScc transfer: Alcedo Studio (GPL-3.0), where Exposure adds EV / 17.52
 //   to ACEScc channels.
@@ -696,14 +701,16 @@ extension PixelBufferF32 {
         var output = pixels
         let rowStride = width * 4
         output.withUnsafeMutableBufferPointer { buffer in
+            guard let base = buffer.baseAddress, buffer.count > 0 else { return }
+            let access = RowAccess(base: base, count: buffer.count)
             DispatchQueue.concurrentPerform(iterations: height) { y in
                 if Task.isCancelled { return }
                 let rowStart = y * rowStride
-                let rowEnd = min(rowStart + rowStride, buffer.count)
+                let rowEnd = min(rowStart + rowStride, access.count)
                 for p in stride(from: rowStart, to: rowEnd, by: 4) {
-                    var r = Double(buffer[p])
-            var g = Double(buffer[p+1])
-            var b = Double(buffer[p+2])
+                    var r = Double(access.base[p])
+                    var g = Double(access.base[p+1])
+                    var b = Double(access.base[p+2])
             if let autoContrastBounds {
                 (r, g, b) = AutoContrastMath.apply(r: r, g: g, b: b, bounds: autoContrastBounds)
             }
@@ -738,9 +745,9 @@ extension PixelBufferF32 {
             }
 
             (er,eg,eb) = PrimeraDensityMath.apply((er,eg,eb), settings: density)
-                    buffer[p] = Float(AlcedoACEScc.decode(er))
-                    buffer[p+1] = Float(AlcedoACEScc.decode(eg))
-                    buffer[p+2] = Float(AlcedoACEScc.decode(eb))
+                    access.base[p] = Float(AlcedoACEScc.decode(er))
+                    access.base[p+1] = Float(AlcedoACEScc.decode(eg))
+                    access.base[p+2] = Float(AlcedoACEScc.decode(eb))
                 }
             }
         }

@@ -203,7 +203,6 @@ actor StudioAnalysisEngine {
                 if isHardShadow { hardShadowCount += 1 }
 
                 let chroma = chromaPosition(r: outR, g: outG, b: outB)
-                let deviation = angularDifferenceDegrees(chroma.angleDegrees, Self.skinReferenceDegrees)
                 let personConfidence = Double(subjectMask.alpha(x: ox, y: oy)) / 255.0
                 let insideFace = subjectMask.isInsideFace(x: ox, y: oy)
                 let skin = OpenSourceSkinClassifier.classify(

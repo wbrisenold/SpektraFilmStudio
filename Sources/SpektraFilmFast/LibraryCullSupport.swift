@@ -380,7 +380,7 @@ extension AppModel {
             let groups = await engine.group(items: items)
             guard !Task.isCancelled, generation == projectGeneration else { return }
             project.peopleGroups = groups
-            libraryPeopleGroupFilter = groups.first?.id
+            libraryPeopleGroupFilter = nil
             isGroupingPeople = false
             peopleGroupingTask = nil
             peopleGroupingStatus = groups.isEmpty
@@ -392,6 +392,24 @@ extension AppModel {
 
     func clearPeopleFilter() {
         libraryPeopleGroupFilter = nil
+    }
+
+    func selectPeopleGroup(_ group: PersonGroup) {
+        libraryPeopleGroupFilter = group.id
+        libraryAlbumFilter = nil
+        librarySmartCollectionFilter = nil
+        librarySelection = group.imageIDs
+        librarySelectionAnchor = group.imageIDs.first
+    }
+
+    func clearPeopleGroups() {
+        peopleGroupingTask?.cancel()
+        peopleGroupingTask = nil
+        isGroupingPeople = false
+        peopleGroupingStatus = ""
+        project.peopleGroups = []
+        libraryPeopleGroupFilter = nil
+        status = "People groups cleared"
     }
 
     func writeSelectionXMP() {

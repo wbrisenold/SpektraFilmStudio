@@ -24,7 +24,7 @@ fi
 STATUS=$?
 echo
 if [[ $STATUS -eq 0 ]]; then
-  echo "Build complete. Opening dist/SpektraFilm.app location..."
+  echo "Build complete. Opening dist/SpektraFilmStudio.app location..."
   open dist
 else
   echo "Build failed with status $STATUS."

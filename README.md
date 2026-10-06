@@ -1,16 +1,16 @@
-# SpektraFilmFast 0.5.3 — Studio Workflow
+# SpektraFilm Studio 0.6.1 — Studio Workflow
 
-SpektraFilmFast is a non-destructive macOS still-photo studio built around the Spektrafilm native Metal renderer. It combines Library, Cull, client Proofs, film-oriented editing, professional scopes, crop/geometry, and delivery/export in one application.
+SpektraFilm Studio is a non-destructive macOS still-photo studio built around the Spektrafilm native Metal renderer. It combines Library, Cull, client Proofs, film-oriented editing, professional scopes, crop/geometry, and delivery/export in one application.
 
 > **Vibe-coded disclosure:** this project was vibe-coded end-to-end. Product direction, architecture, implementation, debugging, UI iteration, QA scaffolding, and documentation were developed interactively with AI assistance under human direction and testing. The source is intentionally public so every shortcut, influence, limitation, and attribution can be inspected and improved.
 
-**Support SpektraFilmFast:** [Buy Me a Coffee — kbvisualz](https://www.buymeacoffee.com/kbvisualz)
+**Support SpektraFilm Studio:** [Buy Me a Coffee — kbvisualz](https://www.buymeacoffee.com/kbvisualz)
 
 ## Repository description
 
 Use this as the public GitHub description:
 
-> Open-source, vibe-coded macOS photo studio built around Spektrafilm: Library, Cull, ProofDock client proofing, film editing, scopes, crop/geometry, and export. Built in the open and welcoming improvements, experiments, and new features.
+> SpektraFilm Studio — open-source, vibe-coded macOS photo studio: physics-based film rendering (no LUTs), Library/Cull, RAW develop + denoise, lens character, masks, client proofs, scopes, export. Built in the open and welcoming improvements, experiments, and new features.
 
 ## What is included
 
@@ -89,9 +89,9 @@ The native film renderer remains pinned to Spektrafilm core commit:
 
 ## Open-source credits and support links
 
-SpektraFilmFast is deliberately transparent about the projects that informed it. `IMPLEMENTATION_SOURCES.md` records exactly what was studied and how it was used.
+SpektraFilm Studio is deliberately transparent about the projects that informed it. `IMPLEMENTATION_SOURCES.md` records exactly what was studied and how it was used.
 
-| Project | What informed SpektraFilmFast | Upstream | Support / donation discovered in upstream repo |
+| Project | What informed SpektraFilm Studio | Upstream | Support / donation discovered in upstream repo |
 |---|---|---|---|
 | Spektrafilm OFX | Native film/print/scan renderer and bridge | [GitHub](https://github.com/chaert-s/spektrafilm-ofx) | No funding URL advertised in the repository at audit time |
 | RapidRAW | Preview-worker/backpressure patterns, cache strategy, export defaults, and tone/recovery behavior references | [GitHub](https://github.com/CyberTimon/RapidRAW) | [Ko-fi — cybertimon](https://ko-fi.com/cybertimon) |
@@ -120,7 +120,7 @@ No GitHub Actions workflow is required for a release. A Mac is still required to
 You do not have to build anything. Pre-built Intel apps are published as GitHub
 releases:
 
-- <https://github.com/wbrisenold/SpektraFilmFast/releases>
+- <https://github.com/wbrisenold/SpektraFilmStudio/releases>
 
 Download the `.zip`, drag `SpektraFilm.app` into Applications, and launch it.
 Requires macOS 15 or newer; on Apple Silicon, install Rosetta 2 first
@@ -137,8 +137,8 @@ notes repeat these steps.
 Requirements: macOS and Xcode 26 / the macOS 26 SDK. Nothing else — no network, no Python, no pre-existing caches.
 
 ```
-git clone https://github.com/wbrisenold/SpektraFilmFast.git
-cd SpektraFilmFast
+git clone https://github.com/wbrisenold/SpektraFilmStudio.git
+cd SpektraFilmStudio
 ./BUILD_ON_MAC.command
 ```
 
@@ -229,4 +229,4 @@ Two things to know before editing anything:
 
 ## License
 
-GPLv3 for SpektraFilmFast/Spektrafilm portions unless a third-party notice states additional terms. See `LICENSE`, `NOTICE.md`, and `IMPLEMENTATION_SOURCES.md`. Open-source reference projects retain their own licenses and copyrights.
+GPLv3 for SpektraFilm Studio/Spektrafilm portions unless a third-party notice states additional terms. See `LICENSE`, `NOTICE.md`, and `IMPLEMENTATION_SOURCES.md`. Open-source reference projects retain their own licenses and copyrights.

@@ -69,7 +69,7 @@ fi
 SCRATCH="$ROOT/.build/swift-x86_64"
 swift build -c release --arch x86_64 --scratch-path "$SCRATCH" >&2
 
-BIN="$(find "$SCRATCH" -type f -name SpektraFilmFast -perm +111 2>/dev/null | grep -v '/plugins/' | head -n 1 || true)"
+BIN="$(find "$SCRATCH" -type f -name SpektraFilmStudio -perm +111 2>/dev/null | grep -v '/plugins/' | head -n 1 || true)"
 if [[ -z "$BIN" ]]; then
   echo "Could not locate SwiftPM x86_64 release executable." >&2
   exit 3
@@ -84,14 +84,14 @@ fi
 rm -rf "$ROOT/dist"
 mkdir -p "$ROOT/dist"
 
-APP="$ROOT/dist/SpektraFilm.app"
+APP="$ROOT/dist/SpektraFilmStudio.app"
 CONTENTS="$APP/Contents"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources" "$CONTENTS/Frameworks" "$CONTENTS/Resources/AIModels"
-cp "$BIN" "$CONTENTS/MacOS/SpektraFilm"
+cp "$BIN" "$CONTENTS/MacOS/SpektraFilmStudio"
 cp "$ROOT/Vendor/onnxruntime/lib/"libonnxruntime*.dylib "$CONTENTS/Frameworks/"
 cp "$ROOT/Resources/AIModels/"*.onnx "$CONTENTS/Resources/AIModels/"
-install_name_tool -add_rpath '@executable_path/../Frameworks' "$CONTENTS/MacOS/SpektraFilm" 2>/dev/null || true
-strip -S "$CONTENTS/MacOS/SpektraFilm" 2>/dev/null || true
+install_name_tool -add_rpath '@executable_path/../Frameworks' "$CONTENTS/MacOS/SpektraFilmStudio" 2>/dev/null || true
+strip -S "$CONTENTS/MacOS/SpektraFilmStudio" 2>/dev/null || true
 
 cp "$ROOT/Resources/AppIcon.icns" "$CONTENTS/Resources/SpektraFilm.icns"
 cp "$ROOT/Resources/SpektraFilm.metallib" "$CONTENTS/Resources/"
@@ -103,11 +103,11 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>CFBundleDevelopmentRegion</key><string>en</string>
-  <key>CFBundleExecutable</key><string>SpektraFilm</string>
+  <key>CFBundleExecutable</key><string>SpektraFilmStudio</string>
   <key>CFBundleIdentifier</key><string>org.spektrafilm.fast</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-  <key>CFBundleName</key><string>SpektraFilm</string>
-  <key>CFBundleDisplayName</key><string>spektrafilm</string>
+  <key>CFBundleName</key><string>SpektraFilm Studio</string>
+  <key>CFBundleDisplayName</key><string>SpektraFilm Studio</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   <key>CFBundleVersion</key><string>${BUILD_NUMBER}</string>
@@ -138,7 +138,7 @@ else
 fi
 codesign --verify --deep --strict --verbose=2 "$APP"
 
-ZIP="$ROOT/dist/SpektraFilm-${VERSION}-macOS-intel.zip"
+ZIP="$ROOT/dist/SpektraFilmStudio-${VERSION}-macOS-intel.zip"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 (
   cd "$ROOT/dist"
@@ -160,4 +160,4 @@ echo "Built: $APP"
 echo "ZIP:   $ZIP"
 echo "Version: $VERSION ($BUILD_NUMBER)"
 echo "Architecture: x86_64"
-file "$CONTENTS/MacOS/SpektraFilm"
+file "$CONTENTS/MacOS/SpektraFilmStudio"

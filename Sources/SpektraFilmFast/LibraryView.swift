@@ -124,31 +124,37 @@ struct LibraryWorkspaceView: View {
                         .help("Scan this project locally and group photos that appear to contain the same person. Face data never leaves this Mac.")
                 }
             }.padding(.horizontal, 10)
-            if !model.project.peopleGroups.isEmpty {
-                ForEach(model.project.peopleGroups) { group in
-                    Button {
-                        model.libraryPeopleGroupFilter = group.id
-                        model.libraryAlbumFilter = nil
-                        model.librarySmartCollectionFilter = nil
-                    } label: {
-                        HStack {
-                            Image(systemName: "person.crop.circle")
-                            Text(group.name).lineLimit(1)
-                            Spacer()
-                            Text("\(group.imageIDs.count)").foregroundStyle(.secondary)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    if !model.project.peopleGroups.isEmpty {
+                        ForEach(model.project.peopleGroups) { group in
+                            Button {
+                                model.selectPeopleGroup(group)
+                            } label: {
+                                HStack {
+                                    Image(systemName: "person.crop.circle")
+                                    Text(group.name).lineLimit(1)
+                                    Spacer()
+                                    Text("\(group.imageIDs.count)").foregroundStyle(.secondary)
+                                }
+                                .padding(.horizontal, 9).padding(.vertical, 5)
+                                .background(model.libraryPeopleGroupFilter == group.id ? Color.primary.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
+                            }.buttonStyle(.plain)
                         }
-                        .padding(.horizontal, 9).padding(.vertical, 5)
-                        .background(model.libraryPeopleGroupFilter == group.id ? Color.primary.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
-                    }.buttonStyle(.plain)
+                    } else if !model.peopleGroupingStatus.isEmpty {
+                        Text(model.peopleGroupingStatus)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 10)
+                    }
+                    if model.libraryPeopleGroupFilter != nil {
+                        Button("Show All People") { model.clearPeopleFilter() }
+                            .font(.caption).buttonStyle(.plain).padding(.horizontal, 10)
+                    }
                 }
-            } else if !model.peopleGroupingStatus.isEmpty {
-                Text(model.peopleGroupingStatus)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
             }
-            if model.libraryPeopleGroupFilter != nil {
-                Button("Show All People") { model.clearPeopleFilter() }
+            if !model.project.peopleGroups.isEmpty {
+                Button("Clear People Groups") { model.clearPeopleGroups() }
                     .font(.caption).buttonStyle(.plain).padding(.horizontal, 10)
             }
 

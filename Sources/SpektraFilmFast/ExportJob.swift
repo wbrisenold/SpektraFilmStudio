@@ -292,7 +292,7 @@ enum ExportJobPlanner {
         let safe = expanded.components(separatedBy: invalid)
             .joined(separator: "_")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return safe.isEmpty ? "SpektraFilm_\(sequenceText)" : safe
+        return safe.isEmpty ? "SpektraFilmStudio_\(sequenceText)" : safe
     }
 
     private static func normalized(_ url: URL) -> String {

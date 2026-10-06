@@ -61,7 +61,7 @@ struct ContentView: View {
                         .frame(width: 22, height: 22)
                     VStack(alignment: .leading, spacing: 0) {
                         HStack(spacing: 5) {
-                            Text("SpektraFilm")
+                            Text("SpektraFilm Studio")
                                 .font(.system(size: 12, weight: .semibold))
                             if model.isProjectDirty {
                                 Circle()
