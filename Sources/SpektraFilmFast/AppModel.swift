@@ -3542,8 +3542,12 @@ final class AppModel: ObservableObject {
                 try await ExportJobJournal.shared.save(job)
 
                 let input: PixelBufferF32
+                var timings = ExportItemTimings()
+                let itemStarted = ProcessInfo.processInfo.systemUptime
+                let decodeStarted = ProcessInfo.processInfo.systemUptime
                 if let decodeAhead {
                     input = try await decodeAhead.value
+                    timings.decodePrefetched = true
                 } else {
                     input = try await decoder.fullResolution(
                         url: sourceURL,
@@ -3551,6 +3555,9 @@ final class AppModel: ObservableObject {
                         bypassImportTransform: job.bypassImportTransform
                     )
                 }
+                timings.decodeMs = Self.msSince(decodeStarted)
+                timings.sourceWidth = input.width
+                timings.sourceHeight = input.height
                 decodeAhead = nil
                 try Task.checkCancellation()
 
@@ -3570,22 +3577,32 @@ final class AppModel: ObservableObject {
                     }
                 }
 
+                let gradeStarted = ProcessInfo.processInfo.systemUptime
                 let renderInput = await Task.detached(priority: .userInitiated) {
                     input.applyingHostGrade(tone: item.look.tone, density: item.look.colorDensity)
                 }.value
+                timings.gradeMs = Self.msSince(gradeStarted)
                 try Task.checkCancellation()
 
-                let (filmOutput, _) = try await exactRenderer.render(renderInput, look: item.look)
+                let renderStarted = ProcessInfo.processInfo.systemUptime
+                let (filmOutput, renderDiagnostics) = try await exactRenderer.render(renderInput, look: item.look)
+                timings.renderMs = Self.msSince(renderStarted)
+                timings.renderGpuMs = renderDiagnostics.commandBufferMs
+                timings.renderPassCount = renderDiagnostics.passCount
                 try Task.checkCancellation()
 
                 // Hoist the captures: `job` is a var mutated across loop iterations, so
                 // capturing it in a @Sendable closure is a Swift 6 concurrency error.
                 let geometrySettings = item.look.geometry
                 let exportSettings = job.settings
+                let geometryStarted = ProcessInfo.processInfo.systemUptime
                 let output = try await Task.detached(priority: .utility) {
                     let geometryOutput = GeometryEngine.transformed(filmOutput, settings: geometrySettings)
                     return try geometryOutput.resizedForExport(settings: exportSettings)
                 }.value
+                timings.geometryResizeMs = Self.msSince(geometryStarted)
+                timings.outputWidth = output.width
+                timings.outputHeight = output.height
                 try Task.checkCancellation()
 
                 job.items[index].state = .writing
@@ -3595,6 +3612,7 @@ final class AppModel: ObservableObject {
                 try await ExportJobJournal.shared.save(job)
 
                 let destination = URL(fileURLWithPath: item.destinationPath)
+                let writeStarted = ProcessInfo.processInfo.systemUptime
                 try await exportEngine.write(
                     output: output,
                     look: item.look,
@@ -3602,10 +3620,14 @@ final class AppModel: ObservableObject {
                     destination: destination,
                     settings: job.settings
                 )
+                timings.writeMs = Self.msSince(writeStarted)
                 try Task.checkCancellation()
 
                 let attrs = try? FileManager.default.attributesOfItem(atPath: destination.path)
                 job.items[index].outputBytes = (attrs?[.size] as? NSNumber)?.int64Value
+                timings.outputBytes = job.items[index].outputBytes ?? 0
+                timings.wallMs = Self.msSince(itemStarted)
+                job.items[index].timings = timings
                 job.items[index].state = .completed
                 job.items[index].errorMessage = nil
                 job.updatedAt = Date()
@@ -3613,6 +3635,26 @@ final class AppModel: ObservableObject {
                 exportProgress = job.fractionComplete
                 status = "Exported \(job.completedCount) / \(job.items.count)"
                 try await ExportJobJournal.shared.save(job)
+
+                let summary = String(
+                    format: "EXPORT %@ | %.0f ms total | decode %.0f (%@) | grade %.0f | render %.0f (gpu %.0f, %u passes) | geom+resize %.0f | write %.0f | %dx%d -> %dx%d",
+                    item.sourceFileName,
+                    timings.wallMs,
+                    timings.decodeMs,
+                    timings.decodePrefetched ? "prefetch" : "inline",
+                    timings.gradeMs,
+                    timings.renderMs,
+                    timings.renderGpuMs,
+                    timings.renderPassCount,
+                    timings.geometryResizeMs,
+                    timings.writeMs,
+                    timings.sourceWidth,
+                    timings.sourceHeight,
+                    timings.outputWidth,
+                    timings.outputHeight
+                )
+                print(summary)
+                await ExportTimingLog.shared.record(job.items[index])
 
             } catch is CancellationError {
                 decodeAhead?.cancel()
@@ -3649,13 +3691,13 @@ final class AppModel: ObservableObject {
         job.updatedAt = Date()
         activeExportJob = job
         exportProgress = 1
-        if job.failedCount == 0 {
-            status = "Export complete · \(job.completedCount) files"
-            await ExportJobJournal.shared.clear()
-        } else {
-            status = "Export finished · \(job.completedCount) complete · \(job.failedCount) failed"
-            try? await ExportJobJournal.shared.save(job)
-        }
+if job.failedCount == 0 {
+              status = "Export complete · \(job.completedCount) files · timings in \(Self.exportTimingLogPath)"
+              await ExportJobJournal.shared.clear()
+          } else {
+              status = "Export finished · \(job.completedCount) complete · \(job.failedCount) failed · timings in \(Self.exportTimingLogPath)"
+              try? await ExportJobJournal.shared.save(job)
+          }
     }
 
     // MARK: - Helpers
@@ -3758,7 +3800,13 @@ final class AppModel: ObservableObject {
         return candidate
     }
 
-    private static func approximatePixelCount(_ url: URL) -> Int64 {
+    private static func msSince(_ start: TimeInterval) -> Double {
+        (ProcessInfo.processInfo.systemUptime - start) * 1000.0
+    }
+
+    static var exportTimingLogPath: String { ExportTimingLog.fileURL.path }
+
+private static func approximatePixelCount(_ url: URL) -> Int64 {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let w = props[kCGImagePropertyPixelWidth] as? NSNumber,

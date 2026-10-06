@@ -28,6 +28,44 @@ enum ExportItemState: String, Codable, Sendable {
     }
 }
 
+struct ExportItemTimings: Codable, Sendable, Equatable {
+    var wallMs: Double = 0
+    var decodeMs: Double = 0
+    var decodePrefetched: Bool = false
+    var gradeMs: Double = 0
+    var renderMs: Double = 0
+    var renderGpuMs: Double = 0
+    var renderPassCount: UInt32 = 0
+    var geometryResizeMs: Double = 0
+    var writeMs: Double = 0
+    var sourceWidth: Int = 0
+    var sourceHeight: Int = 0
+    var outputWidth: Int = 0
+    var outputHeight: Int = 0
+    var outputBytes: Int64 = 0
+
+    var csvRow: String {
+        [
+            String(format: "%.1f", wallMs),
+            String(format: "%.1f", decodeMs),
+            decodePrefetched ? "prefetched" : "inline",
+            String(format: "%.1f", gradeMs),
+            String(format: "%.1f", renderMs),
+            String(format: "%.1f", renderGpuMs),
+            String(format: "%u", renderPassCount),
+            String(format: "%.1f", geometryResizeMs),
+            String(format: "%.1f", writeMs),
+            String(format: "%d", sourceWidth),
+            String(format: "%d", sourceHeight),
+            String(format: "%d", outputWidth),
+            String(format: "%d", outputHeight),
+            String(format: "%lld", outputBytes)
+        ].joined(separator: ",")
+    }
+
+    static let csvHeader = "source_file,destination_file,wall_ms,decode_ms,decode_source,grade_ms,render_ms,render_gpu_ms,render_passes,geometry_resize_ms,write_ms,source_w,source_h,output_w,output_h,output_bytes"
+}
+
 struct ExportQueueItem: Identifiable, Codable, Sendable, Equatable {
     let id: UUID
     let sourceImageID: UUID
@@ -38,6 +76,7 @@ struct ExportQueueItem: Identifiable, Codable, Sendable, Equatable {
     var state: ExportItemState
     var errorMessage: String?
     var outputBytes: Int64?
+    var timings: ExportItemTimings?
 
     init(image: ProjectImageRecord, destination: URL) {
         id = UUID()
@@ -49,6 +88,7 @@ struct ExportQueueItem: Identifiable, Codable, Sendable, Equatable {
         state = .pending
         errorMessage = nil
         outputBytes = nil
+        timings = nil
     }
 }
 
@@ -248,4 +288,47 @@ actor ExportJobJournal {
     func clear() {
         try? FileManager.default.removeItem(at: activeURL)
     }
+}
+
+actor ExportTimingLog {
+    static let shared = ExportTimingLog()
+
+    nonisolated static var fileURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("SpektraFilm/ExportTimings/timings.csv")
+    }
+
+    private static func csvField(_ value: String) -> String {
+        "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
+    }
+
+    func record(_ item: ExportQueueItem) {
+        guard let timings = item.timings else { return }
+        let row = [
+            Self.csvField(item.sourceFileName),
+            Self.csvField((item.destinationPath as NSString).lastPathComponent),
+            timings.csvRow
+        ].joined(separator: ",")
+
+        let fm = FileManager.default
+        let isNew = !fm.fileExists(atPath: Self.fileURL.path)
+        do {
+            try fm.createDirectory(
+                at: Self.fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            if isNew {
+                try (ExportItemTimings.csvHeader + "\n" + row + "\n")
+                    .write(to: Self.fileURL, atomically: true, encoding: .utf8)
+            } else if let handle = try? FileHandle(forWritingTo: Self.fileURL) {
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                try handle.write(contentsOf: Data((row + "\n").utf8))
+            }
+        } catch {
+            print("SpektraFilm: export timing log unavailable: \(error.localizedDescription)")
+        }
+    }
+
+    func url() -> URL { Self.fileURL }
 }
