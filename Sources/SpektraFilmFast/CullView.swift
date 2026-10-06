@@ -96,18 +96,17 @@ struct CullWorkspaceView: View {
                     .font(.caption.monospacedDigit())
                 Button("Cancel") { model.cancelCullAnalysis() }
             } else {
-                Menu {
-                    Button("Analyze Current") { model.analyzeSelectedForCull() }
-                    Button("Analyze Compare Set") { model.analyzeCullNeighborhood() }
-                    Button("Analyze Visible") { model.analyzeVisibleForCull() }
-                    if !model.librarySelection.isEmpty {
-                        Button("Analyze Highlighted") {
-                            model.analyzeForCull(ids: Array(model.librarySelection))
-                        }
+                Button("Analyze", systemImage: "sparkles") {
+                    if model.librarySelection.count > 1 {
+                        model.analyzeForCull(ids: Array(model.librarySelection))
+                    } else {
+                        model.analyzeVisibleForCull()
                     }
-                } label: {
-                    Label("Analyze", systemImage: "sparkles")
                 }
+                .help(model.librarySelection.count > 1
+                    ? "Analyze highlighted photos."
+                    : "Analyze the visible cull set.")
+
             }
         }
         .padding(.horizontal, 10)

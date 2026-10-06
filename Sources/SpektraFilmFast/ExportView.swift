@@ -468,6 +468,12 @@ struct ExportWorkspaceView: View {
                     Text("\(job.completedCount) done")
                     Text("·")
                     Text("\(job.remainingCount) remaining")
+                    if let seconds = job.estimatedRemainingSeconds {
+                        Text("· ETA \(Self.duration(seconds))")
+                    }
+                    if let bytes = job.estimatedTotalOutputBytes {
+                        Text("· ~\(Self.byteCount(bytes))")
+                    }
                     if job.failedCount > 0 {
                         Text("· \(job.failedCount) failed")
                             .foregroundStyle(.red)
@@ -573,6 +579,19 @@ struct ExportWorkspaceView: View {
         }
         .padding(14)
         .background(.regularMaterial)
+    }
+
+    private static func duration(_ seconds: Double) -> String {
+        let total = max(0, Int(seconds.rounded()))
+        if total < 60 { return "\(total)s" }
+        let minutes = total / 60
+        let remainder = total % 60
+        if minutes < 60 { return remainder == 0 ? "\(minutes)m" : "\(minutes)m \(remainder)s" }
+        return "\(minutes / 60)h \(minutes % 60)m"
+    }
+
+    private static func byteCount(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
     private func card<Content: View>(

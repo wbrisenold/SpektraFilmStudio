@@ -103,19 +103,38 @@ private struct CachedRenderedFrame {
 }
 
 @MainActor
+final class PreviewFrameState: ObservableObject {
+    @Published var renderedPreview: CGImage?
+    @Published var sourcePreview: CGImage?
+    @Published var status = "Ready"
+    @Published var isRendering = false
+    @Published var diagnostics = RenderDiagnosticsView()
+}
+
+@MainActor
 final class AppModel: ObservableObject {
     @Published var page: WorkspacePage = .library
     @Published var project = SpektraProjectDocument()
     @Published var projectURL: URL?
-    @Published var renderedPreview: CGImage?
-    @Published var sourcePreview: CGImage?
+    let frameState = PreviewFrameState()
+    var renderedPreview: CGImage? {
+        get { frameState.renderedPreview }
+        set { frameState.renderedPreview = newValue }
+    }
+    var sourcePreview: CGImage? {
+        get { frameState.sourcePreview }
+        set { frameState.sourcePreview = newValue }
+    }
     @Published var analysisOverlay: CGImage?
     @Published var scopeTrace: CGImage?
     @Published var analysisMetrics = StudioAnalysisMetrics()
     var latestSkinMaskWidth = 0
     var latestSkinMaskHeight = 0
     var latestSkinMaskAlpha: [UInt8] = []
-    @Published var isRendering = false
+    var isRendering: Bool {
+        get { frameState.isRendering }
+        set { frameState.isRendering = newValue }
+    }
     @Published var isAnalyzing = false
     @Published var isExporting = false
     @Published var exportProgress = 0.0
@@ -123,9 +142,15 @@ final class AppModel: ObservableObject {
     @Published var activeExportJob: ExportJob?
     @Published var isStoppingExport = false
     @Published var exportCurrentFileName = ""
-    @Published var status = "Ready"
+    var status: String {
+        get { frameState.status }
+        set { frameState.status = newValue }
+    }
     @Published var showingBefore = false
-    @Published var diagnostics = RenderDiagnosticsView()
+    var diagnostics: RenderDiagnosticsView {
+        get { frameState.diagnostics }
+        set { frameState.diagnostics = newValue }
+    }
     @Published var presetSearch = ""
     @Published var presetCategoryFilter = "All"
     @Published var isPresetSidebarVisible: Bool = {

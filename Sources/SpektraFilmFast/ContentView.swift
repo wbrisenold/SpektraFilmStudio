@@ -2,6 +2,12 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var frameState: PreviewFrameState
+
+    init(model: AppModel) {
+        self.model = model
+        _frameState = ObservedObject(wrappedValue: model.frameState)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -151,7 +157,7 @@ struct ContentView: View {
 
     private var statusBar: some View {
         HStack(spacing: 8) {
-            Text(model.status)
+            Text(frameState.status)
                 .lineLimit(1)
                 .truncationMode(.middle)
 
@@ -163,18 +169,18 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if model.isRendering {
+            if frameState.isRendering {
                 ProgressView().controlSize(.mini)
                 Text("Rendering").foregroundStyle(.secondary)
             }
 
             if model.rendererAvailable {
-                Text(String(format: "GPU %.1f ms", model.diagnostics.commandBufferMs))
+                Text(String(format: "GPU %.1f ms", frameState.diagnostics.commandBufferMs))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
 
-            if let image = model.renderedPreview {
+            if let image = frameState.renderedPreview {
                 Text("\(max(image.width, image.height)) px")
                     .monospacedDigit()
                     .foregroundStyle(.secondary)

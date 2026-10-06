@@ -1,4 +1,5 @@
 import Foundation
+import Dispatch
 
 // Tone controls are intentionally traceable to concrete open-source implementations:
 // - Exposure semantics and ACEScc transfer: Alcedo Studio (GPL-3.0), where Exposure adds EV / 17.52
@@ -693,12 +694,16 @@ extension PixelBufferF32 {
         if toneIdentity && (density == nil || density!.isIdentity) { return self }
 
         var output = pixels
-        for p in stride(from: 0, to: output.count, by: 4) {
-            if (p & 16383) == 0, Task.isCancelled { return self }
-
-            var r = Double(output[p])
-            var g = Double(output[p+1])
-            var b = Double(output[p+2])
+        let rowStride = width * 4
+        output.withUnsafeMutableBufferPointer { buffer in
+            DispatchQueue.concurrentPerform(iterations: height) { y in
+                if Task.isCancelled { return }
+                let rowStart = y * rowStride
+                let rowEnd = min(rowStart + rowStride, buffer.count)
+                for p in stride(from: rowStart, to: rowEnd, by: 4) {
+                    var r = Double(buffer[p])
+            var g = Double(buffer[p+1])
+            var b = Double(buffer[p+2])
             if let autoContrastBounds {
                 (r, g, b) = AutoContrastMath.apply(r: r, g: g, b: b, bounds: autoContrastBounds)
             }
@@ -733,10 +738,13 @@ extension PixelBufferF32 {
             }
 
             (er,eg,eb) = PrimeraDensityMath.apply((er,eg,eb), settings: density)
-            output[p] = Float(AlcedoACEScc.decode(er))
-            output[p+1] = Float(AlcedoACEScc.decode(eg))
-            output[p+2] = Float(AlcedoACEScc.decode(eb))
+                    buffer[p] = Float(AlcedoACEScc.decode(er))
+                    buffer[p+1] = Float(AlcedoACEScc.decode(eg))
+                    buffer[p+2] = Float(AlcedoACEScc.decode(eb))
+                }
+            }
         }
+        if Task.isCancelled { return self }
         return PixelBufferF32(width: width, height: height, pixels: output)
     }
 

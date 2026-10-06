@@ -20,9 +20,11 @@ struct SettingsView: View {
     private var generalTab: some View {
         Form {
             Section("Preview") {
-                LabeledContent("Edit working file") { Text("1080 px long edge").monospacedDigit() }
-                LabeledContent("Live slider render") { Text("1080 px long edge").monospacedDigit() }
-                LabeledContent("Idle edit preview") { Text("1080 px long edge").monospacedDigit() }
+                LabeledContent("Edit proxy") {
+                    Text("1080 px · live + idle")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
                 Toggle("Paper background", isOn: $model.project.preferences.paperBackground)
                 Toggle("Bypass import transform", isOn: $model.project.preferences.bypassImportTransform)
                 Toggle("Auto-advance after rating/flag", isOn: $model.project.preferences.autoAdvanceRatings)
@@ -30,7 +32,7 @@ struct SettingsView: View {
                 Toggle("Write rating, flag, and color changes to XMP", isOn: $model.project.preferences.writeXMPAutomatically)
                 Toggle("Autosave and crash recovery", isOn: $model.project.preferences.autosaveEnabled)
 
-                Text("SpektraFilm creates one cached 1080 px linear working file and edits from it instead of redeveloping the RAW for every slider move. Live dragging and the idle edit preview both stay at 1080 px. Full Resolution Preview and Export are the only paths that reopen the original source and apply the saved recipe at full resolution.")
+                Text("One cached 1080 px linear proxy drives Edit. Full Resolution Preview and Export reopen the original source.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -258,7 +260,7 @@ struct SettingsView: View {
                 shortcut("Pick", text: $model.project.preferences.shortcutPick)
                 shortcut("Reject", text: $model.project.preferences.shortcutReject)
                 shortcut("Unflag", text: $model.project.preferences.shortcutUnflag)
-                Text("Use simple key names such as left, right, p, x, or u. Standard macOS command shortcuts remain unchanged.")
+                Text("Click a shortcut field, then press the key you want. Escape cancels capture.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -270,9 +272,61 @@ struct SettingsView: View {
         HStack {
             Text(label)
             Spacer()
-            TextField("Key", text: text)
-                .frame(width: 100)
-                .textFieldStyle(.roundedBorder)
+            ShortcutCaptureField(value: text)
+                .frame(width: 120, height: 24)
         }
+    }
+}
+
+
+private struct ShortcutCaptureField: NSViewRepresentable {
+    @Binding var value: String
+
+    func makeNSView(context: Context) -> ShortcutCaptureTextField {
+        let field = ShortcutCaptureTextField()
+        field.isEditable = false
+        field.isSelectable = false
+        field.isBezeled = true
+        field.bezelStyle = .roundedBezel
+        field.alignment = .center
+        field.font = .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        field.stringValue = value
+        field.onKey = { key in value = key }
+        return field
+    }
+
+    func updateNSView(_ field: ShortcutCaptureTextField, context: Context) {
+        field.stringValue = value
+    }
+}
+
+private final class ShortcutCaptureTextField: NSTextField {
+    var onKey: ((String) -> Void)?
+    override var acceptsFirstResponder: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 {
+            window?.makeFirstResponder(nil)
+            return
+        }
+        let name: String
+        switch event.keyCode {
+        case 123: name = "left"
+        case 124: name = "right"
+        case 125: name = "down"
+        case 126: name = "up"
+        case 36: name = "return"
+        case 48: name = "tab"
+        case 49: name = "space"
+        case 51: name = "delete"
+        default: name = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        }
+        guard !name.isEmpty else { return }
+        onKey?(name)
+        window?.makeFirstResponder(nil)
     }
 }

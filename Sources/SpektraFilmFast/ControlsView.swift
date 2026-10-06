@@ -3,10 +3,23 @@ import SwiftUI
 struct ControlsView: View {
     @ObservedObject var model: AppModel
     @State private var geometryExpanded = false
+    @State private var inspectorSearch = ""
+    @State private var showModifiedOnly = false
     private let catalog = BridgeCatalog.shared
 
     var body: some View {
-        ScrollView {
+        VStack(spacing: 0) {
+            HStack(spacing: 7) {
+                TextField("Search controls", text: $inspectorSearch)
+                    .textFieldStyle(.roundedBorder)
+                Toggle("Modified", isOn: $showModifiedOnly)
+                    .toggleStyle(.button)
+                    .controlSize(.small)
+            }
+            .padding(.horizontal, 9)
+            .padding(.top, 9)
+
+            ScrollView {
             LazyVStack(spacing: 7) {
                 rawSection
                 toneSection
@@ -15,6 +28,7 @@ struct ControlsView: View {
 
                 ForEach(catalog.groups.filter { $0.id != "raw" }) { group in
                     let descriptors = catalog.parameters(in: group.id, flavor: .pro)
+                        .filter(bridgeControlVisible)
                     if !descriptors.isEmpty {
                         DisclosureGroup {
                             VStack(spacing: 10) {
@@ -49,8 +63,21 @@ struct ControlsView: View {
                 }
             }
             .padding(9)
+            }
         }
         .tint(Color.primary.opacity(0.78))
+    }
+
+    private func bridgeControlVisible(_ descriptor: ParameterDescriptor) -> Bool {
+        let needle = inspectorSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let searchMatches = needle.isEmpty
+            || descriptor.label.localizedCaseInsensitiveContains(needle)
+            || descriptor.name.localizedCaseInsensitiveContains(needle)
+            || descriptor.group.localizedCaseInsensitiveContains(needle)
+        guard searchMatches else { return false }
+        guard showModifiedOnly else { return true }
+        let current = model.selectedLook.values[descriptor.name] ?? descriptor.defaultValue
+        return current != descriptor.defaultValue
     }
 
     private var rawSection: some View {
@@ -822,29 +849,66 @@ private struct DraftScalarSlider: View {
                         onReset()
                     } label: {
                         Image(systemName: "arrow.counterclockwise")
-                            .font(.system(size: 9, weight: .medium))
+                            .font(.system(size: 11, weight: .medium))
+                            .frame(width: 24, height: 24)
                     }
                     .buttonStyle(.plain)
                     .help("Reset \(label)")
                 }
-                Text(draft, format: .number.precision(.fractionLength(0...precision)))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                TextField(
+                    "",
+                    value: Binding(
+                        get: { draft },
+                        set: { value in
+                            let clamped = min(range.upperBound, max(range.lowerBound, value))
+                            draft = clamped
+                            onChange(clamped)
+                            onEnd()
+                        }
+                    ),
+                    format: .number.precision(.fractionLength(0...precision))
+                )
+                .textFieldStyle(.plain)
+                .multilineTextAlignment(.trailing)
+                .monospacedDigit()
+                .frame(width: 62)
             }
-            Slider(value: Binding(
-                get: { draft },
-                set: { newValue in
-                    draft = newValue
-                    onChange(newValue)
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                guard let onReset else { return }
+                if let resetValue { draft = resetValue }
+                onReset()
+            }
+
+            GeometryReader { proxy in
+                let span = range.upperBound - range.lowerBound
+                let zeroFraction = span > 0 ? (0 - range.lowerBound) / span : 0.5
+                ZStack(alignment: .leading) {
+                    Slider(value: Binding(
+                        get: { draft },
+                        set: { newValue in
+                            let fine = NSEvent.modifierFlags.contains(.shift)
+                            let adjusted = fine ? draft + (newValue - draft) * 0.10 : newValue
+                            draft = min(range.upperBound, max(range.lowerBound, adjusted))
+                            onChange(draft)
+                        }
+                    ), in: range, onEditingChanged: { isEditing in
+                        editing = isEditing
+                        if isEditing { onBegin() } else { onEnd() }
+                    })
+                    if range.contains(0), span > 0 {
+                        Rectangle()
+                            .fill(Color.secondary.opacity(0.55))
+                            .frame(width: 1, height: 9)
+                            .offset(x: max(0, min(proxy.size.width - 1, proxy.size.width * zeroFraction)))
+                            .allowsHitTesting(false)
+                    }
                 }
-            ), in: range, onEditingChanged: { isEditing in
-                editing = isEditing
-                if isEditing { onBegin() } else { onEnd() }
-            })
+            }
+            .frame(height: 22)
             .disabled(disabled)
-            .help(helpText.isEmpty ? "Move left to reduce \(label.lowercased()) and right to increase it." : helpText)
+            .help((helpText.isEmpty ? "Move left to reduce \(label.lowercased()) and right to increase it." : helpText) + " Hold Shift for fine adjustment. Double-click the row to reset.")
         }
-        .help(helpText.isEmpty ? "Move left to reduce \(label.lowercased()) and right to increase it." : helpText)
         .onChange(of: committedValue) { _, newValue in
             if !editing { draft = newValue }
         }

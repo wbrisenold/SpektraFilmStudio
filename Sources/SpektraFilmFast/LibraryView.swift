@@ -20,6 +20,7 @@ struct LibraryWorkspaceView: View {
     @State private var showingNewSmartCollection = false
     @State private var newAlbumName = ""
     @State private var newSmartCollectionName = ""
+    @State private var thumbnailSizeDraft: Double = 176
 
     var body: some View {
         HSplitView {
@@ -32,6 +33,10 @@ struct LibraryWorkspaceView: View {
             inspector.frame(minWidth: 240, idealWidth: 280, maxWidth: 340)
         }
         .background(StudioPalette.canvas)
+        .onAppear { thumbnailSizeDraft = model.libraryThumbnailSize }
+        .onChange(of: model.libraryThumbnailSize) { _, value in
+            if abs(thumbnailSizeDraft - value) > 0.5 { thumbnailSizeDraft = value }
+        }
         .sheet(isPresented: $showingNewAlbum) {
             namingSheet(title: "New Album", placeholder: "Album name", text: $newAlbumName) {
                 model.createAlbum(name: newAlbumName)
@@ -300,7 +305,13 @@ struct LibraryWorkspaceView: View {
                 Button("Smart Cull", systemImage: "sparkles") { model.analyzeVisibleForCull() }
             }
             HStack(spacing: 5) {
-                Slider(value: $model.libraryThumbnailSize, in: 120...280)
+                Slider(
+                    value: $thumbnailSizeDraft,
+                    in: 120...280,
+                    onEditingChanged: { editing in
+                        if !editing { model.libraryThumbnailSize = thumbnailSizeDraft }
+                    }
+                )
                     .frame(width: 110)
                     .help("Changes how large photos appear in the Library grid. Move left to fit more photos on screen; move right to make each thumbnail easier to inspect.")
                 Button { model.libraryThumbnailSize = 176 } label: {
@@ -316,7 +327,7 @@ struct LibraryWorkspaceView: View {
 
     private var gallery: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: model.libraryThumbnailSize), spacing: 8)], spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: thumbnailSizeDraft), spacing: 8)], spacing: 8) {
                 ForEach(model.visibleImages) { image in
                     LibraryPhotoCard(model: model, image: image)
                 }

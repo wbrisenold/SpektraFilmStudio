@@ -120,6 +120,27 @@ struct ExportJob: Identifiable, Codable, Sendable, Equatable {
         return Double(processedCount) / Double(items.count)
     }
 
+    var estimatedRemainingSeconds: Double? {
+        let samples = items.compactMap { item -> Double? in
+            guard item.state == .completed, let ms = item.timings?.wallMs, ms > 0 else { return nil }
+            return ms / 1000.0
+        }
+        guard !samples.isEmpty else { return nil }
+        let mean = samples.reduce(0, +) / Double(samples.count)
+        let unfinished = items.lazy.filter { $0.state != .completed && $0.state != .failed }.count
+        return mean * Double(unfinished)
+    }
+
+    var estimatedTotalOutputBytes: Int64? {
+        let samples = items.compactMap { item -> Int64? in
+            guard item.state == .completed, let bytes = item.outputBytes, bytes > 0 else { return nil }
+            return bytes
+        }
+        guard !samples.isEmpty else { return nil }
+        let mean = Double(samples.reduce(0, +)) / Double(samples.count)
+        return Int64((mean * Double(items.count)).rounded())
+    }
+
     mutating func normalizeAfterInterruptedLaunch() {
         let fm = FileManager.default
         for index in items.indices {

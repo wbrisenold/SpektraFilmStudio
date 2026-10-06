@@ -3,17 +3,23 @@ import AppKit
 
 struct PreviewView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var frameState: PreviewFrameState
     @State private var zoom: CGFloat = 1
     @State private var committedZoom: CGFloat = 1
     @State private var offset: CGSize = .zero
     @State private var committedOffset: CGSize = .zero
+
+    init(model: AppModel) {
+        self.model = model
+        _frameState = ObservedObject(wrappedValue: model.frameState)
+    }
 
     var body: some View {
         GeometryReader { _ in
             ZStack {
                 viewerBackground
 
-                if let image = model.showingBefore ? model.sourcePreview : model.renderedPreview {
+                if let image = model.showingBefore ? frameState.sourcePreview : frameState.renderedPreview {
                     ZStack {
                         Image(decorative: image, scale: 1)
                             .resizable()
@@ -73,7 +79,7 @@ struct PreviewView: View {
                     skinOverlayLegend
                 }
 
-                if model.isRendering {
+                if frameState.isRendering {
                     HStack(spacing: 7) {
                         ProgressView().controlSize(.mini)
                         Text("Rendering")
@@ -135,7 +141,7 @@ struct PreviewView: View {
             if model.showingBefore {
                 Text("BEFORE")
                     .fontWeight(.semibold)
-            } else if let image = model.renderedPreview {
+            } else if let image = frameState.renderedPreview {
                 Text("Preview")
                 Text("\(max(image.width, image.height)) px")
                     .monospacedDigit()
