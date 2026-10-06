@@ -217,20 +217,6 @@ actor StudioAnalysisEngine {
                 if candidate {
                     let alpha = UInt8(clamping: Int((max(0.30, min(1.0, skin.confidence * personConfidence)) * 255.0).rounded()))
                     skinMask[maskIndex] = alpha
-                    skinCount += 1
-
-                    // Confidence-weighted chroma centroid: strong subject/skin matches count more
-                    // than weak edge pixels, while very low-chroma candidates are gently downweighted.
-                    // This makes the global Too Green / On Target / Too Magenta result much more stable
-                    // across hairlines, lips, shadows, mixed light and partially occluded faces.
-                    let chromaWeight = 0.65 + 0.35 * min(1.0, Double(chroma.radius) / 0.18)
-                    let weight = max(0.02, skin.confidence * personConfidence * chromaWeight)
-                    skinWeightSum += weight
-                    skinCbWeightedSum += Double(chroma.uNormalized) * weight
-                    skinCrWeightedSum += Double(chroma.vNormalized) * weight
-                    if abs(deviation) <= tolerance { skinWithinWeight += weight }
-                    else if deviation < 0 { skinMagentaWeight += weight }
-                    else { skinGreenWeight += weight }
                 }
 
                 if preferences.clippingEnabled && isHardHighlight {
@@ -251,10 +237,6 @@ actor StudioAnalysisEngine {
                     if sx >= 0 && sx < scopeSize && sy >= 0 && sy < scopeSize {
                         let si = sy * scopeSize + sx
                         density[si] &+= 1
-                        if candidate {
-                            skinDensity[si] &+= 1
-                            skinDeviationByBin[si] += deviation
-                        }
                     }
                 }
             }
@@ -268,6 +250,72 @@ actor StudioAnalysisEngine {
                 width: overlayWidth,
                 height: overlayHeight
             )
+
+// The false-color overlay, percentages, centroid and skin vectorscope
+              // must all use the SAME FINAL refined mask. A pre-refinement centroid
+            // could previously report On Target while the visible skin overlay was
+            // clearly split between green-side and magenta-side regions.
+            skinCount = 0
+            skinWeightSum = 0
+            skinWithinWeight = 0
+            skinMagentaWeight = 0
+            skinGreenWeight = 0
+            skinCbWeightedSum = 0
+            skinCrWeightedSum = 0
+            skinDensity = [UInt32](repeating: 0, count: scopeSize * scopeSize)
+            skinDeviationByBin = [Double](repeating: 0, count: scopeSize * scopeSize)
+
+            for i in 0..<sampledPixels {
+                let maskStrength = Double(skinMask[i]) / 255.0
+                guard maskStrength > 0.06 else { continue }
+
+                let p = i * 4
+                let r = diagnosticBuffer.pixels[p]
+                let g = diagnosticBuffer.pixels[p + 1]
+                let b = diagnosticBuffer.pixels[p + 2]
+                let chroma = chromaPosition(r: r, g: g, b: b)
+
+                guard chroma.luma > 0.01,
+                      chroma.luma < 0.995,
+                      chroma.radius > 0.008 else { continue }
+
+                skinCount += 1
+                let deviation = angularDifferenceDegrees(
+                    chroma.angleDegrees,
+                    Self.skinReferenceDegrees
+                )
+                let chromaWeight =
+                    0.65 + 0.35 * min(1.0, Double(chroma.radius) / 0.18)
+                let weight = max(0.01, maskStrength * chromaWeight)
+
+                skinWeightSum += weight
+                skinCbWeightedSum += Double(chroma.uNormalized) * weight
+                skinCrWeightedSum += Double(chroma.vNormalized) * weight
+
+                if abs(deviation) <= tolerance {
+                    skinWithinWeight += weight
+                } else if deviation < 0 {
+                    skinMagentaWeight += weight
+                } else {
+                    skinGreenWeight += weight
+                }
+
+                if wantsScope {
+                    let sx = Int(
+                        ((chroma.uNormalized * 0.5 + 0.5) *
+                         Float(scopeSize - 1)).rounded()
+                    )
+                    let sy = Int(
+                        (((-chroma.vNormalized) * 0.5 + 0.5) *
+                         Float(scopeSize - 1)).rounded()
+                    )
+                    if sx >= 0 && sx < scopeSize && sy >= 0 && sy < scopeSize {
+                        let si = sy * scopeSize + sx
+                        skinDensity[si] &+= 1
+                        skinDeviationByBin[si] += deviation
+                    }
+                }
+            }
         }
 
         if wantsSkinOverlay {
@@ -510,9 +558,9 @@ actor StudioAnalysisEngine {
             let p = i * 4
             if skinDensity[i] > 0 {
                 let d = skinDeviationByBin[i] / Double(skinDensity[i])
-                if d < -tolerance { out[p] = 196; out[p+1] = 94; out[p+2] = 120 }
-                else if d > tolerance { out[p] = 74; out[p+1] = 150; out[p+2] = 142 }
-                else { out[p] = 220; out[p+1] = 176; out[p+2] = 112 }
+                if d < -tolerance { out[p] = 229; out[p+1] = 65; out[p+2] = 177 }
+                else if d > tolerance { out[p] = 44; out[p+1] = 214; out[p+2] = 174 }
+                else { out[p] = 238; out[p+1] = 184; out[p+2] = 72 }
                 out[p+3] = max(alpha, 118)
             } else {
                 out[p] = 154; out[p+1] = 174; out[p+2] = 196; out[p+3] = alpha

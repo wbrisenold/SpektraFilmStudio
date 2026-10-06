@@ -151,3 +151,18 @@ The following are intentionally original product recipes/implementations rather 
 - Native Swift Proofs administration UI around the ProofDock workflow.
 
 If future work copies source rather than studying/reimplementing behavior, update `NOTICE.md`, this document, and the project license obligations before redistribution.
+## 2026 workflow / performance audit
+
+See `OPEN_SOURCE_PIPELINE_AUDIT.md`.
+
+Additional implementation references used by this revision:
+
+- darktable lighttable / culling / export — selection-aware culling modes,
+  collection decisions, output dimensions/profile/metadata separation;
+- RapidRAW export UI — modern delivery and export-set presentation;
+- current `andreavolpato/spektrafilm` runtime and LUT creator — named
+  film/print taps, multi-LUT topology and documented spatial insertion points;
+- Apple Accelerate/vDSP — vectorized float-to-integer export conversion;
+- Apple `os_proc_available_memory()` — advisory byte-budgeted decode-ahead.
+
+The shipping build remains Intel x86_64 only.

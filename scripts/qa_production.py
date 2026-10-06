@@ -370,3 +370,64 @@ require('expanded += "_\\(sequenceText)"' in export_job, "static export template
 require("replaceItemAt" not in text("ExportWriter.swift") and "destinationExists" in text("ExportWriter.swift"), "export writer can still overwrite existing files")
 require("func stopExport()" in app and "exportTask?.cancel()" in app and 'Stop Export' in export_view, "hard Stop Export missing")
 require("ExportJobPlanner.previewNames" in app and "Preflight" in export_view, "export filename preflight missing")
+# Pass 19: 2026 export / WB / cull architecture.
+scope_panel_v3 = text("EditorScopePanelView.swift")
+export_view_v3 = text("ExportView.swift")
+cull_view_v3 = text("CullView.swift")
+audit_v3 = (ROOT / "OPEN_SOURCE_PIPELINE_AUDIT.md").read_text()
+
+require(
+    "cameraSpaceWhiteBalanceApplied" in decoder,
+    "settled RAW WB is not owned by the CIRAWFilter path"
+)
+require(
+    "exactLinear = try await decoder.decode" in app,
+    "Skin WB still chooses its correction from the interactive RGB proxy"
+)
+require(
+    "FINAL refined mask" in analysis and
+    "skinDensity = [UInt32](repeating: 0" in analysis,
+    "skin overlay and vectorscope are not rebuilt from the same refined mask"
+)
+require(
+    "Mixed Green / Magenta" in scope_panel_v3,
+    "mixed green/magenta skin state is missing"
+)
+require(
+    "os_proc_available_memory()" in app and
+    "45_000_000" not in app,
+    "export decode-ahead still uses an MP ceiling instead of a byte budget"
+)
+require(
+    "PendingExportWrite" in app and
+    "settlePendingWrite" in app,
+    "bounded decode/render/write export conveyor is missing"
+)
+require(
+    "vDSP_vfixru8" in native and
+    "vDSP_vfixru16" in native,
+    "Accelerate export quantization is missing"
+)
+require(
+    "CGImageSourceCreateImageAtIndex(source, 0, nil)" not in export,
+    "16-bit TIFF verification still re-decodes full image pixels"
+)
+require(
+    "ExportColorMode" in models and
+    "sRGB · Web / Phone" in models,
+    "explicit sRGB delivery mode is missing"
+)
+require(
+    "CullNavigationScope" in cull_view_v3 and
+    "Highlighted" in cull_view_v3,
+    "selection-aware Cull workflow is missing"
+)
+require(
+    "ExportSourceFilter" in export_view_v3 and
+    "Build Set" in export_view_v3,
+    "redesigned export-set browser is missing"
+)
+require(
+    "Intel x86_64 only" in audit_v3,
+    "architecture audit no longer records the Intel-only contract"
+)

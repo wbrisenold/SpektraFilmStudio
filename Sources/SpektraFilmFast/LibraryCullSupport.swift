@@ -13,6 +13,7 @@ extension AppModel {
             case .unrated: matches = image.rating == 0
             case .fiveStar: matches = image.rating == 5
             case .needsReview: matches = image.cullAnalysis?.recommendation == .review
+            case .exportQueued: matches = image.selectedForExport
             case .missing: matches = !FileManager.default.fileExists(atPath: image.sourcePath)
             }
             if matches { count += 1 }
@@ -335,7 +336,7 @@ extension AppModel {
             switch libraryFilter {
             case .picked: .picked
             case .rejected: .rejected
-            case .clientPicks: nil
+            case .clientPicks, .exportQueued: nil
             default: nil
             }
         }()

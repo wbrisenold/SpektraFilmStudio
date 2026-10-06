@@ -2,6 +2,7 @@ import Foundation
 import Darwin
 import CoreGraphics
 import CSpektraBridge
+import Accelerate
 
 
 struct FloatImagePayload: Sendable {
@@ -77,13 +78,32 @@ struct PixelBufferF32: Sendable {
     }
 
     func makeCGImage8(colorSpace: CGColorSpace) -> CGImage? {
-        var bytes = [UInt8](repeating: 0, count: width * height * 4)
-        for i in 0..<(width * height) {
-            let p = i * 4
-            bytes[p] = toUInt8(pixels[p])
-            bytes[p + 1] = toUInt8(pixels[p + 1])
-            bytes[p + 2] = toUInt8(pixels[p + 2])
-            bytes[p + 3] = toUInt8(pixels[p + 3])
+        guard width > 0, height > 0, pixels.count == width * height * 4 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: pixels.count)
+        let chunkElements = 1 << 20
+        var scratch = [Float](repeating: 0, count: chunkElements)
+        var low: Float = 0
+        var high: Float = 1
+        var scale: Float = 255
+
+        pixels.withUnsafeBufferPointer { source in
+            bytes.withUnsafeMutableBufferPointer { destination in
+                scratch.withUnsafeMutableBufferPointer { temp in
+                    guard let src = source.baseAddress,
+                          let dst = destination.baseAddress,
+                          let tmp = temp.baseAddress else { return }
+
+                    var offset = 0
+                    while offset < source.count {
+                        let count = min(chunkElements, source.count - offset)
+                        let n = vDSP_Length(count)
+                        vDSP_vclip(src.advanced(by: offset), 1, &low, &high, tmp, 1, n)
+                        vDSP_vsmul(tmp, 1, &scale, tmp, 1, n)
+                        vDSP_vfixru8(tmp, 1, dst.advanced(by: offset), 1, n)
+                        offset += count
+                    }
+                }
+            }
         }
         guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
         return CGImage(
@@ -102,13 +122,32 @@ struct PixelBufferF32: Sendable {
     }
 
     func makeCGImage16(colorSpace: CGColorSpace) -> CGImage? {
-        var words = [UInt16](repeating: 0, count: width * height * 4)
-        for i in 0..<(width * height) {
-            let p = i * 4
-            words[p] = toUInt16(pixels[p])
-            words[p + 1] = toUInt16(pixels[p + 1])
-            words[p + 2] = toUInt16(pixels[p + 2])
-            words[p + 3] = toUInt16(pixels[p + 3])
+        guard width > 0, height > 0, pixels.count == width * height * 4 else { return nil }
+        var words = [UInt16](repeating: 0, count: pixels.count)
+        let chunkElements = 1 << 20
+        var scratch = [Float](repeating: 0, count: chunkElements)
+        var low: Float = 0
+        var high: Float = 1
+        var scale: Float = 65535
+
+        pixels.withUnsafeBufferPointer { source in
+            words.withUnsafeMutableBufferPointer { destination in
+                scratch.withUnsafeMutableBufferPointer { temp in
+                    guard let src = source.baseAddress,
+                          let dst = destination.baseAddress,
+                          let tmp = temp.baseAddress else { return }
+
+                    var offset = 0
+                    while offset < source.count {
+                        let count = min(chunkElements, source.count - offset)
+                        let n = vDSP_Length(count)
+                        vDSP_vclip(src.advanced(by: offset), 1, &low, &high, tmp, 1, n)
+                        vDSP_vsmul(tmp, 1, &scale, tmp, 1, n)
+                        vDSP_vfixru16(tmp, 1, dst.advanced(by: offset), 1, n)
+                        offset += count
+                    }
+                }
+            }
         }
         let data = words.withUnsafeBytes { Data($0) }
         guard let provider = CGDataProvider(data: data as CFData) else { return nil }

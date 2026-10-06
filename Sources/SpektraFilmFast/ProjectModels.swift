@@ -522,8 +522,15 @@ enum ExportResizeMode: String, Codable, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
 }
 
+enum ExportColorMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case sRGB = "sRGB · Web / Phone"
+    case matchRenderer = "Match Renderer"
+    var id: String { rawValue }
+}
+
 struct ExportSettings: Codable, Equatable, Hashable, Sendable {
     var format: ExportFormat = .jpeg
+    var colorMode: ExportColorMode = .sRGB
     var jpegQuality: Double = 0.92
     var tiff16Bit = true
     var preserveMetadata = true
@@ -538,7 +545,7 @@ struct ExportSettings: Codable, Equatable, Hashable, Sendable {
     var destinationPath: String = ""
 
     private enum CodingKeys: String, CodingKey {
-        case format, jpegQuality, tiff16Bit, preserveMetadata, stripGPS
+        case format, colorMode, jpegQuality, tiff16Bit, preserveMetadata, stripGPS
         case resizeMode, resizeWidth, resizeHeight, resizeLongEdge, dontEnlarge
         case filenameTemplate, sequenceStart, destinationPath
     }
@@ -548,6 +555,7 @@ struct ExportSettings: Codable, Equatable, Hashable, Sendable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         format = try c.decodeIfPresent(ExportFormat.self, forKey: .format) ?? .jpeg
+        colorMode = try c.decodeIfPresent(ExportColorMode.self, forKey: .colorMode) ?? .sRGB
         jpegQuality = try c.decodeIfPresent(Double.self, forKey: .jpegQuality) ?? 0.92
         tiff16Bit = try c.decodeIfPresent(Bool.self, forKey: .tiff16Bit) ?? true
         preserveMetadata = try c.decodeIfPresent(Bool.self, forKey: .preserveMetadata) ?? true
@@ -565,6 +573,7 @@ struct ExportSettings: Codable, Equatable, Hashable, Sendable {
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(format, forKey: .format)
+        try c.encode(colorMode, forKey: .colorMode)
         try c.encode(jpegQuality, forKey: .jpegQuality)
         try c.encode(tiff16Bit, forKey: .tiff16Bit)
         try c.encode(preserveMetadata, forKey: .preserveMetadata)

@@ -92,7 +92,8 @@ enum ExportWriter {
             url: temp,
             expectedWidth: output.width,
             expectedHeight: output.height,
-            require16Bit: settings.format == .tiff && settings.tiff16Bit
+            expectedBitDepth:
+                settings.format == .tiff ? (settings.tiff16Bit ? 16 : 8) : nil
         )
 
         guard !fm.fileExists(atPath: destination.path) else {
@@ -129,7 +130,7 @@ enum ExportWriter {
     }
 
     @discardableResult
-    private static func verify(url: URL, expectedWidth: Int, expectedHeight: Int, require16Bit: Bool) throws -> Int {
+    private static func verify(url: URL, expectedWidth: Int, expectedHeight: Int, expectedBitDepth: Int?) throws -> Int {
         let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
         let bytes = (attrs[.size] as? NSNumber)?.intValue ?? 0
         guard bytes > 0 else { throw ExportWriterError.verificationFailed("file is empty") }
@@ -148,15 +149,15 @@ enum ExportWriter {
             )
         }
 
-        if require16Bit {
-            guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
-                throw ExportWriterError.verificationFailed("ImageIO cannot decode the 16-bit TIFF")
-            }
-            guard image.bitsPerComponent >= 16 else {
-                throw ExportWriterError.verificationFailed(
-                    "TIFF decoded at \(image.bitsPerComponent)-bit instead of 16-bit"
-                )
-            }
+        // The encoder already received the intended TIFF depth. Do not decode
+        // the entire just-written image solely to re-check that value.
+        if let expectedBitDepth,
+           let depth = (props[kCGImagePropertyDepth] as? NSNumber)?.intValue,
+           depth > 0,
+           depth < expectedBitDepth {
+            throw ExportWriterError.verificationFailed(
+                "container reports \(depth)-bit, expected at least \(expectedBitDepth)-bit"
+            )
         }
         return bytes
     }

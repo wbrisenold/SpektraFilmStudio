@@ -4,6 +4,19 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 import Combine
+import Darwin
+
+private struct ExportDecodedFrame: Sendable {
+    let buffer: PixelBufferF32
+    let decodeMs: Double
+}
+
+private struct PendingExportWrite {
+    let index: Int
+    let itemStarted: TimeInterval
+    var timings: ExportItemTimings
+    let task: Task<Double, Error>
+}
 
 private struct SourcePreviewKey: Hashable, Sendable {
     let path: String
@@ -364,6 +377,7 @@ final class AppModel: ObservableObject {
                 case .unrated: return image.rating == 0
                 case .fiveStar: return image.rating == 5
                 case .needsReview: return image.cullAnalysis?.recommendation == .review
+                case .exportQueued: return image.selectedForExport
                 case .missing: return !FileManager.default.fileExists(atPath: image.sourcePath)
                 }
             }()
@@ -1322,14 +1336,6 @@ final class AppModel: ObservableObject {
                       project.selectedImageID == imageID else { throw CancellationError() }
 
                 let solverEdge = min(720, max(480, project.preferences.previewLongEdge))
-                let baseLinear = try await decoder.decode(
-                    url: image.url,
-                    longEdge: solverEdge,
-                    raw: asShotRaw,
-                    bypassImportTransform: project.preferences.bypassImportTransform,
-                    cacheMode: .conservative
-                )
-                try Task.checkCancellation()
 
                 let analyzer = StudioAnalysisEngine()
                 var analysisPrefs = project.preferences
@@ -1348,13 +1354,19 @@ final class AppModel: ObservableObject {
 
                     var look = originalLook
                     look.raw = raw
+
+                    // Probe the same camera-space RAW development that will be
+                    // committed. This avoids choosing a tint from the fast RGB
+                    // pointer proxy and then snapping green/magenta on settle.
+                    let exactLinear = try await decoder.decode(
+                        url: image.url,
+                        longEdge: solverEdge,
+                        raw: raw,
+                        bypassImportTransform: project.preferences.bypassImportTransform,
+                        cacheMode: .conservative
+                    )
                     let prepared = await Task.detached(priority: .userInitiated) {
-                        let corrected = baseLinear.applyingWhiteBalanceOffsets(
-                            raw,
-                            baseTemperature: reference.temperature,
-                            baseTint: reference.tint
-                        )
-                        return corrected.applyingHostGrade(
+                        exactLinear.applyingHostGrade(
                             tone: look.tone,
                             density: look.colorDensity
                         )
@@ -3394,11 +3406,41 @@ final class AppModel: ObservableObject {
     func applyExportPreset(_ presetID: String) {
         guard let preset = ExportPresetDefinition.preset(id: presetID) else { return }
         project.exportSettings = preset.applying(to: project.exportSettings)
+        project.exportSettings.colorMode =
+            preset.id == "tiff16-master" ? .matchRenderer : .sRGB
         status = "Export preset · \(preset.name)"
     }
 
     var selectedExportCount: Int {
         project.images.lazy.filter(\.selectedForExport).count
+    }
+
+    func setAllExportSelection(_ selected: Bool) {
+        for index in project.images.indices {
+            project.images[index].selectedForExport = selected
+        }
+    }
+
+    func selectExportPicksOnly() {
+        for index in project.images.indices {
+            project.images[index].selectedForExport =
+                project.images[index].flag == .picked
+        }
+    }
+
+    func selectExportClientPicksOnly() {
+        for index in project.images.indices {
+            project.images[index].selectedForExport =
+                project.images[index].clientPicked
+        }
+    }
+
+    func selectExportRating(atLeast minimum: Int) {
+        let threshold = max(0, min(5, minimum))
+        for index in project.images.indices {
+            project.images[index].selectedForExport =
+                project.images[index].rating >= threshold
+        }
     }
 
     var exportPreflightNames: [String] {
@@ -3521,12 +3563,88 @@ final class AppModel: ObservableObject {
             exportTask = nil
         }
 
-        var decodeAhead: Task<PixelBufferF32, Error>?
-        defer { decodeAhead?.cancel() }
+        let workIndices = job.items.indices.filter {
+            job.items[$0].state != .completed &&
+            job.items[$0].state != .failed
+        }
 
-        for index in job.items.indices {
-            if job.items[index].state == .completed || job.items[index].state == .failed { continue }
+        var decodeAhead: Task<ExportDecodedFrame, Error>?
+        var decodeAheadIndex: Int?
+        var pendingWrite: PendingExportWrite?
 
+        defer {
+            decodeAhead?.cancel()
+            pendingWrite?.task.cancel()
+        }
+
+        @MainActor func startDecode(index: Int) -> Task<ExportDecodedFrame, Error> {
+            let item = job.items[index]
+            let url = URL(fileURLWithPath: item.sourcePath)
+            let raw = item.look.raw
+            let bypass = job.bypassImportTransform
+            let decoderActor = decoder
+
+            return Task {
+                let started = ProcessInfo.processInfo.systemUptime
+                let buffer = try await decoderActor.fullResolution(
+                    url: url,
+                    raw: raw,
+                    bypassImportTransform: bypass
+                )
+                return ExportDecodedFrame(
+                    buffer: buffer,
+                    decodeMs: Self.msSince(started)
+                )
+            }
+        }
+
+        @MainActor func settlePendingWrite() async throws {
+            guard let pending = pendingWrite else { return }
+            defer { pendingWrite = nil }
+
+            do {
+                let writeMs = try await pending.task.value
+                var timings = pending.timings
+                timings.writeMs = writeMs
+                timings.wallMs =
+                    (ProcessInfo.processInfo.systemUptime - pending.itemStarted) * 1000.0
+
+                let destination = URL(
+                    fileURLWithPath: job.items[pending.index].destinationPath
+                )
+                let attrs = try? FileManager.default.attributesOfItem(
+                    atPath: destination.path
+                )
+                let bytes = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
+                timings.outputBytes = bytes
+
+                job.items[pending.index].outputBytes = bytes
+                job.items[pending.index].timings = timings
+                job.items[pending.index].state = .completed
+                job.items[pending.index].errorMessage = nil
+                await ExportTimingLog.shared.record(job.items[pending.index])
+            } catch is CancellationError {
+                job.items[pending.index].state = .pending
+                job.items[pending.index].errorMessage = nil
+                throw CancellationError()
+            } catch {
+                job.items[pending.index].state = .failed
+                job.items[pending.index].errorMessage = error.localizedDescription
+                exportFailures.append(
+                    ExportFailure(
+                        fileName: job.items[pending.index].sourceFileName,
+                        message: error.localizedDescription
+                    )
+                )
+            }
+
+            job.updatedAt = Date()
+            activeExportJob = job
+            exportProgress = job.fractionComplete
+            try? await ExportJobJournal.shared.save(job)
+        }
+
+        for (position, index) in workIndices.enumerated() {
             do {
                 try Task.checkCancellation()
                 let item = job.items[index]
@@ -3541,128 +3659,133 @@ final class AppModel: ObservableObject {
                 status = "Rendering \(item.sourceFileName)…"
                 try await ExportJobJournal.shared.save(job)
 
-                let input: PixelBufferF32
-                var timings = ExportItemTimings()
                 let itemStarted = ProcessInfo.processInfo.systemUptime
-                let decodeStarted = ProcessInfo.processInfo.systemUptime
-                if let decodeAhead {
-                    input = try await decodeAhead.value
+                var timings = ExportItemTimings()
+
+                let decoded: ExportDecodedFrame
+                if decodeAheadIndex == index, let task = decodeAhead {
+                    decoded = try await task.value
                     timings.decodePrefetched = true
                 } else {
-                    input = try await decoder.fullResolution(
-                        url: sourceURL,
-                        raw: item.look.raw,
-                        bypassImportTransform: job.bypassImportTransform
-                    )
+                    decoded = try await startDecode(index: index).value
+                    timings.decodePrefetched = false
                 }
-                timings.decodeMs = Self.msSince(decodeStarted)
-                timings.sourceWidth = input.width
-                timings.sourceHeight = input.height
                 decodeAhead = nil
+                decodeAheadIndex = nil
+
+                timings.decodeMs = decoded.decodeMs
+                timings.sourceWidth = decoded.buffer.width
+                timings.sourceHeight = decoded.buffer.height
                 try Task.checkCancellation()
 
-                if index + 1 < job.items.count {
-                    let next = job.items[index + 1]
-                    let nextURL = URL(fileURLWithPath: next.sourcePath)
-                    let currentPixels = Self.approximatePixelCount(sourceURL)
-                    let nextPixels = Self.approximatePixelCount(nextURL)
-                    if currentPixels > 0, nextPixels > 0, currentPixels + nextPixels <= 45_000_000 {
-                        decodeAhead = Task {
-                            try await decoder.fullResolution(
-                                url: nextURL,
-                                raw: next.look.raw,
-                                bypassImportTransform: job.bypassImportTransform
-                            )
-                        }
+                // Decode N+1 while N grades/renders. Admission is based on the
+                // bytes macOS says this process can still allocate, not MP count.
+                if position + 1 < workIndices.count {
+                    let nextIndex = workIndices[position + 1]
+                    let nextURL = URL(
+                        fileURLWithPath: job.items[nextIndex].sourcePath
+                    )
+                    if Self.shouldPrefetchExportDecode(nextURL) {
+                        decodeAheadIndex = nextIndex
+                        decodeAhead = startDecode(index: nextIndex)
                     }
                 }
 
                 let gradeStarted = ProcessInfo.processInfo.systemUptime
                 let renderInput = await Task.detached(priority: .userInitiated) {
-                    input.applyingHostGrade(tone: item.look.tone, density: item.look.colorDensity)
+                    decoded.buffer.applyingHostGrade(
+                        tone: item.look.tone,
+                        density: item.look.colorDensity
+                    )
                 }.value
                 timings.gradeMs = Self.msSince(gradeStarted)
                 try Task.checkCancellation()
 
+                var exportLook = item.look
+                if job.settings.colorMode == .sRGB {
+                    // Real sRGB renderer output for web/phone delivery.
+                    // This is not an ICC retag of Rec.709 Gamma 2.4 pixels.
+                    exportLook.values["outputColorSpace"] = .int(17)
+                    exportLook.values["outputRole"] = .int(0)
+                }
+
                 let renderStarted = ProcessInfo.processInfo.systemUptime
-                let (filmOutput, renderDiagnostics) = try await exactRenderer.render(renderInput, look: item.look)
+                let (filmOutput, renderDiagnostics) =
+                    try await exactRenderer.render(renderInput, look: exportLook)
                 timings.renderMs = Self.msSince(renderStarted)
                 timings.renderGpuMs = renderDiagnostics.commandBufferMs
                 timings.renderPassCount = renderDiagnostics.passCount
                 try Task.checkCancellation()
 
-                // Hoist the captures: `job` is a var mutated across loop iterations, so
-                // capturing it in a @Sendable closure is a Swift 6 concurrency error.
+                // Keep these captures outside the @Sendable closure. The source
+                // gate explicitly protects this Swift 6.2 concurrency pattern.
                 let geometrySettings = item.look.geometry
                 let exportSettings = job.settings
                 let geometryStarted = ProcessInfo.processInfo.systemUptime
                 let output = try await Task.detached(priority: .utility) {
-                    let geometryOutput = GeometryEngine.transformed(filmOutput, settings: geometrySettings)
-                    return try geometryOutput.resizedForExport(settings: exportSettings)
+                    let geometryOutput = GeometryEngine.transformed(
+                        filmOutput,
+                        settings: geometrySettings
+                    )
+                    return try geometryOutput.resizedForExport(
+                        settings: exportSettings
+                    )
                 }.value
                 timings.geometryResizeMs = Self.msSince(geometryStarted)
                 timings.outputWidth = output.width
                 timings.outputHeight = output.height
                 try Task.checkCancellation()
 
+                // Writer N-1 has overlapped decode + render N. Drain the single
+                // writer slot before launching writer N; this bounds retained RAM.
+                try await settlePendingWrite()
+
                 job.items[index].state = .writing
                 job.updatedAt = Date()
                 activeExportJob = job
-                status = "Writing \(URL(fileURLWithPath: item.destinationPath).lastPathComponent)…"
+                status =
+                    "Writing \(URL(fileURLWithPath: item.destinationPath).lastPathComponent)…"
                 try await ExportJobJournal.shared.save(job)
 
                 let destination = URL(fileURLWithPath: item.destinationPath)
-                let writeStarted = ProcessInfo.processInfo.systemUptime
-                try await exportEngine.write(
-                    output: output,
-                    look: item.look,
-                    sourceURL: sourceURL,
-                    destination: destination,
-                    settings: job.settings
-                )
-                timings.writeMs = Self.msSince(writeStarted)
-                try Task.checkCancellation()
+                let writer = exportEngine
+                let sourceForWriter = sourceURL
+                let settingsForWriter = job.settings
+                let lookForWriter = exportLook
 
-                let attrs = try? FileManager.default.attributesOfItem(atPath: destination.path)
-                job.items[index].outputBytes = (attrs?[.size] as? NSNumber)?.int64Value
-                timings.outputBytes = job.items[index].outputBytes ?? 0
-                timings.wallMs = Self.msSince(itemStarted)
-                job.items[index].timings = timings
-                job.items[index].state = .completed
-                job.items[index].errorMessage = nil
-                job.updatedAt = Date()
-                activeExportJob = job
-                exportProgress = job.fractionComplete
-                status = "Exported \(job.completedCount) / \(job.items.count)"
-                try await ExportJobJournal.shared.save(job)
+                let writerTask = Task.detached(priority: .utility) {
+                    let started = ProcessInfo.processInfo.systemUptime
+                    try await writer.write(
+                        output: output,
+                        look: lookForWriter,
+                        sourceURL: sourceForWriter,
+                        destination: destination,
+                        settings: settingsForWriter
+                    )
+                    return (ProcessInfo.processInfo.systemUptime - started) * 1000.0
+                }
 
-                let summary = String(
-                    format: "EXPORT %@ | %.0f ms total | decode %.0f (%@) | grade %.0f | render %.0f (gpu %.0f, %u passes) | geom+resize %.0f | write %.0f | %dx%d -> %dx%d",
-                    item.sourceFileName,
-                    timings.wallMs,
-                    timings.decodeMs,
-                    timings.decodePrefetched ? "prefetch" : "inline",
-                    timings.gradeMs,
-                    timings.renderMs,
-                    timings.renderGpuMs,
-                    timings.renderPassCount,
-                    timings.geometryResizeMs,
-                    timings.writeMs,
-                    timings.sourceWidth,
-                    timings.sourceHeight,
-                    timings.outputWidth,
-                    timings.outputHeight
+                pendingWrite = PendingExportWrite(
+                    index: index,
+                    itemStarted: itemStarted,
+                    timings: timings,
+                    task: writerTask
                 )
-                print(summary)
-                await ExportTimingLog.shared.record(job.items[index])
 
             } catch is CancellationError {
                 decodeAhead?.cancel()
+                pendingWrite?.task.cancel()
                 decodeAhead = nil
-                if job.items[index].state != .completed {
-                    job.items[index].state = .pending
-                    job.items[index].errorMessage = nil
+                decodeAheadIndex = nil
+                pendingWrite = nil
+
+                for i in job.items.indices
+                where job.items[i].state == .rendering ||
+                      job.items[i].state == .writing {
+                    job.items[i].state = .pending
+                    job.items[i].errorMessage = nil
                 }
+
                 job.state = .stopped
                 job.updatedAt = Date()
                 activeExportJob = job
@@ -3672,32 +3795,89 @@ final class AppModel: ObservableObject {
                 return
 
             } catch {
-                decodeAhead?.cancel()
-                decodeAhead = nil
                 job.items[index].state = .failed
                 job.items[index].errorMessage = error.localizedDescription
                 job.updatedAt = Date()
-                exportFailures.append(ExportFailure(
-                    fileName: job.items[index].sourceFileName,
-                    message: error.localizedDescription
-                ))
+                exportFailures.append(
+                    ExportFailure(
+                        fileName: job.items[index].sourceFileName,
+                        message: error.localizedDescription
+                    )
+                )
                 activeExportJob = job
                 exportProgress = job.fractionComplete
                 try? await ExportJobJournal.shared.save(job)
             }
         }
 
+        do {
+            try await settlePendingWrite()
+        } catch is CancellationError {
+            job.state = .stopped
+            job.updatedAt = Date()
+            activeExportJob = job
+            try? await ExportJobJournal.shared.save(job)
+            status = "Export stopped · \(job.remainingCount) remaining"
+            return
+        } catch {
+            // settlePendingWrite records normal writer failures itself.
+        }
+
         job.state = .completed
         job.updatedAt = Date()
         activeExportJob = job
         exportProgress = 1
-if job.failedCount == 0 {
-              status = "Export complete · \(job.completedCount) files · timings in \(Self.exportTimingLogPath)"
-              await ExportJobJournal.shared.clear()
-          } else {
-              status = "Export finished · \(job.completedCount) complete · \(job.failedCount) failed · timings in \(Self.exportTimingLogPath)"
-              try? await ExportJobJournal.shared.save(job)
-          }
+
+        if job.failedCount == 0 {
+            status =
+                "Export complete · \(job.completedCount) files · timings in \(Self.exportTimingLogPath)"
+            await ExportJobJournal.shared.clear()
+        } else {
+            status =
+                "Export finished · \(job.completedCount) complete · \(job.failedCount) failed · timings in \(Self.exportTimingLogPath)"
+            try? await ExportJobJournal.shared.save(job)
+        }
+    }
+
+    // macOS has no os_proc_available_memory(); that symbol is
+    // API_UNAVAILABLE(macos) in os/proc.h. Free + inactive + purgeable is the
+    // usual stand-in for "what the allocator can still hand out".
+    // ponytail: returns 0 on failure so a bad read skips prefetch instead of
+    // over-committing; prefetch is an optimization, not a requirement.
+    private static func availableMemoryBytes() -> UInt64 {
+        var stats = vm_statistics64()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size
+        )
+        let status = withUnsafeMutablePointer(to: &stats) { raw in
+            raw.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { rebound in
+                host_statistics64(mach_host_self(), HOST_VM_INFO64, rebound, &count)
+            }
+        }
+        guard status == KERN_SUCCESS else { return 0 }
+        // getpagesize(), not vm_kernel_page_size: the latter is a mutable C global
+        // and Swift 6 concurrency rejects reading it.
+        let page = UInt64(getpagesize())
+        let free = UInt64(stats.free_count)
+        let inactive = UInt64(stats.inactive_count)
+        let purgeable = UInt64(stats.purgeable_count)
+        return (free + inactive + purgeable) * page
+    }
+
+    private static func shouldPrefetchExportDecode(_ url: URL) -> Bool {
+        let pixels = approximatePixelCount(url)
+        guard pixels > 0 else { return false }
+
+        // Float RGBA = 16 B/px. Reserve another 16 B/px for Core Image /
+        // decoder scratch and keep at least 512 MiB or one third of currently
+        // available allocation headroom untouched.
+        let estimate = UInt64(pixels) * 32
+        let available = availableMemoryBytes()
+        guard available > 0 else { return false }
+        let reserve = max(UInt64(512 * 1024 * 1024), available / 3)
+
+        guard available > reserve else { return false }
+        return estimate <= available - reserve
     }
 
     // MARK: - Helpers

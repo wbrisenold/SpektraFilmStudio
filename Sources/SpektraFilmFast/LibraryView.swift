@@ -9,6 +9,7 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
     case unrated = "Unrated"
     case fiveStar = "5 Stars"
     case needsReview = "AI Review"
+    case exportQueued = "Export Queue"
     case missing = "Missing Media"
     var id: String { rawValue }
 }
@@ -421,6 +422,7 @@ struct LibraryWorkspaceView: View {
         case .unrated: "star"
         case .fiveStar: "star.fill"
         case .needsReview: "sparkles"
+        case .exportQueued: "square.and.arrow.up"
         case .missing: "externaldrive.badge.exclamationmark"
         }
     }

@@ -19,6 +19,7 @@ private struct AutoNeutralLocation: Hashable, Sendable {
 private struct SourceImageResult {
     var image: CIImage
     var cameraSpaceAutoWBApplied: Bool
+    var cameraSpaceWhiteBalanceApplied: Bool
     var baseTemperature: Double?
     var baseTint: Double?
 }
@@ -353,6 +354,12 @@ actor ImageDecoder {
         } else {
             baseCorrected = decoded
         }
+        // Settled RAW WB belongs in CIRAWFilter/camera space. The Rec.2020
+        // adaptation remains only as a fallback for non-RAW and low-confidence
+        // Auto-WB fallback paths.
+        if source.cameraSpaceWhiteBalanceApplied {
+            return baseCorrected
+        }
         return baseCorrected.applyingWhiteBalanceOffsets(
             raw,
             baseTemperature: source.baseTemperature,
@@ -380,14 +387,42 @@ actor ImageDecoder {
                 rawFilter.neutralTemperature = Float(raw.temperature)
                 rawFilter.neutralTint = Float(raw.tint)
             }
+
+            // Resolve the camera-space base first. Relative As-Shot/Auto offsets
+            // are then applied through CIRAWFilter instead of an approximate
+            // post-development RGB matrix whenever camera-space WB is available.
+            let baseTemperature = Double(rawFilter.neutralTemperature)
+            let baseTint = Double(rawFilter.neutralTint)
+            let canCommitCameraSpaceWB =
+                raw.whiteBalanceMode != .auto || autoNeutralLocation != nil
+
+            if raw.whiteBalanceMode != .custom && canCommitCameraSpaceWB {
+                let miredOffset = raw.temperatureOffsetMired ?? 0
+                let tintOffset = raw.tintOffset ?? 0
+                if abs(miredOffset) > 1.0e-9 || abs(tintOffset) > 1.0e-9 {
+                    let safeBase = PixelBufferF32.clampedKelvin(
+                        baseTemperature.isFinite ? baseTemperature : 6500
+                    )
+                    rawFilter.neutralTemperature = Float(
+                        PixelBufferF32.kelvin(
+                            baseKelvin: safeBase,
+                            miredOffset: miredOffset
+                        )
+                    )
+                    rawFilter.neutralTint = Float(
+                        (baseTint.isFinite ? baseTint : 0) + tintOffset
+                    )
+                }
+            }
+
             if let output = rawFilter.outputImage {
-                let resolvedTemperature = Double(rawFilter.neutralTemperature)
-                let resolvedTint = Double(rawFilter.neutralTint)
                 return SourceImageResult(
                     image: output,
-                    cameraSpaceAutoWBApplied: raw.whiteBalanceMode == .auto && autoNeutralLocation != nil,
-                    baseTemperature: resolvedTemperature.isFinite ? resolvedTemperature : nil,
-                    baseTint: resolvedTint.isFinite ? resolvedTint : nil
+                    cameraSpaceAutoWBApplied:
+                        raw.whiteBalanceMode == .auto && autoNeutralLocation != nil,
+                    cameraSpaceWhiteBalanceApplied: canCommitCameraSpaceWB,
+                    baseTemperature: baseTemperature.isFinite ? baseTemperature : nil,
+                    baseTint: baseTint.isFinite ? baseTint : nil
                 )
             }
         }
@@ -400,6 +435,7 @@ actor ImageDecoder {
         return SourceImageResult(
             image: image,
             cameraSpaceAutoWBApplied: false,
+            cameraSpaceWhiteBalanceApplied: false,
             baseTemperature: raw.whiteBalanceMode == .custom ? raw.temperature : 6500,
             baseTint: raw.whiteBalanceMode == .custom ? raw.tint : 0
         )

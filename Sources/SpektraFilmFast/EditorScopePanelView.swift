@@ -158,9 +158,17 @@ struct EditorScopePanelView: View {
         guard metrics.skinCandidatePercent > 0.01, metrics.skinMeasurementConfidencePercent > 2 else {
             return "No reliable skin sample"
         }
-        let tolerance = model.project.preferences.skinToleranceDegrees
-        if metrics.skinMeanDeviationDegrees < -tolerance { return "Too Magenta" }
-        if metrics.skinMeanDeviationDegrees > tolerance { return "Too Green" }
+        let magenta = metrics.skinMagentaPercent
+        let green = metrics.skinGreenPercent
+        let onTarget = metrics.skinWithinTolerancePercent
+
+        // One centroid can sit on the skin line when green-side and
+        // magenta-side regions cancel. Call that mixed light instead.
+        if magenta >= 18, green >= 18, abs(magenta - green) < 16 {
+            return "Mixed Green / Magenta"
+        }
+        if green > max(onTarget, magenta), green >= 28 { return "Too Green" }
+        if magenta > max(onTarget, green), magenta >= 28 { return "Too Magenta" }
         return "On Target"
     }
 
@@ -171,7 +179,9 @@ struct EditorScopePanelView: View {
         case "Too Green":
             return "CORRECT → push tint toward MAGENTA"
         case "On Target":
-            return "ON LINE → no hue/tint push needed"
+            return "ON LINE → no global hue/tint push needed"
+        case "Mixed Green / Magenta":
+            return "MIXED LIGHT → global WB will trade one region for another"
         default:
             return "Skin correction direction unavailable"
         }
@@ -182,6 +192,7 @@ struct EditorScopePanelView: View {
         case "Too Magenta": return Color(red: 0.86, green: 0.36, blue: 0.54)
         case "Too Green": return Color(red: 0.28, green: 0.72, blue: 0.50)
         case "On Target": return Color(red: 0.90, green: 0.69, blue: 0.35)
+        case "Mixed Green / Magenta": return .orange
         default: return .secondary
         }
     }
