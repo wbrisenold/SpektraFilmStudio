@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 private enum ExportSourceFilter: String, CaseIterable, Identifiable {
     case all = "All"
@@ -18,146 +19,97 @@ struct ExportWorkspaceView: View {
     var body: some View {
         HSplitView {
             sourceBrowser
-                .frame(minWidth: 360, idealWidth: 430, maxWidth: 560)
+                .frame(minWidth: 300, idealWidth: 330, maxWidth: 420)
 
-            VStack(spacing: 0) {
-                ScrollView {
-                    LazyVStack(spacing: 12) {
-                        deliveryCard
-                        destinationCard
-                        namingCard
-                        fileCard
-                        resizeCard
-                        metadataCard
-                        queueCard
-                    }
-                    .padding(14)
-                }
-                .background(StudioPalette.recessed)
-
-                Divider()
-                footer
+            HSplitView {
+                previewAndQueue.frame(minWidth: 500)
+                inspector.frame(minWidth: 350, idealWidth: 370, maxWidth: 440)
             }
-            .frame(minWidth: 540)
         }
         .background(StudioPalette.canvas)
     }
 
     private var sourceBrowser: some View {
         VStack(spacing: 0) {
-            VStack(spacing: 9) {
+            VStack(alignment: .leading, spacing: 9) {
                 HStack {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 1) {
                         Text("EXPORT SET")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.secondary)
-                        Text(
-                            "\(model.selectedExportCount) of " +
-                            "\(model.project.images.count) queued"
-                        )
-                        .font(.headline)
+                        Text("\(model.selectedExportCount) queued").font(.headline)
                     }
-
                     Spacer()
-
                     Menu {
-                        Button("All Photos") {
-                            model.setAllExportSelection(true)
-                        }
-                        Button("None") {
-                            model.setAllExportSelection(false)
-                        }
-
+                        Button("All Photos") { model.setAllExportSelection(true) }
+                        Button("None") { model.setAllExportSelection(false) }
                         Divider()
-
-                        Button("Picks Only") {
-                            model.selectExportPicksOnly()
-                        }
-                        Button("Client Picks Only") {
-                            model.selectExportClientPicksOnly()
-                        }
-                        Button("4 Stars & Up") {
-                            model.selectExportRating(atLeast: 4)
-                        }
-                        Button("5 Stars Only") {
-                            model.selectExportRating(atLeast: 5)
-                        }
+                        Button("Picks Only") { model.selectExportPicksOnly() }
+                        Button("Client Picks Only") { model.selectExportClientPicksOnly() }
+                        Button("4 Stars & Up") { model.selectExportRating(atLeast: 4) }
+                        Button("5 Stars Only") { model.selectExportRating(atLeast: 5) }
                     } label: {
                         Label("Build Set", systemImage: "checklist")
                     }
+                    .controlSize(.small)
                     .disabled(model.isExporting)
                 }
 
-                TextField("Filter export browser…", text: $search)
-                    .textFieldStyle(.roundedBorder)
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Filter photos", text: $search)
+                        .textFieldStyle(.plain)
+                }
+                .padding(.horizontal, 8)
+                .frame(height: 30)
+                .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 7))
 
                 Picker("Sources", selection: $sourceFilter) {
-                    ForEach(ExportSourceFilter.allCases) {
-                        Text($0.rawValue).tag($0)
-                    }
+                    ForEach(ExportSourceFilter.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
             }
-            .padding(12)
+            .padding(11)
             .background(StudioPalette.panel)
 
             Divider()
 
             List {
                 ForEach(filteredImages) { image in
-                    HStack(spacing: 10) {
+                    HStack(spacing: 9) {
                         Toggle(
                             "",
                             isOn: Binding(
                                 get: { image.selectedForExport },
-                                set: { _ in
-                                    model.toggleExportSelection(image.id)
-                                }
+                                set: { _ in model.toggleExportSelection(image.id) }
                             )
                         )
                         .labelsHidden()
                         .disabled(model.isExporting)
 
-                        LocalThumbnail(
-                            url: image.url,
-                            contentMode: .fit
-                        )
-                        .frame(width: 82, height: 58)
-                        .background(
-                            Color.black.opacity(0.20),
-                            in: RoundedRectangle(cornerRadius: 5)
-                        )
+                        LocalThumbnail(url: image.url, contentMode: .fit)
+                            .frame(width: 66, height: 48)
+                            .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 5))
 
-                        VStack(alignment: .leading, spacing: 4) {
+                        VStack(alignment: .leading, spacing: 3) {
                             Text(image.fileName).lineLimit(1)
-
-                            HStack(spacing: 6) {
-                                if image.rating > 0 {
-                                    Text("\(image.rating)★")
-                                }
+                            HStack(spacing: 5) {
+                                if image.rating > 0 { Text("\(image.rating)★") }
                                 Text(image.flag.label)
-                                if image.clientPicked {
-                                    Label(
-                                        "Client",
-                                        systemImage: "heart.fill"
-                                    )
-                                }
+                                if image.clientPicked { Image(systemName: "heart.fill") }
                             }
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                         }
 
                         Spacer()
-
                         if image.selectedForExport {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                         }
                     }
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        model.selectImage(image.id, renderPreview: false)
-                    }
+                    .onTapGesture { model.selectImage(image.id, renderPreview: false) }
                 }
             }
             .listStyle(.inset)
@@ -165,409 +117,437 @@ struct ExportWorkspaceView: View {
     }
 
     private var filteredImages: [ProjectImageRecord] {
-        let needle = search.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
-
+        let needle = search.trimmingCharacters(in: .whitespacesAndNewlines)
         return model.project.images.filter { image in
-            let category: Bool
+            let categoryMatch: Bool
             switch sourceFilter {
-            case .all:
-                category = true
-            case .queued:
-                category = image.selectedForExport
-            case .picks:
-                category = image.flag == .picked
-            case .client:
-                category = image.clientPicked
-            case .rated:
-                category = image.rating >= 4
-            case .rejected:
-                category = image.flag == .rejected
+            case .all: categoryMatch = true
+            case .queued: categoryMatch = image.selectedForExport
+            case .picks: categoryMatch = image.flag == .picked
+            case .client: categoryMatch = image.clientPicked
+            case .rated: categoryMatch = image.rating >= 4
+            case .rejected: categoryMatch = image.flag == .rejected
             }
-
-            let textMatch =
-                needle.isEmpty ||
-                image.fileName.localizedCaseInsensitiveContains(needle)
-            return category && textMatch
+            return categoryMatch &&
+                (needle.isEmpty || image.fileName.localizedCaseInsensitiveContains(needle))
         }
     }
 
-    private var deliveryCard: some View {
-        card("Delivery", icon: "shippingbox") {
+    private var previewAndQueue: some View {
+        VStack(spacing: 0) {
             HStack {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("OUTPUT PREVIEW")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(previewImage?.fileName ?? "No photo selected")
+                        .font(.headline)
+                        .lineLimit(1)
+                }
+                Spacer()
+                if let image = previewImage {
+                    Button {
+                        model.selectImage(image.id, renderPreview: false)
+                        model.page = .edit
+                        model.workspaceDidChange(.edit)
+                    } label: {
+                        Label("Open in Edit", systemImage: "slider.horizontal.3")
+                    }
+                    .controlSize(.small)
+                }
+            }
+            .padding(.horizontal, 13)
+            .frame(height: 48)
+            .background(StudioPalette.panel)
+
+            Divider()
+
+            VStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 11).fill(Color.black.opacity(0.92))
+                    if let image = previewImage {
+                        LocalThumbnail(url: image.url, contentMode: .fit)
+                            .padding(18)
+                        VStack {
+                            HStack {
+                                badge(model.project.exportSettings.format.rawValue, "doc")
+                                badge(colorSummary, "paintpalette")
+                                Spacer()
+                            }
+                            Spacer()
+                            HStack {
+                                Spacer()
+                                badge(outputSizeSummary, "aspectratio")
+                            }
+                        }
+                        .padding(12)
+                    } else {
+                        ContentUnavailableView(
+                            "No Export Preview",
+                            systemImage: "photo.on.rectangle",
+                            description: Text("Queue or select a photo.")
+                        )
+                    }
+                }
+                .frame(minHeight: 320)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 11)
+                        .stroke(StudioPalette.subtleBorder, lineWidth: 0.5)
+                }
+
+                HStack(spacing: 8) {
+                    summaryCell("Photos", "\(model.selectedExportCount)", "photo.stack")
+                    summaryCell("Format", formatSummary, "doc.richtext")
+                    summaryCell("Size", outputSizeSummary, "aspectratio")
+                    summaryCell("Color", colorSummary, "paintpalette")
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(StudioPalette.recessed)
+
+            Divider()
+            queuePanel.frame(height: 205)
+        }
+    }
+
+    private var queuePanel: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("QUEUE")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                if let job = model.activeExportJob {
+                    Text("· \(job.completedCount) done")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    if let seconds = job.estimatedRemainingSeconds {
+                        Text("· ETA \(Self.duration(seconds))")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    if let bytes = job.estimatedTotalOutputBytes {
+                        Text("· ~\(Self.byteCount(bytes))")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                if let job = model.activeExportJob, !model.isExporting, job.remainingCount > 0 {
+                    Button("Resume") { model.resumeExport() }.controlSize(.small)
+                    if job.failedCount > 0 {
+                        Button("Retry Failed") { model.retryFailedExports() }.controlSize(.small)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 36)
+            .background(StudioPalette.panel)
+
+            Divider()
+
+            if let job = model.activeExportJob {
+                List(job.items) { item in
+                    HStack(spacing: 9) {
+                        Image(systemName: item.state.systemImage)
+                            .frame(width: 18)
+                            .foregroundStyle(item.state == .failed ? Color.red : Color.secondary)
+                        Text(item.sourceFileName).lineLimit(1)
+                        Spacer()
+                        Text(item.state.label)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .listStyle(.inset)
+            } else {
+                VStack(spacing: 5) {
+                    Text("Queue is empty").font(.caption).foregroundStyle(.secondary)
+                    Text("Choose photos on the left, then export from the inspector.")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .background(StudioPalette.panel)
+    }
+
+    private var inspector: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 0) {
+                    inspectorHeader
+                    section("Delivery", "shippingbox") { deliveryControls }
+                    section("File", "doc.richtext") { fileControls }
+                    section("Size", "aspectratio") { sizeControls }
+                    section("Naming", "textformat") { namingControls }
+                    section("Metadata", "info.circle") { metadataControls }
+                    section("Destination", "folder") { destinationControls }
+                }
+            }
+            Divider()
+            actionFooter
+        }
+        .background(StudioPalette.panel)
+    }
+
+    private var inspectorHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("EXPORT")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text("Output Settings").font(.headline)
+                }
+                Spacer()
                 Menu {
                     ForEach(ExportPresetCategory.allCases) { category in
                         Menu(category.rawValue) {
-                            ForEach(
-                                ExportPresetDefinition.all.filter {
-                                    $0.category == category
-                                }
-                            ) { preset in
-                                Button(preset.name) {
-                                    model.applyExportPreset(preset.id)
-                                }
+                            ForEach(ExportPresetDefinition.all.filter { $0.category == category }) { preset in
+                                Button(preset.name) { model.applyExportPreset(preset.id) }
                             }
                         }
                     }
                 } label: {
-                    Label("Apply Preset", systemImage: "wand.and.stars")
+                    Label("Preset", systemImage: "wand.and.stars")
                 }
-                .disabled(model.isExporting)
-
-                Spacer()
-
-                Picker(
-                    "Delivery color",
-                    selection: $model.project.exportSettings.colorMode
-                ) {
-                    ForEach(ExportColorMode.allCases) {
-                        Text($0.rawValue).tag($0)
-                    }
-                }
-                .frame(width: 270)
-                .disabled(model.isExporting)
-            }
-
-            if model.project.exportSettings.colorMode == .sRGB {
-                Label(
-                    "Renders actual sRGB pixels for predictable web, phone, " +
-                    "messaging and social-media delivery.",
-                    systemImage: "iphone"
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            } else {
-                Label(
-                    "Preserves the photo's renderer output space for controlled " +
-                    "color-managed master workflows.",
-                    systemImage: "display"
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var destinationCard: some View {
-        card("Destination", icon: "folder") {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(
-                        model.project.exportSettings.destinationPath.isEmpty
-                            ? "No folder selected"
-                            : model.project.exportSettings.destinationPath
-                    )
-                    .lineLimit(2)
-
-                    if !model.project.exportSettings.destinationPath.isEmpty {
-                        Text("Existing files are never silently overwritten.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Spacer()
-
-                Button("Choose…") {
-                    model.chooseExportDestination()
-                }
+                .controlSize(.small)
                 .disabled(model.isExporting)
             }
         }
-    }
-
-    private var namingCard: some View {
-        card("File Naming", icon: "textformat") {
-            HStack {
-                TextField(
-                    "Filename template",
-                    text: $model.project.exportSettings.filenameTemplate
-                )
-                .textFieldStyle(.roundedBorder)
-                .disabled(model.isExporting)
-
-                Stepper(
-                    "Start \(model.project.exportSettings.sequenceStart)",
-                    value: $model.project.exportSettings.sequenceStart,
-                    in: 0...999999
-                )
-                .fixedSize()
-                .disabled(model.isExporting)
-            }
-
-            Text("Tokens: {name}, {original_filename}, {sequence}")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-
-            let names = model.exportPreflightNames
-            if !names.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("NAME PREVIEW")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-
-                    ForEach(
-                        Array(names.enumerated()),
-                        id: \.offset
-                    ) { _, name in
-                        Text(name)
-                            .font(.caption2.monospaced())
-                            .lineLimit(1)
-                    }
-                }
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    StudioPalette.recessed,
-                    in: RoundedRectangle(cornerRadius: 7)
-                )
-            }
+        .padding(12)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(StudioPalette.divider).frame(height: 1)
         }
     }
 
-    private var fileCard: some View {
-        card("File & Quality", icon: "doc.richtext") {
-            HStack {
-                Picker(
-                    "Format",
-                    selection: $model.project.exportSettings.format
-                ) {
-                    ForEach(ExportFormat.allCases) {
-                        Text($0.rawValue).tag($0)
-                    }
-                }
-                .frame(width: 190)
-
-                if model.project.exportSettings.format == .jpeg ||
-                   model.project.exportSettings.format == .heic {
-                    Text("Quality")
-                    Slider(
-                        value: $model.project.exportSettings.jpegQuality,
-                        in: 0.1...1
-                    )
-                    Text(
-                        "\(Int((model.project.exportSettings.jpegQuality * 100).rounded()))"
-                    )
-                    .monospacedDigit()
-                    .frame(width: 34, alignment: .trailing)
-                }
-
-                if model.project.exportSettings.format == .tiff {
-                    Toggle(
-                        "16-bit",
-                        isOn: $model.project.exportSettings.tiff16Bit
-                    )
-                }
-            }
-            .disabled(model.isExporting)
+    private func section<Content: View>(
+        _ title: String,
+        _ icon: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Label(title, systemImage: icon)
+                .font(.subheadline.weight(.semibold))
+            content()
+        }
+        .padding(12)
+        .disabled(model.isExporting)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(StudioPalette.divider).frame(height: 1)
         }
     }
 
-    private var resizeCard: some View {
-        card("Dimensions", icon: "aspectratio") {
-            Picker(
-                "Resize",
-                selection: $model.project.exportSettings.resizeMode
-            ) {
-                ForEach(ExportResizeMode.allCases) {
-                    Text($0.rawValue).tag($0)
-                }
+    private var deliveryControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            fieldLabel("Color delivery")
+            Picker("Color delivery", selection: $model.project.exportSettings.colorMode) {
+                ForEach(ExportColorMode.allCases) { Text($0.rawValue).tag($0) }
             }
-            .pickerStyle(.segmented)
-
-            Group {
-                switch model.project.exportSettings.resizeMode {
-                case .none:
-                    Text("Full rendered dimensions")
-                        .foregroundStyle(.secondary)
-
-                case .longEdge:
-                    Stepper(
-                        "Long edge " +
-                        "\(model.project.exportSettings.resizeLongEdge) px",
-                        value: $model.project.exportSettings.resizeLongEdge,
-                        in: 256...30000,
-                        step: 64
-                    )
-
-                case .width:
-                    Stepper(
-                        "Width \(model.project.exportSettings.resizeWidth) px",
-                        value: $model.project.exportSettings.resizeWidth,
-                        in: 256...30000,
-                        step: 64
-                    )
-
-                case .height:
-                    Stepper(
-                        "Height \(model.project.exportSettings.resizeHeight) px",
-                        value: $model.project.exportSettings.resizeHeight,
-                        in: 256...30000,
-                        step: 64
-                    )
-
-                case .fitBox:
-                    HStack {
-                        Stepper(
-                            "Width \(model.project.exportSettings.resizeWidth)",
-                            value: $model.project.exportSettings.resizeWidth,
-                            in: 256...30000,
-                            step: 64
-                        )
-                        Stepper(
-                            "Height \(model.project.exportSettings.resizeHeight)",
-                            value: $model.project.exportSettings.resizeHeight,
-                            in: 256...30000,
-                            step: 64
-                        )
-                    }
-                }
-            }
-            .disabled(model.isExporting)
-
-            if model.project.exportSettings.resizeMode != .none {
-                Toggle(
-                    "Don't enlarge smaller images",
-                    isOn: $model.project.exportSettings.dontEnlarge
-                )
-                .disabled(model.isExporting)
-            }
-        }
-    }
-
-    private var metadataCard: some View {
-        card("Metadata & Privacy", icon: "info.circle") {
-            Toggle(
-                "Preserve source metadata",
-                isOn: $model.project.exportSettings.preserveMetadata
-            )
-            .disabled(model.isExporting)
-
-            if model.project.exportSettings.preserveMetadata {
-                Toggle(
-                    "Strip GPS location",
-                    isOn: $model.project.exportSettings.stripGPS
-                )
-                .disabled(model.isExporting)
-            }
-
+            .labelsHidden()
             Text(
-                "Orientation, dimensions, output profile and bit depth describe " +
-                "the exported pixels, not the source RAW."
+                model.project.exportSettings.colorMode == .sRGB
+                    ? "Actual sRGB pixels for web, phone, messaging, and social delivery."
+                    : "Preserve the renderer output for controlled color-managed workflows."
             )
             .font(.caption2)
             .foregroundStyle(.secondary)
         }
     }
 
-    private var queueCard: some View {
-        card("Queue & Recovery", icon: "list.bullet.rectangle") {
-            if let job = model.activeExportJob {
+    private var fileControls: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                fieldLabel("Format")
+                Spacer()
+                Picker("Format", selection: $model.project.exportSettings.format) {
+                    ForEach(ExportFormat.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .labelsHidden()
+                .frame(width: 145)
+            }
+
+            if model.project.exportSettings.format == .jpeg ||
+               model.project.exportSettings.format == .heic {
                 HStack {
-                    Text("\(job.completedCount) done")
-                    Text("·")
-                    Text("\(job.remainingCount) remaining")
-                    if let seconds = job.estimatedRemainingSeconds {
-                        Text("· ETA \(Self.duration(seconds))")
-                    }
-                    if let bytes = job.estimatedTotalOutputBytes {
-                        Text("· ~\(Self.byteCount(bytes))")
-                    }
-                    if job.failedCount > 0 {
-                        Text("· \(job.failedCount) failed")
-                            .foregroundStyle(.red)
-                    }
-
+                    fieldLabel("Quality")
                     Spacer()
-
-                    if !model.isExporting, job.remainingCount > 0 {
-                        Button("Resume") { model.resumeExport() }
-                        if job.failedCount > 0 {
-                            Button("Retry Failed") {
-                                model.retryFailedExports()
-                            }
-                        }
-                        Button("Discard") {
-                            model.discardRecoveredExportJob()
-                        }
-                    }
+                    Text("\(Int((model.project.exportSettings.jpegQuality * 100).rounded()))")
+                        .font(.caption.monospacedDigit())
                 }
-                .font(.caption)
+                Slider(value: $model.project.exportSettings.jpegQuality, in: 0.1...1)
+            }
 
-                ProgressView(value: job.fractionComplete)
-
-                ForEach(job.items.suffix(8)) { item in
-                    HStack(spacing: 8) {
-                        Image(systemName: item.state.systemImage)
-                        Text(item.sourceFileName).lineLimit(1)
-                        Spacer()
-                        Text(item.state.label)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            } else {
-                Text(
-                    "The queue is crash-recoverable. Decode, GPU render and " +
-                    "encode/write run as a bounded pipeline."
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if model.project.exportSettings.format == .tiff {
+                Toggle("16-bit TIFF", isOn: $model.project.exportSettings.tiff16Bit)
             }
         }
     }
 
-    private var footer: some View {
-        HStack(spacing: 12) {
-            if model.isExporting {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(
-                        model.isStoppingExport ? "Stopping…" : "Exporting"
-                    )
-                    .font(.headline)
-                    Text(model.exportCurrentFileName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+    private var sizeControls: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Picker("Resize", selection: $model.project.exportSettings.resizeMode) {
+                ForEach(ExportResizeMode.allCases) { Text($0.rawValue).tag($0) }
+            }
+
+            switch model.project.exportSettings.resizeMode {
+            case .none:
+                Text("Original rendered dimensions")
+                    .font(.caption).foregroundStyle(.secondary)
+            case .longEdge:
+                numericField("Long edge", value: $model.project.exportSettings.resizeLongEdge)
+            case .width:
+                numericField("Width", value: $model.project.exportSettings.resizeWidth)
+            case .height:
+                numericField("Height", value: $model.project.exportSettings.resizeHeight)
+            case .fitBox:
+                numericField("Width", value: $model.project.exportSettings.resizeWidth)
+                numericField("Height", value: $model.project.exportSettings.resizeHeight)
+            }
+
+            if model.project.exportSettings.resizeMode != .none {
+                Toggle("Don't enlarge smaller photos", isOn: $model.project.exportSettings.dontEnlarge)
+            }
+
+            Divider()
+            fieldLabel("Social sizes")
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
+                ForEach(
+                    ExportPresetDefinition.all.filter { $0.category == .social }.prefix(6)
+                ) { preset in
+                    Button(preset.name) { model.applyExportPreset(preset.id) }
+                        .controlSize(.small)
                         .lineLimit(1)
                 }
+            }
+        }
+    }
 
+    private var namingControls: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            fieldLabel("Quick pattern")
+            HStack(spacing: 5) {
+                quickName("Source", "{name}")
+                quickName("Source + SF", "{name}_spektrafilm")
+                quickName("Sequence", "Export_{sequence}")
+            }
+
+            TextField("Filename pattern", text: $model.project.exportSettings.filenameTemplate)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.body, design: .monospaced))
+
+            HStack(spacing: 5) {
+                fieldLabel("Insert field")
                 Spacer()
+                token("{name}")
+                token("{sequence}")
+                token("{original_filename}")
+            }
 
-                ProgressView(value: model.exportProgress)
-                    .frame(width: 180)
+            Stepper(
+                "Sequence starts at \(model.project.exportSettings.sequenceStart)",
+                value: $model.project.exportSettings.sequenceStart,
+                in: 0...999999
+            )
 
-                Button(role: .destructive) {
-                    model.stopExport()
-                } label: {
-                    Label(
-                        model.isStoppingExport ? "Stopping…" : "Stop Export",
-                        systemImage: "stop.fill"
-                    )
+            if !model.exportPreflightNames.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    fieldLabel("Examples")
+                    ForEach(
+                        Array(model.exportPreflightNames.prefix(3).enumerated()),
+                        id: \.offset
+                    ) { _, name in
+                        Text(name).font(.caption.monospaced()).lineLimit(1)
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(model.isStoppingExport)
-            } else {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(
-                        "\(model.selectedExportCount) photo" +
-                        "\(model.selectedExportCount == 1 ? "" : "s") ready"
-                    )
-                    .font(.headline)
-                    Text(model.project.exportSettings.colorMode.rawValue)
-                        .font(.caption)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 7))
+            }
+        }
+    }
+
+    private var metadataControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle("Preserve source metadata", isOn: $model.project.exportSettings.preserveMetadata)
+            if model.project.exportSettings.preserveMetadata {
+                Toggle("Strip GPS location", isOn: $model.project.exportSettings.stripGPS)
+            }
+            Text("Orientation, output profile, dimensions, and bit depth always describe the exported pixels.")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+
+    private var destinationControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(
+                model.project.exportSettings.destinationPath.isEmpty
+                    ? "No destination selected"
+                    : model.project.exportSettings.destinationPath
+            )
+            .font(.caption)
+            .lineLimit(3)
+            .textSelection(.enabled)
+
+            HStack {
+                Button("Choose…") { model.chooseExportDestination() }
+                if !model.project.exportSettings.destinationPath.isEmpty {
+                    Button("Reveal") {
+                        NSWorkspace.shared.activateFileViewerSelecting([
+                            URL(fileURLWithPath: model.project.exportSettings.destinationPath)
+                        ])
+                    }
+                }
+            }
+            Label("Existing files are never silently overwritten.", systemImage: "checkmark.shield")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var actionFooter: some View {
+        VStack(spacing: 9) {
+            if let job = model.activeExportJob {
+                HStack {
+                    Text("\(job.completedCount)/\(max(1, job.items.count))")
+                        .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
+                    ProgressView(value: job.fractionComplete)
+                    if job.failedCount > 0 {
+                        Text("\(job.failedCount) failed").font(.caption).foregroundStyle(.red)
+                    }
                 }
+            }
 
-                Spacer()
-
-                Button {
-                    model.exportSelected()
-                } label: {
-                    Label(
-                        "Export \(model.selectedExportCount)",
-                        systemImage: "square.and.arrow.up"
-                    )
+            if model.isExporting {
+                HStack {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Exporting").font(.subheadline.weight(.semibold))
+                        Text(model.exportCurrentFileName)
+                            .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer()
+                    Button(role: .destructive) { model.stopExport() } label: {
+                        Label(
+                            model.isStoppingExport ? "Stopping…" : "Stop Export",
+                            systemImage: "stop.fill"
+                        )
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.isStoppingExport)
+                }
+            } else {
+                Button { model.exportSelected() } label: {
+                    HStack {
+                        Image(systemName: "square.and.arrow.up")
+                        Text(
+                            model.selectedExportCount == 1
+                                ? "Export 1 Photo"
+                                : "Export \(model.selectedExportCount) Photos"
+                        )
+                        Spacer()
+                        Text(model.project.exportSettings.format.rawValue)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
@@ -577,8 +557,89 @@ struct ExportWorkspaceView: View {
                 )
             }
         }
-        .padding(14)
+        .padding(12)
         .background(.regularMaterial)
+    }
+
+    private var previewImage: ProjectImageRecord? {
+        if let selected = model.selectedImage, selected.selectedForExport { return selected }
+        return model.project.images.first { $0.selectedForExport } ?? model.selectedImage
+    }
+
+    private var formatSummary: String {
+        switch model.project.exportSettings.format {
+        case .jpeg, .heic:
+            return "\(model.project.exportSettings.format.rawValue) \(Int((model.project.exportSettings.jpegQuality * 100).rounded()))"
+        case .tiff:
+            return model.project.exportSettings.tiff16Bit ? "TIFF 16-bit" : "TIFF 8-bit"
+        }
+    }
+
+    private var colorSummary: String {
+        model.project.exportSettings.colorMode == .sRGB ? "sRGB" : "Match Renderer"
+    }
+
+    private var outputSizeSummary: String {
+        let s = model.project.exportSettings
+        switch s.resizeMode {
+        case .none: return "Full Size"
+        case .longEdge: return "\(s.resizeLongEdge) px long"
+        case .width: return "\(s.resizeWidth) px wide"
+        case .height: return "\(s.resizeHeight) px high"
+        case .fitBox: return "\(s.resizeWidth) × \(s.resizeHeight)"
+        }
+    }
+
+    private func badge(_ text: String, _ icon: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 8)
+            .frame(height: 25)
+            .background(.regularMaterial, in: Capsule())
+    }
+
+    private func summaryCell(_ label: String, _ value: String, _ icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label(label, systemImage: icon)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(value).font(.subheadline.weight(.semibold)).lineLimit(1)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(StudioPalette.panel, in: RoundedRectangle(cornerRadius: 9))
+        .overlay {
+            RoundedRectangle(cornerRadius: 9)
+                .stroke(StudioPalette.subtleBorder, lineWidth: 0.5)
+        }
+    }
+
+    private func fieldLabel(_ text: String) -> some View {
+        Text(text).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+    }
+
+    private func numericField(_ label: String, value: Binding<Int>) -> some View {
+        HStack {
+            fieldLabel(label)
+            Spacer()
+            TextField(label, value: value, format: .number)
+                .textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 105)
+            Text("px").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func quickName(_ title: String, _ pattern: String) -> some View {
+        Button(title) { model.project.exportSettings.filenameTemplate = pattern }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+    }
+
+    private func token(_ value: String) -> some View {
+        Button(value) { model.project.exportSettings.filenameTemplate += value }
+            .buttonStyle(.borderless)
+            .font(.caption2.monospaced())
     }
 
     private static func duration(_ seconds: Double) -> String {
@@ -586,34 +647,13 @@ struct ExportWorkspaceView: View {
         if total < 60 { return "\(total)s" }
         let minutes = total / 60
         let remainder = total % 60
-        if minutes < 60 { return remainder == 0 ? "\(minutes)m" : "\(minutes)m \(remainder)s" }
+        if minutes < 60 {
+            return remainder == 0 ? "\(minutes)m" : "\(minutes)m \(remainder)s"
+        }
         return "\(minutes / 60)h \(minutes % 60)m"
     }
 
     private static func byteCount(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-    }
-
-    private func card<Content: View>(
-        _ title: String,
-        icon: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(title, systemImage: icon)
-                .font(.headline)
-            Divider()
-            content()
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            StudioPalette.panel,
-            in: RoundedRectangle(cornerRadius: 10)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(StudioPalette.subtleBorder, lineWidth: 0.5)
-        }
     }
 }

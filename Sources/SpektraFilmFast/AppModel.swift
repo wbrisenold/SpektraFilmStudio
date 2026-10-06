@@ -274,6 +274,7 @@ final class AppModel: ObservableObject {
     private var renderedFrameCache: [RenderedFrameKey: CachedRenderedFrame] = [:]
     private var renderedFrameCacheOrder: [RenderedFrameKey] = []
     private var renderedFrameCacheBytes = 0
+    private var presetThumbnailCache: [String: CGImage] = [:]
     private var memoryPressureConstrained = false
     private var configuredCacheMemoryMode: PreviewCacheMemoryMode?
     private var configuredDiskCacheGB: Int?
@@ -3356,6 +3357,106 @@ final class AppModel: ObservableObject {
             workspaceDidChange(.edit)
             status = "Opened \(url.lastPathComponent)"
         } catch { status = "Open failed: \(error.localizedDescription)" }
+    }
+
+
+    func presetThumbnail(
+        _ preset: SpektraPreset,
+        longEdge: Int = 360
+    ) async -> CGImage? {
+        guard let image = selectedImage,
+              let activeRenderer = exactRenderer ?? renderer else {
+            return nil
+        }
+
+        var look = preset.look
+        look.normalizeForProOnly()
+
+        let cacheKey =
+            "\(image.id.uuidString)|\(preset.id.uuidString)|\(longEdge)|\(sourceFingerprint(for: image.url))"
+
+        if let cached = presetThumbnailCache[cacheKey] {
+            return cached
+        }
+
+        do {
+            let input = try await decoder.decode(
+                url: image.url,
+                longEdge: max(160, min(720, longEdge)),
+                raw: look.raw,
+                bypassImportTransform: project.preferences.bypassImportTransform,
+                cacheMode: cacheMemoryMode
+            )
+
+            let renderInput = await Task.detached(priority: .utility) {
+                input.applyingHostGrade(
+                    tone: look.tone,
+                    density: look.colorDensity
+                )
+            }.value
+
+            let (filmOutput, _) = try await activeRenderer.render(
+                renderInput,
+                look: look
+            )
+
+            let output = await Task.detached(priority: .utility) {
+                GeometryEngine.transformed(
+                    filmOutput,
+                    settings: look.geometry
+                )
+            }.value
+
+            let payload = await Task.detached(priority: .utility) {
+                output.makeFloatImagePayload()
+            }.value
+
+            guard project.selectedImageID == image.id else { return nil }
+
+            let colorSpace = OutputColorProfile.forLook(look).cgColorSpace
+            guard let cgImage =
+                payload?.makeCGImage(colorSpace: colorSpace)
+                ?? output.makeCGImage8(colorSpace: colorSpace)
+            else {
+                return nil
+            }
+
+            if presetThumbnailCache.count >= 96 {
+                presetThumbnailCache.remove(at: presetThumbnailCache.startIndex)
+            }
+            presetThumbnailCache[cacheKey] = cgImage
+            return cgImage
+        } catch {
+            return nil
+        }
+    }
+
+    func previewPreset(_ preset: SpektraPreset) {
+        var look = preset.look
+        look.normalizeForProOnly()
+        cancelIdleRefinement()
+        scheduleRender(
+            interactive: false,
+            longEdgeOverride: project.preferences.previewLongEdge,
+            fullResolutionRequest: false,
+            cacheResult: false,
+            reason: "preset preview",
+            useInteractiveRenderPolicy: false,
+            lookOverride: look
+        )
+    }
+
+    func endPresetPreview() {
+        cancelIdleRefinement()
+        scheduleRender(
+            interactive: false,
+            longEdgeOverride: project.preferences.previewLongEdge,
+            fullResolutionRequest: false,
+            cacheResult: false,
+            reason: "preset restore",
+            useInteractiveRenderPolicy: false,
+            lookOverride: selectedLook
+        )
     }
 
     func savePreset(name: String, category: String) {

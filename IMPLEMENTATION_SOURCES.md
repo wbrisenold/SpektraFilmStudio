@@ -166,3 +166,21 @@ Additional implementation references used by this revision:
 - Apple `os_proc_available_memory()` — advisory byte-budgeted decode-ahead.
 
 The shipping build remains Intel x86_64 only.
+
+
+## Alcedo Studio UI reference (2026-10)
+
+The Presets and Export workspace redesign uses interaction/layout ideas from
+Alcedo Studio's GPL-3.0 open-source UI, especially its inspector-driven export
+panel, persistent export progress area, compact grouped controls, filename
+pattern editor, and queue presentation.
+
+Source: https://github.com/zidage/AlcedoStudio
+Relevant upstream files:
+- `alcedo_studio/src/ui/alcedo_main/qml/ExportInspectorPanel.qml`
+- `alcedo_studio/src/ui/alcedo_main/qml/ExportNamingEditor.qml`
+
+SpektraFilmFast keeps its own SwiftUI implementation, export engine, file
+formats, metadata behavior, queue recovery, timing/ETA data, and no-LUT exact
+render pipeline. The visual-preset grid, exact rendered preset thumbnails,
+favorites, recents, and hover preview are SpektraFilmFast additions.
