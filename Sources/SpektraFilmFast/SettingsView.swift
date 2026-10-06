@@ -83,7 +83,8 @@ struct SettingsView: View {
                 }
 
                 HStack {
-                    Button("Refresh Stats") { model.refreshCacheStatus() }
+                    Button("Refresh Stats") { model.refreshCacheStatus(); model.refreshStage5CacheAccounting() }
+                    Button("Validate Separation") { model.validateCacheHealth(); model.refreshStage5CacheAccounting() }
                     Menu("Clear Cache") {
                         Button("Thumbnails", role: .destructive) { model.clearThumbnailCache() }
                         Button("Working Files / Developed Source", role: .destructive) { model.clearDevelopedSourceCache() }
@@ -93,6 +94,8 @@ struct SettingsView: View {
                         Button("Clear All", role: .destructive) { model.clearLocalCaches() }
                     }
                 }
+
+                if !model.cacheHealthStatus.isEmpty { Text(model.cacheHealthStatus).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled) }
 
                 if !model.cacheStatus.isEmpty {
                     Text(model.cacheStatus)

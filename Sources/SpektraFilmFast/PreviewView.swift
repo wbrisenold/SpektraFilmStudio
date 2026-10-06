@@ -34,6 +34,14 @@ struct PreviewView: View {
                                 .allowsHitTesting(false)
                         }
 
+                        if !model.showingBefore {
+                            MaskOverlayView(model: model)
+                        }
+
+                        if !model.showingBefore, model.isObjectMaskPicking {
+                            ObjectMaskPickOverlay(model: model, imageWidth: image.width, imageHeight: image.height)
+                        }
+
                         if !model.showingBefore, model.isCropToolActive {
                             CropEditorOverlay(
                                 model: model,
@@ -54,14 +62,14 @@ struct PreviewView: View {
                     .simultaneousGesture(
                         DragGesture()
                             .onChanged { value in
-                                guard !model.isCropToolActive else { return }
+                                guard !model.isCropToolActive && !model.isObjectMaskPicking else { return }
                                 offset = CGSize(
                                     width: committedOffset.width + value.translation.width,
                                     height: committedOffset.height + value.translation.height
                                 )
                             }
                             .onEnded { _ in
-                                guard !model.isCropToolActive else { return }
+                                guard !model.isCropToolActive && !model.isObjectMaskPicking else { return }
                                 committedOffset = offset
                             }
                     )

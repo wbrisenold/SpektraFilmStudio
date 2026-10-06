@@ -394,14 +394,26 @@ require(
     "mixed green/magenta skin state is missing"
 )
 require(
-    "os_proc_available_memory()" in app and
+    "availableMemoryBytes()" in app and
     "45_000_000" not in app,
     "export decode-ahead still uses an MP ceiling instead of a byte budget"
 )
 require(
-    "PendingExportWrite" in app and
-    "settlePendingWrite" in app,
-    "bounded decode/render/write export conveyor is missing"
+    "PendingExportPostprocess" in app and
+    "settlePostprocess" in app and
+    "makePostprocessHeadroom" in app and
+    "exportPostprocessBudgetBytes" in app,
+    "Alcedo-style bounded post-render export pool is missing"
+)
+require(
+    "postProcessWorkerCount = 4" in export_job and
+    "actor ExportEngine" not in export and
+    "struct ExportEngine: Sendable" in export,
+    "export post-process concurrency is still serialized"
+)
+require(
+    "Stage 1 boundary: the serialized render lane ENDS here." in app,
+    "geometry/resize did not move behind the exact-render boundary"
 )
 require(
     "vDSP_vfixru8" in native and
@@ -431,3 +443,5 @@ require(
     "Intel x86_64 only" in audit_v3,
     "architecture audit no longer records the Intel-only contract"
 )
+
+print("PRODUCTION STATIC QA PASS")

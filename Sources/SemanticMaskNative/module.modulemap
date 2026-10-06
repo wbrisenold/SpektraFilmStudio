@@ -1,0 +1,4 @@
+module SemanticMaskNative [system] {
+  header "include/SemanticMaskNative.h"
+  export *
+}

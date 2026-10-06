@@ -25,6 +25,7 @@ struct ControlsView: View {
                 toneSection
                 colorDensitySection
                 geometrySection
+                LensCharacterPanel(model: model)
 
                 ForEach(catalog.groups.filter { $0.id != "raw" }) { group in
                     let descriptors = catalog.parameters(in: group.id, flavor: .pro)
@@ -207,6 +208,27 @@ struct ControlsView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
+
+
+                Divider().opacity(0.5)
+                Picker("RAW Denoise", selection: Binding(get:{ model.selectedLook.raw.denoiseMode }, set:{ model.setRawDenoiseMode($0) })) {
+                    ForEach(RawDenoiseMode.allCases) { Text($0.rawValue).tag($0) }
+                }
+                if model.selectedLook.raw.denoiseMode == .manual {
+                    LabeledContent("Luma") { Slider(value: Binding(get:{model.selectedLook.raw.denoiseLuma},set:{model.setRawDenoiseLuma($0)}),in:0...1) }
+                    LabeledContent("Chroma") { Slider(value: Binding(get:{model.selectedLook.raw.denoiseChroma},set:{model.setRawDenoiseChroma($0)}),in:0...1) }
+                }
+                HStack {
+                    Button { model.prepareRawDenoiseForSelected() } label: { if model.isPreparingRawDenoise { ProgressView().controlSize(.mini) } else { Label("Prepare RAW Denoise",systemImage:"sparkles") } }.disabled(model.selectedLook.raw.denoiseMode == .off || model.isPreparingRawDenoise)
+                    Menu("Prewarm") {
+                        Button("Selected Photos") { model.prewarmRawDenoiseForLibrarySelection() }
+                        Button("Export Set") { model.prewarmRawDenoiseForExportSet() }
+                    }
+                    .controlSize(.small)
+                    .help("Prepares RawForge DNGs in the background with at most two workers so the editor stays responsive.")
+                    Button("Clear Denoise Cache") { model.clearRawDenoiseCache() }.controlSize(.small)
+                }
+                if !model.rawDenoiseStatus.isEmpty { Text(model.rawDenoiseStatus).font(.caption2).foregroundStyle(.secondary) }
 
                 Toggle("Vendor Lens Correction", isOn: Binding(
                     get: { model.selectedLook.raw.lensCorrection },

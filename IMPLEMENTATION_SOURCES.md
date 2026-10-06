@@ -184,3 +184,68 @@ SpektraFilmFast keeps its own SwiftUI implementation, export engine, file
 formats, metadata behavior, queue recovery, timing/ETA data, and no-LUT exact
 render pipeline. The visual-preset grid, exact rendered preset thumbnails,
 favorites, recents, and hover preview are SpektraFilmFast additions.
+
+
+## Alcedo Studio export execution architecture (Stage 1)
+
+Reference:
+- https://github.com/zidage/AlcedoStudio
+- audited revision: f1fae5dc548931f2f94028cf033fe6d693bdffd7
+
+Files/areas studied:
+- `alcedo_studio/src/app/export_service.cpp`
+- `alcedo_studio/src/io/image/image_writer.cpp`
+- export executor-pool / renderer scheduling code
+
+Architecture carried over:
+- full-resolution render remains full-resolution;
+- resize happens after render;
+- accelerator render does not wait for the previous file encode;
+- post-render CPU work is concurrent and bounded;
+- file encoding is not serialized through one actor;
+- memory admission controls full-resolution frames retained in flight.
+
+SpektraFilmFast keeps its own Swift/Metal exact renderer, ImageIO writer,
+recovery journal, timing log, color pipeline, and Intel-only build.
+
+
+## Alcedo Studio mask / local-grade architecture (Stage 2)
+
+Reference repository: https://github.com/zidage/AlcedoStudio
+Audited revision: f1fae5dc548931f2f94028cf033fe6d693bdffd7
+
+Architecture carried over:
+- each local/color grade owns its mask stack;
+- mask sources are ordered;
+- source controls include enabled, invert, feather and opacity;
+- stack combination supports add, subtract and intersect;
+- mask coverage is separate from the grade result;
+- the final operation composites a separately rendered grade through coverage.
+
+Alcedo files/areas used as architecture references include:
+- `alcedo_studio/src/include/edit/runtime/compiled_mask_stack.hpp`
+- `alcedo_studio/src/include/edit/runtime/compiled_grade_mask.hpp`
+- `alcedo_studio/src/edit/runtime/graph_compiler.cpp`
+- node/mask editor roadmap and mask-group UI
+
+SpektraFilmFast keeps its own exact film renderer. Stage 2 adds a generic Metal
+coverage/compositor beside it rather than rewriting the film math.
+
+
+## Stage 3 semantic masks
+- MODNet: https://github.com/ZHKKKe/MODNet (Apache-2.0)
+- SCHP LIP-20 packaged ONNX: https://huggingface.co/pirocheto/schp-lip-20 (MIT model repo)
+- BiSeNet face parsing: https://github.com/yakhyo/face-parsing and https://huggingface.co/PayamFard123/dermaintel-face-parsing (MIT)
+- ONNX Runtime: https://github.com/microsoft/onnxruntime (MIT)
+- Object click selection currently uses Apple Vision foreground-instance masks on macOS 15; MobileSAM research: https://huggingface.co/Acly/MobileSAM (MIT) is retained as the open-source replacement candidate.
+
+
+## Stage 4 RAW quality / monitoring
+- RawForge 0.2.4: https://github.com/rymuelle/RawForge and https://pypi.org/project/rawforge/0.2.4/ (MIT).
+- False-color monitor design references OBS Color Monitor false-color documentation: https://github.com/norihiro/obs-color-monitor and photographic-dctls exposure/false-color work: https://github.com/mikaelsundell/photographic-dctls .
+- Lens parameter/preset research references open lens/post-FX implementations including https://github.com/artzox/Film-Standalone and measured-lens project https://github.com/Dylanyz/DynamicLens . SpektraFilmFast implementation is original Swift math, not copied shader code.
+
+
+## Stage 5 production hardening
+- Uses Apple's public Metal compute APIs already linked by SpektraFilmFast; the Stage 5 lens kernel is an original port of the Stage 4 reference math.
+- RawForge remains the Stage 4 pinned MIT dependency; Stage 5 adds orchestration, prewarming, timing and cache accounting without changing the RawForge model.

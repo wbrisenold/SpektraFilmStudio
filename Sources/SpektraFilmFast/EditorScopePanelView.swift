@@ -216,6 +216,8 @@ struct EditorScopePanelView: View {
         case .parade: "rectangle.split.3x1"
         case .vectorscope: "scope"
         case .skinVectorscope: "person.crop.circle"
+        case .saturation: "drop.halffull"
+        case .falseColor: "square.3.layers.3d.down.right"
         case .chromaticity: "triangle"
         }
     }

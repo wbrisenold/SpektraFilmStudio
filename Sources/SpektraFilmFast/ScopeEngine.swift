@@ -32,6 +32,10 @@ actor ScopeEngine {
                 return Self.waveform(buffer, parade: true)
             case .vectorscope:
                 return Self.vectorscope(buffer, look: look, skinReference: false, toleranceDegrees: skinToleranceDegrees)
+            case .saturation:
+                return Self.saturationScope(buffer)
+            case .falseColor:
+                return Self.falseColor(buffer)
             case .skinVectorscope:
                 return Self.vectorscope(
                     buffer, look: look, skinReference: true, toleranceDegrees: skinToleranceDegrees,
@@ -179,6 +183,37 @@ actor ScopeEngine {
 
         drawTopBottomRules(&out, width, height)
         return ScopePayload(width: width, height: height, rgba: out)
+    }
+
+    private nonisolated static func saturationScope(_ buffer: PixelBufferF32) -> ScopePayload {
+        let width=384, height=192, bins=width*height
+        var counts=[UInt16](repeating:0,count:bins), sr=[Float](repeating:0,count:bins), sg=sr, sb=sr
+        let step=max(1,Int((Double(buffer.width*buffer.height)/180_000.0).squareRoot()))
+        for y in stride(from:0,to:buffer.height,by:step){for x in stride(from:0,to:buffer.width,by:step){
+            let p=(y*buffer.width+x)*4, r=clamp01(buffer.pixels[p]), g=clamp01(buffer.pixels[p+1]), b=clamp01(buffer.pixels[p+2])
+            let mx=max(r,max(g,b)), mn=min(r,min(g,b)), delta=mx-mn
+            let sat=mx > 1e-6 ? delta/mx : 0
+            var hue:Float=0
+            if delta > 1e-6 { if mx==r { hue=(g-b)/delta }; if mx==g { hue=2+(b-r)/delta }; if mx==b { hue=4+(r-g)/delta }; hue/=6; if hue<0 {hue+=1} }
+            let px=min(width-1,max(0,Int((hue*Float(width-1)).rounded()))), py=height-1-min(height-1,max(0,Int((sat*Float(height-1)).rounded())))
+            let i=py*width+px; counts[i]=min(UInt16.max,counts[i]&+1); sr[i]+=r;sg[i]+=g;sb[i]+=b
+        }}
+        var out=background(width,height); drawCartesianGrid(&out,width,height,vertical:true); let maxCount=max(1,counts.max() ?? 1)
+        for y in 0..<height { for x in 0..<width { let i=y*width+x,c=counts[i]; guard c>0 else{continue}; let d=Float(c); let peak=max(0.001,max(sr[i]/d,max(sg[i]/d,sb[i]/d))); let a=UInt8(clamping:Int((24+210*sqrt(Double(c)/Double(maxCount))).rounded())); blend(&out,width,x,y,UInt8(clamping:Int(sr[i]/d/peak*255)),UInt8(clamping:Int(sg[i]/d/peak*255)),UInt8(clamping:Int(sb[i]/d/peak*255)),a)}}
+        drawTopBottomRules(&out,width,height); return ScopePayload(width:width,height:height,rgba:out)
+    }
+
+    private nonisolated static func falseColor(_ buffer: PixelBufferF32) -> ScopePayload {
+        let width=384, height=max(144,Int(Double(width)*Double(buffer.height)/Double(max(1,buffer.width))))
+        var out=[UInt8](repeating:0,count:width*height*4)
+        for y in 0..<height { for x in 0..<width {
+            let sx=min(buffer.width-1,x*buffer.width/max(1,width)), sy=min(buffer.height-1,y*buffer.height/max(1,height)), p=(sy*buffer.width+sx)*4
+            let r=max(0,buffer.pixels[p]),g=max(0,buffer.pixels[p+1]),b=max(0,buffer.pixels[p+2]), l=0.2126*r+0.7152*g+0.0722*b
+            let c:(UInt8,UInt8,UInt8)
+            switch l { case ..<0.02:c=(38,35,92); case ..<0.08:c=(56,88,180); case ..<0.18:c=(47,160,196); case ..<0.32:c=(92,188,112); case ..<0.50:c=(154,154,154); case ..<0.68:c=(226,186,84); case ..<0.86:c=(236,126,62); case ..<0.98:c=(220,68,88); default:c=(255,245,245) }
+            let o=(y*width+x)*4; out[o]=c.0;out[o+1]=c.1;out[o+2]=c.2;out[o+3]=255
+        }}
+        return ScopePayload(width:width,height:height,rgba:out)
     }
 
     // MARK: - Vectorscopes

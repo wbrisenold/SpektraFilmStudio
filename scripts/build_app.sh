@@ -51,7 +51,13 @@ if [[ "$CLEAN" == "1" ]]; then
   rm -rf "$ROOT/.build/swift-x86_64" "$ROOT/.build/native-x86_64" "$ROOT/.build/native"
 fi
 
+python3 "$ROOT/scripts/qa_stage5.py"
 "$ROOT/scripts/bootstrap_native.sh"
+
+if [[ ! -f "$ROOT/Vendor/onnxruntime/lib/libonnxruntime.dylib" && ! -f "$ROOT/Vendor/onnxruntime/lib/libonnxruntime.1.30.0.dylib" ]]; then
+  echo "Stage 3 AI runtime missing. Run ./PREPARE_STAGE3_AI_MODELS.command first." >&2
+  exit 12
+fi
 
 NATIVE_LIB="$ROOT/.build/native/libSpektraFilmNativeCore.a"
 NATIVE_ARCHS="$(lipo -archs "$NATIVE_LIB" 2>/dev/null || true)"
@@ -80,8 +86,11 @@ mkdir -p "$ROOT/dist"
 
 APP="$ROOT/dist/SpektraFilm.app"
 CONTENTS="$APP/Contents"
-mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
+mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources" "$CONTENTS/Frameworks" "$CONTENTS/Resources/AIModels"
 cp "$BIN" "$CONTENTS/MacOS/SpektraFilm"
+cp "$ROOT/Vendor/onnxruntime/lib/"libonnxruntime*.dylib "$CONTENTS/Frameworks/"
+cp "$ROOT/Resources/AIModels/"*.onnx "$CONTENTS/Resources/AIModels/"
+install_name_tool -add_rpath '@executable_path/../Frameworks' "$CONTENTS/MacOS/SpektraFilm" 2>/dev/null || true
 strip -S "$CONTENTS/MacOS/SpektraFilm" 2>/dev/null || true
 
 cp "$ROOT/Resources/AppIcon.icns" "$CONTENTS/Resources/SpektraFilm.icns"
@@ -118,6 +127,10 @@ PLIST
 plutil -lint "$CONTENTS/Info.plist"
 
 SIGN_IDENTITY="${SPEKTRAFILM_CODESIGN_IDENTITY:--}"
+# Sign embedded dylibs first so the bundle's nested-code verification passes.
+for dylib in "$CONTENTS"/Frameworks/libonnxruntime*.dylib; do
+  [[ -e "$dylib" ]] && codesign --force --sign "$SIGN_IDENTITY" "$dylib"
+done
 if [[ "$SIGN_IDENTITY" == "-" ]]; then
   codesign --force --sign - "$APP"
 else

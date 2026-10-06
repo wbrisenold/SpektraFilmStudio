@@ -16,6 +16,8 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     -sdk "$(xcrun --show-sdk-path --sdk macosx)" \
     -Xcc -fmodule-map-file=Sources/CSpektraBridge/module.modulemap \
     -Xcc -ISources/CSpektraBridge/include \
+    -Xcc -fmodule-map-file=Sources/SemanticMaskNative/module.modulemap \
+    -Xcc -ISources/SemanticMaskNative/include \
     Sources/SpektraFilmFast/*.swift
 else
   echo "Non-macOS host: syntax-parsing Swift sources. The final compile/link gate is a local macOS 26 SDK build."
@@ -124,6 +126,8 @@ find . -type f \
   -not -path './.build/*' \
   -not -path './dist/*' \
   -not -path './.git/*' \
+  -not -path './Vendor/*' \
+  -not -path './Resources/AIModels/*' \
   -not -name 'SOURCE_MANIFEST.sha256' \
   -not -name '.DS_Store' \
   -not -path './.batch-edit-backup-*' \

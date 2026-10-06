@@ -163,14 +163,15 @@ enum ExportWriter {
     }
 }
 
-actor ExportEngine {
+struct ExportEngine: Sendable {
     func write(
         output: PixelBufferF32,
         look: RenderLook,
         sourceURL: URL,
         destination: URL,
         settings: ExportSettings
-    ) throws {
+    ) async throws {
+        try Task.checkCancellation()
         try autoreleasepool {
             try ExportWriter.write(
                 output: output,

@@ -120,15 +120,39 @@ struct ExportJob: Identifiable, Codable, Sendable, Equatable {
         return Double(processedCount) / Double(items.count)
     }
 
+    static let postProcessWorkerCount = 4
+
     var estimatedRemainingSeconds: Double? {
-        let samples = items.compactMap { item -> Double? in
-            guard item.state == .completed, let ms = item.timings?.wallMs, ms > 0 else { return nil }
-            return ms / 1000.0
-        }
+        let samples = items.compactMap(\.timings).filter { $0.wallMs > 0 }
         guard !samples.isEmpty else { return nil }
-        let mean = samples.reduce(0, +) / Double(samples.count)
-        let unfinished = items.lazy.filter { $0.state != .completed && $0.state != .failed }.count
-        return mean * Double(unfinished)
+
+        func mean(_ values: [Double]) -> Double {
+            values.reduce(0, +) / Double(max(1, values.count))
+        }
+
+        let decodeLaneMs = mean(samples.map(\.decodeMs))
+        let renderLaneMs = mean(
+            samples.map { $0.gradeMs + $0.renderMs }
+        )
+        let postLaneMs =
+            mean(samples.map { $0.geometryResizeMs + $0.writeMs }) /
+            Double(Self.postProcessWorkerCount)
+
+        let throughputMs = max(
+            1,
+            max(decodeLaneMs, max(renderLaneMs, postLaneMs))
+        )
+        let unfinished = items.lazy.filter {
+            $0.state != .completed && $0.state != .failed
+        }.count
+
+        let drainMs =
+            unfinished > 0
+            ? mean(samples.map { $0.geometryResizeMs + $0.writeMs }) /
+              Double(Self.postProcessWorkerCount)
+            : 0
+
+        return (throughputMs * Double(unfinished) + drainMs) / 1000.0
     }
 
     var estimatedTotalOutputBytes: Int64? {

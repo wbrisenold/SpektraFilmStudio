@@ -11,10 +11,21 @@ private struct ExportDecodedFrame: Sendable {
     let decodeMs: Double
 }
 
-private struct PendingExportWrite {
+private struct ExportPostprocessResult: Sendable {
+    let geometryResizeMs: Double
+    let writeMs: Double
+    let outputWidth: Int
+    let outputHeight: Int
+    let outputBytes: Int64
+    let completedUptime: TimeInterval
+}
+
+private struct PendingExportPostprocess {
     let index: Int
+    let retainedBytes: UInt64
+    let itemStarted: TimeInterval
     var timings: ExportItemTimings
-    let task: Task<Double, Error>
+    let task: Task<ExportPostprocessResult, Error>
 }
 
 private struct SourcePreviewKey: Hashable, Sendable {
@@ -1094,6 +1105,246 @@ final class AppModel: ObservableObject {
         scheduleIdleRefinement(changedParameter: name)
     }
 
+    // MARK: - Local grades / masks (Stage 2)
+
+    @discardableResult
+    func addLocalGrade() -> UUID {
+        guard let i = selectedIndex else { return UUID() }
+        undoStack.append(project.images[i].look)
+        redoStack.removeAll()
+        var grade = LocalGradeRecord(name: "Local Grade \((project.images[i].look.localGrades?.count ?? 0) + 1)")
+        grade.normalize()
+        if project.images[i].look.localGrades == nil { project.images[i].look.localGrades = [] }
+        project.images[i].look.localGrades?.append(grade)
+        requestPreviewRefresh()
+        return grade.id
+    }
+
+    func removeLocalGrade(_ gradeID: UUID) {
+        mutateMaskLook { look in look.localGrades?.removeAll { $0.id == gradeID } }
+    }
+
+    func setLocalGradeEnabled(_ gradeID: UUID, _ enabled: Bool) { mutateGrade(gradeID) { $0.enabled = enabled } }
+    func setLocalGradeOpacity(_ gradeID: UUID, _ value: Double) { mutateGrade(gradeID) { $0.opacity = min(1, max(0, value)) } }
+
+    func addMaskSource(gradeID: UUID, kind: MaskSourceKind) {
+        mutateGrade(gradeID) { grade in
+            var source = MaskSourceRecord(name: kind.rawValue, kind: kind)
+            switch kind {
+            case .radial: source.radial = RadialMaskGeometry(); source.linearGradient = nil; source.raster = nil
+            case .linearGradient: source.radial = nil; source.linearGradient = LinearGradientMaskGeometry(); source.raster = nil
+            case .raster: source.radial = nil; source.linearGradient = nil; source.raster = RasterMaskPayload(width: 1, height: 1, alpha: [0])
+            }
+            grade.masks.sources.append(source)
+        }
+    }
+
+    func removeMaskSource(gradeID: UUID, maskID: UUID) { mutateGrade(gradeID) { $0.masks.sources.removeAll { $0.id == maskID } } }
+    func setMaskEnabled(gradeID: UUID, maskID: UUID, _ value: Bool) { mutateMask(gradeID, maskID) { $0.enabled = value } }
+    func setMaskInverted(gradeID: UUID, maskID: UUID, _ value: Bool) { mutateMask(gradeID, maskID) { $0.inverted = value } }
+    func setMaskOpacity(gradeID: UUID, maskID: UUID, _ value: Double) { mutateMask(gradeID, maskID) { $0.opacity = min(1, max(0, value)) } }
+    func setMaskFeather(gradeID: UUID, maskID: UUID, _ value: Double) { mutateMask(gradeID, maskID) { $0.feather = min(1, max(0, value)) } }
+    func setMaskBlendMode(gradeID: UUID, maskID: UUID, _ value: MaskBlendMode) { mutateMask(gradeID, maskID) { $0.blendMode = value } }
+
+    func setRasterMask(gradeID: UUID, maskID: UUID, width: Int, height: Int, alpha: [UInt8]) {
+        mutateMask(gradeID, maskID) { source in
+            source.kind = .raster
+            source.raster = RasterMaskPayload(width: width, height: height, alpha: alpha)
+        }
+    }
+
+    private func mutateMask(_ gradeID: UUID, _ maskID: UUID, _ body: (inout MaskSourceRecord) -> Void) {
+        mutateGrade(gradeID) { grade in
+            guard let index = grade.masks.sources.firstIndex(where: { $0.id == maskID }) else { return }
+            body(&grade.masks.sources[index])
+            grade.masks.sources[index].normalize()
+        }
+    }
+
+    private func mutateGrade(_ gradeID: UUID, _ body: (inout LocalGradeRecord) -> Void) {
+        mutateMaskLook { look in
+            guard let index = look.localGrades?.firstIndex(where: { $0.id == gradeID }) else { return }
+            body(&look.localGrades![index])
+            look.localGrades![index].normalize()
+        }
+    }
+
+    private func mutateMaskLook(_ body: (inout RenderLook) -> Void) {
+        guard let i = selectedIndex else { return }
+        undoStack.append(project.images[i].look)
+        redoStack.removeAll()
+        body(&project.images[i].look)
+        project.images[i].look.normalizeForProOnly()
+        requestPreviewRefresh()
+    }
+
+    // MARK: - Stage 3 canonical semantic masks
+    @Published var semanticMaskStatus = "AI masks idle"
+    @Published var semanticMasks: CanonicalSemanticMaskSet?
+    @Published var objectMaskPickGradeID: UUID?
+    @Published var objectMaskPickBlendMode: MaskBlendMode = .add
+    private let semanticMaskEngine = SemanticMaskEngine()
+    private var semanticMaskTask: Task<Void, Never>?
+
+    var isObjectMaskPicking: Bool { objectMaskPickGradeID != nil }
+
+    func refreshCanonicalSemanticMasks() {
+        semanticMaskTask?.cancel()
+        guard let image = selectedImage, let cg = frameState.renderedPreview else { return }
+        let imageID = image.id
+        semanticMaskStatus = "Analyzing subject / skin / clothing…"
+        semanticMaskTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let result = try await semanticMaskEngine.analyze(imageURL: image.url, cgImage: cg)
+                guard !Task.isCancelled, project.selectedImageID == imageID else { return }
+                semanticMasks = result
+                if let skin = result.alpha(.skin) {
+                    latestSkinMaskWidth = result.width
+                    latestSkinMaskHeight = result.height
+                    latestSkinMaskAlpha = skin
+                }
+                semanticMaskStatus = "AI masks ready · \(result.provenance.joined(separator: " + "))"
+                refreshStudioAnalysis()
+                requestEditorScopeUpdate()
+            } catch {
+                semanticMaskStatus = "AI masks unavailable · \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func addSemanticMask(_ kind: SemanticMaskKind, to gradeID: UUID, blendMode: MaskBlendMode = .add) {
+        guard let set = semanticMasks, let alpha = set.alpha(kind) else {
+            semanticMaskStatus = "Run Analyze Masks first"
+            return
+        }
+        mutateGrade(gradeID) { grade in
+            var source = MaskSourceRecord(name: kind.rawValue, kind: .raster)
+            source.blendMode = blendMode
+            source.raster = RasterMaskPayload(width: set.width, height: set.height, alpha: alpha)
+            grade.masks.sources.append(source)
+        }
+    }
+
+    func beginObjectMaskPick(gradeID: UUID, blendMode: MaskBlendMode) {
+        guard frameState.renderedPreview != nil else {
+            semanticMaskStatus = "Render a preview before selecting an object"
+            return
+        }
+        objectMaskPickGradeID = gradeID
+        objectMaskPickBlendMode = blendMode
+        semanticMaskStatus = blendMode == .subtract ? "Click an object to subtract it" : "Click an object to select it"
+    }
+
+    func cancelObjectMaskPick() {
+        objectMaskPickGradeID = nil
+        semanticMaskStatus = "Object selection cancelled"
+    }
+
+    func completeObjectMaskPick(normalizedPoint: CGPoint) {
+        guard let gradeID = objectMaskPickGradeID,
+              let image = selectedImage,
+              let cg = frameState.renderedPreview else { return }
+        let blend = objectMaskPickBlendMode
+        let imageID = image.id
+        objectMaskPickGradeID = nil
+        semanticMaskStatus = "Selecting foreground object…"
+        semanticMaskTask?.cancel()
+        semanticMaskTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let alpha = try await semanticMaskEngine.objectMask(cgImage: cg, normalizedPoint: normalizedPoint)
+                guard !Task.isCancelled, project.selectedImageID == imageID else { return }
+                mutateGrade(gradeID) { grade in
+                    var source = MaskSourceRecord(name: "Object", kind: .raster)
+                    source.blendMode = blend
+                    source.raster = RasterMaskPayload(width: cg.width, height: cg.height, alpha: alpha)
+                    grade.masks.sources.append(source)
+                }
+                semanticMaskStatus = blend == .subtract ? "Object subtracted" : "Object mask added"
+            } catch {
+                semanticMaskStatus = "Object selection unavailable · \(error.localizedDescription)"
+            }
+        }
+    }
+    @Published var rawDenoiseStatus = ""
+    @Published var isPreparingRawDenoise = false
+    @Published var cacheHealthStatus = ""
+    let rawDenoiseService = RawForgeDenoiseService()
+
+    func prepareRawDenoiseForSelected() {
+        guard !isPreparingRawDenoise, let image = selectedImage, image.look.raw.denoiseMode != .off else { return }
+        isPreparingRawDenoise = true
+        rawDenoiseStatus = "Preparing RAW-domain denoise…"
+        let imageID = image.id
+        Task { [weak self] in
+            guard let self else { return }
+            defer { if project.selectedImageID == imageID { isPreparingRawDenoise = false } }
+            do {
+                let url = try await rawDenoiseService.prepare(source: image.url, raw: image.look.raw, iso: image.metadata?.iso)
+                guard project.selectedImageID == imageID else { return }
+                rawDenoiseStatus = "Prepared \(url.lastPathComponent) · exact preview/export now use the denoised CFA DNG"
+                semanticMasks = nil
+                await semanticMaskEngine.invalidate(imageURL: image.url)
+                removeRenderedFrames(for: imageID)
+                scheduleRender(interactive: false, reason: "RAW denoise prepared")
+            } catch { rawDenoiseStatus = error.localizedDescription }
+        }
+    }
+
+    func clearRawDenoiseCache() {
+        Task { [weak self] in
+            guard let self else { return }
+            do { try await rawDenoiseService.clear(); rawDenoiseStatus = "RAW denoise cache cleared"; if let id=project.selectedImageID { removeRenderedFrames(for:id) }; requestPreviewRefresh() }
+            catch { rawDenoiseStatus = error.localizedDescription }
+        }
+    }
+
+    func effectiveSourceURL(for image: ProjectImageRecord) -> URL {
+        RawForgeDenoiseService.cacheURL(source: image.url, raw: image.look.raw, iso: image.metadata?.iso) ?? image.url
+    }
+
+    func setRawDenoiseMode(_ mode: RawDenoiseMode) {
+        setRawSettings({ $0.denoiseMode = mode }, interactive: false)
+        semanticMasks = nil
+        if let image = selectedImage { Task { await semanticMaskEngine.invalidate(imageURL: image.url) } }
+        rawDenoiseStatus = mode == .off ? "RAW denoise off" : "Denoise settings changed · prepare cache to activate"
+        if mode == .auto { prepareRawDenoiseForSelected() }
+    }
+    func setRawDenoiseLuma(_ value: Double) { setRawSettings({ $0.denoiseLuma = min(1,max(0,value)) }, interactive:false) }
+    func setRawDenoiseChroma(_ value: Double) { setRawSettings({ $0.denoiseChroma = min(1,max(0,value)) }, interactive:false) }
+
+    func setLensEffectsSettings(interactive: Bool = false, _ body: (inout LensEffectsSettings) -> Void) {
+        guard let i = selectedIndex else { return }
+        if interactive {
+            if gestureWorkingLook == nil { beginEditGesture() }
+            if gestureWorkingLook?.lensEffects == nil { gestureWorkingLook?.lensEffects = LensEffectsSettings() }
+            body(&gestureWorkingLook!.lensEffects!)
+            activeEditChangedParameter = "lensEffects"
+            publishInteractiveProxy(changedParameter: "lensEffects", rawField: nil)
+            return
+        }
+        undoStack.append(project.images[i].look); redoStack.removeAll()
+        if project.images[i].look.lensEffects == nil { project.images[i].look.lensEffects = LensEffectsSettings() }
+        body(&project.images[i].look.lensEffects!)
+        semanticMasks = nil
+        let imageURL = project.images[i].url
+        Task { await semanticMaskEngine.invalidate(imageURL: imageURL) }
+        scheduleIdleRefinement(changedParameter: "lensEffects")
+    }
+
+    func validateCacheHealth() {
+        let fm = FileManager.default
+        let renderRoot = cacheRootPath.isEmpty ? nil : URL(fileURLWithPath: cacheRootPath)
+        let rawRoot = RawForgeDenoiseService.cacheRoot()
+        let aiRoot = Bundle.main.resourceURL?.appendingPathComponent("AIModels")
+        var parts:[String]=[]
+        if let renderRoot { parts.append(fm.isWritableFile(atPath:renderRoot.path) ? "render cache writable" : "render cache NOT writable") }
+        parts.append(renderRoot?.standardizedFileURL.path == rawRoot.standardizedFileURL.path ? "ERROR: RawForge overlaps render cache" : "RawForge cache isolated")
+        if let aiRoot { parts.append(aiRoot.standardizedFileURL.path == rawRoot.standardizedFileURL.path ? "ERROR: AI models overlap RawForge cache" : "AI models isolated") }
+        parts.append("semantic masks: memory-only cache")
+        cacheHealthStatus = parts.joined(separator: " · ")
+    }
     func refreshWhiteBalanceReference(for imageOverride: ProjectImageRecord? = nil) {
         guard let image = imageOverride ?? selectedImage else { return }
         let raw = image.look.raw
@@ -1362,6 +1613,16 @@ final class AppModel: ObservableObject {
 
                 let solverEdge = min(720, max(480, project.preferences.previewLongEdge))
 
+                var solverSemantic = semanticMasks
+                if solverSemantic == nil, let preview = frameState.renderedPreview {
+                    solverSemantic = try await semanticMaskEngine.analyze(imageURL: image.url, cgImage: preview)
+                    semanticMasks = solverSemantic
+                }
+                guard let solverSet = solverSemantic, let solverSkin = solverSet.alpha(.skin) else {
+                    throw NSError(domain: "SpektraFilmFast.SkinWB", code: 10, userInfo: [NSLocalizedDescriptionKey: "Canonical Skin Only mask is unavailable. Run Analyze Masks first."])
+                }
+                let solverSkinPayload = CanonicalSkinMaskPayload(width: solverSet.width, height: solverSet.height, alpha: solverSkin)
+
                 let analyzer = StudioAnalysisEngine()
                 var analysisPrefs = project.preferences
                 analysisPrefs.clippingEnabled = false
@@ -1406,7 +1667,8 @@ final class AppModel: ObservableObject {
                         output: final,
                         look: look,
                         preferences: analysisPrefs,
-                        maxLongEdge: 640
+                        maxLongEdge: 640,
+                        canonicalSkinMask: solverSkinPayload
                     )
                     return (payload.metrics.skinMeanDeviationDegrees, payload.metrics, raw)
                 }
@@ -2247,7 +2509,7 @@ final class AppModel: ObservableObject {
         let request = PreviewRenderRequest(
             generation: renderGeneration,
             imageID: image.id,
-            url: image.url,
+            url: effectiveSourceURL(for: image),
             look: lookOverride ?? selectedLook,
             preferences: project.preferences,
             cacheMemoryMode: cacheMemoryMode,
@@ -2515,7 +2777,8 @@ final class AppModel: ObservableObject {
                 // Geometry is deliberately post-render and color-neutral. Crop/straighten/keystone
                 // therefore never changes SpektraFilm's spectral processing and can be previewed
                 // independently from expensive film renders.
-                let output = GeometryEngine.transformed(filmOutput, settings: request.look.geometry)
+                let lensOutput = LensCharacterEngine.apply(filmOutput, settings: request.look.lensEffects)
+                let output = GeometryEngine.transformed(lensOutput, settings: request.look.geometry)
                 if Task.isCancelled { break }
 
                 guard request.generation == renderGeneration,
@@ -2758,11 +3021,15 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             do {
                 let analysisLook = latestRenderedLook ?? selectedLook
+                let canonicalSkin = semanticMasks.flatMap { set in
+                    set.alpha(.skin).map { CanonicalSkinMaskPayload(width: set.width, height: set.height, alpha: $0) }
+                }
                 let payload = try await analysisEngine.analyze(
                     output: buffer,
                     look: analysisLook,
                     preferences: prefs,
-                    maxLongEdge: interactive ? 480 : 1200
+                    maxLongEdge: interactive ? 480 : 1200,
+                    canonicalSkinMask: canonicalSkin
                 )
                 guard !Task.isCancelled, generation == analysisGeneration else { return }
                 analysisOverlay = CGImage.fromRGBA8(width: payload.overlayWidth, height: payload.overlayHeight, bytes: payload.overlayRGBA)
@@ -3402,7 +3669,7 @@ final class AppModel: ObservableObject {
 
             let output = await Task.detached(priority: .utility) {
                 GeometryEngine.transformed(
-                    filmOutput,
+                    LensCharacterEngine.apply(filmOutput, settings: look.lensEffects),
                     settings: look.geometry
                 )
             }.value
@@ -3695,24 +3962,29 @@ final class AppModel: ObservableObject {
 
         var decodeAhead: Task<ExportDecodedFrame, Error>?
         var decodeAheadIndex: Int?
-        var pendingWrite: PendingExportWrite?
+        var pendingPostprocess: [PendingExportPostprocess] = []
 
         defer {
             decodeAhead?.cancel()
-            pendingWrite?.task.cancel()
+            for pending in pendingPostprocess {
+                pending.task.cancel()
+            }
         }
 
-        @MainActor func startDecode(index: Int) -> Task<ExportDecodedFrame, Error> {
+        @MainActor
+        func startDecode(index: Int) -> Task<ExportDecodedFrame, Error> {
             let item = job.items[index]
             let url = URL(fileURLWithPath: item.sourcePath)
             let raw = item.look.raw
             let bypass = job.bypassImportTransform
             let decoderActor = decoder
+            let denoiseService = rawDenoiseService
 
             return Task {
                 let started = ProcessInfo.processInfo.systemUptime
+                let renderURL = try await denoiseService.prepare(source: url, raw: raw, iso: nil)
                 let buffer = try await decoderActor.fullResolution(
-                    url: url,
+                    url: renderURL,
                     raw: raw,
                     bypassImportTransform: bypass
                 )
@@ -3723,33 +3995,54 @@ final class AppModel: ObservableObject {
             }
         }
 
-        @MainActor func settlePendingWrite() async throws {
-            guard let pending = pendingWrite else { return }
-            defer { pendingWrite = nil }
+        @MainActor
+        func settlePostprocess(at position: Int = 0) async throws {
+            guard pendingPostprocess.indices.contains(position) else { return }
+            let pending = pendingPostprocess.remove(at: position)
 
             do {
-                let writeMs = try await pending.task.value
+                let result = try await pending.task.value
                 var timings = pending.timings
-                timings.writeMs = writeMs
-
-                let destination = URL(
-                    fileURLWithPath: job.items[pending.index].destinationPath
+                timings.geometryResizeMs = result.geometryResizeMs
+                timings.writeMs = result.writeMs
+                timings.outputWidth = result.outputWidth
+                timings.outputHeight = result.outputHeight
+                timings.outputBytes = result.outputBytes
+                timings.wallMs = max(
+                    0,
+                    (result.completedUptime - pending.itemStarted) * 1000.0
                 )
-                let attrs = try? FileManager.default.attributesOfItem(
-                    atPath: destination.path
-                )
-                let bytes = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
-                timings.outputBytes = bytes
 
-                job.items[pending.index].outputBytes = bytes
+                job.items[pending.index].outputBytes = result.outputBytes
                 job.items[pending.index].timings = timings
                 job.items[pending.index].state = .completed
                 job.items[pending.index].errorMessage = nil
                 await ExportTimingLog.shared.record(job.items[pending.index])
+
             } catch is CancellationError {
-                job.items[pending.index].state = .pending
-                job.items[pending.index].errorMessage = nil
+                let destination = URL(
+                    fileURLWithPath: job.items[pending.index].destinationPath
+                )
+                if let attrs = try? FileManager.default.attributesOfItem(
+                    atPath: destination.path
+                ),
+                   let size = attrs[.size] as? NSNumber,
+                   size.int64Value > 0 {
+                    job.items[pending.index].state = .completed
+                    job.items[pending.index].outputBytes = size.int64Value
+                    job.items[pending.index].errorMessage = nil
+                } else {
+                    job.items[pending.index].state = .pending
+                    job.items[pending.index].outputBytes = nil
+                    job.items[pending.index].errorMessage = nil
+                }
+
+                job.updatedAt = Date()
+                activeExportJob = job
+                exportProgress = job.fractionComplete
+                try? await ExportJobJournal.shared.save(job)
                 throw CancellationError()
+
             } catch {
                 job.items[pending.index].state = .failed
                 job.items[pending.index].errorMessage = error.localizedDescription
@@ -3767,11 +4060,52 @@ final class AppModel: ObservableObject {
             try? await ExportJobJournal.shared.save(job)
         }
 
+        @MainActor
+        func makePostprocessHeadroom(for estimatedBytes: UInt64) async throws {
+            while !pendingPostprocess.isEmpty {
+                let bytesInFlight = pendingPostprocess.reduce(UInt64(0)) {
+                    $0 &+ $1.retainedBytes
+                }
+                let budget = Self.exportPostprocessBudgetBytes()
+                let workerLimitReached =
+                    pendingPostprocess.count >= ExportJob.postProcessWorkerCount
+                let memoryLimitReached =
+                    bytesInFlight > 0 &&
+                    (
+                        estimatedBytes > budget ||
+                        bytesInFlight > budget - min(budget, estimatedBytes)
+                    )
+
+                guard workerLimitReached || memoryLimitReached else { break }
+                try await settlePostprocess(at: 0)
+            }
+        }
+
+        @MainActor
+        func stopAndDrainPostprocess() async {
+            for pending in pendingPostprocess {
+                pending.task.cancel()
+            }
+
+            while !pendingPostprocess.isEmpty {
+                do {
+                    try await settlePostprocess(at: 0)
+                } catch {
+                    continue
+                }
+            }
+        }
+
         for (position, index) in workIndices.enumerated() {
             do {
                 try Task.checkCancellation()
+
                 let item = job.items[index]
                 let sourceURL = URL(fileURLWithPath: item.sourcePath)
+
+                try await makePostprocessHeadroom(
+                    for: Self.estimatedExportPostprocessBytes(sourceURL)
+                )
 
                 job.items[index].state = .rendering
                 job.items[index].errorMessage = nil
@@ -3801,8 +4135,6 @@ final class AppModel: ObservableObject {
                 timings.sourceHeight = decoded.buffer.height
                 try Task.checkCancellation()
 
-                // Decode N+1 while N grades/renders. Admission is based on the
-                // bytes macOS says this process can still allocate, not MP count.
                 if position + 1 < workIndices.count {
                     let nextIndex = workIndices[position + 1]
                     let nextURL = URL(
@@ -3826,88 +4158,110 @@ final class AppModel: ObservableObject {
 
                 var exportLook = item.look
                 if job.settings.colorMode == .sRGB {
-                    // Real sRGB renderer output for web/phone delivery.
-                    // This is not an ICC retag of Rec.709 Gamma 2.4 pixels.
                     exportLook.values["outputColorSpace"] = .int(17)
                     exportLook.values["outputRole"] = .int(0)
                 }
 
                 let renderStarted = ProcessInfo.processInfo.systemUptime
                 let (filmOutput, renderDiagnostics) =
-                    try await exactRenderer.render(renderInput, look: exportLook)
+                    try await exactRenderer.render(
+                        renderInput,
+                        look: exportLook
+                    )
                 timings.renderMs = Self.msSince(renderStarted)
                 timings.renderGpuMs = renderDiagnostics.commandBufferMs
                 timings.renderPassCount = renderDiagnostics.passCount
                 try Task.checkCancellation()
 
-                // Keep these captures outside the @Sendable closure. The source
-                // gate explicitly protects this Swift 6.2 concurrency pattern.
+                // Stage 1 boundary: the serialized render lane ENDS here.
                 let geometrySettings = item.look.geometry
+                let lensSettings = item.look.lensEffects
                 let exportSettings = job.settings
-                let geometryStarted = ProcessInfo.processInfo.systemUptime
-                let output = try await Task.detached(priority: .utility) {
-                    let geometryOutput = GeometryEngine.transformed(
-                        filmOutput,
-                        settings: geometrySettings
-                    )
-                    return try geometryOutput.resizedForExport(
-                        settings: exportSettings
-                    )
-                }.value
-                timings.geometryResizeMs = Self.msSince(geometryStarted)
-                timings.outputWidth = output.width
-                timings.outputHeight = output.height
-                try Task.checkCancellation()
-
-                // Writer N-1 has overlapped decode + render N. Drain the single
-                // writer slot before launching writer N; this bounds retained RAM.
-                try await settlePendingWrite()
+                let destination = URL(fileURLWithPath: item.destinationPath)
+                let writer = exportEngine
+                let sourceForWriter = sourceURL
+                let lookForWriter = exportLook
+                let retainedBytes =
+                    Self.actualExportPostprocessBytes(filmOutput)
 
                 job.items[index].state = .writing
                 job.updatedAt = Date()
                 activeExportJob = job
-                status =
-                    "Writing \(URL(fileURLWithPath: item.destinationPath).lastPathComponent)…"
+                exportProgress = job.fractionComplete
                 try await ExportJobJournal.shared.save(job)
 
-                let destination = URL(fileURLWithPath: item.destinationPath)
-                let writer = exportEngine
-                let sourceForWriter = sourceURL
-                let settingsForWriter = job.settings
-                let lookForWriter = exportLook
+                let postTask = Task.detached(priority: .utility) {
+                    try Task.checkCancellation()
 
-                let writerTask = Task.detached(priority: .utility) {
-                    let started = ProcessInfo.processInfo.systemUptime
+                    let geometryStarted =
+                        ProcessInfo.processInfo.systemUptime
+                    let lensOutput = LensCharacterEngine.apply(filmOutput, settings: lensSettings)
+                    let geometryOutput = GeometryEngine.transformed(
+                        lensOutput,
+                        settings: geometrySettings
+                    )
+                    let output = try geometryOutput.resizedForExport(
+                        settings: exportSettings
+                    )
+                    let geometryResizeMs =
+                        (ProcessInfo.processInfo.systemUptime -
+                         geometryStarted) * 1000.0
+
+                    try Task.checkCancellation()
+
+                    let writeStarted =
+                        ProcessInfo.processInfo.systemUptime
                     try await writer.write(
                         output: output,
                         look: lookForWriter,
                         sourceURL: sourceForWriter,
                         destination: destination,
-                        settings: settingsForWriter
+                        settings: exportSettings
                     )
-                    return (ProcessInfo.processInfo.systemUptime - started) * 1000.0
+                    let writeMs =
+                        (ProcessInfo.processInfo.systemUptime -
+                         writeStarted) * 1000.0
+
+                    let attrs =
+                        try FileManager.default.attributesOfItem(
+                            atPath: destination.path
+                        )
+                    let bytes =
+                        (attrs[.size] as? NSNumber)?.int64Value ?? 0
+
+                    return ExportPostprocessResult(
+                        geometryResizeMs: geometryResizeMs,
+                        writeMs: writeMs,
+                        outputWidth: output.width,
+                        outputHeight: output.height,
+                        outputBytes: bytes,
+                        completedUptime:
+                            ProcessInfo.processInfo.systemUptime
+                    )
                 }
 
-                // wall = this item's own pipeline (decode/grade/render/geometry).
-                // The writer is backgrounded, so settling it next iteration would
-                // over-count by the next item's phases and double the ETA.
-                timings.wallMs = Self.msSince(itemStarted)
-                pendingWrite = PendingExportWrite(
-                    index: index,
-                    timings: timings,
-                    task: writerTask
+                pendingPostprocess.append(
+                    PendingExportPostprocess(
+                        index: index,
+                        retainedBytes: retainedBytes,
+                        itemStarted: itemStarted,
+                        timings: timings,
+                        task: postTask
+                    )
                 )
+
+                status =
+                    "Rendering pipeline · \(pendingPostprocess.count) post-process worker\(pendingPostprocess.count == 1 ? "" : "s") active"
 
             } catch is CancellationError {
                 decodeAhead?.cancel()
-                pendingWrite?.task.cancel()
                 decodeAhead = nil
                 decodeAheadIndex = nil
-                pendingWrite = nil
+
+                await stopAndDrainPostprocess()
 
                 for i in job.items.indices
-                where job.items[i].state == .rendering ||
-                      job.items[i].state == .writing {
+                where job.items[i].state == .rendering {
                     job.items[i].state = .pending
                     job.items[i].errorMessage = nil
                 }
@@ -3922,7 +4276,8 @@ final class AppModel: ObservableObject {
 
             } catch {
                 job.items[index].state = .failed
-                job.items[index].errorMessage = error.localizedDescription
+                job.items[index].errorMessage =
+                    error.localizedDescription
                 job.updatedAt = Date()
                 exportFailures.append(
                     ExportFailure(
@@ -3936,17 +4291,24 @@ final class AppModel: ObservableObject {
             }
         }
 
-        do {
-            try await settlePendingWrite()
-        } catch is CancellationError {
-            job.state = .stopped
-            job.updatedAt = Date()
-            activeExportJob = job
-            try? await ExportJobJournal.shared.save(job)
-            status = "Export stopped · \(job.remainingCount) remaining"
-            return
-        } catch {
-            // settlePendingWrite records normal writer failures itself.
+        while !pendingPostprocess.isEmpty {
+            status =
+                "Finishing \(pendingPostprocess.count) export\(pendingPostprocess.count == 1 ? "" : "s")…"
+            do {
+                try await settlePostprocess(at: 0)
+            } catch is CancellationError {
+                await stopAndDrainPostprocess()
+                job.state = .stopped
+                job.updatedAt = Date()
+                activeExportJob = job
+                exportProgress = job.fractionComplete
+                try? await ExportJobJournal.shared.save(job)
+                status =
+                    "Export stopped · \(job.remainingCount) remaining"
+                return
+            } catch {
+                continue
+            }
         }
 
         job.state = .completed
@@ -3964,6 +4326,40 @@ final class AppModel: ObservableObject {
             try? await ExportJobJournal.shared.save(job)
         }
     }
+
+    private static func estimatedExportPostprocessBytes(
+        _ url: URL
+    ) -> UInt64 {
+        let pixels = approximatePixelCount(url)
+        guard pixels > 0 else { return 0 }
+        return UInt64(pixels) * 48
+    }
+
+    private static func actualExportPostprocessBytes(
+        _ buffer: PixelBufferF32
+    ) -> UInt64 {
+        let pixels = UInt64(max(1, buffer.width * buffer.height))
+        return pixels * 48
+    }
+
+    private static func exportPostprocessBudgetBytes() -> UInt64 {
+        let available = availableMemoryBytes()
+        let mib = UInt64(1024 * 1024)
+        let gib = UInt64(1024 * 1024 * 1024)
+
+        guard available > 0 else {
+            return 768 * mib
+        }
+
+        let reserve = max(768 * mib, available / 3)
+        guard available > reserve else {
+            return 256 * mib
+        }
+
+        let usable = (available - reserve) * 2 / 3
+        return min(3 * gib, max(512 * mib, usable))
+    }
+
 
     // macOS has no os_proc_available_memory(); that symbol is
     // API_UNAVAILABLE(macos) in os/proc.h. Free + inactive + purgeable is the

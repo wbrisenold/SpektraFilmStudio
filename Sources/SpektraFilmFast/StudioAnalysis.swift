@@ -65,7 +65,8 @@ actor StudioAnalysisEngine {
         output: PixelBufferF32,
         look: RenderLook,
         preferences: AppPreferences,
-        maxLongEdge: Int
+        maxLongEdge: Int,
+        canonicalSkinMask: CanonicalSkinMaskPayload? = nil
     ) async throws -> StudioAnalysisPayload {
         try Task.checkCancellation()
 
@@ -243,13 +244,17 @@ actor StudioAnalysisEngine {
         }
 
         if wantsSkinAnalysis {
-            skinMask = refineSkinMask(
-                mask: skinMask,
-                diagnostic: diagnosticBuffer,
-                subjectMask: subjectMask,
-                width: overlayWidth,
-                height: overlayHeight
-            )
+            if let canonicalSkinMask {
+                skinMask = canonicalSkinMask.resampled(width: overlayWidth, height: overlayHeight)
+            } else {
+                skinMask = refineSkinMask(
+                    mask: skinMask,
+                    diagnostic: diagnosticBuffer,
+                    subjectMask: subjectMask,
+                    width: overlayWidth,
+                    height: overlayHeight
+                )
+            }
 
 // The false-color overlay, percentages, centroid and skin vectorscope
               // must all use the SAME FINAL refined mask. A pre-refinement centroid

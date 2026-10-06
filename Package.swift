@@ -16,12 +16,20 @@ let package = Package(
             name: "CSpektraBridge",
             path: "Sources/CSpektraBridge"
         ),
+        .target(
+            name: "SemanticMaskNative",
+            path: "Sources/SemanticMaskNative",
+            publicHeadersPath: "include",
+            cxxSettings: [.unsafeFlags(["-I\(root)/Vendor/onnxruntime/include"])],
+            linkerSettings: [.unsafeFlags(["-L\(root)/Vendor/onnxruntime/lib", "-lonnxruntime", "-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
+        ),
         .executableTarget(
             name: "SpektraFilmFast",
-            dependencies: ["CSpektraBridge"],
+            dependencies: ["CSpektraBridge", "SemanticMaskNative"],
             path: "Sources/SpektraFilmFast",
             linkerSettings: [
                 .unsafeFlags(["-L\(nativeLib)", "-lSpektraFilmNativeCore"]),
+                .unsafeFlags(["-L\(root)/Vendor/onnxruntime/lib", "-lonnxruntime", "-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"]),
                 .linkedLibrary("c++"),
                 .linkedFramework("Accelerate"),
                 .linkedFramework("AppKit"),

@@ -8,3 +8,5 @@ DerivedData/
 .env
 .batch-edit-backup-*/
 __pycache__/
+Vendor/
+Resources/AIModels/

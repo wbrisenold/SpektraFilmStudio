@@ -83,6 +83,8 @@ enum ScopeMode: String, Codable, CaseIterable, Identifiable, Sendable {
     case parade = "RGB Parade"
     case vectorscope = "Vectorscope"
     case skinVectorscope = "Skin Vector"
+    case saturation = "Saturation"
+    case falseColor = "False Color"
     case chromaticity = "CIE xy"
     var id: String { rawValue }
 }
@@ -215,18 +217,43 @@ struct WhiteBalanceQuickPreset: Identifiable, Hashable, Sendable {
     static let relativePresets: [WhiteBalanceQuickPreset] = technicalPresets + creativePresets
 }
 
+enum RawDenoiseMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case off = "Off"
+    case auto = "Auto"
+    case manual = "Manual"
+    var id: String { rawValue }
+}
+
 struct RawSettings: Codable, Equatable, Hashable, Sendable {
     var whiteBalanceMode: RawWhiteBalanceMode = .asShot
-    // In Custom mode these are absolute controls. In As Shot / Auto they cache the
-    // resolved starting neutral so the always-visible sliders can move from that point.
     var temperature: Double = 5500
     var tint: Double = 0
     var lensCorrection = false
-    // Non-Custom modes persist the user's relative grade instead of destroying the
-    // underlying camera/Auto neutral. Temperature offsets are stored in mireds so
-    // slider response remains photographic across warm and cool color temperatures.
     var temperatureOffsetMired: Double? = nil
     var tintOffset: Double? = nil
+    var denoiseMode: RawDenoiseMode = .off
+    var denoiseLuma: Double = 0.22
+    var denoiseChroma: Double = 0.16
+    var denoiseModel: String = "TreeNetDenoiseHeavy"
+
+    private enum CodingKeys: String, CodingKey { case whiteBalanceMode, temperature, tint, lensCorrection, temperatureOffsetMired, tintOffsetMired = "tintOffset", denoiseMode, denoiseLuma, denoiseChroma, denoiseModel }
+    init() {}
+    init(from decoder: Decoder) throws {
+        let c=try decoder.container(keyedBy:CodingKeys.self)
+        whiteBalanceMode=try c.decodeIfPresent(RawWhiteBalanceMode.self,forKey:.whiteBalanceMode) ?? .asShot
+        temperature=try c.decodeIfPresent(Double.self,forKey:.temperature) ?? 5500
+        tint=try c.decodeIfPresent(Double.self,forKey:.tint) ?? 0
+        lensCorrection=try c.decodeIfPresent(Bool.self,forKey:.lensCorrection) ?? false
+        temperatureOffsetMired=try c.decodeIfPresent(Double.self,forKey:.temperatureOffsetMired)
+        tintOffset=try c.decodeIfPresent(Double.self,forKey:.tintOffsetMired)
+        denoiseMode=try c.decodeIfPresent(RawDenoiseMode.self,forKey:.denoiseMode) ?? .off
+        denoiseLuma=min(1,max(0,try c.decodeIfPresent(Double.self,forKey:.denoiseLuma) ?? 0.22))
+        denoiseChroma=min(1,max(0,try c.decodeIfPresent(Double.self,forKey:.denoiseChroma) ?? 0.16))
+        denoiseModel=try c.decodeIfPresent(String.self,forKey:.denoiseModel) ?? "TreeNetDenoiseHeavy"
+    }
+    func encode(to encoder: Encoder) throws {
+        var c=encoder.container(keyedBy:CodingKeys.self); try c.encode(whiteBalanceMode,forKey:.whiteBalanceMode);try c.encode(temperature,forKey:.temperature);try c.encode(tint,forKey:.tint);try c.encode(lensCorrection,forKey:.lensCorrection);try c.encodeIfPresent(temperatureOffsetMired,forKey:.temperatureOffsetMired);try c.encodeIfPresent(tintOffset,forKey:.tintOffsetMired);try c.encode(denoiseMode,forKey:.denoiseMode);try c.encode(denoiseLuma,forKey:.denoiseLuma);try c.encode(denoiseChroma,forKey:.denoiseChroma);try c.encode(denoiseModel,forKey:.denoiseModel)
+    }
 }
 
 struct ToneCurvePoint: Codable, Equatable, Hashable, Sendable, Identifiable {
@@ -366,6 +393,30 @@ struct GeometrySettings: Codable, Equatable, Hashable, Sendable {
     var lastAspectPresetID: String? = nil
 }
 
+
+enum LensCharacterPreset: String, Codable, CaseIterable, Identifiable, Sendable {
+    case custom="Custom", spherical35="35mm Spherical", standard50="50mm Standard", portrait85="85mm Portrait", wide28="28mm Wide", anamorphic2x="Anamorphic 2×", petzval="Petzval", vintage58="Vintage 58mm"
+    var id:String{rawValue}
+}
+struct LensEffectsResolved: Sendable { var distortion=0.0;var chromaticAberration=0.0;var highlightChromaticAberration=0.0;var sphericalAberration=0.0;var petzvalSwirl=0.0;var edgeSoftness=0.0;var vignette=0.0 }
+struct LensEffectsSettings: Codable, Equatable, Hashable, Sendable {
+    var enabled=false; var preset:LensCharacterPreset = .custom; var distortion=0.0; var chromaticAberration=0.0; var highlightChromaticAberration=0.0; var sphericalAberration=0.0; var petzvalSwirl=0.0; var edgeSoftness=0.0; var vignette=0.0
+    var resolved:LensEffectsResolved {
+        if preset == .custom { return .init(distortion:distortion,chromaticAberration:chromaticAberration,highlightChromaticAberration:highlightChromaticAberration,sphericalAberration:sphericalAberration,petzvalSwirl:petzvalSwirl,edgeSoftness:edgeSoftness,vignette:vignette) }
+        switch preset {
+        case .spherical35:return .init(distortion:0.025,chromaticAberration:1.1,highlightChromaticAberration:1.8,sphericalAberration:0.24,petzvalSwirl:0.08,edgeSoftness:0.18,vignette:0.16)
+        case .standard50:return .init(distortion:0.006,chromaticAberration:0.65,highlightChromaticAberration:1.0,sphericalAberration:0.12,petzvalSwirl:0.03,edgeSoftness:0.08,vignette:0.10)
+        case .portrait85:return .init(distortion:-0.004,chromaticAberration:0.40,highlightChromaticAberration:0.75,sphericalAberration:0.18,petzvalSwirl:0.05,edgeSoftness:0.12,vignette:0.13)
+        case .wide28:return .init(distortion:0.055,chromaticAberration:1.5,highlightChromaticAberration:2.2,sphericalAberration:0.10,petzvalSwirl:0.03,edgeSoftness:0.22,vignette:0.22)
+        case .anamorphic2x:return .init(distortion:0.018,chromaticAberration:1.8,highlightChromaticAberration:2.8,sphericalAberration:0.22,petzvalSwirl:0.10,edgeSoftness:0.20,vignette:0.20)
+        case .petzval:return .init(distortion:0.020,chromaticAberration:0.8,highlightChromaticAberration:1.4,sphericalAberration:0.30,petzvalSwirl:0.72,edgeSoftness:0.34,vignette:0.28)
+        case .vintage58:return .init(distortion:0.012,chromaticAberration:1.0,highlightChromaticAberration:1.6,sphericalAberration:0.36,petzvalSwirl:0.18,edgeSoftness:0.27,vignette:0.23)
+        case .custom:return .init()
+        }
+    }
+    var isIdentity:Bool { let r=resolved;return abs(r.distortion)<1e-9 && r.chromaticAberration<1e-9 && r.highlightChromaticAberration<1e-9 && r.sphericalAberration<1e-9 && r.petzvalSwirl<1e-9 && r.edgeSoftness<1e-9 && r.vignette<1e-9 }
+}
+
 struct RenderLook: Codable, Equatable, Hashable, Sendable {
     // v0.2 is intentionally Pro-only. Keep the serialized field for compatibility
     // with v0.1 project/preset documents and the native visibility model.
@@ -380,12 +431,17 @@ struct RenderLook: Codable, Equatable, Hashable, Sendable {
     // Geometry is also optional for backwards decoding. It is applied after the film/color render
     // so crop/straighten/perspective edits never change spectral/color behavior.
     var geometry: GeometrySettings? = nil
+    var lensEffects: LensEffectsSettings? = nil
+    // Stage 2: local grades own ordered mask stacks. Optional preserves backward decoding.
+    var localGrades: [LocalGradeRecord]? = nil
 
     static func defaults(catalog: BridgeCatalog = .shared) -> RenderLook {
         var look = RenderLook(flavor: .pro)
         look.tone = ToneSettings()
         look.colorDensity = ColorDensitySettings()
         look.geometry = GeometrySettings()
+        look.lensEffects = LensEffectsSettings()
+        look.localGrades = []
         for descriptor in catalog.parameters {
             look.values[descriptor.name] = descriptor.defaultValue
         }
@@ -397,6 +453,9 @@ struct RenderLook: Codable, Equatable, Hashable, Sendable {
         if tone == nil { tone = ToneSettings() }
         if colorDensity == nil { colorDensity = ColorDensitySettings() }
         if geometry == nil { geometry = GeometrySettings() }
+        if lensEffects == nil { lensEffects = LensEffectsSettings() }
+        if localGrades == nil { localGrades = [] }
+        for index in localGrades!.indices { localGrades![index].normalize() }
     }
 }
 

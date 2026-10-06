@@ -244,8 +244,16 @@ private struct EditorInspectorView: View {
                 .frame(height: 28)
                 .background(StudioPalette.panel)
 
-                ControlsView(model: model)
-                    .frame(maxHeight: .infinity)
+                ScrollView {
+                    VStack(spacing: 10) {
+                        MaskPanelView(model: model)
+                        SemanticMaskPanel(model: model)
+                        ControlsView(model: model)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                }
+                .frame(maxHeight: .infinity)
             }
         }
     }
