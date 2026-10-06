@@ -13,7 +13,6 @@ private struct ExportDecodedFrame: Sendable {
 
 private struct PendingExportWrite {
     let index: Int
-    let itemStarted: TimeInterval
     var timings: ExportItemTimings
     let task: Task<Double, Error>
 }
@@ -3631,8 +3630,6 @@ final class AppModel: ObservableObject {
                 let writeMs = try await pending.task.value
                 var timings = pending.timings
                 timings.writeMs = writeMs
-                timings.wallMs =
-                    (ProcessInfo.processInfo.systemUptime - pending.itemStarted) * 1000.0
 
                 let destination = URL(
                     fileURLWithPath: job.items[pending.index].destinationPath
@@ -3790,9 +3787,12 @@ final class AppModel: ObservableObject {
                     return (ProcessInfo.processInfo.systemUptime - started) * 1000.0
                 }
 
+                // wall = this item's own pipeline (decode/grade/render/geometry).
+                // The writer is backgrounded, so settling it next iteration would
+                // over-count by the next item's phases and double the ETA.
+                timings.wallMs = Self.msSince(itemStarted)
                 pendingWrite = PendingExportWrite(
                     index: index,
-                    itemStarted: itemStarted,
                     timings: timings,
                     task: writerTask
                 )
