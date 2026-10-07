@@ -295,6 +295,45 @@ require("sourceFileSize" in models and "sourceModificationTime" in models, "sour
 # Clipping semantics must be honest.
 require("Exposure Warning" in settings and "final rendered image" in settings and "SpektraFilm stock/print processing" in settings, "settings do not disclose final-render diagnostic semantics")
 
+# Regression gates for v0.6.8 live-render/mask/export failures.
+require("applyingHostGrade(tone: request.look.tone" in app, "settled preview drops RAW Develop host tone")
+require("applyingHostGrade(tone: nil" not in app, "settled preview still discards RAW Develop host tone")
+proxy_block = app.split("private func publishInteractiveProxy",1)[1].split("private func schedulePreviewRenderAfterIdle",1)[0]
+require("requestEditorScopeUpdate()" in proxy_block, "false color/scopes do not follow the live slider proxy")
+require("activeLocalGradeID" in app and "publishLocalGradePreview" in app, "selected-mask local edit target missing")
+require("centerX" in models and "centerY" in models and "LensCharacterOverlay" in preview, "Lens Character center overlay missing")
+export_preview = text("StudioExportPreview.swift")
+require("settings.resizeMode.rawValue" in export_preview and "settings.resizeWidth" in export_preview and "settings.resizeHeight" in export_preview,
+        "export preview refresh ignores sizing/crop selections")
+require("presetThumbnail(" not in text("PresetBrowserView.swift"), "preset browser returned to stale thumbnail grid")
+tone_grade = text("ToneGradeEngine.swift")
+proxy_src = text("InteractivePreviewProxy.swift")
+edit_view = text("EditView.swift")
+require("enum MEDesatchMath" in tone_grade and "coneSaturationMagnitude" in tone_grade,
+        "ME deSatch cone-coordinate density math missing")
+require("PrimeraDensityMath" not in tone_grade, "old Primera density engine still present")
+require("applyingMEDesatchTransfer" in proxy_src, "interactive density still uses an approximation")
+require("range: -1...0" in controls and "Global deSatch" in controls,
+        "ME deSatch slider domain/UI missing")
+require("Preserve Luminance" not in controls, "non-ME preserve-luminance UI returned")
+require('["filmExposureEv", "autoExposure", "autoExposureMethod"].contains' not in controls,
+        "original Film Exposure/Auto Exposure controls are still filtered out")
+require('Button("Export This Photo…")' in edit_view and "func exportImage(_ id: UUID)" in app,
+        "single-photo filmstrip export missing")
+require(not (SRC / "SemanticMaskPanel.swift").exists(), "dead duplicate SemanticMaskPanel returned")
+cargo = (ROOT / "Rust" / "SpektraStudioCore" / "Cargo.toml").read_text()
+require(cargo.count("lightcraft-") == 1 and "lightcraft-develop" in cargo,
+        "unreferenced direct LightCraft crates returned to unified core")
+bootstrap = (ROOT / "scripts" / "bootstrap_unified_rust_core.sh").read_text()
+require("Using cached pinned LightCraft checkout" in bootstrap,
+        "LightCraft bootstrap still fetches the already-correct pin every build")
+build_app = (ROOT / "scripts" / "build_app.sh").read_text()
+require('rm -rf "$ROOT/dist"' not in build_app, "release build still deletes the entire dist directory")
+require("Licenses/ME_Desatch" in build_app, "ME deSatch attribution is not packaged")
+require("SpektraFilmStudio-GPL-3.0.txt" in build_app, "root GPL license is not packaged")
+require((ROOT / "THIRD_PARTY" / "ME_Desatch" / "NOTICE").exists(),
+        "ME deSatch source attribution missing")
+
 # Expanded scene-tone controls must be real model + UI + processing controls, not labels.
 tone_engine = text("ToneGradeEngine.swift")
 controls = text("ControlsView.swift")

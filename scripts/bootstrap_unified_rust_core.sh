@@ -17,7 +17,18 @@ clone_pin () {
   local repo="$1"
   local pin="$2"
   local dir="$3"
-  if [[ ! -d "$dir/.git" ]]; then
+  if [[ -d "$dir/.git" ]]; then
+    local current
+    current="$(git -C "$dir" rev-parse HEAD 2>/dev/null || true)"
+    if [[ "$current" == "$pin" ]]; then
+      echo "Using cached pinned LightCraft checkout: $pin"
+      return
+    fi
+    if git -C "$dir" cat-file -e "$pin^{commit}" 2>/dev/null; then
+      git -C "$dir" checkout --detach "$pin"
+      return
+    fi
+  else
     rm -rf "$dir"
     mkdir -p "$(dirname "$dir")"
     git clone --filter=blob:none "$repo" "$dir"

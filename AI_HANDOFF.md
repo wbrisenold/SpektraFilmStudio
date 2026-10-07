@@ -8,8 +8,8 @@ Product copy must remain event-agnostic. This is a general high-end still-photo 
 
 ## Release identity
 
-- `VERSION`: `0.6.1`
-- expected local Intel artifact: `SpektraFilm-0.6.1-macOS-intel.zip`
+- `VERSION`: `0.6.8`
+- expected local Intel artifact: `SpektraFilmStudio-0.6.8-macOS-intel.zip`
 - pinned Spektrafilm native core: `8f6651858f439a99b7202b4b8dea59e344dadf5d`
 - bundled Metal library: `Resources/SpektraFilm.metallib`
 - application icon: `Resources/AppIcon.icns` (packaged as `SpektraFilm.icns` by the build script)
@@ -19,7 +19,7 @@ Product copy must remain event-agnostic. This is a general high-end still-photo 
 
 The intended complete flow is:
 
-`Library → Cull → Proofs → Edit → PhotoCraft → Export`
+`Library → Cull → Proofs → Edit → Export`
 
 ### Library
 

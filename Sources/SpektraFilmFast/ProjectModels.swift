@@ -338,7 +338,8 @@ struct ToneSettings: Codable, Equatable, Hashable, Sendable {
 }
 
 struct ColorDensitySettings: Codable, Equatable, Hashable, Sendable {
-    // PrimeraHue v0.6.0 uses -1...+1 density controls at the six RGB/CMY corners.
+    // Active behavior follows ME_Desatch.dctl: 0 = identity, -1 = maximum deSatch density.
+    // Property names stay stable so old projects/presets remain decodable.
     var master: Double = 0
     var red: Double = 0
     var yellow: Double = 0
@@ -346,10 +347,15 @@ struct ColorDensitySettings: Codable, Equatable, Hashable, Sendable {
     var cyan: Double = 0
     var blue: Double = 0
     var magenta: Double = 0
+
+    // Legacy serialized field from the former Primera implementation.
+    // It is intentionally ignored by ME deSatch but retained for backward decoding.
     var preserveLuma = true
 
     var isIdentity: Bool {
-        [master, red, yellow, green, cyan, blue, magenta].allSatisfy { abs($0) < 1e-12 }
+        [master, red, yellow, green, cyan, blue, magenta].allSatisfy {
+            abs(min(0.0, max(-1.0, $0))) < 1e-12
+        }
     }
 }
 
@@ -448,6 +454,8 @@ struct LensEffectsResolved: Sendable {
     var swirlRadius = 0.22
     var vignetteRadius = 0.40
     var vignetteFalloff = 1.6
+    var centerX = 0.5
+    var centerY = 0.5
     var caChannel: LensCAChannel = .redBlue
 }
 
@@ -466,6 +474,8 @@ struct LensEffectsSettings: Codable, Equatable, Hashable, Sendable {
     var swirlRadius = 0.22
     var vignetteRadius = 0.40
     var vignetteFalloff = 1.6
+    var centerX = 0.5
+    var centerY = 0.5
     var caChannel: LensCAChannel = .redBlue
 
     init() {}
@@ -474,7 +484,7 @@ struct LensEffectsSettings: Codable, Equatable, Hashable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case enabled, preset, distortion, chromaticAberration, highlightChromaticAberration,
              sphericalAberration, petzvalSwirl, edgeSoftness, vignette, lensShape,
-             blurThickness, swirlRadius, vignetteRadius, vignetteFalloff, caChannel
+             blurThickness, swirlRadius, vignetteRadius, vignetteFalloff, centerX, centerY, caChannel
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -492,6 +502,8 @@ struct LensEffectsSettings: Codable, Equatable, Hashable, Sendable {
         swirlRadius = try c.decodeIfPresent(Double.self, forKey: .swirlRadius) ?? 0.22
         vignetteRadius = try c.decodeIfPresent(Double.self, forKey: .vignetteRadius) ?? 0.4
         vignetteFalloff = try c.decodeIfPresent(Double.self, forKey: .vignetteFalloff) ?? 1.6
+        centerX = min(1, max(0, try c.decodeIfPresent(Double.self, forKey: .centerX) ?? 0.5))
+        centerY = min(1, max(0, try c.decodeIfPresent(Double.self, forKey: .centerY) ?? 0.5))
         caChannel = try c.decodeIfPresent(LensCAChannel.self, forKey: .caChannel) ?? .redBlue
     }
 
@@ -526,6 +538,13 @@ struct LensEffectsSettings: Codable, Equatable, Hashable, Sendable {
     }
     /// When changing a preset slider, materialize every resolved value first.
     /// Otherwise switching to Custom would silently reset the untouched sliders.
+    var resolvedWithCenter: LensEffectsResolved {
+        var value = resolved
+        value.centerX = centerX
+        value.centerY = centerY
+        return value
+    }
+
     mutating func bakePresetForEditing() {
         guard preset != .custom else { return }
         let r = resolved

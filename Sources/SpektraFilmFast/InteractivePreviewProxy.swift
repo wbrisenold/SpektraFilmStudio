@@ -121,10 +121,7 @@ enum InteractivePreviewProxy {
             if name.hasPrefix("density.") {
                 let beforeDensity = baselineLook.colorDensity ?? ColorDensitySettings()
                 let afterDensity = targetLook.colorDensity ?? ColorDensitySettings()
-                let beforeAverage = (beforeDensity.master + beforeDensity.red + beforeDensity.yellow + beforeDensity.green + beforeDensity.cyan + beforeDensity.blue + beforeDensity.magenta) / 7.0
-                let afterAverage = (afterDensity.master + afterDensity.red + afterDensity.yellow + afterDensity.green + afterDensity.cyan + afterDensity.blue + afterDensity.magenta) / 7.0
-                let d = afterAverage - beforeAverage
-                return baseline.pointTransform(contrastDelta: d * 0.22, saturationDelta: d * 0.95)
+                return baseline.applyingMEDesatchTransfer(from: beforeDensity, to: afterDensity)
             }
         }
 

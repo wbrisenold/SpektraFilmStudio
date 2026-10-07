@@ -199,6 +199,8 @@ struct EditWorkspaceView: View {
                         }
                         .contextMenu {
                             Button("Select Only") { model.selectLibraryImage(image.id) }
+                            Button("Export This Photo…") { model.exportImage(image.id) }
+                                .disabled(model.isExporting)
                             Divider()
                             Button("Copy Selected Edits") { model.copyLook() }
                             Button("Paste to Highlighted") { model.pasteLook() }

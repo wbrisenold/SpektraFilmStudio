@@ -598,85 +598,164 @@ private enum SourcedToneMath {
     }
 }
 
-private enum PrimeraDensityMath {
-    static func apply(_ rgb: (Double, Double, Double), settings: ColorDensitySettings?) -> (Double, Double, Double) {
+// GPL-3.0 adaptation of the cone-coordinate behavior in Moaz Elgabry's
+// ME_Desatch.dctl (revision 5e57387d486e82e416cf25bc8a95aad5e7f33c7a).
+// See THIRD_PARTY/ME_Desatch/NOTICE.
+enum MEDesatchMath {
+    private static let pi = Double.pi
+    private static let twoPi = Double.pi * 2.0
+    private static let hueRadius = 0.1666
+
+    static func apply(
+        _ rgb: (Double, Double, Double),
+        settings: ColorDensitySettings?
+    ) -> (Double, Double, Double) {
         guard let settings, !settings.isIdentity else { return rgb }
-        var r = rgb.0, g = rgb.1, b = rgb.2
-        // PrimeraHue intentionally bypasses extended-range values.
-        guard r >= 0, r <= 1, g >= 0, g <= 1, b >= 0, b <= 1 else { return rgb }
-
-        let master = settings.master
-        let rd = clampDensity(settings.red + master)
-        let yd = clampDensity(settings.yellow + master)
-        let gd = clampDensity(settings.green + master)
-        let cd = clampDensity(settings.cyan + master)
-        let bd = clampDensity(settings.blue + master)
-        let md = clampDensity(settings.magenta + master)
-
-        let before = 0.2126*r + 0.7152*g + 0.0722*b
-        let rc = (1.0 + rd, 0.0 + rd, 0.0 + rd)
-        let gc = (0.0 + gd, 1.0 + gd, 0.0 + gd)
-        let bc = (0.0 + bd, 0.0 + bd, 1.0 + bd)
-        let cc = (0.0 + cd, 1.0 + cd, 1.0 + cd)
-        let mc = (1.0 + md, 0.0 + md, 1.0 + md)
-        let yc = (1.0 + yd, 1.0 + yd, 0.0 + yd)
-        (r, g, b) = tetraInterp(r: r, g: g, b: b, rc: rc, gc: gc, bc: bc, cc: cc, mc: mc, yc: yc)
-
-        if settings.preserveLuma {
-            let after = 0.2126*r + 0.7152*g + 0.0722*b
-            if before > 0, after > 1e-12 {
-                let ratio = before / after
-                r *= ratio; g *= ratio; b *= ratio
-            }
-        }
-
-        // PrimeraHue's default soft squeeze protects the 0...1 log-domain shoulder/toe.
-        r = softSqueeze(r); g = softSqueeze(g); b = softSqueeze(b)
-        return (r, g, b)
+        var cone = rgbToCone(rgb)
+        cone.0 *= densityFactor(hue: cone.1, polar: cone.2, settings: settings)
+        return coneToRGB(cone)
     }
 
-    private static func clampDensity(_ value: Double) -> Double { max(-1, min(1, value)) }
-
-    private static func tetraInterp(
-        r: Double, g: Double, b: Double,
-        rc: (Double,Double,Double), gc: (Double,Double,Double), bc: (Double,Double,Double),
-        cc: (Double,Double,Double), mc: (Double,Double,Double), yc: (Double,Double,Double)
-    ) -> (Double,Double,Double) {
-        func add(_ a:(Double,Double,Double), _ b:(Double,Double,Double)) -> (Double,Double,Double) {
-            (a.0+b.0,a.1+b.1,a.2+b.2)
-        }
-        func mul(_ s:Double, _ a:(Double,Double,Double)) -> (Double,Double,Double) {
-            (s*a.0,s*a.1,s*a.2)
-        }
-        let one=(1.0,1.0,1.0)
-        if r >= g && r >= b {
-            if g >= b {
-                return add(add(mul(r,rc), mul(g,(yc.0-rc.0,yc.1-rc.1,yc.2-rc.2))), mul(b,(one.0-yc.0,one.1-yc.1,one.2-yc.2)))
-            }
-            return add(add(mul(r,rc), mul(b,(mc.0-rc.0,mc.1-rc.1,mc.2-rc.2))), mul(g,(one.0-mc.0,one.1-mc.1,one.2-mc.2)))
-        } else if g >= r && g >= b {
-            if r >= b {
-                return add(add(mul(g,gc), mul(r,(yc.0-gc.0,yc.1-gc.1,yc.2-gc.2))), mul(b,(one.0-yc.0,one.1-yc.1,one.2-yc.2)))
-            }
-            return add(add(mul(g,gc), mul(b,(cc.0-gc.0,cc.1-gc.1,cc.2-gc.2))), mul(r,(one.0-cc.0,one.1-cc.1,one.2-cc.2)))
+    /// Exact pointer-rate transfer between two ME deSatch states. The source DCTL only
+    /// changes cone radius; cone hue/polar stay unchanged, so a before->after transfer
+    /// is the ratio of the two radius multipliers instead of an approximate saturation proxy.
+    static func transfer(
+        _ rgb: (Double, Double, Double),
+        from before: ColorDensitySettings,
+        to after: ColorDensitySettings
+    ) -> (Double, Double, Double) {
+        if before == after { return rgb }
+        var cone = rgbToCone(rgb)
+        let oldFactor = densityFactor(hue: cone.1, polar: cone.2, settings: before)
+        let newFactor = densityFactor(hue: cone.1, polar: cone.2, settings: after)
+        let denominator: Double
+        if abs(oldFactor) < 1.0e-12 {
+            denominator = oldFactor < 0 ? -1.0e-12 : 1.0e-12
         } else {
-            if r >= g {
-                return add(add(mul(b,bc), mul(r,(mc.0-bc.0,mc.1-bc.1,mc.2-bc.2))), mul(g,(one.0-mc.0,one.1-mc.1,one.2-mc.2)))
-            }
-            return add(add(mul(b,bc), mul(g,(cc.0-bc.0,cc.1-bc.1,cc.2-bc.2))), mul(r,(one.0-cc.0,one.1-cc.1,one.2-cc.2)))
+            denominator = oldFactor
         }
+        cone.0 *= newFactor / denominator
+        return coneToRGB(cone)
     }
 
-    private static func softSqueeze(_ value: Double) -> Double {
-        var v = value
-        let knee = 0.9, range = 0.1
-        if v > knee { v = knee + range * tanh((v-knee)/range) }
-        let toe = 0.1
-        if v < toe { v = toe * exp(v/toe - 1.0) }
-        return v
+    private static func control(_ value: Double) -> Double {
+        min(0.0, max(-1.0, value))
+    }
+
+    private static func densityFactor(
+        hue: Double,
+        polar: Double,
+        settings: ColorDensitySettings
+    ) -> Double {
+        var factor = 1.0 + control(settings.master) * polar
+        let bands: [(Double, Double)] = [
+            (0.0000, settings.red),
+            (0.1666, settings.yellow),
+            (0.3330, settings.green),
+            (0.4999, settings.cyan),
+            (0.6660, settings.blue),
+            (0.8333, settings.magenta)
+        ]
+        for (center, rawAmount) in bands {
+            let amount = control(rawAmount)
+            guard amount != 0 else { continue }
+            let direct = abs(hue - center)
+            let distance = center == 0.0 ? min(direct, 1.0 - direct) : direct
+            guard distance <= hueRadius else { continue }
+            let weight = 1.0 - distance / hueRadius
+            factor *= 1.0 + amount * weight * polar
+        }
+        return factor
+    }
+
+    private static func rgbToCone(_ rgb: (Double, Double, Double)) -> (Double, Double, Double) {
+        let rtr = rgb.0 * 0.81649658 + rgb.1 * -0.40824829 + rgb.2 * -0.40824829
+        let rtg = rgb.1 * 0.70710678 + rgb.2 * -0.70710678
+        let rtb = rgb.0 * 0.57735027 + rgb.1 * 0.57735027 + rgb.2 * 0.57735027
+
+        let angle = atan2(rtg, rtr)
+        let sphericalRadius = sqrt(rtr * rtr + rtg * rtg + rtb * rtb)
+        let theta = angle < 0 ? angle + twoPi : angle
+        let phi = atan2(sqrt(rtr * rtr + rtg * rtg), rtb)
+        let satMagnitude = coneSaturationMagnitude(theta: theta, phi: phi)
+
+        return (
+            sphericalRadius * satMagnitude,
+            theta * 0.15915494309189535,
+            phi * 1.0467733744265997
+        )
+    }
+
+    private static func coneToRGB(_ cone: (Double, Double, Double)) -> (Double, Double, Double) {
+        let theta = cone.1 * twoPi
+        let phi = cone.2 / 1.0467733744265997
+        let satMagnitude = coneSaturationMagnitude(theta: theta, phi: phi)
+        let safeSat: Double
+        if abs(satMagnitude) < 1.0e-12 {
+            safeSat = satMagnitude < 0 ? -1.0e-12 : 1.0e-12
+        } else {
+            safeSat = satMagnitude
+        }
+        let sphericalRadius = cone.0 / safeSat
+
+        let sinPhi = sin(phi)
+        let rtr = sphericalRadius * sinPhi * cos(theta)
+        let rtg = sphericalRadius * sinPhi * sin(theta)
+        let rtb = sphericalRadius * cos(phi)
+
+        return (
+            rtr * 0.81649658 + rtb * 0.57735027,
+            rtr * -0.40824829 + rtg * 0.70710678 + rtb * 0.57735027,
+            rtr * -0.40824829 + rtg * -0.70710678 + rtb * 0.57735027
+        )
+    }
+
+    private static func coneSaturationMagnitude(theta: Double, phi: Double) -> Double {
+        let basePhi = 0.61547971
+        let cornerPhi = 0.78539816
+        let hueCoef1 = 1.0 / (2.0 - cornerPhi / basePhi)
+        let sector = theta.truncatingRemainder(dividingBy: pi / 3.0)
+        let hueCoef2 = 2.0 * phi * sin((2.0 * pi / 3.0) - sector) / 1.7320508075688
+        let hueMagnitude =
+            (acos(cos(3.0 * theta + pi)) / (pi * hueCoef1) + (cornerPhi / basePhi - 1.0))
+            * hueCoef2
+        return sin(hueMagnitude + basePhi)
     }
 }
 
+extension PixelBufferF32 {
+    func applyingMEDesatchTransfer(
+        from before: ColorDensitySettings,
+        to after: ColorDensitySettings
+    ) -> PixelBufferF32 {
+        guard before != after, width > 0, height > 0, pixels.count == width * height * 4 else {
+            return self
+        }
+        var output = pixels
+        let rowStride = width * 4
+        output.withUnsafeMutableBufferPointer { buffer in
+            guard let base = buffer.baseAddress, buffer.count > 0 else { return }
+            let access = RowAccess(base: base, count: buffer.count)
+            DispatchQueue.concurrentPerform(iterations: height) { y in
+                if Task.isCancelled { return }
+                let start = y * rowStride
+                let end = min(start + rowStride, access.count)
+                for p in stride(from: start, to: end, by: 4) {
+                    let rgb = MEDesatchMath.transfer(
+                        (Double(access.base[p]), Double(access.base[p + 1]), Double(access.base[p + 2])),
+                        from: before,
+                        to: after
+                    )
+                    access.base[p] = Float(rgb.0)
+                    access.base[p + 1] = Float(rgb.1)
+                    access.base[p + 2] = Float(rgb.2)
+                }
+            }
+        }
+        if Task.isCancelled { return self }
+        return PixelBufferF32(width: width, height: height, pixels: output)
+    }
+}
 
 private enum AutoContrastMath {
     private static let bins = 16_384
@@ -792,7 +871,7 @@ extension PixelBufferF32 {
                 eb = ToneCurveMath.evaluate(eb, points: points, cache: cache)
             }
 
-            (er,eg,eb) = PrimeraDensityMath.apply((er,eg,eb), settings: density)
+            (er,eg,eb) = MEDesatchMath.apply((er,eg,eb), settings: density)
                     access.base[p] = Float(AlcedoACEScc.decode(er))
                     access.base[p+1] = Float(AlcedoACEScc.decode(eg))
                     access.base[p+2] = Float(AlcedoACEScc.decode(eb))

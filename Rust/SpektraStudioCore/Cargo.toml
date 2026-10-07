@@ -13,16 +13,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 lightcraft-develop = { path = "../../Vendor/lightcraft/crates/develop" }
-lightcraft-pipeline = { path = "../../Vendor/lightcraft/crates/pipeline" }
-lightcraft-raster = { path = "../../Vendor/lightcraft/crates/raster" }
-lightcraft-raw = { path = "../../Vendor/lightcraft/crates/raw" }
-lightcraft-codecs = { path = "../../Vendor/lightcraft/crates/codecs" }
-lightcraft-color = { path = "../../Vendor/lightcraft/crates/color" }
-lightcraft-catalog = { path = "../../Vendor/lightcraft/crates/catalog" }
-lightcraft-preview = { path = "../../Vendor/lightcraft/crates/preview" }
-lightcraft-engine = { path = "../../Vendor/lightcraft/crates/engine" }
-lightcraft-segment = { path = "../../Vendor/lightcraft/crates/segment" }
-lightcraft-merge = { path = "../../Vendor/lightcraft/crates/merge" }
 
 [profile.release]
 lto = "thin"

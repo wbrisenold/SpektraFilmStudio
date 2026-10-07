@@ -249,3 +249,9 @@ coverage/compositor beside it rather than rewriting the film math.
 ## Stage 5 production hardening
 - Uses Apple's public Metal compute APIs already linked by SpektraFilmFast; the Stage 5 lens kernel is an original port of the Stage 4 reference math.
 - RawForge remains the Stage 4 pinned MIT dependency; Stage 5 adds orchestration, prewarming, timing and cache accounting without changing the RawForge model.
+
+## ME deSatch color-density behavior
+- ME_Desatch.dctl from Moaz Elgabry's DCTLs repository, pinned reference revision `5e57387d486e82e416cf25bc8a95aad5e7f33c7a` (GPL-3.0).
+- SpektraFilm Studio adapts its cone-coordinate radius/hue/polar behavior into Swift for Color Density; the implementation is modified for the host-grade pipeline and project model.
+- Upstream credits and provenance are preserved in `THIRD_PARTY/ME_Desatch/NOTICE`.
+

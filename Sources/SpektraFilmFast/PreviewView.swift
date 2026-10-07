@@ -36,6 +36,7 @@ struct PreviewView: View {
 
                         if !model.showingBefore {
                             MaskOverlayView(model: model)
+                            LensCharacterOverlay(model: model, imageWidth: image.width, imageHeight: image.height)
                         }
 
                         if !model.showingBefore, model.isObjectMaskPicking {
@@ -62,14 +63,14 @@ struct PreviewView: View {
                     .simultaneousGesture(
                         DragGesture()
                             .onChanged { value in
-                                guard !model.isCropToolActive && !model.isObjectMaskPicking && !model.isGradientMaskEditing else { return }
+                                guard !model.isCropToolActive && !model.isObjectMaskPicking && !model.isGradientMaskEditing && !model.isLensCenterEditing else { return }
                                 offset = CGSize(
                                     width: committedOffset.width + value.translation.width,
                                     height: committedOffset.height + value.translation.height
                                 )
                             }
                             .onEnded { _ in
-                                guard !model.isCropToolActive && !model.isObjectMaskPicking && !model.isGradientMaskEditing else { return }
+                                guard !model.isCropToolActive && !model.isObjectMaskPicking && !model.isGradientMaskEditing && !model.isLensCenterEditing else { return }
                                 committedOffset = offset
                             }
                     )

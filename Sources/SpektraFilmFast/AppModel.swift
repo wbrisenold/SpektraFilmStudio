@@ -777,6 +777,9 @@ final class AppModel: ObservableObject {
         let changed = project.selectedImageID != id
         if changed {
             isGradientMaskEditing = false
+            activeLocalGradeID = nil
+            isLensCenterEditing = false
+            selectedGradientMaskID = nil
             // Canonical masks belong to a single photo. Reusing them corrupts skin WB,
             // overlay and vectorscope when moving through the filmstrip.
             semanticMaskTask?.cancel()
@@ -1171,18 +1174,89 @@ final class AppModel: ObservableObject {
 
     func setLocalGradeEnabled(_ gradeID: UUID, _ enabled: Bool) { mutateGrade(gradeID) { $0.enabled = enabled } }
     func setLocalGradeOpacity(_ gradeID: UUID, _ value: Double) { mutateGrade(gradeID) { $0.opacity = min(1, max(0, value)) } }
-    func setLocalTone(_ gradeID: UUID, _ key: String, _ value: Double) {
+    var activeLocalGrade: LocalGradeRecord? {
+        guard let id = activeLocalGradeID else { return nil }
+        return (selectedLook.localGrades ?? []).first(where: { $0.id == id })
+    }
+
+    func selectLocalGrade(_ id: UUID?) {
+        activeLocalGradeID = id
+        if id == nil {
+            isGradientMaskEditing = false
+            selectedGradientMaskID = nil
+        }
+    }
+
+    private func assignLocalTone(_ tone: inout ToneSettings, key: String, value: Double) {
+        switch key {
+        case "exposure": tone.exposureEV = max(-5, min(5, value))
+        case "brightness": tone.brightness = max(-100, min(100, value))
+        case "contrast": tone.contrast = max(-100, min(100, value))
+        case "midtones": tone.midtones = max(-100, min(100, value))
+        case "highlights": tone.highlights = max(-100, min(100, value))
+        case "highlightRecovery": tone.highlightRecovery = max(0, min(100, value))
+        case "shadows": tone.shadows = max(-100, min(100, value))
+        case "shadowRecovery": tone.shadowRecovery = max(0, min(100, value))
+        case "whites": tone.whites = max(-100, min(100, value))
+        case "blacks": tone.blacks = max(-100, min(100, value))
+        default: break
+        }
+    }
+
+    func setLocalTone(_ gradeID: UUID, _ key: String, _ value: Double, interactive: Bool = false) {
+        if interactive {
+            if gestureWorkingLook == nil { beginEditGesture() }
+            guard var working = gestureWorkingLook,
+                  let index = working.localGrades?.firstIndex(where: { $0.id == gradeID }) else { return }
+            var tone = working.localGrades![index].tone ?? ToneSettings()
+            assignLocalTone(&tone, key: key, value: value)
+            working.localGrades![index].tone = tone
+            working.localGrades![index].normalize()
+            gestureWorkingLook = working
+            activeEditChangedParameter = "localTone.\(key)"
+            publishLocalGradePreview(look: working)
+            return
+        }
         mutateGrade(gradeID) { grade in
             var tone = grade.tone ?? ToneSettings()
-            switch key {
-            case "exposure": tone.exposureEV = max(-5, min(5, value))
-            case "brightness": tone.brightness = max(-100, min(100, value))
-            case "contrast": tone.contrast = max(-100, min(100, value))
-            case "highlights": tone.highlights = max(-100, min(100, value))
-            case "shadows": tone.shadows = max(-100, min(100, value))
-            default: return
-            }
+            assignLocalTone(&tone, key: key, value: value)
             grade.tone = tone
+        }
+    }
+
+    private func publishLocalGradePreview(look: RenderLook) {
+        guard let film = latestWorkingFilmRenderedBuffer ?? latestFilmRenderedBuffer else {
+            requestPreviewRefresh()
+            return
+        }
+        interactiveProxyTask?.cancel()
+        interactiveProxyGeneration += 1
+        let generation = interactiveProxyGeneration
+        let imageID = project.selectedImageID
+        let prefs = project.preferences
+        let profile = OutputColorProfile.forLook(look)
+        interactiveProxyTask = Task { [weak self] in
+            guard let self else { return }
+            let worker = Task.detached(priority: .userInitiated) { () -> (PixelBufferF32, FloatImagePayload?) in
+                let local = MaskedLocalGradeEngine.apply(film, grades: look.localGrades)
+                let lens = LensCharacterEngine.apply(local, settings: look.lensEffects)
+                let geometry = GeometryEngine.transformed(lens, settings: look.geometry)
+                let output = ExposureBoundaryEngine.apply(geometry, look: look, preferences: prefs)
+                return (output, output.makeFloatImagePayload())
+            }
+            let (output, payload) = await withTaskCancellationHandler {
+                await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            guard !Task.isCancelled, generation == interactiveProxyGeneration,
+                  project.selectedImageID == imageID, gestureWorkingLook == look,
+                  let image = payload?.makeCGImage(colorSpace: profile.cgColorSpace) else { return }
+            renderedPreview = image
+            latestRenderedBuffer = output
+            latestRenderedLook = look
+            status = "Live masked adjustment"
+            requestEditorScopeUpdate()
         }
     }
     func setLocalDensity(_ gradeID: UUID, _ value: Double) {
@@ -1232,6 +1306,9 @@ final class AppModel: ObservableObject {
         }
     }
     @Published var isGradientMaskEditing = false
+    @Published var activeLocalGradeID: UUID?
+    @Published var isLensCenterEditing = false
+    @Published var selectedGradientMaskID: UUID?
 
     func setMaskInverted(gradeID: UUID, maskID: UUID, _ value: Bool) { mutateMask(gradeID, maskID) { $0.inverted = value } }
     func setMaskOpacity(gradeID: UUID, maskID: UUID, _ value: Double) { mutateMask(gradeID, maskID) { $0.opacity = min(1, max(0, value)) } }
@@ -2239,7 +2316,7 @@ final class AppModel: ObservableObject {
         interactive: Bool
     ) {
         guard let i = selectedIndex else { return }
-        let clamped = min(1, max(-1, value))
+        let clamped = min(0, max(-1, value))
         if interactive {
             if gestureWorkingLook == nil { beginEditGesture() }
             guard var working = gestureWorkingLook else { return }
@@ -2283,16 +2360,6 @@ final class AppModel: ObservableObject {
             changedParameter: "density.\(key)"
         )
         scheduleIdleRefinement(changedParameter: "density.\(key)", delayMilliseconds: 30)
-    }
-
-    func setColorDensityPreserveLuma(_ enabled: Bool) {
-        guard let i = selectedIndex else { return }
-        cancelIdleRefinement()
-        undoStack.append(project.images[i].look)
-        redoStack.removeAll()
-        if project.images[i].look.colorDensity == nil { project.images[i].look.colorDensity = ColorDensitySettings() }
-        project.images[i].look.colorDensity?.preserveLuma = enabled
-        scheduleIdleRefinement(changedParameter: "density.preserveLuma", delayMilliseconds: 20)
     }
 
     func resetColorDensity() {
@@ -2807,12 +2874,10 @@ final class AppModel: ObservableObject {
             status = "Live proxy · \(max(result.width, result.height)) px"
             if project.preferences.clippingEnabled || project.preferences.skinCheckEnabled {
                 diagnosticsAreSettling = true
-                diagnosticStatus = "Diagnostics update after the exact render settles"
+                diagnosticStatus = "Full diagnostics settle with the exact render"
                 analysisTask?.cancel()
-                // Do not flash the mask/clipping overlay off on every slider tick.
-                // The previous exact overlay remains until the next exact frame settles.
-                scopeTask?.cancel()
             }
+            requestEditorScopeUpdate()
         }
     }
 
@@ -2985,7 +3050,7 @@ final class AppModel: ObservableObject {
                 // Exposure + tone curve are a sourced host grade before the SpektraFilm engine.
                 // Before/source preview remains the developed source, while preview/export share
                 // the same host-grade -> native-render ordering.
-                let renderInput = input.applyingHostGrade(tone: nil, density: request.look.colorDensity)
+                let renderInput = input.applyingHostGrade(tone: request.look.tone, density: request.look.colorDensity)
                     .applyingFilmExposureShape(request.look.filmTone)
                 let (filmOutput, d) = try await activeRenderer.render(renderInput, look: renderLook)
                 if Task.isCancelled { break }
@@ -3055,6 +3120,8 @@ final class AppModel: ObservableObject {
                     latestWorkingRenderedLook = request.look
                     prepareInteractiveBaseline(from: output, look: request.look)
                 }
+                // Diagnostics update after the exact render settles. Transient pointer-rate
+                // frames feed the throttled scope loop but never own clipping/skin measurements.
                 diagnostics = d
 
                 if !request.interactive && request.cacheResult {
@@ -4146,6 +4213,26 @@ final class AppModel: ObservableObject {
             startExport(job)
         } catch {
             status = "Export setup failed · \(error.localizedDescription)"
+        }
+    }
+
+    func exportImage(_ id: UUID) {
+        guard !isExporting, exactRenderer != nil,
+              let image = project.images.first(where: { $0.id == id }) else { return }
+        if project.exportSettings.destinationPath.isEmpty { chooseExportDestination() }
+        guard !project.exportSettings.destinationPath.isEmpty else { return }
+
+        do {
+            let job = try ExportJobPlanner.makeJob(
+                images: [image],
+                settings: project.exportSettings,
+                bypassImportTransform: project.preferences.bypassImportTransform
+            )
+            activeExportJob = job
+            status = "Exporting \(image.fileName)…"
+            startExport(job)
+        } catch {
+            status = "Single-photo export setup failed · \(error.localizedDescription)"
         }
     }
 

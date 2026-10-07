@@ -82,10 +82,11 @@ if [[ "$ARCHS" != *x86_64* ]]; then
   exit 6
 fi
 
-rm -rf "$ROOT/dist"
 mkdir -p "$ROOT/dist"
 
 APP="$ROOT/dist/SpektraFilmStudio.app"
+rm -rf "$APP"
+rm -f "$ROOT/dist/SpektraFilmStudio-${VERSION}-macOS-intel.zip"
 CONTENTS="$APP/Contents"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources" "$CONTENTS/Frameworks" "$CONTENTS/Resources/AIModels"
 cp "$BIN" "$CONTENTS/MacOS/SpektraFilmStudio"
@@ -100,6 +101,9 @@ cp "$ROOT/Resources/SpektraHanatos2025Spectra.f32" "$CONTENTS/Resources/"
 cp "$ROOT/Resources/SpektraOutputGamutCompression.f32" "$CONTENTS/Resources/"
 mkdir -p "$CONTENTS/Resources/Licenses/LightCraft"
 cp "$ROOT/THIRD_PARTY/LightCraft/"* "$CONTENTS/Resources/Licenses/LightCraft/" 2>/dev/null || true
+mkdir -p "$CONTENTS/Resources/Licenses/ME_Desatch"
+cp "$ROOT/THIRD_PARTY/ME_Desatch/"* "$CONTENTS/Resources/Licenses/ME_Desatch/" 2>/dev/null || true
+cp "$ROOT/LICENSE" "$CONTENTS/Resources/Licenses/SpektraFilmStudio-GPL-3.0.txt"
 
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -145,7 +149,7 @@ ZIP="$ROOT/dist/SpektraFilmStudio-${VERSION}-macOS-intel.zip"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 (
   cd "$ROOT/dist"
-  shasum -a 256 "$(basename "$ZIP")" > SHA256SUMS.txt
+  shasum -a 256 SpektraFilmStudio-*-macOS-intel.zip > SHA256SUMS.txt
 )
 
 cat > "$ROOT/dist/build-info.txt" <<INFO

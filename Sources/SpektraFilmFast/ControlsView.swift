@@ -127,10 +127,6 @@ struct ControlsView: View {
             switch section {
             case "raw": guard look.raw != RawSettings() else { return false }
             case "tone": guard (look.tone ?? ToneSettings()) != ToneSettings() else { return false }
-            case "film-stock":
-                let filmEV = look.values["filmExposureEv"]?.scalarValue ?? 0
-                let autoExposure = look.values["autoExposure"]?.intValue ?? 0
-                guard (look.filmTone ?? ToneSettings()) != ToneSettings() || abs(filmEV) > 1e-9 || autoExposure != 0 else { return false }
             case "density": guard (look.colorDensity ?? ColorDensitySettings()) != ColorDensitySettings() else { return false }
             case "geometry": guard (look.geometry ?? GeometrySettings()) != GeometrySettings() else { return false }
             case "lens": guard (look.lensEffects ?? LensEffectsSettings()) != LensEffectsSettings() else { return false }
@@ -147,7 +143,6 @@ struct ControlsView: View {
         let sections: [(String, [String])] = [
             ("raw", ["raw", "white balance", "temperature", "tint", "denoise", "iso"]),
             ("tone", ["raw develop", "raw exposure", "raw tone", "curve", "shadow boost", "highlight headroom", "edr"]),
-            ("film-stock", ["film stock", "film exposure", "film tone", "stock response", "film contrast", "auto exposure"]),
             ("density", ["density", "red", "yellow", "green", "cyan", "blue", "magenta"]),
             ("geometry", ["geometry", "crop", "rotation", "perspective", "aspect", "straighten", "flip"]),
             ("lens", ["lens", "aberration", "vignette", "petzval", "swirl", "spherical", "distortion"])
@@ -163,8 +158,6 @@ struct ControlsView: View {
     }
 
     private func bridgeControlVisible(_ descriptor: ParameterDescriptor) -> Bool {
-        // Film metering belongs to the dedicated Film Stock Exposure panel.
-        if ["filmExposureEv", "autoExposure", "autoExposureMethod"].contains(descriptor.name) { return false }
         let needle = inspectorSearch.trimmingCharacters(in: .whitespacesAndNewlines)
         let searchMatches = needle.isEmpty
             || descriptor.label.localizedCaseInsensitiveContains(needle)
@@ -351,102 +344,141 @@ struct ControlsView: View {
 
     private var toneSection: some View {
         let raw = model.selectedLook.raw
-        let tone = model.selectedLook.tone ?? ToneSettings()
+        let active = model.activeLocalGrade
+        let tone = active?.tone ?? (model.selectedLook.tone ?? ToneSettings())
         return DisclosureGroup(isExpanded: sectionBinding("tone")) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("APPLE RAW DEVELOP → PRE-FILM LIGHT CONTROLS → SPEKTRAFILM STOCK → DISPLAY")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                Text("RAW Exposure and RAW Global Tone keep the exact Apple CIRAWFilter behavior. The added light controls run after RAW development and before the film renderer; they do not replace those Apple controls.")
-                    .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)
-
-                DraftScalarSlider(label:"RAW Exposure EV", committedValue:raw.developExposureEV, range:-5...5, precision:2, helpText:"CIRAWFilter exposure before film. +1 EV is one stop brighter. This behavior is locked and must not be replaced.", resetValue:0, onReset:{model.setRawDevelopExposure(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setRawDevelopExposure($0,interactive:true)}, onEnd:{model.endEditGesture()})
-                DraftScalarSlider(label:"RAW Global Tone", committedValue:raw.developGlobalTone*100, range:0...100, precision:0, helpText:"Apple CIRAWFilter global tone response. This behavior is locked and must not be replaced.", resetValue:100, onReset:{model.setRawDevelopGlobalTone(1,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setRawDevelopGlobalTone($0/100,interactive:true)}, onEnd:{model.endEditGesture()})
-                DraftScalarSlider(label:"RAW Shadow Boost", committedValue:raw.developShadowBoost*100, range:0...200, precision:0, helpText:"Apple RAW shadow recovery. 100 is normal strength.", resetValue:100, onReset:{model.setRawDevelopShadowBoost(1,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setRawDevelopShadowBoost($0/100,interactive:true)}, onEnd:{model.endEditGesture()})
-                DraftScalarSlider(label:"Highlight Headroom (EDR)", committedValue:raw.developHighlightHeadroom*100, range:0...200, precision:0, helpText:"Apple RAW extended dynamic range. Raise it to preserve recoverable RAW highlight information before film.", resetValue:0, onReset:{model.setRawDevelopHighlightHeadroom(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setRawDevelopHighlightHeadroom($0/100,interactive:true)}, onEnd:{model.endEditGesture()})
-
-                Divider().opacity(0.5)
-                Text("Light").font(.caption.weight(.semibold))
-                DraftScalarSlider(label:"Contrast", committedValue:tone.contrast, range:-100...100, precision:0, resetValue:0, onReset:{model.setToneContrast(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setToneContrast($0,interactive:true)}, onEnd:{model.endEditGesture()})
-                DraftScalarSlider(label:"Midtones", committedValue:tone.midtones, range:-100...100, precision:0, resetValue:0, onReset:{model.setToneMidtones(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setToneMidtones($0,interactive:true)}, onEnd:{model.endEditGesture()})
-                DraftScalarSlider(label:"Highlights", committedValue:tone.highlights, range:-100...100, precision:0, resetValue:0, onReset:{model.setToneHighlights(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setToneHighlights($0,interactive:true)}, onEnd:{model.endEditGesture()})
-                DraftScalarSlider(label:"Highlight Recovery", committedValue:tone.highlightRecovery, range:0...100, precision:0, resetValue:0, onReset:{model.setHighlightRecovery(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setHighlightRecovery($0,interactive:true)}, onEnd:{model.endEditGesture()})
-                DraftScalarSlider(label:"Shadows", committedValue:tone.shadows, range:-100...100, precision:0, resetValue:0, onReset:{model.setToneShadows(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setToneShadows($0,interactive:true)}, onEnd:{model.endEditGesture()})
-                DraftScalarSlider(label:"Shadow Recovery", committedValue:tone.shadowRecovery, range:0...100, precision:0, resetValue:0, onReset:{model.setShadowRecovery(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setShadowRecovery($0,interactive:true)}, onEnd:{model.endEditGesture()})
-                DraftScalarSlider(label:"Whites", committedValue:tone.whites, range:-100...100, precision:0, resetValue:0, onReset:{model.setToneWhites(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setToneWhites($0,interactive:true)}, onEnd:{model.endEditGesture()})
-                DraftScalarSlider(label:"Blacks", committedValue:tone.blacks, range:-100...100, precision:0, resetValue:0, onReset:{model.setToneBlacks(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setToneBlacks($0,interactive:true)}, onEnd:{model.endEditGesture()})
-
-                Divider().opacity(0.5)
-                HStack {
-                    VStack(alignment:.leading,spacing:1) {
-                        Text("Creative RAW Tone Curve").font(.caption.weight(.semibold))
-                        Text("Runs inside CIRAWFilter's linear-space stage.").font(.system(size:9)).foregroundStyle(.tertiary)
+                if let grade = active {
+                    HStack {
+                        Label("MASK: \(grade.name)", systemImage:"circle.lefthalf.filled")
+                            .font(.caption.weight(.bold)).foregroundStyle(.cyan)
+                        Spacer()
+                        Button("Main Image"){model.selectLocalGrade(nil)}.controlSize(.small)
                     }
-                    Spacer()
-                    Menu("Presets") {
-                        ForEach(ToneCurvePresetGroup.allCases) { group in
-                            Section(group.rawValue) {
-                                ForEach(ToneCurvePreset.allCases.filter{$0.group==group}) { preset in
-                                    Button(preset.rawValue){model.applyRawDevelopCurvePreset(preset)}.help(preset.summary)
-                                }
-                            }
-                        }
-                    }.controlSize(.small)
-                    Button("Reset"){model.resetRawDevelopCurve()}.controlSize(.small)
+                    Text("RAW Develop is targeting this mask until Main Image is selected.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    DraftScalarSlider(label:"Exposure EV",committedValue:tone.exposureEV,range:-5...5,precision:2,resetValue:0,
+                        onReset:{model.setLocalTone(grade.id,"exposure",0,interactive:false)},
+                        onBegin:{model.beginEditGesture()},
+                        onChange:{model.setLocalTone(grade.id,"exposure",$0,interactive:true)},
+                        onEnd:{model.endEditGesture()})
+                } else {
+                    Text("APPLE RAW DEVELOP → PRE-FILM LIGHT CONTROLS → SPEKTRAFILM STOCK → DISPLAY")
+                        .font(.system(size:9,weight:.semibold,design:.monospaced)).foregroundStyle(.secondary)
+                    Text("RAW Exposure and RAW Global Tone keep the exact Apple CIRAWFilter behavior.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    DraftScalarSlider(label:"RAW Exposure EV",committedValue:raw.developExposureEV,range:-5...5,precision:2,
+                        helpText:"CIRAWFilter exposure. Locked behavior.",resetValue:0,
+                        onReset:{model.setRawDevelopExposure(0,interactive:false)},onBegin:{model.beginEditGesture()},
+                        onChange:{model.setRawDevelopExposure($0,interactive:true)},onEnd:{model.endEditGesture()})
+                    DraftScalarSlider(label:"RAW Global Tone",committedValue:raw.developGlobalTone*100,range:0...100,precision:0,
+                        helpText:"Apple CIRAWFilter global tone. Locked behavior.",resetValue:100,
+                        onReset:{model.setRawDevelopGlobalTone(1,interactive:false)},onBegin:{model.beginEditGesture()},
+                        onChange:{model.setRawDevelopGlobalTone($0/100,interactive:true)},onEnd:{model.endEditGesture()})
+                    DraftScalarSlider(label:"RAW Shadow Boost",committedValue:raw.developShadowBoost*100,range:0...200,precision:0,resetValue:100,
+                        onReset:{model.setRawDevelopShadowBoost(1,interactive:false)},onBegin:{model.beginEditGesture()},
+                        onChange:{model.setRawDevelopShadowBoost($0/100,interactive:true)},onEnd:{model.endEditGesture()})
+                    DraftScalarSlider(label:"Highlight Headroom (EDR)",committedValue:raw.developHighlightHeadroom*100,range:0...200,precision:0,resetValue:0,
+                        onReset:{model.setRawDevelopHighlightHeadroom(0,interactive:false)},onBegin:{model.beginEditGesture()},
+                        onChange:{model.setRawDevelopHighlightHeadroom($0/100,interactive:true)},onEnd:{model.endEditGesture()})
                 }
-                ToneCurveEditorView(model:model).frame(height:230)
+
+                Divider().opacity(0.5)
+                Text(active == nil ? "Light" : "Masked Light").font(.caption.weight(.semibold))
+                routedTone("Contrast",tone.contrast,-100...100,grade:active,key:"contrast"){model.setToneContrast($0,interactive:$1)}
+                routedTone("Midtones",tone.midtones,-100...100,grade:active,key:"midtones"){model.setToneMidtones($0,interactive:$1)}
+                routedTone("Highlights",tone.highlights,-100...100,grade:active,key:"highlights"){model.setToneHighlights($0,interactive:$1)}
+                routedTone("Highlight Recovery",tone.highlightRecovery,0...100,grade:active,key:"highlightRecovery"){model.setHighlightRecovery($0,interactive:$1)}
+                routedTone("Shadows",tone.shadows,-100...100,grade:active,key:"shadows"){model.setToneShadows($0,interactive:$1)}
+                routedTone("Shadow Recovery",tone.shadowRecovery,0...100,grade:active,key:"shadowRecovery"){model.setShadowRecovery($0,interactive:$1)}
+                routedTone("Whites",tone.whites,-100...100,grade:active,key:"whites"){model.setToneWhites($0,interactive:$1)}
+                routedTone("Blacks",tone.blacks,-100...100,grade:active,key:"blacks"){model.setToneBlacks($0,interactive:$1)}
+
+                if active == nil {
+                    Divider().opacity(0.5)
+                    HStack {
+                        Text("Creative RAW Tone Curve").font(.caption.weight(.semibold))
+                        Spacer()
+                        Menu("Presets") {
+                            ForEach(ToneCurvePresetGroup.allCases){g in Section(g.rawValue){
+                                ForEach(ToneCurvePreset.allCases.filter{$0.group==g}){p in
+                                    Button(p.rawValue){model.applyRawDevelopCurvePreset(p)}
+                                }
+                            }}
+                        }.controlSize(.small)
+                        Button("Reset"){model.resetRawDevelopCurve()}.controlSize(.small)
+                    }
+                    ToneCurveEditorView(model:model).frame(height:230)
+                }
             }.padding(.top,8)
-        } label: {
-            HStack {
+        } label:{
+            HStack{
                 Text("RAW Develop").font(.caption.weight(.semibold))
+                if let grade=active { Text("· \(grade.name)").font(.caption2).foregroundStyle(.cyan) }
                 Spacer()
-                Button{model.resetRawDevelop()}label:{Image(systemName:"arrow.counterclockwise")}.buttonStyle(.plain).help("Reset RAW Develop")
+                if active == nil {
+                    Button{model.resetRawDevelop()}label:{Image(systemName:"arrow.counterclockwise")}
+                        .buttonStyle(.plain)
+                }
             }
         }
-        .padding(10)
-        .background(StudioPalette.recessed,in:RoundedRectangle(cornerRadius:8))
-        .overlay{RoundedRectangle(cornerRadius:8).stroke(StudioPalette.subtleBorder,lineWidth:0.5)}
+        .padding(10).background(StudioPalette.recessed,in:RoundedRectangle(cornerRadius:8))
+        .overlay{RoundedRectangle(cornerRadius:8).stroke(active == nil ? StudioPalette.subtleBorder : Color.cyan.opacity(0.32),lineWidth:0.5)}
+    }
+
+    @ViewBuilder
+    private func routedTone(
+        _ label:String,_ value:Double,_ range:ClosedRange<Double>,
+        grade:LocalGradeRecord?,key:String,global:@escaping(Double,Bool)->Void
+    )->some View {
+        DraftScalarSlider(label:label,committedValue:value,range:range,precision:0,resetValue:0,
+            onReset:{
+                if let grade { model.setLocalTone(grade.id,key,0,interactive:false) } else { global(0,false) }
+            },
+            onBegin:{model.beginEditGesture()},
+            onChange:{v in
+                if let grade { model.setLocalTone(grade.id,key,v,interactive:true) } else { global(v,true) }
+            },
+            onEnd:{model.endEditGesture()})
     }
 
     private var colorDensitySection: some View {
         let density = model.selectedLook.colorDensity ?? ColorDensitySettings()
         return DisclosureGroup(isExpanded: sectionBinding("density")) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Density changes how deep a color feels in the log-domain host grade before the film simulation. It is different from Saturation: density can make a color feel richer without simply pushing every channel farther apart.")
+                Text("ME deSatch density uses the cone-coordinate behavior from Moaz Elgabry's GPL-3.0 ME_Desatch DCTL. Zero is untouched; move left toward −1 to progressively deSatch/darken density globally or around one hue family. This is intentionally not a normal Saturation control.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                DensitySlider(label: "Master", value: density.master, key: "master", model: model,
-                              help: "Moves all six color-density corners together. Right makes colors feel denser/richer; left makes them lighter/thinner.")
-                DensitySlider(label: "Red", value: density.red, key: "red", model: model,
-                              help: "Changes density around reds while smoothly blending into neighboring colors.")
-                DensitySlider(label: "Yellow", value: density.yellow, key: "yellow", model: model,
-                              help: "Changes density around yellows while smoothly blending into neighboring colors.")
-                DensitySlider(label: "Green", value: density.green, key: "green", model: model,
-                              help: "Changes density around greens while smoothly blending into neighboring colors.")
-                DensitySlider(label: "Cyan", value: density.cyan, key: "cyan", model: model,
-                              help: "Changes density around cyans while smoothly blending into neighboring colors.")
-                DensitySlider(label: "Blue", value: density.blue, key: "blue", model: model,
-                              help: "Changes density around blues while smoothly blending into neighboring colors.")
-                DensitySlider(label: "Magenta", value: density.magenta, key: "magenta", model: model,
-                              help: "Changes density around magentas while smoothly blending into neighboring colors.")
+                DensitySlider(label: "Global deSatch", value: density.master, key: "master", model: model,
+                              help: "Original ME_Desatch global control. 0 is identity; move left toward −1 for stronger global deSatch density.")
+                DensitySlider(label: "Red deSatch", value: density.red, key: "red", model: model,
+                              help: "Targets the red hue neighborhood using the original cone-coordinate falloff.")
+                DensitySlider(label: "Green deSatch", value: density.green, key: "green", model: model,
+                              help: "Targets the green hue neighborhood using the original cone-coordinate falloff.")
+                DensitySlider(label: "Blue deSatch", value: density.blue, key: "blue", model: model,
+                              help: "Targets the blue hue neighborhood using the original cone-coordinate falloff.")
+                DensitySlider(label: "Cyan deSatch", value: density.cyan, key: "cyan", model: model,
+                              help: "Targets the cyan hue neighborhood using the original cone-coordinate falloff.")
+                DensitySlider(label: "Magenta deSatch", value: density.magenta, key: "magenta", model: model,
+                              help: "Targets the magenta hue neighborhood using the original cone-coordinate falloff.")
+                DensitySlider(label: "Yellow deSatch", value: density.yellow, key: "yellow", model: model,
+                              help: "Targets the yellow hue neighborhood using the original cone-coordinate falloff.")
 
-                Toggle("Preserve Luminance", isOn: Binding(
-                    get: { density.preserveLuma },
-                    set: { model.setColorDensityPreserveLuma($0) }
-                ))
-                .help("Tries to keep brightness steady while density changes colorfulness. Turn it off if you want density to also affect brightness.")
+                Text("Source behavior: ME_Desatch.dctl · GPL-3.0 · attribution is bundled with the app.")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
             }
             .padding(.top, 8)
         } label: {
             HStack {
-                Text("Color Density")
+                Text("Color Density · ME deSatch")
                     .font(.caption.weight(.semibold))
                 Spacer()
                 Button { model.resetColorDensity() } label: { Image(systemName: "arrow.counterclockwise") }
                     .buttonStyle(.plain)
-                    .help("Reset all Color Density controls.")
+                    .help("Reset all ME deSatch density controls.")
             }
         }
         .padding(10)
@@ -655,9 +687,9 @@ private struct DensitySlider: View {
     var body: some View {
         DraftScalarSlider(
             label: label,
-            committedValue: value,
-            range: -1...1,
-            precision: 2,
+            committedValue: min(0, max(-1, value)),
+            range: -1...0,
+            precision: 4,
             helpText: help,
             resetValue: 0,
             onReset: { model.setColorDensity(key, value: 0, interactive: false) },
