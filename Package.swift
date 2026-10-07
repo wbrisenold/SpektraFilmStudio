@@ -4,6 +4,7 @@ import Foundation
 
 let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 let nativeLib = root + "/.build/native"
+let studioCoreLib = root + "/.build/spektrastudio-core/x86_64-apple-darwin/release"
 
 let package = Package(
     name: "SpektraFilmStudio",
@@ -16,6 +17,10 @@ let package = Package(
             name: "CSpektraBridge",
             path: "Sources/CSpektraBridge"
         ),
+        .systemLibrary(
+            name: "CSpektraStudioCore",
+            path: "Sources/CSpektraStudioCore"
+        ),
         .target(
             name: "SemanticMaskNative",
             path: "Sources/SemanticMaskNative",
@@ -25,10 +30,11 @@ let package = Package(
         ),
         .executableTarget(
             name: "SpektraFilmStudio",
-            dependencies: ["CSpektraBridge", "SemanticMaskNative"],
+            dependencies: ["CSpektraBridge", "CSpektraStudioCore", "SemanticMaskNative"],
             path: "Sources/SpektraFilmFast",
             linkerSettings: [
                 .unsafeFlags(["-L\(nativeLib)", "-lSpektraFilmNativeCore"]),
+                .unsafeFlags(["-L\(studioCoreLib)", "-lspektrastudio_core"]),
                 .unsafeFlags(["-L\(root)/Vendor/onnxruntime/lib", "-lonnxruntime", "-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"]),
                 .linkedLibrary("c++"),
                 .linkedFramework("Accelerate"),

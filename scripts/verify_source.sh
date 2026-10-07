@@ -16,6 +16,8 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     -sdk "$(xcrun --show-sdk-path --sdk macosx)" \
     -Xcc -fmodule-map-file=Sources/CSpektraBridge/module.modulemap \
     -Xcc -ISources/CSpektraBridge/include \
+    -Xcc -fmodule-map-file=Sources/CSpektraStudioCore/module.modulemap \
+    -Xcc -ISources/CSpektraStudioCore/include \
     -Xcc -fmodule-map-file=Sources/SemanticMaskNative/module.modulemap \
     -Xcc -ISources/SemanticMaskNative/include \
     Sources/SpektraFilmFast/*.swift

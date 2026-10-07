@@ -53,6 +53,7 @@ fi
 
 python3 "$ROOT/scripts/qa_stage5.py"
 "$ROOT/scripts/bootstrap_native.sh"
+"$ROOT/scripts/bootstrap_unified_rust_core.sh"
 
 if [[ ! -f "$ROOT/Vendor/onnxruntime/lib/libonnxruntime.dylib" && ! -f "$ROOT/Vendor/onnxruntime/lib/libonnxruntime.1.30.0.dylib" ]]; then
   echo "Stage 3 AI runtime missing. Run ./PREPARE_STAGE3_AI_MODELS.command first." >&2
@@ -97,6 +98,9 @@ cp "$ROOT/Resources/AppIcon.icns" "$CONTENTS/Resources/SpektraFilm.icns"
 cp "$ROOT/Resources/SpektraFilm.metallib" "$CONTENTS/Resources/"
 cp "$ROOT/Resources/SpektraHanatos2025Spectra.f32" "$CONTENTS/Resources/"
 cp "$ROOT/Resources/SpektraOutputGamutCompression.f32" "$CONTENTS/Resources/"
+mkdir -p "$CONTENTS/Resources/Licenses/LightCraft" "$CONTENTS/Resources/Licenses/PhotoCraft"
+cp "$ROOT/THIRD_PARTY/LightCraft/"* "$CONTENTS/Resources/Licenses/LightCraft/" 2>/dev/null || true
+cp "$ROOT/THIRD_PARTY/PhotoCraft/"* "$CONTENTS/Resources/Licenses/PhotoCraft/" 2>/dev/null || true
 
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

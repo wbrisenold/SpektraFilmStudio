@@ -1,0 +1,5 @@
+module CSpektraStudioCore [system] {
+    header "include/SpektraStudioCore.h"
+    link "spektrastudio_core"
+    export *
+}

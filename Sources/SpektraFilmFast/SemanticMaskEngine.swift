@@ -20,7 +20,17 @@ actor SemanticMaskEngine {
         var masks:[SemanticMaskKind:[UInt8]]=[:], provenance:[String]=[]
         if FileManager.default.fileExists(atPath:biref.path),let a=try? Self.runMatte(model:biref,rgba:rgba,w:w,h:h){masks[.subject]=a;masks[.background]=a.map{255-$0};provenance.append("BiRefNet-lite MIT") }
         else if FileManager.default.fileExists(atPath:modnet.path), let a=try? Self.runMatte(model:modnet,rgba:rgba,w:w,h:h) {masks[.subject]=a;masks[.background]=a.map{255-$0};provenance.append("MODNet Apache-2.0")}
-        else {let a=try Self.visionPersonMask(cgImage);masks[.subject]=a;masks[.background]=a.map{255-$0};provenance.append("Vision fallback")}
+        else if let a = SpektraStudioCore.selectSubject(rgba: rgba, width: w, height: h) {
+            masks[.subject] = a
+            masks[.background] = a.map { 255 - $0 }
+            provenance.append("PhotoCraft Select Subject · unified Rust core")
+        }
+        else {
+            let a=try Self.visionPersonMask(cgImage)
+            masks[.subject]=a
+            masks[.background]=a.map{255-$0}
+            provenance.append("Vision fallback")
+        }
         if FileManager.default.fileExists(atPath:schp.path), let labels=try? Self.runLabels(model:schp,profile:.schpLIP20,rgba:rgba,w:w,h:h) {masks[.person]=Self.mask(labels,SemanticLabels.person);masks[.hair]=Self.mask(labels,SemanticLabels.hair);masks[.upperClothes]=Self.mask(labels,SemanticLabels.upperClothes);masks[.lowerClothes]=Self.mask(labels,SemanticLabels.lowerClothes);masks[.arms]=Self.mask(labels,SemanticLabels.arms);masks[.legs]=Self.mask(labels,SemanticLabels.legs);masks[.shoes]=Self.mask(labels,SemanticLabels.shoes);provenance.append("SCHP LIP-20 MIT")}
         if FileManager.default.fileExists(atPath:face.path), let faces=try? Self.faceCrops(cgImage) {
             var fSkin=[UInt8](repeating:0,count:w*h),fHair=fSkin,fEyes=fSkin,fLips=fSkin
