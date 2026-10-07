@@ -31,6 +31,8 @@ swift package dump-package >/dev/null
 
 echo "Checking shell syntax..."
 bash -n BUILD_ON_MAC.command scripts/*.sh
+[[ -x scripts/bootstrap_photocraft_web.sh ]] || { echo "PhotoCraft web bootstrap is missing or not executable" >&2; exit 2; }
+grep -q 'bootstrap_photocraft_web.sh' scripts/build_app.sh
 
 echo "Checking known release/build pitfalls..."
 

@@ -27,7 +27,12 @@ enum WorkspacePage: String, Codable, CaseIterable, Identifiable, Sendable {
     case create = "Create"
 
     var id: String { rawValue }
-    var title: String { rawValue }
+    var title: String {
+        switch self {
+        case .create: "PhotoCraft"
+        default: rawValue
+        }
+    }
     var systemImage: String {
         switch self {
         case .library: "photo.on.rectangle.angled"
@@ -35,7 +40,7 @@ enum WorkspacePage: String, Codable, CaseIterable, Identifiable, Sendable {
         case .proofs: "person.2.crop.square.stack"
         case .edit: "slider.horizontal.3"
         case .export: "square.and.arrow.up"
-        case .create: "square.stack.3d.up"
+        case .create: "paintbrush.pointed"
         }
     }
 }

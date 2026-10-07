@@ -49,6 +49,7 @@ let package = Package(
                 .linkedFramework("QuartzCore"),
                 .linkedFramework("UniformTypeIdentifiers"),
                 .linkedFramework("Vision"),
+                .linkedFramework("WebKit"),
             ]
         )
     ],
