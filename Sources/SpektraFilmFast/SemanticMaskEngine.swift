@@ -16,19 +16,21 @@ actor SemanticMaskEngine {
         if let v=cache[key]{return v}
         let w=cgImage.width,h=cgImage.height,rgba=try Self.rgba8(cgImage),dir=Self.modelDirectory()
         let biref=dir.appendingPathComponent("birefnet-lite-1024.onnx")
-        let modnet=dir.appendingPathComponent("modnet_photographic.onnx"),schp=dir.appendingPathComponent("schp-lip-20-int8-dynamic.onnx"),face=dir.appendingPathComponent("face_parsing_resnet18.onnx")
+        let modnet=dir.appendingPathComponent("modnet_photographic.onnx"),schp={let new=dir.appendingPathComponent("schp-lip-20-int8-static.onnx");return FileManager.default.fileExists(atPath:new.path) ? new : dir.appendingPathComponent("schp-lip-20-int8-dynamic.onnx")}(),face=dir.appendingPathComponent("face_parsing_resnet18.onnx")
         var masks:[SemanticMaskKind:[UInt8]]=[:], provenance:[String]=[]
         if FileManager.default.fileExists(atPath:biref.path),let a=try? Self.runMatte(model:biref,rgba:rgba,w:w,h:h){masks[.subject]=a;masks[.background]=a.map{255-$0};provenance.append("BiRefNet-lite MIT") }
-        else if FileManager.default.fileExists(atPath:modnet.path){let a=try Self.runMatte(model:modnet,rgba:rgba,w:w,h:h);masks[.subject]=a;masks[.background]=a.map{255-$0};provenance.append("MODNet Apache-2.0")}
+        else if FileManager.default.fileExists(atPath:modnet.path), let a=try? Self.runMatte(model:modnet,rgba:rgba,w:w,h:h) {masks[.subject]=a;masks[.background]=a.map{255-$0};provenance.append("MODNet Apache-2.0")}
         else {let a=try Self.visionPersonMask(cgImage);masks[.subject]=a;masks[.background]=a.map{255-$0};provenance.append("Vision fallback")}
-        if FileManager.default.fileExists(atPath:schp.path){let labels=try Self.runLabels(model:schp,profile:.schpLIP20,rgba:rgba,w:w,h:h);masks[.person]=Self.mask(labels,SemanticLabels.person);masks[.hair]=Self.mask(labels,SemanticLabels.hair);masks[.upperClothes]=Self.mask(labels,SemanticLabels.upperClothes);masks[.lowerClothes]=Self.mask(labels,SemanticLabels.lowerClothes);masks[.arms]=Self.mask(labels,SemanticLabels.arms);masks[.legs]=Self.mask(labels,SemanticLabels.legs);masks[.shoes]=Self.mask(labels,SemanticLabels.shoes);provenance.append("SCHP LIP-20 MIT")}
-        if FileManager.default.fileExists(atPath:face.path){
-            let faces=try Self.faceCrops(cgImage); var fSkin=[UInt8](repeating:0,count:w*h),fHair=fSkin,fEyes=fSkin,fLips=fSkin
-            let work=faces.isEmpty ? [CGRect(x:0,y:0,width:w,height:h)] : faces
-            for rect in work { guard let crop=cgImage.cropping(to:rect.integral) else{continue};let crgba=try Self.rgba8(crop);let labels=try Self.runLabels(model:face,profile:.face19,rgba:crgba,w:crop.width,h:crop.height);Self.composite(Self.mask(labels,SemanticLabels.faceSkin),cropW:crop.width,cropH:crop.height,into:&fSkin,fullW:w,fullH:h,rect:rect);Self.composite(Self.mask(labels,SemanticLabels.faceHair),cropW:crop.width,cropH:crop.height,into:&fHair,fullW:w,fullH:h,rect:rect);Self.composite(Self.mask(labels,SemanticLabels.faceEyes),cropW:crop.width,cropH:crop.height,into:&fEyes,fullW:w,fullH:h,rect:rect);Self.composite(Self.mask(labels,SemanticLabels.faceLips),cropW:crop.width,cropH:crop.height,into:&fLips,fullW:w,fullH:h,rect:rect)}
+        if FileManager.default.fileExists(atPath:schp.path), let labels=try? Self.runLabels(model:schp,profile:.schpLIP20,rgba:rgba,w:w,h:h) {masks[.person]=Self.mask(labels,SemanticLabels.person);masks[.hair]=Self.mask(labels,SemanticLabels.hair);masks[.upperClothes]=Self.mask(labels,SemanticLabels.upperClothes);masks[.lowerClothes]=Self.mask(labels,SemanticLabels.lowerClothes);masks[.arms]=Self.mask(labels,SemanticLabels.arms);masks[.legs]=Self.mask(labels,SemanticLabels.legs);masks[.shoes]=Self.mask(labels,SemanticLabels.shoes);provenance.append("SCHP LIP-20 MIT")}
+        if FileManager.default.fileExists(atPath:face.path), let faces=try? Self.faceCrops(cgImage) {
+            var fSkin=[UInt8](repeating:0,count:w*h),fHair=fSkin,fEyes=fSkin,fLips=fSkin
+            // Never treat an entire image with no detected face as a face crop.
+            let work=faces
+            for rect in work { guard let crop=cgImage.cropping(to:rect.integral) else{continue};let crgba=try Self.rgba8(crop);guard let labels=try? Self.runLabels(model:face,profile:.face19,rgba:crgba,w:crop.width,h:crop.height) else {continue};Self.composite(Self.mask(labels,SemanticLabels.faceSkin),cropW:crop.width,cropH:crop.height,into:&fSkin,fullW:w,fullH:h,rect:rect);Self.composite(Self.mask(labels,SemanticLabels.faceHair),cropW:crop.width,cropH:crop.height,into:&fHair,fullW:w,fullH:h,rect:rect);Self.composite(Self.mask(labels,SemanticLabels.faceEyes),cropW:crop.width,cropH:crop.height,into:&fEyes,fullW:w,fullH:h,rect:rect);Self.composite(Self.mask(labels,SemanticLabels.faceLips),cropW:crop.width,cropH:crop.height,into:&fLips,fullW:w,fullH:h,rect:rect)}
             masks[.eyes]=fEyes;masks[.lips]=fLips;masks[.hair]=Self.union(masks[.hair],fHair)
             var skin=Self.union(fSkin,Self.union(masks[.arms],masks[.legs]));for x in [masks[.hair],masks[.eyes],masks[.lips],masks[.upperClothes],masks[.lowerClothes],masks[.shoes]]{skin=Self.subtract(skin,x)};if let p=masks[.person]{skin=Self.intersect(skin,p)};masks[.skin]=skin;masks[.body]=Self.union(fSkin,Self.union(masks[.arms],masks[.legs]));provenance.append("CelebAMask-HQ BiSeNet MIT")
         }
+        if let skin=masks[.skin]{masks[.skin]=SemanticMaskRefinement.refine(skin,width:w,height:h)}
         let result=CanonicalSemanticMaskSet(width:w,height:h,alphaByKind:masks,provenance:provenance);cache[key]=result;return result
     }
 

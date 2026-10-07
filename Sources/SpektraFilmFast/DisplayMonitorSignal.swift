@@ -11,12 +11,16 @@ enum DisplayMonitorSignal {
     }
 
     static func rgb(r: Float, g: Float, b: Float, look: RenderLook) -> (Float, Float, Float) {
+        // Reuse the already-validated SDR output/profile conversion; do not infer
+        // sRGB merely from a gamma-coded channel. This is the same pipeline as skin.
+        if let display = SkinToneReference.canonicalDisplayRGB(r: r, g: g, b: b, look: look) {
+            return display
+        }
+        // Some non-display renderer roles cannot be mapped to a 0..1 monitor.
+        // Retain a bounded fallback so legacy scopes remain visible, but they are
+        // not calibration references outside SkinToneReference.supported roles.
         let space = Int(look.values["outputColorSpace"]?.intValue ?? 25)
-        return (
-            code(r, outputSpace: space),
-            code(g, outputSpace: space),
-            code(b, outputSpace: space)
-        )
+        return (code(r, outputSpace: space), code(g, outputSpace: space), code(b, outputSpace: space))
     }
 
     static func luma(r: Float, g: Float, b: Float, look: RenderLook) -> Float {

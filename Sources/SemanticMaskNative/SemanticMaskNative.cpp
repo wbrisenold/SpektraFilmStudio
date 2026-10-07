@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <memory>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -20,7 +21,38 @@ std::vector<float> input(const uint8_t*r,int w,int h,int tw,int th,int profile){
 std::vector<Ort::Value> run(const char*path,int profile,const uint8_t*r,int w,int h,int&oh,int&ow,int&ch){auto se=sess(path);Ort::AllocatorWithDefaultOptions a;auto n=se->GetInputNameAllocated(0,a);auto sh=se->GetInputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape();int th=profile==SF_SEMANTIC_BIREFNET?1024:(profile==SF_SEMANTIC_FACE19?512:(profile==SF_SEMANTIC_SCHP_LIP20?473:512)),tw=th;if(sh.size()>=4&&sh[2]>0&&sh[3]>0){th=(int)sh[2];tw=(int)sh[3];}auto in=input(r,w,h,tw,th,profile);std::array<int64_t,4>d={1,3,th,tw};auto mi=Ort::MemoryInfo::CreateCpu(OrtArenaAllocator,OrtMemTypeDefault);auto t=Ort::Value::CreateTensor<float>(mi,in.data(),in.size(),d.data(),d.size());auto on=se->GetOutputNameAllocated(0,a);const char*ins[]={n.get()};const char*outs[]={on.get()};auto o=se->Run(Ort::RunOptions{nullptr},ins,&t,1,outs,1);auto os=o[0].GetTensorTypeAndShapeInfo().GetShape();if(os.size()!=4)throw std::runtime_error("semantic output must be rank-4 NCHW");ch=(int)os[1];oh=(int)os[2];ow=(int)os[3];return o;}
 }
 extern "C" const char*sf_semantic_runtime_version(void){return g_version.c_str();}
-extern "C" int sf_semantic_labels_run(const char*path,int profile,const uint8_t*r,int w,int h,uint8_t*out,char*e,int en){try{if(profile==SF_SEMANTIC_MODNET)throw std::runtime_error("MODNet is a matte model");int oh=0,ow=0,ch=0;auto o=run(path,profile,r,w,h,oh,ow,ch);float*d=o[0].GetTensorMutableData<float>();for(int y=0;y<h;y++)for(int x=0;x<w;x++){int sy=std::clamp(int((y+.5f)*oh/h),0,oh-1),sx=std::clamp(int((x+.5f)*ow/w),0,ow-1),best=0;float bv=d[sy*ow+sx];for(int c=1;c<ch;c++){float v=d[((size_t)c*oh+sy)*ow+sx];if(v>bv){bv=v;best=c;}}out[y*w+x]=(uint8_t)best;}return 0;}catch(const std::exception&x){err(e,en,x.what());return 1;}}
+extern "C" int sf_semantic_labels_run(const char* path,int profile,const uint8_t*rgba,int w,int h,uint8_t*out,char*e,int en){
+    try {
+        if(profile==SF_SEMANTIC_MODNET)throw std::runtime_error("MODNet is a matte model");
+        if(!rgba||!out||w<=0||h<=0)throw std::runtime_error("Invalid segmentation input");
+        int oh=0,ow=0,ch=0;
+        auto values=run(path,profile,rgba,w,h,oh,ow,ch);
+        if(ow<1||oh<1||ch<2)throw std::runtime_error("Invalid semantic output shape");
+        const float*d=values[0].GetTensorMutableData<float>();
+        // Bilinear interpolation of class logits BEFORE argmax, rather than
+        // enlarging coarse hard-label IDs with nearest-neighbor resampling.
+        for(int y=0;y<h;++y){
+            const float sy=(y+.5f)*oh/float(h)-.5f;
+            const int y0=std::clamp(int(std::floor(sy)),0,oh-1),y1=std::min(oh-1,y0+1);
+            const float fy=std::clamp(sy-float(y0),0.f,1.f);
+            for(int x=0;x<w;++x){
+                const float sx=(x+.5f)*ow/float(w)-.5f;
+                const int x0=std::clamp(int(std::floor(sx)),0,ow-1),x1=std::min(ow-1,x0+1);
+                const float fx=std::clamp(sx-float(x0),0.f,1.f);
+                int best=0;float bestScore=-std::numeric_limits<float>::infinity();
+                for(int c=0;c<ch;++c){
+                    const size_t plane=size_t(c)*size_t(oh)*size_t(ow);
+                    const float a=d[plane+size_t(y0)*ow+x0],bb=d[plane+size_t(y0)*ow+x1];
+                    const float cc=d[plane+size_t(y1)*ow+x0],dd=d[plane+size_t(y1)*ow+x1];
+                    const float score=(1.f-fy)*((1.f-fx)*a+fx*bb)+fy*((1.f-fx)*cc+fx*dd);
+                    if(score>bestScore){bestScore=score;best=c;}
+                }
+                out[size_t(y)*w+x]=uint8_t(std::min(best,255));
+            }
+        }
+        return 0;
+    }catch(const std::exception&x){err(e,en,x.what());return 1;}
+}
 extern "C" int sf_semantic_matte_run(const char*path,const uint8_t*r,int w,int h,uint8_t*out,char*e,int en){
   try{
     const bool isBiRef = std::string(path).find("birefnet-lite")!=std::string::npos;

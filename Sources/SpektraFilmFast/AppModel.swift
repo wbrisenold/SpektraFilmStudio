@@ -764,6 +764,14 @@ final class AppModel: ObservableObject {
         let changed = project.selectedImageID != id
         if changed {
             isGradientMaskEditing = false
+            // Canonical masks belong to a single photo. Reusing them corrupts skin WB,
+            // overlay and vectorscope when moving through the filmstrip.
+            semanticMaskTask?.cancel()
+            semanticMaskTask = nil
+            semanticMasks = nil
+            latestSkinMaskWidth = 0
+            latestSkinMaskHeight = 0
+            latestSkinMaskAlpha = []
             cancelPreviewForNavigation()
             gestureWorkingLook = nil
             activeEditBaseline = nil
@@ -1091,6 +1099,10 @@ final class AppModel: ObservableObject {
         if interactive {
             if gestureWorkingLook == nil { beginEditGesture() }
             gestureWorkingLook?.values[name] = value
+            if name == "filmExposureEv" || name == "autoExposure" {
+                gestureWorkingLook?.tone?.autoContrast = false
+                gestureWorkingLook?.filmTone?.autoContrast = false
+            }
             activeEditChangedParameter = name
             // Pointer-rate work is display-only. Do not enqueue the spectral renderer here.
             // Mouse-up/idle schedules one exact render from the committed settings.
@@ -1104,6 +1116,10 @@ final class AppModel: ObservableObject {
             redoStack.removeAll()
         }
         project.images[i].look.values[name] = value
+        if name == "filmExposureEv" || name == "autoExposure" {
+            project.images[i].look.tone?.autoContrast = false
+            project.images[i].look.filmTone?.autoContrast = false
+        }
         project.images[i].look.normalizeForProOnly()
         propagateBatchEdit(from: project.images[i].look, activeIndex: i, changedParameter: name)
         scheduleIdleRefinement(changedParameter: name)
@@ -1241,8 +1257,10 @@ final class AppModel: ObservableObject {
 
     func refreshCanonicalSemanticMasks() {
         semanticMaskTask?.cancel()
-        guard let image = selectedImage, let cg = frameState.renderedPreview else { return }
+        guard let image = selectedImage,
+              let cg = frameState.sourcePreview ?? frameState.renderedPreview else { return }
         let imageID = image.id
+        // Segmentation must not move when editing exposure/color; analyze Before/source pixels.
         semanticMaskStatus = "Analyzing subject / skin / clothing…"
         semanticMaskTask = Task { [weak self] in
             guard let self else { return }
@@ -1269,7 +1287,7 @@ final class AppModel: ObservableObject {
             semanticMaskStatus = "Run Analyze Masks first"
             return
         }
-        let refined = SemanticMaskRefinement.refine(alpha, width: set.width, height: set.height)
+        let refined = kind == .skin ? alpha : SemanticMaskRefinement.refine(alpha, width: set.width, height: set.height)
         mutateGrade(gradeID) { grade in
             var source = MaskSourceRecord(name: kind.rawValue, kind: .raster)
             source.blendMode = blendMode
@@ -1991,6 +2009,7 @@ final class AppModel: ObservableObject {
             guard var working = gestureWorkingLook else { return }
             var film = working.filmTone ?? ToneSettings()
             change(&film)
+            if key != "autoContrast" { film.autoContrast = false; working.tone?.autoContrast = false }
             working.filmTone = film
             gestureWorkingLook = working
             activeEditChangedParameter = "filmFeed." + key
@@ -2006,6 +2025,7 @@ final class AppModel: ObservableObject {
         }
         var film = project.images[i].look.filmTone ?? ToneSettings()
         change(&film)
+        if key != "autoContrast" { film.autoContrast = false; project.images[i].look.tone?.autoContrast = false }
         project.images[i].look.filmTone = film
         scheduleIdleRefinement(changedParameter: "filmFeed." + key, delayMilliseconds: 40)
     }
@@ -2109,6 +2129,7 @@ final class AppModel: ObservableObject {
             guard var working = gestureWorkingLook else { return }
             var tone = working.tone ?? ToneSettings()
             mutate(&tone)
+            if changedParameter != "hostAutoContrast" { tone.autoContrast = false }
             working.tone = tone
             gestureWorkingLook = working
             activeEditChangedParameter = changedParameter
@@ -2124,6 +2145,7 @@ final class AppModel: ObservableObject {
         }
         var tone = project.images[i].look.tone ?? ToneSettings()
         mutate(&tone)
+        if changedParameter != "hostAutoContrast" { tone.autoContrast = false }
         project.images[i].look.tone = tone
         propagateBatchEdit(from: project.images[i].look, activeIndex: i, changedParameter: changedParameter)
         scheduleIdleRefinement(changedParameter: changedParameter, delayMilliseconds: 30)
@@ -2706,7 +2728,8 @@ final class AppModel: ObservableObject {
                 diagnosticsAreSettling = true
                 diagnosticStatus = "Diagnostics update after the exact render settles"
                 analysisTask?.cancel()
-                analysisOverlay = nil
+                // Do not flash the mask/clipping overlay off on every slider tick.
+                // The previous exact overlay remains until the next exact frame settles.
                 scopeTask?.cancel()
             }
         }
@@ -3122,6 +3145,12 @@ final class AppModel: ObservableObject {
         analysisGeneration += 1
         let generation = analysisGeneration
         let prefs = project.preferences
+        // One image-specific semantic provider powers every skin-consuming tool.
+        if (prefs.skinCheckEnabled || prefs.scopeMode == .skinVectorscope),
+           semanticMasks == nil, semanticMaskTask == nil,
+           (frameState.sourcePreview ?? frameState.renderedPreview) != nil {
+            refreshCanonicalSemanticMasks()
+        }
 
         guard prefs.clippingEnabled || prefs.skinCheckEnabled || prefs.scopeMode == .skinVectorscope,
               let buffer = latestRenderedBuffer else {

@@ -195,12 +195,12 @@ actor ScopeEngine {
     private nonisolated static func saturationScope(_ buffer: PixelBufferF32, look: RenderLook) -> ScopePayload {
         let width=384, height=max(150,Int((Double(384)*Double(buffer.height)/Double(max(1,buffer.width))).rounded()))
         var out=[UInt8](repeating:0,count:width*height*4)
-        let space=Int(look.values["outputColorSpace"]?.intValue ?? 25)
         for y in 0..<height { for x in 0..<width {
             let sx=min(buffer.width-1,x*buffer.width/width)
             let sy=min(buffer.height-1,y*buffer.height/height)
             let p=(sy*buffer.width+sx)*4
-            let r=monitorCode(buffer.pixels[p],outputSpace:space), g=monitorCode(buffer.pixels[p+1],outputSpace:space), b=monitorCode(buffer.pixels[p+2],outputSpace:space)
+            let display = DisplayMonitorSignal.rgb(r: buffer.pixels[p], g: buffer.pixels[p+1], b: buffer.pixels[p+2], look: look)
+            let r=display.0, g=display.1, b=display.2
             let mx=max(r,max(g,b)), mn=min(r,min(g,b))
             let saturation=mx > 1e-6 ? (mx-mn)/mx : 0
             let luma=0.2126*r+0.7152*g+0.0722*b
@@ -224,10 +224,10 @@ actor ScopeEngine {
     private nonisolated static func falseColor(_ buffer: PixelBufferF32, look: RenderLook) -> ScopePayload {
         let width=384, height=max(150,Int((Double(384)*Double(buffer.height)/Double(max(1,buffer.width))).rounded()))
         var out=[UInt8](repeating:0,count:width*height*4)
-        let space=Int(look.values["outputColorSpace"]?.intValue ?? 25)
         for y in 0..<height { for x in 0..<width {
             let sx=min(buffer.width-1,x*buffer.width/width), sy=min(buffer.height-1,y*buffer.height/height), p=(sy*buffer.width+sx)*4
-            let r=monitorCode(buffer.pixels[p],outputSpace:space),g=monitorCode(buffer.pixels[p+1],outputSpace:space),b=monitorCode(buffer.pixels[p+2],outputSpace:space)
+            let display = DisplayMonitorSignal.rgb(r: buffer.pixels[p], g: buffer.pixels[p+1], b: buffer.pixels[p+2], look: look)
+            let r=display.0, g=display.1, b=display.2
             // Y' (display-code luma) as 0–100 video-level index; unlike the old
             // implementation, linear working data must be transfer-encoded first.
             let yPrime=0.2126*r+0.7152*g+0.0722*b

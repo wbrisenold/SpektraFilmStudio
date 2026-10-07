@@ -47,6 +47,18 @@ enum InteractivePreviewProxy {
             switch name {
             case "hostExposure":
                 return baseline.pointTransform(exposureStops: afterTone.exposureEV - beforeTone.exposureEV)
+            case "hostBrightness":
+                return baseline.pointTransform(exposureStops: (afterTone.brightness - beforeTone.brightness) / 125.0)
+            case "hostMidtones":
+                return baseline.pointTransform(exposureStops: (afterTone.midtones - beforeTone.midtones) / 160.0)
+            case "hostHighlightRecovery":
+                return baseline.pointTransform(highlightDelta: -(afterTone.highlightRecovery - beforeTone.highlightRecovery) / 145.0)
+            case "hostShadowRecovery":
+                return baseline.pointTransform(shadowDelta: (afterTone.shadowRecovery - beforeTone.shadowRecovery) / 145.0)
+            case "hostWhitePoint":
+                return baseline.pointTransform(highlightDelta: (afterTone.whitePoint - beforeTone.whitePoint) / 145.0)
+            case "hostBlackPoint":
+                return baseline.pointTransform(shadowDelta: (afterTone.blackPoint - beforeTone.blackPoint) / 145.0)
             case "hostContrast":
                 return baseline.pointTransform(contrastDelta: (afterTone.contrast - beforeTone.contrast) / 125.0)
             case "hostHighlights":

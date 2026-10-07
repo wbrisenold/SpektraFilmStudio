@@ -137,7 +137,8 @@ actor StudioAnalysisEngine {
         // Subject isolation is performed before skin color classification. This prevents warm
         // wood, walls, flowers and clothing from polluting the skin vectorscope in portrait and event work.
         let subjectMask: SubjectMaskPayload
-        if wantsSkinAnalysis {
+        if wantsSkinAnalysis && canonicalSkinMask == nil {
+            // Fallback only. Once available, every consumer uses the same canonical AI mask.
             subjectMask = try await subjectMaskEngine.subjectMask(from: diagnosticBuffer, width: overlayWidth, height: overlayHeight)
         } else {
             subjectMask = .empty(width: overlayWidth, height: overlayHeight)
@@ -190,8 +191,10 @@ actor StudioAnalysisEngine {
                 // compression cannot make an obviously hot image report only ~0.1% warning.
                 let visualHighlightRisk = min(highlightRiskThreshold, 0.88)
                 let visualShadowRisk = max(shadowRiskThreshold, 0.10)
-                let isHardHighlight = monitorLuma >= 0.97 || monitorPeak >= 0.999
-                let isHardShadow = monitorLuma <= 0.03 || monitorFloor <= shadowThreshold
+                // Keep true output clipping separate from the *look* of overexposure.
+                // False Color enters its hot band at 0.88; this is a warning, not hard clip.
+                let isHardHighlight = monitorPeak >= 0.9985
+                let isHardShadow = monitorFloor <= shadowThreshold
                 let isHighlightRisk = isHardHighlight || monitorLuma >= visualHighlightRisk || monitorPeak >= 0.97
                 let isShadowRisk = isHardShadow || monitorLuma <= visualShadowRisk
                 if isHighlightRisk { highlightCount += 1 }
@@ -205,7 +208,7 @@ actor StudioAnalysisEngine {
                 let skin = OpenSourceSkinClassifier.classify(
                     displayR: outR, displayG: outG, displayB: outB, inFaceRegion: insideFace
                 )
-                let candidate = wantsSkinAnalysis
+                let candidate = wantsSkinAnalysis && canonicalSkinMask == nil
                     && personConfidence >= (insideFace ? 0.18 : 0.42)
                     && skin.matches
                     && chroma.luma > 0.015 && chroma.luma < 0.995
@@ -223,7 +226,8 @@ actor StudioAnalysisEngine {
                     // darktable default look: solid blue = under-clipped.
                     setRGBA(&overlay, overlayIndex, 0, 0, 255, 255)
                 } else if preferences.clippingEnabled && isHighlightRisk {
-                    setRGBA(&overlay, overlayIndex, 255, 30, 18, 175)
+                    // Red hot-zone warning follows False Color's >= 0.88 band.
+                    setRGBA(&overlay, overlayIndex, 255, 34, 22, 216)
                 } else if preferences.clippingEnabled && isShadowRisk {
                     setRGBA(&overlay, overlayIndex, 20, 75, 255, 175)
                 }
@@ -483,7 +487,8 @@ actor StudioAnalysisEngine {
         preserveExistingOverlay: Bool
     ) {
         guard mask.count == width * height, overlay.count == width * height * 4 else { return }
-        let visibleOpacity = max(0.38, min(0.90, opacity))
+        // A solid skin overlay must not resemble a sparse color-classifier heatmap.
+        let visibleOpacity = max(0.86, min(0.98, opacity))
 
         for i in 0..<(width * height) {
             let strength = Double(mask[i]) / 255.0
@@ -496,9 +501,10 @@ actor StudioAnalysisEngine {
             let g = diagnostic.pixels[p + 1]
             let b = diagnostic.pixels[p + 2]
             let chroma = chromaPosition(r: r, g: g, b: b)
-            guard chroma.luma > 0.01, chroma.luma < 0.995, chroma.radius > 0.008 else { continue }
-
-            let deviation = angularDifferenceDegrees(chroma.angleDegrees, Self.skinReferenceDegrees)
+            // Keep the entire canonical skin matte visible, even in neutral or bright skin.
+            // Low-chroma values have uncertain hue; show them as neutral/gold, not holes.
+            let reliableHue = chroma.luma > 0.01 && chroma.luma < 0.995 && chroma.radius > 0.008
+            let deviation = reliableHue ? angularDifferenceDegrees(chroma.angleDegrees, Self.skinReferenceDegrees) : 0
             let excess = max(0.0, abs(deviation) - tolerance)
             let severity = min(1.0, excess / max(10.0, tolerance * 1.75))
 
@@ -515,7 +521,7 @@ actor StudioAnalysisEngine {
                 alphaScale = 0.62 + 0.38 * severity
             } else {
                 rr = 238; gg = 184; bb = 72
-                alphaScale = 0.34
+                alphaScale = 0.90
             }
 
             let alpha = UInt8(clamping: Int(

@@ -263,7 +263,7 @@ private struct MaskCoverageOverlay: View {
                 Image(decorative: overlayImage, scale: 1)
                     .resizable()
                     .interpolation(.high)
-                    .scaledToFill()
+                    .scaledToFit()
             }
         }
         .task(id: MaskOverlayKey(grade: grade, width: imageWidth, height: imageHeight)) {
@@ -277,7 +277,7 @@ private struct MaskCoverageOverlay: View {
                 let coverage = MaskedLocalGradeEngine.coverageForGrade(g, width: width, height: height)
                 var rgba = [UInt8](repeating: 0, count: width * height * 4)
                 for i in 0..<min(coverage.count, width * height) {
-                    let a = UInt8(clamping: Int((max(0, min(1, coverage[i])) * 150).rounded()))
+                    let a = UInt8(clamping: Int((max(0, min(1, coverage[i])) * 220).rounded()))
                     let p = i * 4
                     rgba[p] = 25
                     rgba[p + 1] = 220

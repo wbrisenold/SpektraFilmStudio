@@ -5,6 +5,7 @@ import CoreGraphics
 extension AppModel {
     func setEditorScopeMode(_ mode: ScopeMode) {
         project.preferences.scopeMode = mode
+        if mode == .skinVectorscope { refreshStudioAnalysis() }
         requestEditorScopeUpdate()
     }
 
@@ -61,6 +62,8 @@ extension AppModel {
                         skinMeasurementConfidencePercent: analysisMetrics.skinMeasurementConfidencePercent
                     )
                     guard !Task.isCancelled, page == .edit else { break }
+                    // Never publish a completed trace over a newer frame/slider generation.
+                    if requestedGeneration != scopeGeneration { continue }
                     editorScopeImage = CGImage.fromRGBA8(width: payload.width, height: payload.height, bytes: payload.rgba)
                     lastScopeUpdateUptime = ProcessInfo.processInfo.systemUptime
                 } catch {
