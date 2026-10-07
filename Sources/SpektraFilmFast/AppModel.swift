@@ -626,7 +626,20 @@ final class AppModel: ObservableObject {
         startBackgroundImportHydration(imported)
 
         if project.selectedImageID == nil, let first = additions.first {
-            selectImage(first.id, renderPreview: false)
+            // Import is library/document work only. Do not wake preview, RAW decode,
+            // masks, scopes or the film renderer while hydration is still starting.
+            project.selectedImageID = first.id
+            renderedPreview = nil
+            sourcePreview = nil
+            latestSourceBuffer = nil
+            latestSourceRaw = nil
+            latestRenderedBuffer = nil
+            latestRenderedLook = nil
+            latestWorkingRenderedBuffer = nil
+            latestWorkingRenderedLook = nil
+            latestInteractiveBaseBuffer = nil
+            latestInteractiveBaseLook = nil
+            clearStudioAnalysis()
         }
     }
 
@@ -799,16 +812,17 @@ final class AppModel: ObservableObject {
             status = "Missing media · use Relink Missing Media…"
             return
         }
-        if changed || renderedPreview == nil {
-            presentFastSelectionPreview(for: image, renderOnMiss: renderPreview)
-        } else if renderPreview {
-            // The already-present frame may only be a Library thumbnail. Require a float working
-            // buffer before treating it as edit-ready.
-            if !restoreLatestWorkingStateFromMemoryCache(for: image) {
+        if renderPreview {
+            if changed || renderedPreview == nil {
+                presentFastSelectionPreview(for: image, renderOnMiss: true)
+            } else if !restoreLatestWorkingStateFromMemoryCache(for: image) {
                 presentFastSelectionPreview(for: image, renderOnMiss: true)
             }
         } else {
-            warmEditorSourceAfterSelectionIdle(image)
+            // Library/Cull selection must stay decode-free. ThumbnailService owns
+            // browsing; source development begins only after entering Edit.
+            editorWarmupTask?.cancel()
+            status = "Selected \(image.fileName)"
         }
     }
 
@@ -3419,13 +3433,21 @@ final class AppModel: ObservableObject {
                 projectURL = nil
             }
             isProjectDirty = true
-            page = project.images.isEmpty ? .library : .edit
+            page = .library
             if project.selectedImageID == nil { project.selectedImageID = project.images.first?.id }
-            if let image = selectedImage, FileManager.default.fileExists(atPath: image.sourcePath) {
-                presentFastSelectionPreview(for: image)
-                workspaceDidChange(.edit)
-            }
-            status = "Recovered unsaved work"
+            renderedPreview = nil
+            sourcePreview = nil
+            latestSourceBuffer = nil
+            latestSourceRaw = nil
+            latestRenderedBuffer = nil
+            latestRenderedLook = nil
+            latestWorkingRenderedBuffer = nil
+            latestWorkingRenderedLook = nil
+            latestInteractiveBaseBuffer = nil
+            latestInteractiveBaseLook = nil
+            editorWarmupTask?.cancel()
+            clearStudioAnalysis()
+            status = "Recovered unsaved work · select Edit when ready"
         } else {
             await recoveryStore.clear()
         }
@@ -3854,17 +3876,29 @@ final class AppModel: ObservableObject {
                 renderedFrameCacheBytes = 0
                 Task { [recoveryStore] in await recoveryStore.clear() }
                 configureCaches()
-                // Missing media should not force an Edit render of a missing path.
-                page = project.images.isEmpty ? .library : .edit
+
+                // Opening a project replaces a large amount of observable state. Land in
+                // Library first and keep the renderer asleep until Edit is explicitly entered.
+                page = .library
+                renderedPreview = nil
+                sourcePreview = nil
+                latestSourceBuffer = nil
+                latestSourceRaw = nil
+                latestRenderedBuffer = nil
+                latestRenderedLook = nil
+                latestWorkingRenderedBuffer = nil
+                latestWorkingRenderedLook = nil
+                latestInteractiveBaseBuffer = nil
+                latestInteractiveBaseLook = nil
+                editorWarmupTask?.cancel()
+                clearStudioAnalysis()
+
                 if let image = selectedImage,
-                   FileManager.default.fileExists(atPath: image.sourcePath) {
-                    presentFastSelectionPreview(for: image)
-                    workspaceDidChange(.edit)
-                } else if !project.images.isEmpty {
-                    status = "Project loaded · media missing · Relink Missing Media…"
-                    return
+                   !FileManager.default.fileExists(atPath: image.sourcePath) {
+                    status = "Opened \(url.lastPathComponent) · selected media missing · Relink Missing Media…"
+                } else {
+                    status = "Opened \(url.lastPathComponent) · select Edit when ready"
                 }
-                status = "Opened \(url.lastPathComponent)"
             } catch is CancellationError {
                 status = "Project open cancelled"
             } catch {

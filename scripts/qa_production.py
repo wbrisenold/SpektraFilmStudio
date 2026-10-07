@@ -46,7 +46,12 @@ all_src = "\n".join(p.read_text() for p in SRC.glob("*.swift"))
 
 # Pass 4: import hot path
 require("record.captureDate = Self.captureDate" not in app, "synchronous capture-date import returned")
-require("renderPreview: false" in app, "library import still starts full render")
+require("renderPreview: false" in all_src, "Library/Cull decode-free selection (renderPreview:false) disappeared")
+require("project.selectedImageID = first.id" in app and "selectImage(first.id" not in app,
+        "library import still wakes preview/decode/render")
+require("Library/Cull selection must stay decode-free" in app, "decode-free library selection branch missing")
+require("keep the renderer asleep until Edit is explicitly entered" in app,
+        "project open must land in Library with the renderer asleep")
 require("batchSize = 32" in app, "metadata work is not bounded")
 require("NSImage(contentsOf:" not in all_src, "full NSImage decode remains in SwiftUI thumbnail path")
 
