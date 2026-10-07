@@ -23,6 +23,49 @@ extension PixelBufferF32 {
             let h = max(1, settings.resizeHeight)
             let scale = Double(h) / Double(sourceH)
             target = (max(1, Int((Double(sourceW) * scale).rounded())), h)
+        case .cropToFill:
+            // Crop before resize. Image-space center crop matches the Studio Export Viewer.
+            // Aspect and output pixel size follow the user's chosen preset exactly.
+            let wantedW = max(1, settings.resizeWidth)
+            let wantedH = max(1, settings.resizeHeight)
+            let ratio = Double(wantedW) / Double(wantedH)
+            let cropW: Int
+            let cropH: Int
+            if Double(sourceW)/Double(sourceH) > ratio {
+                cropW = max(1, min(sourceW, Int((Double(sourceH)*ratio).rounded())))
+                cropH = sourceH
+            } else {
+                cropW = sourceW
+                cropH = max(1, min(sourceH, Int((Double(sourceW)/ratio).rounded())))
+            }
+            let startX = (sourceW-cropW)/2, startY = (sourceH-cropH)/2
+            let scale = settings.dontEnlarge ? min(1.0, min(Double(wantedW)/Double(cropW), Double(wantedH)/Double(cropH))) : 1.0
+            let outputW = max(1, Int((Double(wantedW)*scale).rounded()))
+            let outputH = max(1, Int((Double(wantedH)*scale).rounded()))
+            // Pass an ROI into vImage directly: no second full-resolution crop allocation.
+            // The output dimensions are EXACT for default social presets (no upscale limit).
+            var result=[Float](repeating:0,count:outputW*outputH*4)
+            let err:vImage_Error = pixels.withUnsafeBytes { sourceBytes in
+                result.withUnsafeMutableBytes { targetBytes in
+                    guard let start=sourceBytes.baseAddress, let dst=targetBytes.baseAddress else {
+                        return vImage_Error(kvImageNullPointerArgument)
+                    }
+                    let byteOffset = ((startY*sourceW)+startX)*4*MemoryLayout<Float>.size
+                    var roi=vImage_Buffer(
+                        data:UnsafeMutableRawPointer(mutating:start.advanced(by:byteOffset)),
+                        height:vImagePixelCount(cropH),width:vImagePixelCount(cropW),
+                        rowBytes:sourceW*4*MemoryLayout<Float>.size)
+                    var target=vImage_Buffer(
+                        data:dst,height:vImagePixelCount(outputH),width:vImagePixelCount(outputW),
+                        rowBytes:outputW*4*MemoryLayout<Float>.size)
+                    return vImageScale_ARGBFFFF(&roi,&target,nil,vImage_Flags(kvImageHighQualityResampling))
+                }
+            }
+            guard err == kvImageNoError else {
+                throw NSError(domain:"SpektraFilmStudio.CropExport", code:Int(err),
+                    userInfo:[NSLocalizedDescriptionKey:"Crop-to-fill vImage resize failed (\(err))"])
+            }
+            return PixelBufferF32(width:outputW,height:outputH,pixels:result)
         case .fitBox:
             let maxW = max(1, settings.resizeWidth)
             let maxH = max(1, settings.resizeHeight)

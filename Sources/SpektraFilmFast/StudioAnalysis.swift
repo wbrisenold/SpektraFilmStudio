@@ -189,13 +189,17 @@ actor StudioAnalysisEngine {
                     upper: highlightThreshold,
                     lower: shadowThreshold
                 )
-                let isHardHighlight = hardClip.highlight
-                let isHardShadow = hardClip.shadow
-
-                // Preserve SpektraFilmFast's final-display early warning as a softer layer.
+                // Use the same display-referred conversion as the image overlay.
+                // Some film tone curves compress scene-linear blown highlights to just
+                // below 1.0, so linear-threshold-only diagnostics wrongly show no red.
                 let outputLuma = 0.2126 * outR + 0.7152 * outG + 0.0722 * outB
                 let outputPeak = max(outR, max(outG, outB))
-                let isHighlightRisk = isHardHighlight || outputPeak >= highlightRiskThreshold
+                // A nearly white film shoulder is not necessarily hard-clipped.
+                // Reserve opaque red for the hard boundary; red tint means risk.
+                let isHardHighlight = hardClip.highlight || outputPeak >= 0.999
+                let isHardShadow = hardClip.shadow
+                let visualWarnThreshold = min(0.94, highlightRiskThreshold)
+                let isHighlightRisk = isHardHighlight || outputPeak >= visualWarnThreshold
                 let isShadowRisk = isHardShadow || outputLuma <= shadowRiskThreshold
                 if isHighlightRisk { highlightCount += 1 }
                 if isShadowRisk { shadowCount += 1 }
@@ -226,9 +230,9 @@ actor StudioAnalysisEngine {
                     // darktable default look: solid blue = under-clipped.
                     setRGBA(&overlay, overlayIndex, 0, 0, 255, 255)
                 } else if preferences.clippingEnabled && isHighlightRisk {
-                    setRGBA(&overlay, overlayIndex, 255, 0, 0, 92)
+                    setRGBA(&overlay, overlayIndex, 255, 30, 18, 175)
                 } else if preferences.clippingEnabled && isShadowRisk {
-                    setRGBA(&overlay, overlayIndex, 0, 0, 255, 92)
+                    setRGBA(&overlay, overlayIndex, 20, 75, 255, 175)
                 }
 
                 if wantsScope {

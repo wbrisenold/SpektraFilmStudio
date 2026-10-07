@@ -62,14 +62,14 @@ struct PreviewView: View {
                     .simultaneousGesture(
                         DragGesture()
                             .onChanged { value in
-                                guard !model.isCropToolActive && !model.isObjectMaskPicking else { return }
+                                guard !model.isCropToolActive && !model.isObjectMaskPicking && !model.isGradientMaskEditing else { return }
                                 offset = CGSize(
                                     width: committedOffset.width + value.translation.width,
                                     height: committedOffset.height + value.translation.height
                                 )
                             }
                             .onEnded { _ in
-                                guard !model.isCropToolActive && !model.isObjectMaskPicking else { return }
+                                guard !model.isCropToolActive && !model.isObjectMaskPicking && !model.isGradientMaskEditing else { return }
                                 committedOffset = offset
                             }
                     )

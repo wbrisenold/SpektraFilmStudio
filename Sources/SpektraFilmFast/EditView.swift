@@ -244,6 +244,9 @@ private struct EditorInspectorView: View {
                 .frame(height: 28)
                 .background(StudioPalette.panel)
 
+                editActionStrip
+                Divider().opacity(0.5)
+
                 ScrollView {
                     VStack(spacing: 10) {
                         MaskPanelView(model: model)
@@ -259,79 +262,68 @@ private struct EditorInspectorView: View {
     }
 
     private var monitorControls: some View {
-        HStack(spacing: 12) {
-            Toggle(
-                "Clip",
-                isOn: Binding(
+        VStack(spacing: 7) {
+            HStack(spacing: 8) {
+                Label("MONITOR", systemImage: "waveform.path")
+                    .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
+                Toggle("Clipping", isOn: Binding(
                     get: { model.project.preferences.clippingEnabled },
-                    set: { model.setClippingEnabled($0) }
-                )
-            )
-            .toggleStyle(.checkbox)
-
-            Toggle(
-                "Skin overlay",
-                isOn: Binding(
+                    set: { model.setClippingEnabled($0) }))
+                    .toggleStyle(.button).controlSize(.small)
+                    .help("Warn when final output approaches white/red or black/blue. Bright warning is not always irreversible clipping.")
+                Toggle("Skin", isOn: Binding(
                     get: { model.project.preferences.skinCheckEnabled },
-                    set: { enabled in
-                        model.setSkinCheckEnabled(enabled)
-                        if enabled, model.project.preferences.skinCheckMode == .scope {
-                            model.setSkinCheckMode(.both)
-                        }
-                    }
-                )
-            )
-            .toggleStyle(.checkbox)
-
-            Spacer(minLength: 4)
-
-            HStack(spacing: 2) {
-                StudioIconButton(systemImage: "arrow.uturn.backward", help: "Undo the last edit") { model.undo() }
-                StudioIconButton(systemImage: "arrow.uturn.forward", help: "Redo the last undone edit") { model.redo() }
-                StudioIconButton(systemImage: "doc.on.doc", help: "Copy the enabled edit categories") { model.copyLook() }
-                StudioIconButton(systemImage: "doc.on.clipboard", help: "Paste the enabled edit categories to the highlighted photo(s)") { model.pasteLook() }
-                Menu {
-                    Section("Copy / Paste Categories") {
-                        ForEach(LookCopyCategory.allCases) { category in
-                            Toggle(category.rawValue, isOn: Binding(
-                                get: { model.lookCopyCategoryEnabled(category) },
-                                set: { model.setLookCopyCategory(category, enabled: $0) }
-                            ))
-                        }
-                    }
-                    Divider()
-                    Button("Copy Selected Edits") { model.copyLook() }
-                    Button("Paste to Highlighted") { model.pasteLook() }
-                } label: {
-                    Image(systemName: "checklist")
-                }
-                .menuStyle(.borderlessButton)
-                .frame(width: 24)
-                .help("Choose which edit categories Option-Command-C / Option-Command-V copy and paste.")
+                    set: { model.setSkinCheckEnabled($0) }))
+                    .toggleStyle(.button).controlSize(.small)
+                    .help("Show skin diagnostic on the rendered image")
             }
-
-            Button { model.resetLook() } label: {
-                Label("Reset All", systemImage: "arrow.counterclockwise")
-                    .font(.caption2.weight(.semibold))
-            }
-            .buttonStyle(.borderless)
-            .help("Reset every edit on this photo. Ratings, flags, Client Picks, metadata, and the original file are not changed. You can Undo this reset.")
-
             if model.project.preferences.clippingEnabled {
-                HStack(spacing: 5) {
-                    Circle().fill(.red).frame(width: 5, height: 5)
-                    Text(String(format: "%.1f", model.analysisMetrics.highlightPercent))
-                    Circle().fill(.blue).frame(width: 5, height: 5)
-                    Text(String(format: "%.1f", model.analysisMetrics.shadowPercent))
+                HStack(spacing: 8) {
+                    Label(String(format:"Highlights %.1f%%", model.analysisMetrics.highlightPercent), systemImage:"circle.fill")
+                        .foregroundStyle(.red)
+                    Label(String(format:"Shadows %.1f%%", model.analysisMetrics.shadowPercent), systemImage:"circle.fill")
+                        .foregroundStyle(.blue)
+                    Spacer()
+                    Text("Final render").foregroundStyle(.secondary)
                 }
                 .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
             }
         }
-        .font(.caption2)
-        .padding(.horizontal, 10)
-        .frame(height: 30)
+        .padding(.horizontal, 10).padding(.vertical, 7)
         .background(StudioPalette.panel)
-        .overlay(alignment: .top) { Divider().opacity(0.35) }
     }
+
+    private var editActionStrip: some View {
+        HStack(spacing: 6) {
+            Button { model.undo() } label: { Label("Undo", systemImage:"arrow.uturn.backward") }
+                .help("Undo edit")
+            Button { model.redo() } label: { Label("Redo", systemImage:"arrow.uturn.forward") }
+                .help("Redo edit")
+            Spacer(minLength: 3)
+            Button { model.copyLook() } label: { Label("Copy", systemImage:"doc.on.doc") }
+                .help("Copy this photo's enabled edit categories (⌘C)")
+            Button { model.pasteLook() } label: { Label("Paste", systemImage:"doc.on.clipboard") }
+                .help("Paste edits to the filmstrip selection (⌘V)")
+            Menu {
+                Section("Copy / Paste Categories") {
+                    ForEach(LookCopyCategory.allCases) { category in
+                        Toggle(category.rawValue, isOn: Binding(
+                            get: { model.lookCopyCategoryEnabled(category) },
+                            set: { model.setLookCopyCategory(category, enabled: $0) }
+                        ))
+                    }
+                }
+                Divider()
+                Button(role: .destructive) { model.resetLook() } label: { Label("Reset All", systemImage: "arrow.counterclockwise") }
+            } label: { Image(systemName:"ellipsis.circle") }
+                .help("Edit category selection and reset")
+        }
+        .font(.caption)
+        .buttonStyle(.borderless)
+        .controlSize(.small)
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .background(StudioPalette.panel)
+    }
+
 }

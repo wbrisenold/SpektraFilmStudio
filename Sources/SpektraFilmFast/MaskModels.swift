@@ -42,14 +42,51 @@ struct RasterMaskPayload: Codable, Equatable, Hashable, Sendable {
     var height: Int
     var rle: Data
 
+    // A corrupted or hand-edited saved project must never overflow dimensions
+    // or force unbounded allocation when masks are decoded on project open.
+    // 64 megapixels is well above the canonical 1080px editing mask size.
+    private static let maximumRasterPixels = 64 * 1024 * 1024
+
+    private static func checkedPixelCount(width: Int, height: Int) -> Int? {
+        guard width > 0, height > 0 else { return nil }
+        let (count, overflow) = width.multipliedReportingOverflow(by: height)
+        guard !overflow, count <= maximumRasterPixels else { return nil }
+        return count
+    }
+
     init(width: Int, height: Int, alpha: [UInt8]) {
-        self.width = max(1, width)
-        self.height = max(1, height)
-        self.rle = Self.encodeRLE(alpha, expectedCount: self.width * self.height)
+        let w = max(1, width), h = max(1, height)
+        guard let pixelCount = Self.checkedPixelCount(width: w, height: h) else {
+            self.width = 1
+            self.height = 1
+            self.rle = Self.encodeRLE([0], expectedCount: 1)
+            return
+        }
+        self.width = w
+        self.height = h
+        self.rle = Self.encodeRLE(alpha, expectedCount: pixelCount)
+    }
+
+    private enum CodingKeys: String, CodingKey { case width, height, rle }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let w = try c.decode(Int.self, forKey: .width)
+        let h = try c.decode(Int.self, forKey: .height)
+        guard Self.checkedPixelCount(width: w, height: h) != nil else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .width, in: c,
+                debugDescription: "Invalid mask dimensions (zero, overflow, or >64 megapixels)"
+            )
+        }
+        width = w
+        height = h
+        rle = try c.decode(Data.self, forKey: .rle)
     }
 
     func decodedAlpha() -> [UInt8] {
-        Self.decodeRLE(rle, expectedCount: width * height)
+        guard let count = Self.checkedPixelCount(width: width, height: height) else { return [] }
+        return Self.decodeRLE(rle, expectedCount: count)
     }
 
     private static func encodeRLE(_ alpha: [UInt8], expectedCount: Int) -> Data {

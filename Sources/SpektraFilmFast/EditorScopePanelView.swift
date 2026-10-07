@@ -58,6 +58,18 @@ struct EditorScopePanelView: View {
 
             if model.project.preferences.scopeMode == .skinVectorscope {
                 skinReadout
+            } else if model.project.preferences.scopeMode == .falseColor {
+                Text("Display-code Y′ · blue: low · green: shadows · gray: mid · yellow/orange: bright · red/white: near clip")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if ![14,15,16,17,18,24,25].contains(Int(model.selectedLook.values["outputColorSpace"]?.intValue ?? 25)) {
+                    Label("Nonstandard output transfer: false color is not calibrated for this output space", systemImage: "exclamationmark.triangle")
+                        .font(.caption2).foregroundStyle(.orange)
+                }
+            } else if model.project.preferences.scopeMode == .saturation {
+                Text("HSV saturation · gray: low · teal: moderate · amber: strong · orange: high · pink: very high. Not a creative judgment.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.horizontal, 8)

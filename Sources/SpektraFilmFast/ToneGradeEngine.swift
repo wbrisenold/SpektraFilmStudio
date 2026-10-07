@@ -364,7 +364,11 @@ private enum SourcedToneMath {
         let highlightControl = max(-1, min(1, highlights * 1.5 / 100.0))
         curve.y[1] = max(0.02, min(0.73, 0.25 + shadowControl * 0.10))
         let highlightPull = highlightControl * 0.40
-        curve.y[3] = max(0.85, min(1.30, 1.0 - highlightPull))
+        // Positive Highlights must raise the upper tonal curve, just as the
+        // interactive 1080p proxy does. The previous minus sign DARKENED the
+        // right-hand slider's final 100% white anchor and made the image snap
+        // in the opposite direction after pointer release.
+        curve.y[3] = max(0.85, min(1.30, 1.0 + highlightPull))
         curve.y[2] = max(0.65, min(1.0, 0.75 + highlightPull * 0.20))
         computeTangents(&curve)
         return curve

@@ -2,7 +2,8 @@ import SwiftUI
 
 struct ControlsView: View {
     @ObservedObject var model: AppModel
-    @State private var geometryExpanded = false
+    // One accordion across all adjustment groups, including Film and Lens Character.
+    @State private var openAdjustment: String? = "tone"
     @State private var inspectorSearch = ""
     @State private var showModifiedOnly = false
     private let catalog = BridgeCatalog.shared
@@ -10,8 +11,18 @@ struct ControlsView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 7) {
-                TextField("Search controls", text: $inspectorSearch)
-                    .textFieldStyle(.roundedBorder)
+                HStack(spacing: 4) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("Search adjustments", text: $inspectorSearch)
+                        .textFieldStyle(.plain)
+                        .submitLabel(.search)
+                    if !inspectorSearch.isEmpty {
+                        Button { inspectorSearch = "" } label: { Image(systemName: "xmark.circle.fill") }
+                            .buttonStyle(.plain).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 9).frame(height: 30)
+                .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 8))
                 Toggle("Modified", isOn: $showModifiedOnly)
                     .toggleStyle(.button)
                     .controlSize(.small)
@@ -21,17 +32,20 @@ struct ControlsView: View {
 
             ScrollView {
             LazyVStack(spacing: 7) {
-                rawSection
-                toneSection
-                colorDensitySection
-                geometrySection
-                LensCharacterPanel(model: model)
+                if sectionMatches("raw", terms: ["raw", "white balance", "wb", "as shot", "auto white balance", "temperature", "tint", "denoise", "camera", "lens correction"]) { rawSection }
+                if sectionMatches("tone", terms: ["exposure", "scene exposure", "curves", "tone", "brightness", "contrast", "shadows", "highlights", "recovery", "whites", "blacks", "midtones", "auto contrast", "black point", "white point"]) { toneSection }
+                if sectionMatches("film-stock", terms: ["film stock", "film exposure", "film tone", "film highlights", "film shadows", "film whites", "film blacks", "stock response", "auto exposure", "film contrast", "film recovery"]) { filmExposureSection }
+                if sectionMatches("density", terms: ["color density", "density", "red", "yellow", "green", "cyan", "blue", "magenta", "luminance"]) { colorDensitySection }
+                if sectionMatches("geometry", terms: ["crop", "geometry", "aspect", "rotation", "perspective", "flip", "straighten", "scale", "offset"]) { geometrySection }
+                if sectionMatches("lens", terms: ["lens character", "lens", "optical", "aberration", "vignette", "petzval", "swirl", "spherical", "distortion", "edge blur"]) {
+                    LensCharacterPanel(model: model, isExpanded: sectionBinding("lens"))
+                }
 
                 ForEach(catalog.groups.filter { $0.id != "raw" }) { group in
                     let descriptors = catalog.parameters(in: group.id, flavor: .pro)
                         .filter(bridgeControlVisible)
                     if !descriptors.isEmpty {
-                        DisclosureGroup {
+                        DisclosureGroup(isExpanded: sectionBinding("film.\(group.id)")) {
                             VStack(spacing: 10) {
                                 ForEach(descriptors) { descriptor in
                                     ParameterControlRow(
@@ -64,12 +78,78 @@ struct ControlsView: View {
                 }
             }
             .padding(9)
+            .overlay {
+                if !searchTerm.isEmpty && preferredSearchSection == nil {
+                    ContentUnavailableView.search(text: searchTerm)
+                        .background(StudioPalette.panel)
+                }
+            }
             }
         }
         .tint(Color.primary.opacity(0.78))
+        .onChange(of: openAdjustment) { _, section in
+            model.setCropToolActive(section == "geometry")
+        }
+        .onChange(of: inspectorSearch) { _, value in
+            if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                openAdjustment = preferredSearchSection
+            }
+        }
+        .onChange(of: showModifiedOnly) { _, _ in
+            if !inspectorSearch.isEmpty { openAdjustment = preferredSearchSection }
+        }
+    }
+
+    private var searchTerm: String { inspectorSearch.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private func sectionBinding(_ section: String) -> Binding<Bool> {
+        Binding(get: { openAdjustment == section }, set: { openAdjustment = $0 ? section : nil })
+    }
+
+    private func sectionMatches(_ section: String, terms: [String]) -> Bool {
+        if showModifiedOnly {
+            let look = model.selectedLook
+            switch section {
+            case "raw": guard look.raw != RawSettings() else { return false }
+            case "tone": guard (look.tone ?? ToneSettings()) != ToneSettings() else { return false }
+            case "film-stock":
+                let filmEV = look.values["filmExposureEv"]?.scalarValue ?? 0
+                let autoExposure = look.values["autoExposure"]?.intValue ?? 0
+                guard (look.filmTone ?? ToneSettings()) != ToneSettings() || abs(filmEV) > 1e-9 || autoExposure != 0 else { return false }
+            case "density": guard (look.colorDensity ?? ColorDensitySettings()) != ColorDensitySettings() else { return false }
+            case "geometry": guard (look.geometry ?? GeometrySettings()) != GeometrySettings() else { return false }
+            case "lens": guard (look.lensEffects ?? LensEffectsSettings()) != LensEffectsSettings() else { return false }
+            default: break
+            }
+        }
+        guard !searchTerm.isEmpty else { return true }
+        return terms.contains { $0.localizedCaseInsensitiveContains(searchTerm) } ||
+            section.localizedCaseInsensitiveContains(searchTerm)
+    }
+
+    private var preferredSearchSection: String? {
+        guard !searchTerm.isEmpty else { return openAdjustment }
+        let sections: [(String, [String])] = [
+            ("raw", ["raw", "white balance", "temperature", "tint", "denoise", "iso"]),
+            ("tone", ["exposure", "scene exposure", "tone", "curve", "auto contrast", "highlights", "shadows", "brightness", "contrast", "recovery"]),
+            ("film-stock", ["film stock", "film exposure", "film tone", "stock response", "film contrast", "auto exposure"]),
+            ("density", ["density", "red", "yellow", "green", "cyan", "blue", "magenta"]),
+            ("geometry", ["geometry", "crop", "rotation", "perspective", "aspect", "straighten", "flip"]),
+            ("lens", ["lens", "aberration", "vignette", "petzval", "swirl", "spherical", "distortion"])
+        ]
+        if let section = sections.first(where: { sectionMatches($0.0, terms: $0.1) }) { return section.0 }
+        for group in catalog.groups where group.id != "raw" {
+            if group.label.localizedCaseInsensitiveContains(searchTerm) ||
+                catalog.parameters(in: group.id, flavor: .pro).contains(where: { $0.label.localizedCaseInsensitiveContains(searchTerm) || $0.name.localizedCaseInsensitiveContains(searchTerm) }) {
+                return "film.\(group.id)"
+            }
+        }
+        return nil
     }
 
     private func bridgeControlVisible(_ descriptor: ParameterDescriptor) -> Bool {
+        // Film metering belongs to the dedicated Film Stock Exposure panel.
+        if ["filmExposureEv", "autoExposure", "autoExposureMethod"].contains(descriptor.name) { return false }
         let needle = inspectorSearch.trimmingCharacters(in: .whitespacesAndNewlines)
         let searchMatches = needle.isEmpty
             || descriptor.label.localizedCaseInsensitiveContains(needle)
@@ -82,7 +162,7 @@ struct ControlsView: View {
     }
 
     private var rawSection: some View {
-        DisclosureGroup {
+        DisclosureGroup(isExpanded: sectionBinding("raw")) {
             VStack(alignment: .leading, spacing: 10) {
                 Picker("White Balance", selection: Binding(
                     get: { model.selectedLook.raw.whiteBalanceMode },
@@ -255,24 +335,25 @@ struct ControlsView: View {
     }
 
     private var toneSection: some View {
-        DisclosureGroup {
+        DisclosureGroup(isExpanded: sectionBinding("tone")) {
             VStack(alignment: .leading, spacing: 10) {
-                // Exact same native values as the Film section. Both UI locations stay linked.
-                if let descriptor = catalog.parameters.first(where: { $0.name == "filmExposureEv" }) {
-                    ParameterControlRow(
-                        model: model,
-                        descriptor: descriptor,
-                        options: catalog.options(for: descriptor)
-                    )
-                }
+                // This is an early, scene-linear exposure control. It runs before
+                // film rendering, so one EV means twice the input light. In contrast,
+                // Film Stock Exposure below changes the film simulation's exposure.
+                DraftScalarSlider(
+                    label: "Scene Exposure EV",
+                    committedValue: model.selectedLook.tone?.exposureEV ?? 0,
+                    range: -10...10,
+                    precision: 2,
+                    helpText: "Exposure before film rendering. +1 EV doubles scene-linear light, -1 EV halves it. This can be moderated by the film shoulder and is not guaranteed to clip the final output.",
+                    resetValue: 0,
+                    onReset: { model.setExposureEV(0, interactive: false) },
+                    onBegin: { model.beginEditGesture() },
+                    onChange: { model.setExposureEV($0, interactive: true) },
+                    onEnd: { model.endEditGesture() }
+                )
 
-                if let descriptor = catalog.parameters.first(where: { $0.name == "autoExposure" }) {
-                    ParameterControlRow(
-                        model: model,
-                        descriptor: descriptor,
-                        options: catalog.options(for: descriptor)
-                    )
-                }
+                // Film-only exposure and Auto Exposure are in a dedicated section.
 
                 Toggle("Auto Contrast", isOn: Binding(
                     get: { model.selectedLook.tone?.autoContrast ?? false },
@@ -324,7 +405,7 @@ struct ControlsView: View {
                     committedValue: model.selectedLook.tone?.highlights ?? 0,
                     range: -100...100,
                     precision: 0,
-                    helpText: "Targets bright detail without moving the whole image as much. Move left to pull bright areas down; move right to make highlights brighter and more open.",
+                    helpText: "Targets bright detail. Left reduces highlights, right raises highlights. Both live and final renders now follow the same direction.",
                     resetValue: 0,
                     onReset: { model.setToneHighlights(0, interactive: false) },
                     onBegin: { model.beginEditGesture() },
@@ -471,9 +552,85 @@ struct ControlsView: View {
                 .stroke(StudioPalette.subtleBorder, lineWidth: 0.5)
         }
     }
+
+    // Distinct, pre-native-film feed grade: does not modify scene adjustments.
+    // Native Film Exposure EV remains the spectral film-emulsion parameter.
+    private var filmExposureSection: some View {
+        let tone = model.selectedLook.filmTone ?? ToneSettings()
+        return DisclosureGroup(isExpanded: sectionBinding("film-stock")) {
+            VStack(alignment: .leading, spacing: 9) {
+                Text("SCENE → FILM FEED → NATIVE FILM EMULSION → DISPLAY")
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Text("These tonal controls shape the film feed after Scene adjustments and before native film rendering. Film Stock Exposure EV and Auto Exposure operate inside the native film simulation. Print controls remain separate.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let descriptor = catalog.parameters.first(where: { $0.name == "filmExposureEv" }) {
+                    ParameterControlRow(model: model, descriptor: descriptor, options: catalog.options(for: descriptor))
+                }
+                if let descriptor = catalog.parameters.first(where: { $0.name == "autoExposure" }) {
+                    ParameterControlRow(model: model, descriptor: descriptor, options: catalog.options(for: descriptor))
+                }
+                if let descriptor = catalog.parameters.first(where: { $0.name == "autoExposureMethod" }) {
+                    ParameterControlRow(model: model, descriptor: descriptor, options: catalog.options(for: descriptor))
+                }
+                Divider().opacity(0.5)
+                Toggle("Film Feed Auto Contrast", isOn: Binding(
+                    get: { tone.autoContrast },
+                    set: { model.setFilmToneValue("autoContrast", value: $0 ? 1 : 0, interactive: false) }
+                ))
+                .help("Use this film feed's luminance distribution and final display clipping boundary for automatic contrast. Recomputes for each photograph.")
+
+                filmToneControl("Film Feed Exposure EV", "exposureEV", tone.exposureEV, -8...8,
+                                "Additional light entering the film simulation, after the separate Scene grade.")
+                filmToneControl("Film Highlights", "highlights", tone.highlights, -100...100,
+                                "Negative compresses the brighter film feed; positive raises it.")
+                filmToneControl("Film Highlight Recovery", "highlightRecovery", tone.highlightRecovery, 0...100,
+                                "Compresses very bright film-feed information before spectral processing.")
+                filmToneControl("Film Shadows", "shadows", tone.shadows, -100...100,
+                                "Negative deepens dark film-feed values; positive lifts them.")
+                filmToneControl("Film Shadow Recovery", "shadowRecovery", tone.shadowRecovery, 0...100,
+                                "Recovers dark film-feed detail before emulsion simulation.")
+                filmToneControl("Film Whites", "whites", tone.whites, -100...100,
+                                "Moves the upper film-feed white response.")
+                filmToneControl("Film Blacks", "blacks", tone.blacks, -100...100,
+                                "Moves the lower film-feed black response.")
+                filmToneControl("Film Contrast", "contrast", tone.contrast, -100...100,
+                                "Increases or reduces film-feed tonal separation.")
+                filmToneControl("Film Brightness", "brightness", tone.brightness, -100...100,
+                                "Adjusts the perceived middle tones feeding the film simulation.")
+                Button("Reset Film Feed Tonal Controls") { model.resetFilmTone() }
+                    .font(.caption2).buttonStyle(.borderless)
+            }.padding(.top, 8)
+        } label: {
+            HStack {
+                Text("Film Stock Exposure").font(.caption.weight(.semibold))
+                Spacer()
+                Image(systemName: "camera.filters").font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .padding(10)
+        .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 8))
+        .overlay { RoundedRectangle(cornerRadius: 8).stroke(StudioPalette.subtleBorder, lineWidth: 0.5) }
+    }
+
+    private func filmToneControl(_ label: String, _ key: String, _ value: Double,
+                                 _ range: ClosedRange<Double>, _ helpText: String) -> some View {
+        DraftScalarSlider(
+            label: label, committedValue: value, range: range,
+            precision: key == "exposureEV" ? 2 : 0,
+            helpText: helpText, resetValue: 0,
+            onReset: { model.setFilmToneValue(key, value: 0, interactive: false) },
+            onBegin: { model.beginEditGesture() },
+            onChange: { model.setFilmToneValue(key, value: $0, interactive: true) },
+            onEnd: { model.endEditGesture() }
+        )
+    }
+
     private var colorDensitySection: some View {
         let density = model.selectedLook.colorDensity ?? ColorDensitySettings()
-        return DisclosureGroup {
+        return DisclosureGroup(isExpanded: sectionBinding("density")) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Density changes how deep a color feels in the log-domain host grade before the film simulation. It is different from Saturation: density can make a color feel richer without simply pushing every channel farther apart.")
                     .font(.caption2)
@@ -522,7 +679,7 @@ struct ControlsView: View {
 
     private var geometrySection: some View {
         let geometry = model.selectedLook.geometry ?? GeometrySettings()
-        return DisclosureGroup(isExpanded: $geometryExpanded) {
+        return DisclosureGroup(isExpanded: sectionBinding("geometry")) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     Text("Crop handles are live in the viewer while this section is open.")
@@ -688,7 +845,7 @@ struct ControlsView: View {
                 Text("Crop & Geometry")
                     .font(.caption.weight(.semibold))
                 Spacer()
-                if geometryExpanded {
+                if openAdjustment == "geometry" {
                     Image(systemName: "crop")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.secondary)
@@ -698,9 +855,7 @@ struct ControlsView: View {
                     .help("Reset crop, rotation, perspective, scale, flips, and geometry guides.")
             }
         }
-        .onChange(of: geometryExpanded) { _, expanded in
-            model.setCropToolActive(expanded)
-        }
+        // Crop state follows the parent accordion selection (including search).
         .padding(10)
         .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 8))
         .overlay {

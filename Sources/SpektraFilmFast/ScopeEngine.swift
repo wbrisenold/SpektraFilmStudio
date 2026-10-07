@@ -33,9 +33,9 @@ actor ScopeEngine {
             case .vectorscope:
                 return Self.vectorscope(buffer, look: look, skinReference: false, toleranceDegrees: skinToleranceDegrees)
             case .saturation:
-                return Self.saturationScope(buffer)
+                return Self.saturationScope(buffer, look: look)
             case .falseColor:
-                return Self.falseColor(buffer)
+                return Self.falseColor(buffer, look: look)
             case .skinVectorscope:
                 return Self.vectorscope(
                     buffer, look: look, skinReference: true, toleranceDegrees: skinToleranceDegrees,
@@ -185,33 +185,70 @@ actor ScopeEngine {
         return ScopePayload(width: width, height: height, rgba: out)
     }
 
-    private nonisolated static func saturationScope(_ buffer: PixelBufferF32) -> ScopePayload {
-        let width=384, height=192, bins=width*height
-        var counts=[UInt16](repeating:0,count:bins), sr=[Float](repeating:0,count:bins), sg=sr, sb=sr
-        let step=max(1,Int((Double(buffer.width*buffer.height)/180_000.0).squareRoot()))
-        for y in stride(from:0,to:buffer.height,by:step){for x in stride(from:0,to:buffer.width,by:step){
-            let p=(y*buffer.width+x)*4, r=clamp01(buffer.pixels[p]), g=clamp01(buffer.pixels[p+1]), b=clamp01(buffer.pixels[p+2])
-            let mx=max(r,max(g,b)), mn=min(r,min(g,b)), delta=mx-mn
-            let sat=mx > 1e-6 ? delta/mx : 0
-            var hue:Float=0
-            if delta > 1e-6 { if mx==r { hue=(g-b)/delta }; if mx==g { hue=2+(b-r)/delta }; if mx==b { hue=4+(r-g)/delta }; hue/=6; if hue<0 {hue+=1} }
-            let px=min(width-1,max(0,Int((hue*Float(width-1)).rounded()))), py=height-1-min(height-1,max(0,Int((sat*Float(height-1)).rounded())))
-            let i=py*width+px; counts[i]=min(UInt16.max,counts[i]&+1); sr[i]+=r;sg[i]+=g;sb[i]+=b
-        }}
-        var out=background(width,height); drawCartesianGrid(&out,width,height,vertical:true); let maxCount=max(1,counts.max() ?? 1)
-        for y in 0..<height { for x in 0..<width { let i=y*width+x,c=counts[i]; guard c>0 else{continue}; let d=Float(c); let peak=max(0.001,max(sr[i]/d,max(sg[i]/d,sb[i]/d))); let a=UInt8(clamping:Int((24+210*sqrt(Double(c)/Double(maxCount))).rounded())); blend(&out,width,x,y,UInt8(clamping:Int(sr[i]/d/peak*255)),UInt8(clamping:Int(sg[i]/d/peak*255)),UInt8(clamping:Int(sb[i]/d/peak*255)),a)}}
-        drawTopBottomRules(&out,width,height); return ScopePayload(width:width,height:height,rgba:out)
+    // Both diagnostics use the *final* post-lens/post-geometry rendered frame,
+    // never camera-linear RAW before grading. Interpret coded signal properly.
+    private nonisolated static func monitorCode(_ x: Float, outputSpace: Int) -> Float {
+        let v=max(0,min(1,x))
+        if [14,15,16].contains(outputSpace) {
+            // Convert linear-light renderer output to an approximate Rec709 display code.
+            return v < 0.018 ? 4.5*v : 1.099*pow(v,0.45)-0.099
+        }
+        // 17(sRGB), 18(P3), 24/25(Rec709 gamma) are already display-coded.
+        return v
     }
 
-    private nonisolated static func falseColor(_ buffer: PixelBufferF32) -> ScopePayload {
-        let width=384, height=max(144,Int(Double(width)*Double(buffer.height)/Double(max(1,buffer.width))))
+    private nonisolated static func saturationScope(_ buffer: PixelBufferF32, look: RenderLook) -> ScopePayload {
+        let width=384, height=max(150,Int((Double(384)*Double(buffer.height)/Double(max(1,buffer.width))).rounded()))
         var out=[UInt8](repeating:0,count:width*height*4)
+        let space=Int(look.values["outputColorSpace"]?.intValue ?? 25)
         for y in 0..<height { for x in 0..<width {
-            let sx=min(buffer.width-1,x*buffer.width/max(1,width)), sy=min(buffer.height-1,y*buffer.height/max(1,height)), p=(sy*buffer.width+sx)*4
-            let r=max(0,buffer.pixels[p]),g=max(0,buffer.pixels[p+1]),b=max(0,buffer.pixels[p+2]), l=0.2126*r+0.7152*g+0.0722*b
-            let c:(UInt8,UInt8,UInt8)
-            switch l { case ..<0.02:c=(38,35,92); case ..<0.08:c=(56,88,180); case ..<0.18:c=(47,160,196); case ..<0.32:c=(92,188,112); case ..<0.50:c=(154,154,154); case ..<0.68:c=(226,186,84); case ..<0.86:c=(236,126,62); case ..<0.98:c=(220,68,88); default:c=(255,245,245) }
-            let o=(y*width+x)*4; out[o]=c.0;out[o+1]=c.1;out[o+2]=c.2;out[o+3]=255
+            let sx=min(buffer.width-1,x*buffer.width/width)
+            let sy=min(buffer.height-1,y*buffer.height/height)
+            let p=(sy*buffer.width+sx)*4
+            let r=monitorCode(buffer.pixels[p],outputSpace:space), g=monitorCode(buffer.pixels[p+1],outputSpace:space), b=monitorCode(buffer.pixels[p+2],outputSpace:space)
+            let mx=max(r,max(g,b)), mn=min(r,min(g,b))
+            let saturation=mx > 1e-6 ? (mx-mn)/mx : 0
+            let luma=0.2126*r+0.7152*g+0.0722*b
+            let intensity=min(0.8,max(0.07,luma))*155
+            var color:(UInt8,UInt8,UInt8)=(UInt8(clamping:Int(intensity)),UInt8(clamping:Int(intensity)),UInt8(clamping:Int(intensity)))
+            // Black and near-white pixels have unreliable/noisy HSV saturation.
+            if mx >= 0.12 && luma <= 0.94 {
+                switch saturation {
+                case ..<0.50: break
+                case ..<0.70: color=(58,160,144)  // moderately colorful
+                case ..<0.85: color=(236,184,72)  // strong color
+                case ..<0.95: color=(244,107,72)  // caution
+                default: color=(230,54,102)      // very high HSV saturation
+                }
+            }
+            let o=(y*width+x)*4;out[o]=color.0;out[o+1]=color.1;out[o+2]=color.2;out[o+3]=255
+        }}
+        return ScopePayload(width:width,height:height,rgba:out)
+    }
+
+    private nonisolated static func falseColor(_ buffer: PixelBufferF32, look: RenderLook) -> ScopePayload {
+        let width=384, height=max(150,Int((Double(384)*Double(buffer.height)/Double(max(1,buffer.width))).rounded()))
+        var out=[UInt8](repeating:0,count:width*height*4)
+        let space=Int(look.values["outputColorSpace"]?.intValue ?? 25)
+        for y in 0..<height { for x in 0..<width {
+            let sx=min(buffer.width-1,x*buffer.width/width), sy=min(buffer.height-1,y*buffer.height/height), p=(sy*buffer.width+sx)*4
+            let r=monitorCode(buffer.pixels[p],outputSpace:space),g=monitorCode(buffer.pixels[p+1],outputSpace:space),b=monitorCode(buffer.pixels[p+2],outputSpace:space)
+            // Y' (display-code luma) as 0–100 video-level index; unlike the old
+            // implementation, linear working data must be transfer-encoded first.
+            let yPrime=0.2126*r+0.7152*g+0.0722*b
+            let color:(UInt8,UInt8,UInt8)
+            switch yPrime {
+            case ..<0.03: color=(30,29,91)     // deepest shadows
+            case ..<0.10: color=(51,75,158)
+            case ..<0.20: color=(53,147,198)
+            case ..<0.40: color=(70,171,121)
+            case ..<0.60: color=(135,145,138)  // gray around expected middle
+            case ..<0.75: color=(227,190,79)
+            case ..<0.88: color=(246,124,57)
+            case ..<0.97: color=(224,69,87)
+            default: color=(255,242,240)
+            }
+            let o=(y*width+x)*4;out[o]=color.0;out[o+1]=color.1;out[o+2]=color.2;out[o+3]=255
         }}
         return ScopePayload(width:width,height:height,rgba:out)
     }

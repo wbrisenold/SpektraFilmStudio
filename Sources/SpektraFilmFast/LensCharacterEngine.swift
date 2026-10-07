@@ -1,194 +1,188 @@
 import Foundation
 import Metal
 
-/// Stage 5 production lens engine.
-///
-/// - Metal is the preferred path for both 1080 px previews and full-resolution export.
-/// - The CPU reference implementation is retained as a deterministic fallback only.
-/// - The compute grid is dispatched in fixed 16x16 tiles so memory pressure scales with
-///   the source image rather than with temporary per-pixel Swift allocations.
+/// Spatial optical character. Applied after the exact film engine and before geometry.
+/// The CPU implementation mirrors the Metal equations and is used only if Metal fails.
+/// Inspired by the RapidGrade lens study (protected center, elliptical arc blur,
+/// independently shaped vignette, per-channel CA); not copied from a proprietary shader.
 enum LensCharacterEngine {
     static func apply(_ input: PixelBufferF32, settings optional: LensEffectsSettings?) -> PixelBufferF32 {
-        guard let s = optional, s.enabled, !s.isIdentity, input.width > 2, input.height > 2 else { return input }
-        if let gpu = LensCharacterMetalEngine.shared.apply(input, settings: s.resolved) {
-            return gpu
-        }
-        return applyCPU(input, settings: s.resolved)
+        guard let s = optional, s.enabled, !s.isIdentity,
+              input.width > 2, input.height > 2 else { return input }
+        let parameters = s.resolved
+        if let metal = LensOpticalMetal.shared.apply(input, parameters: parameters) { return metal }
+        return applyCPU(input, parameters: parameters)
     }
 
-    private static func applyCPU(_ input: PixelBufferF32, settings preset: LensEffectsResolved) -> PixelBufferF32 {
+    private static func applyCPU(_ input: PixelBufferF32, parameters p: LensEffectsResolved) -> PixelBufferF32 {
         let w = input.width, h = input.height
-        var out = [Float](repeating: 0, count: input.pixels.count)
-        let aspect = Float(w) / Float(max(1, h))
-        let maxRadius = sqrt(aspect * aspect + 1)
-        let k1 = Float(preset.distortion)
-        let ca = Float(preset.chromaticAberration) / Float(max(w, h))
-        let highlightCA = Float(preset.highlightChromaticAberration) / Float(max(w, h))
-        let swirl = Float(preset.petzvalSwirl) * 0.035
-        let edgeSoft = Float(preset.edgeSoftness)
-        let spherical = Float(preset.sphericalAberration)
-        let vignette = Float(preset.vignette)
+        let invW = 1 / Float(max(1, w - 1)), invH = 1 / Float(max(1, h - 1))
+        let a = Float(w) / Float(h), shape = Float(max(0.5, min(2, p.lensShape)))
+        let protect = Float(max(0.02, min(0.94, p.swirlRadius)))
+        let thickness = Float(max(0.1, min(3, p.blurThickness)))
+        let size = Float(max(w, h))
+        let outputCount = w * h * 4
+        var pixels = [Float](repeating: 0, count: outputCount)
 
-        @inline(__always) func sample(_ x: Float, _ y: Float, _ channel: Int) -> Float {
-            let fx = max(0, min(Float(w - 1), x * Float(w - 1)))
-            let fy = max(0, min(Float(h - 1), y * Float(h - 1)))
-            let x0 = Int(floor(fx)), y0 = Int(floor(fy)); let x1 = min(w - 1, x0 + 1), y1 = min(h - 1, y0 + 1)
-            let tx = fx - Float(x0), ty = fy - Float(y0)
-            let a = input.pixels[(y0*w+x0)*4+channel] * (1-tx) + input.pixels[(y0*w+x1)*4+channel] * tx
-            let b = input.pixels[(y1*w+x0)*4+channel] * (1-tx) + input.pixels[(y1*w+x1)*4+channel] * tx
-            return a * (1-ty) + b * ty
+        @inline(__always) func smooth(_ t: Float) -> Float {
+            let q = max(0, min(1, t)); return q * q * (3 - 2 * q)
         }
-
+        @inline(__always) func sample(_ u: Float, _ v: Float, _ channel: Int) -> Float {
+            let x = max(0, min(Float(w - 1), u * Float(w - 1)))
+            let y = max(0, min(Float(h - 1), v * Float(h - 1)))
+            let x0 = Int(x), y0 = Int(y), x1 = min(w - 1, x0 + 1), y1 = min(h - 1, y0 + 1)
+            let fx = x - Float(x0), fy = y - Float(y0)
+            let top = input.pixels[(y0 * w + x0) * 4 + channel] * (1 - fx) + input.pixels[(y0 * w + x1) * 4 + channel] * fx
+            let bottom = input.pixels[(y1 * w + x0) * 4 + channel] * (1 - fx) + input.pixels[(y1 * w + x1) * 4 + channel] * fx
+            return top * (1 - fy) + bottom * fy
+        }
         for y in 0..<h {
-            let ny0 = (Float(y) / Float(max(1,h-1))) * 2 - 1
             for x in 0..<w {
-                let nx0 = ((Float(x) / Float(max(1,w-1))) * 2 - 1) * aspect
-                let r2 = nx0*nx0 + ny0*ny0
-                let rn = min(1, sqrt(r2) / maxRadius)
-                let distortionScale = 1 + k1*r2 + spherical * 0.018 * r2*r2
-                var nx = nx0 * distortionScale, ny = ny0 * distortionScale
-                if abs(swirl) > 0.00001 {
-                    let angle = swirl * rn * rn
-                    let c = cos(angle), ss = sin(angle)
-                    let rx = nx*c - ny*ss; ny = nx*ss + ny*c; nx = rx
+                let xu = Float(x) * invW * 2 - 1
+                let yu = Float(y) * invH * 2 - 1
+                let dx = xu * a / shape, dy = yu * shape
+                let radius = min(1, sqrt(dx * dx + dy * dy) / sqrt(a * a / (shape * shape) + shape * shape))
+                let edge = smooth((radius - protect) / max(0.02, 1 - protect))
+                let r2 = dx * dx + dy * dy
+                let warp = 1 + Float(p.distortion) * r2 + Float(p.sphericalAberration) * 0.012 * r2 * r2
+                var wx = xu * warp, wy = yu * warp
+                let angle = Float(p.petzvalSwirl) * 0.33 * edge * edge
+                let ca = cos(angle), sa = sin(angle)
+                let ox = wx * ca - wy * sa; wy = wx * sa + wy * ca; wx = ox
+                let u = wx * 0.5 + 0.5, v = wy * 0.5 + 0.5
+                let caShift = Float(p.chromaticAberration) / size
+                let bright = max(0, 0.2126 * sample(u,v,0) + 0.7152 * sample(u,v,1) + 0.0722 * sample(u,v,2))
+                let high = smooth((bright - 0.55) / 0.8)
+                let shift = edge * (caShift + Float(p.highlightChromaticAberration) * high / size)
+                let directionX = xu, directionY = yu
+                let blur = edge * (Float(p.edgeSoftness) * 0.005 + Float(p.sphericalAberration) * 0.002) * thickness
+                let tangentX = -yu / max(0.001, a), tangentY = xu * a
+                let curve = Float(p.petzvalSwirl) * 0.16 * edge
+                let start = (y * w + x) * 4
+                for channel in 0..<3 {
+                    let offset: Float
+                    if p.caChannel == .red && channel != 0 { offset = 0 }
+                    else if p.caChannel == .blue && channel != 2 { offset = 0 }
+                    else { offset = channel == 0 ? shift : (channel == 2 ? -shift : 0) }
+                    let cu = u + directionX * offset, cv = v + directionY * offset
+                    var result = sample(cu, cv, channel)
+                    if blur > 0.000001 {
+                        var weighted = Float(0), weights = Float(0)
+                        for i in -3...3 {
+                            let t = Float(i) / 3
+                            let arcX = tangentX * t + xu * curve * t * t
+                            let arcY = tangentY * t + yu * curve * t * t
+                            let weight = 1 - 0.55 * abs(t)
+                            weighted += sample(cu + arcX * blur, cv + arcY * blur, channel) * weight
+                            weights += weight
+                        }
+                        let amount = smooth(min(1, blur * 210))
+                        result = result * (1 - amount) + (weighted / weights) * amount
+                    }
+                    let vignetteRadius = Float(max(0.10, min(0.98, p.vignetteRadius)))
+                    let falloff = Float(max(0.4, min(5, p.vignetteFalloff)))
+                    let vig = 1 - Float(p.vignette) * pow(smooth((radius - vignetteRadius) / max(0.02, 1 - vignetteRadius)), falloff)
+                    pixels[start + channel] = result * max(0, vig)
                 }
-                let u = nx / aspect * 0.5 + 0.5, v = ny * 0.5 + 0.5
-                let radialX = nx / max(0.0001, aspect), radialY = ny
-                var rr = sample(u + radialX*ca, v + radialY*ca, 0)
-                let gg = sample(u, v, 1)
-                var bb = sample(u - radialX*ca, v - radialY*ca, 2)
-                let luma = max(0, 0.2126*rr + 0.7152*gg + 0.0722*bb)
-                let hca = highlightCA * min(1, luma)
-                if hca > 0 {
-                    rr = sample(u + radialX*hca, v + radialY*hca, 0)
-                    bb = sample(u-radialX*hca,v-radialY*hca,2)
-                }
-                if spherical > 0.001 {
-                    let blur = spherical * (0.25 + 0.75*rn*rn) / Float(max(w,h)) * 5
-                    rr = rr*(1-spherical*0.18) + sample(u+blur,v,0)*(spherical*0.09) + sample(u-blur,v,0)*(spherical*0.09)
-                    bb = bb*(1-spherical*0.18) + sample(u,v+blur,2)*(spherical*0.09) + sample(u,v-blur,2)*(spherical*0.09)
-                }
-                let p=(y*w+x)*4
-                let vignetteGain = max(0, 1 - vignette * pow(rn, 2.2))
-                let softnessGain = max(0.72, 1 - edgeSoft * rn*rn * 0.16)
-                out[p]=rr*vignetteGain*softnessGain; out[p+1]=gg*vignetteGain*softnessGain; out[p+2]=bb*vignetteGain*softnessGain; out[p+3]=input.pixels[p+3]
+                pixels[start + 3] = input.pixels[start + 3]
             }
         }
-        return PixelBufferF32(width:w,height:h,pixels:out)
+        return PixelBufferF32(width: w, height: h, pixels: pixels)
     }
 }
 
-private final class LensCharacterMetalEngine: @unchecked Sendable {
-    static let shared = LensCharacterMetalEngine()
-
+private final class LensOpticalMetal: @unchecked Sendable {
+    static let shared = LensOpticalMetal()
     private struct Params {
-        var width: UInt32
-        var height: UInt32
-        var distortion: Float
-        var chromaticAberration: Float
-        var highlightChromaticAberration: Float
-        var sphericalAberration: Float
-        var petzvalSwirl: Float
-        var edgeSoftness: Float
-        var vignette: Float
-        var reserved: Float = 0
+        var width: UInt32; var height: UInt32; var caChannel: UInt32; var pad: UInt32 = 0
+        var distortion: Float; var ca: Float; var highlightCA: Float; var spherical: Float
+        var swirl: Float; var edgeSoft: Float; var vignette: Float; var lensShape: Float
+        var blurThickness: Float; var swirlRadius: Float; var vignetteRadius: Float; var vignetteFalloff: Float
     }
-
     private let queue: MTLCommandQueue?
     private let pipeline: MTLComputePipelineState?
-    private let lock = NSLock()
-
     private init() {
-        guard let device = MTLCreateSystemDefaultDevice() else {
-            self.queue = nil; self.pipeline = nil; return
-        }
-        let library = try? device.makeLibrary(source: Self.metalSource, options: nil)
-        let function = library?.makeFunction(name: "lens_character_kernel")
-        guard let function, let queue = device.makeCommandQueue(),
+        guard let device = MTLCreateSystemDefaultDevice(),
+              let library = try? device.makeLibrary(source: Self.source, options: nil),
+              let function = library.makeFunction(name: "lens_optical_kernel"),
+              let queue = device.makeCommandQueue(),
               let pipeline = try? device.makeComputePipelineState(function: function) else {
             self.queue = nil; self.pipeline = nil; return
         }
-        self.queue = queue
-        self.pipeline = pipeline
+        self.queue = queue; self.pipeline = pipeline
     }
-
-    func apply(_ input: PixelBufferF32, settings: LensEffectsResolved) -> PixelBufferF32? {
+    func apply(_ input: PixelBufferF32, parameters p: LensEffectsResolved) -> PixelBufferF32? {
         guard let queue, let pipeline else { return nil }
+        let count = input.pixels.count
+        guard count > 0, count <= Int.max / MemoryLayout<Float>.stride else { return nil }
+        let bytes = count * MemoryLayout<Float>.stride
         let device = queue.device
-        let byteCount = input.pixels.count * MemoryLayout<Float>.stride
-        guard byteCount > 0,
-              let inputBuffer = device.makeBuffer(bytes: input.pixels, length: byteCount, options: .storageModeShared),
-              let outputBuffer = device.makeBuffer(length: byteCount, options: .storageModeShared),
-              let commandBuffer = queue.makeCommandBuffer(),
-              let encoder = commandBuffer.makeComputeCommandEncoder() else { return nil }
-
-        var params = Params(
-            width: UInt32(input.width), height: UInt32(input.height),
-            distortion: Float(settings.distortion),
-            chromaticAberration: Float(settings.chromaticAberration),
-            highlightChromaticAberration: Float(settings.highlightChromaticAberration),
-            sphericalAberration: Float(settings.sphericalAberration),
-            petzvalSwirl: Float(settings.petzvalSwirl),
-            edgeSoftness: Float(settings.edgeSoftness),
-            vignette: Float(settings.vignette)
-        )
-        guard let paramBuffer = device.makeBuffer(bytes: &params, length: MemoryLayout<Params>.stride, options: .storageModeShared) else { return nil }
-
+        guard let src = device.makeBuffer(bytes: input.pixels, length: bytes, options: .storageModeShared),
+              let dst = device.makeBuffer(length: bytes, options: .storageModeShared),
+              let command = queue.makeCommandBuffer(),
+              let encoder = command.makeComputeCommandEncoder() else { return nil }
+        var params = Params(width: UInt32(input.width), height: UInt32(input.height), caChannel: p.caChannel == .red ? 1 : (p.caChannel == .blue ? 2 : 0),
+                            distortion: Float(p.distortion), ca: Float(p.chromaticAberration), highlightCA: Float(p.highlightChromaticAberration),
+                            spherical: Float(p.sphericalAberration), swirl: Float(p.petzvalSwirl), edgeSoft: Float(p.edgeSoftness),
+                            vignette: Float(p.vignette), lensShape: Float(p.lensShape), blurThickness: Float(p.blurThickness),
+                            swirlRadius: Float(p.swirlRadius), vignetteRadius: Float(p.vignetteRadius), vignetteFalloff: Float(p.vignetteFalloff))
         encoder.setComputePipelineState(pipeline)
-        encoder.setBuffer(inputBuffer, offset: 0, index: 0)
-        encoder.setBuffer(outputBuffer, offset: 0, index: 1)
-        encoder.setBuffer(paramBuffer, offset: 0, index: 2)
-        let tile = MTLSize(width: 16, height: 16, depth: 1)
-        let grid = MTLSize(width: input.width, height: input.height, depth: 1)
-        encoder.dispatchThreads(grid, threadsPerThreadgroup: tile)
-        encoder.endEncoding()
-
-        // Queue/pipeline are shared by preview and export. Serialize only the actual Metal submit
-        // so simultaneous exports cannot mutate shared driver state on older Intel GPUs.
-        lock.lock(); commandBuffer.commit(); lock.unlock()
-        commandBuffer.waitUntilCompleted()
-        guard commandBuffer.status == .completed else { return nil }
-
-        let ptr = outputBuffer.contents().bindMemory(to: Float.self, capacity: input.pixels.count)
-        let pixels = Array(UnsafeBufferPointer(start: ptr, count: input.pixels.count))
-        return PixelBufferF32(width: input.width, height: input.height, pixels: pixels)
+        encoder.setBuffer(src, offset: 0, index: 0); encoder.setBuffer(dst, offset: 0, index: 1)
+        encoder.setBytes(&params, length: MemoryLayout<Params>.stride, index: 2)
+        encoder.dispatchThreads(MTLSize(width: input.width, height: input.height, depth: 1), threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
+        encoder.endEncoding(); command.commit(); command.waitUntilCompleted()
+        guard command.status == .completed else { return nil }
+        let ptr = dst.contents().bindMemory(to: Float.self, capacity: count)
+        return PixelBufferF32(width: input.width, height: input.height, pixels: Array(UnsafeBufferPointer(start: ptr, count: count)))
     }
 
-    private static let metalSource = #"""
+    private static let source = #"""
     #include <metal_stdlib>
     using namespace metal;
-    struct Params { uint width; uint height; float distortion; float ca; float highlightCA; float spherical; float swirl; float edgeSoft; float vignette; float reserved; };
-
-    inline float sample_channel(device const float *src, uint w, uint h, float u, float v, uint c) {
-        float fx = clamp(u * float(w-1), 0.0f, float(w-1));
-        float fy = clamp(v * float(h-1), 0.0f, float(h-1));
-        uint x0 = uint(floor(fx)), y0 = uint(floor(fy)); uint x1=min(w-1,x0+1), y1=min(h-1,y0+1);
-        float tx=fx-float(x0), ty=fy-float(y0);
-        float a=mix(src[(y0*w+x0)*4+c],src[(y0*w+x1)*4+c],tx);
-        float b=mix(src[(y1*w+x0)*4+c],src[(y1*w+x1)*4+c],tx);
-        return mix(a,b,ty);
+    struct P { uint width;uint height;uint caChannel;uint pad;float distortion;float ca;float highlightCA;float spherical;float swirl;float edgeSoft;float vignette;float lensShape;float blurThickness;float swirlRadius;float vignetteRadius;float vignetteFalloff; };
+    inline float smooth(float t) { t=clamp(t,0.0f,1.0f);return t*t*(3.0f-2.0f*t); }
+    inline float get(device const float *src,uint w,uint h,float u,float v,uint c) {
+        float px=clamp(u*float(w-1),0.0f,float(w-1)),py=clamp(v*float(h-1),0.0f,float(h-1));
+        uint x0=uint(px),y0=uint(py),x1=min(w-1,x0+1),y1=min(h-1,y0+1);
+        float fx=px-float(x0),fy=py-float(y0);
+        return mix(mix(src[(y0*w+x0)*4+c],src[(y0*w+x1)*4+c],fx),mix(src[(y1*w+x0)*4+c],src[(y1*w+x1)*4+c],fx),fy);
     }
-
-    kernel void lens_character_kernel(device const float *src [[buffer(0)]], device float *dst [[buffer(1)]], constant Params &p [[buffer(2)]], uint2 gid [[thread_position_in_grid]]) {
-        if (gid.x>=p.width || gid.y>=p.height) return;
-        float w=float(p.width), h=float(p.height), aspect=w/max(1.0f,h), maxRadius=sqrt(aspect*aspect+1.0f);
-        float ny0=(float(gid.y)/max(1.0f,h-1.0f))*2.0f-1.0f;
-        float nx0=((float(gid.x)/max(1.0f,w-1.0f))*2.0f-1.0f)*aspect;
-        float r2=nx0*nx0+ny0*ny0, rn=min(1.0f,sqrt(r2)/maxRadius);
-        float distortionScale=1.0f+p.distortion*r2+p.spherical*0.018f*r2*r2;
-        float nx=nx0*distortionScale, ny=ny0*distortionScale;
-        float swirlAmount=p.swirl*0.035f;
-        if (fabs(swirlAmount)>0.00001f) { float a=swirlAmount*rn*rn; float c=cos(a), s=sin(a); float rx=nx*c-ny*s; ny=nx*s+ny*c; nx=rx; }
-        float u=nx/aspect*0.5f+0.5f, v=ny*0.5f+0.5f, radialX=nx/max(0.0001f,aspect), radialY=ny;
-        float ca=p.ca/max(w,h), hcaBase=p.highlightCA/max(w,h);
-        float rr=sample_channel(src,p.width,p.height,u+radialX*ca,v+radialY*ca,0);
-        float gg=sample_channel(src,p.width,p.height,u,v,1);
-        float bb=sample_channel(src,p.width,p.height,u-radialX*ca,v-radialY*ca,2);
-        float luma=max(0.0f,0.2126f*rr+0.7152f*gg+0.0722f*bb), hca=hcaBase*min(1.0f,luma);
-        if (hca>0.0f) { rr=sample_channel(src,p.width,p.height,u+radialX*hca,v+radialY*hca,0); bb=sample_channel(src,p.width,p.height,u-radialX*hca,v-radialY*hca,2); }
-        if (p.spherical>0.001f) { float blur=p.spherical*(0.25f+0.75f*rn*rn)/max(w,h)*5.0f; rr=rr*(1.0f-p.spherical*0.18f)+sample_channel(src,p.width,p.height,u+blur,v,0)*(p.spherical*0.09f)+sample_channel(src,p.width,p.height,u-blur,v,0)*(p.spherical*0.09f); bb=bb*(1.0f-p.spherical*0.18f)+sample_channel(src,p.width,p.height,u,v+blur,2)*(p.spherical*0.09f)+sample_channel(src,p.width,p.height,u,v-blur,2)*(p.spherical*0.09f); }
-        uint o=(gid.y*p.width+gid.x)*4; float vg=max(0.0f,1.0f-p.vignette*pow(rn,2.2f)); float sg=max(0.72f,1.0f-p.edgeSoft*rn*rn*0.16f);
-        dst[o]=rr*vg*sg; dst[o+1]=gg*vg*sg; dst[o+2]=bb*vg*sg; dst[o+3]=src[o+3];
+    kernel void lens_optical_kernel(device const float *src [[buffer(0)]],device float *dst [[buffer(1)]],constant P &p [[buffer(2)]],uint2 gid [[thread_position_in_grid]]) {
+        if(gid.x>=p.width || gid.y>=p.height) return;
+        float a=float(p.width)/float(p.height),shape=clamp(p.lensShape,0.5f,2.0f);
+        float xu=float(gid.x)/max(1.0f,float(p.width-1))*2.0f-1.0f, yu=float(gid.y)/max(1.0f,float(p.height-1))*2.0f-1.0f;
+        float dx=xu*a/shape,dy=yu*shape, r2=dx*dx+dy*dy;
+        float radius=min(1.0f,sqrt(r2)/sqrt(a*a/(shape*shape)+shape*shape));
+        float protect=clamp(p.swirlRadius,0.02f,0.94f);
+        float edge=smooth((radius-protect)/max(0.02f,1.0f-protect));
+        float warp=1.0f+p.distortion*r2+p.spherical*0.012f*r2*r2;
+        float wx=xu*warp,wy=yu*warp;
+        float angle=p.swirl*0.33f*edge*edge;
+        float ox=wx*cos(angle)-wy*sin(angle);wy=wx*sin(angle)+wy*cos(angle);wx=ox;
+        float u=wx*0.5f+0.5f,v=wy*0.5f+0.5f;
+        float bright=max(0.0f,0.2126f*get(src,p.width,p.height,u,v,0)+0.7152f*get(src,p.width,p.height,u,v,1)+0.0722f*get(src,p.width,p.height,u,v,2));
+        float high=smooth((bright-0.55f)/0.8f),size=max(float(p.width),float(p.height));
+        float shift=edge*(p.ca+high*p.highlightCA)/size;
+        float blur=edge*(p.edgeSoft*0.005f+p.spherical*0.002f)*clamp(p.blurThickness,0.1f,3.0f);
+        float tangentX=-yu/max(0.001f,a),tangentY=xu*a,curve=p.swirl*0.16f*edge;
+        float vig=1.0f-p.vignette*pow(smooth((radius-clamp(p.vignetteRadius,0.10f,0.98f))/max(0.02f,1.0f-clamp(p.vignetteRadius,0.10f,0.98f))),clamp(p.vignetteFalloff,0.4f,5.0f));
+        uint o=(gid.y*p.width+gid.x)*4;
+        for(uint c=0;c<3;c++) {
+            float offset=(p.caChannel==1 && c!=0)||(p.caChannel==2 && c!=2)?0.0f:(c==0?shift:(c==2?-shift:0.0f));
+            float cu=u+xu*offset,cv=v+yu*offset;
+            float result=get(src,p.width,p.height,cu,cv,c);
+            if(blur>0.000001f) {
+                float weighted=0.0f,weights=0.0f;
+                for(int i=-3;i<=3;i++) {
+                    float t=float(i)/3.0f,arcX=tangentX*t+xu*curve*t*t,arcY=tangentY*t+yu*curve*t*t;
+                    float weight=1.0f-0.55f*abs(t);
+                    weighted+=get(src,p.width,p.height,cu+arcX*blur,cv+arcY*blur,c)*weight;weights+=weight;
+                }
+                float amount=smooth(min(1.0f,blur*210.0f));result=mix(result,weighted/weights,amount);
+            }
+            dst[o+c]=result*max(0.0f,vig);
+        }
+        dst[o+3]=src[o+3];
     }
     """#
 }

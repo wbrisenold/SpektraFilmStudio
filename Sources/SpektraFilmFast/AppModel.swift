@@ -763,6 +763,7 @@ final class AppModel: ObservableObject {
     func selectImage(_ id: UUID, renderPreview: Bool = true) {
         let changed = project.selectedImageID != id
         if changed {
+            isGradientMaskEditing = false
             cancelPreviewForNavigation()
             gestureWorkingLook = nil
             activeEditBaseline = nil
@@ -1129,6 +1130,27 @@ final class AppModel: ObservableObject {
 
     func setLocalGradeEnabled(_ gradeID: UUID, _ enabled: Bool) { mutateGrade(gradeID) { $0.enabled = enabled } }
     func setLocalGradeOpacity(_ gradeID: UUID, _ value: Double) { mutateGrade(gradeID) { $0.opacity = min(1, max(0, value)) } }
+    func setLocalTone(_ gradeID: UUID, _ key: String, _ value: Double) {
+        mutateGrade(gradeID) { grade in
+            var tone = grade.tone ?? ToneSettings()
+            switch key {
+            case "exposure": tone.exposureEV = max(-5, min(5, value))
+            case "brightness": tone.brightness = max(-100, min(100, value))
+            case "contrast": tone.contrast = max(-100, min(100, value))
+            case "highlights": tone.highlights = max(-100, min(100, value))
+            case "shadows": tone.shadows = max(-100, min(100, value))
+            default: return
+            }
+            grade.tone = tone
+        }
+    }
+    func setLocalDensity(_ gradeID: UUID, _ value: Double) {
+        mutateGrade(gradeID) { grade in
+            var density = grade.colorDensity ?? ColorDensitySettings()
+            density.master = max(-1, min(1, value))
+            grade.colorDensity = density
+        }
+    }
 
     func addMaskSource(gradeID: UUID, kind: MaskSourceKind) {
         mutateGrade(gradeID) { grade in
@@ -1144,6 +1166,32 @@ final class AppModel: ObservableObject {
 
     func removeMaskSource(gradeID: UUID, maskID: UUID) { mutateGrade(gradeID) { $0.masks.sources.removeAll { $0.id == maskID } } }
     func setMaskEnabled(gradeID: UUID, maskID: UUID, _ value: Bool) { mutateMask(gradeID, maskID) { $0.enabled = value } }
+    func setGradientEndpoints(gradeID: UUID, maskID: UUID, start: NormalizedPoint, end: NormalizedPoint) {
+        mutateMask(gradeID, maskID) { source in
+            guard source.kind == .linearGradient else { return }
+            var geometry = source.linearGradient ?? LinearGradientMaskGeometry()
+            geometry.start = start
+            geometry.end = end
+            source.linearGradient = geometry
+        }
+    }
+    func setGradientCoordinate(gradeID: UUID, maskID: UUID, axis: String, value: Double) {
+        mutateMask(gradeID, maskID) { source in
+            guard source.kind == .linearGradient else { return }
+            var geometry = source.linearGradient ?? LinearGradientMaskGeometry()
+            let amount = max(0, min(1, value))
+            switch axis {
+            case "startX": geometry.start.x = amount
+            case "startY": geometry.start.y = amount
+            case "endX": geometry.end.x = amount
+            case "endY": geometry.end.y = amount
+            default: return
+            }
+            source.linearGradient = geometry
+        }
+    }
+    @Published var isGradientMaskEditing = false
+
     func setMaskInverted(gradeID: UUID, maskID: UUID, _ value: Bool) { mutateMask(gradeID, maskID) { $0.inverted = value } }
     func setMaskOpacity(gradeID: UUID, maskID: UUID, _ value: Double) { mutateMask(gradeID, maskID) { $0.opacity = min(1, max(0, value)) } }
     func setMaskFeather(gradeID: UUID, maskID: UUID, _ value: Double) { mutateMask(gradeID, maskID) { $0.feather = min(1, max(0, value)) } }
@@ -1658,7 +1706,7 @@ final class AppModel: ObservableObject {
                         exactLinear.applyingHostGrade(
                             tone: look.tone,
                             density: look.colorDensity
-                        )
+                        ).applyingHostGrade(tone: look.filmTone, density: nil)
                     }.value
                     try Task.checkCancellation()
                     let (filmOutput, _) = try await exactRenderer.render(prepared, look: look)
@@ -1914,6 +1962,59 @@ final class AppModel: ObservableObject {
         }
         status = "Section reset"
         scheduleIdleRefinement(changedParameter: groupID, delayMilliseconds: 20)
+    }
+
+
+    // Film-feed adjustments are intentionally distinct from the scene grade.
+    // They settle through the exact spectral renderer; never persist a proxy.
+    func setFilmToneValue(_ key: String, value: Double, interactive: Bool) {
+        guard let i = selectedIndex else { return }
+        func change(_ tone: inout ToneSettings) {
+            switch key {
+            case "exposureEV": tone.exposureEV = min(8, max(-8, value))
+            case "highlights": tone.highlights = min(100, max(-100, value))
+            case "highlightRecovery": tone.highlightRecovery = min(100, max(0, value))
+            case "shadows": tone.shadows = min(100, max(-100, value))
+            case "shadowRecovery": tone.shadowRecovery = min(100, max(0, value))
+            case "whites": tone.whites = min(100, max(-100, value))
+            case "blacks": tone.blacks = min(100, max(-100, value))
+            case "contrast": tone.contrast = min(100, max(-100, value))
+            case "brightness": tone.brightness = min(100, max(-100, value))
+            case "autoContrast": tone.autoContrast = value > 0.5
+            default: return
+            }
+        }
+        if interactive {
+            if gestureWorkingLook == nil { beginEditGesture() }
+            guard var working = gestureWorkingLook else { return }
+            var film = working.filmTone ?? ToneSettings()
+            change(&film)
+            working.filmTone = film
+            gestureWorkingLook = working
+            activeEditChangedParameter = "filmFeed." + key
+            // Final film response is not approximated by a generic global RGB proxy.
+            // A true spectral result is scheduled after release.
+            status = "Film feed adjusting · exact preview on release"
+            return
+        }
+        cancelIdleRefinement()
+        if activeEditBaseline == nil {
+            undoStack.append(project.images[i].look)
+            redoStack.removeAll()
+        }
+        var film = project.images[i].look.filmTone ?? ToneSettings()
+        change(&film)
+        project.images[i].look.filmTone = film
+        scheduleIdleRefinement(changedParameter: "filmFeed." + key, delayMilliseconds: 40)
+    }
+
+    func resetFilmTone() {
+        guard let i = selectedIndex else { return }
+        cancelIdleRefinement()
+        undoStack.append(project.images[i].look)
+        redoStack.removeAll()
+        project.images[i].look.filmTone = ToneSettings()
+        scheduleIdleRefinement(changedParameter: "filmFeed.reset")
     }
 
     func setExposureEV(_ value: Double, interactive: Bool) {
@@ -2410,8 +2511,11 @@ final class AppModel: ObservableObject {
             }
         }
 
+        if lookCopyOptions.film { target.filmTone = source.filmTone }
         if lookCopyOptions.colorDensity { target.colorDensity = source.colorDensity }
         if lookCopyOptions.geometry { target.geometry = source.geometry }
+        if lookCopyOptions.film { target.lensEffects = source.lensEffects }
+        if lookCopyOptions.tone { target.localGrades = source.localGrades }
 
         target.normalizeForProOnly()
         return target
@@ -2446,40 +2550,41 @@ final class AppModel: ObservableObject {
 
     func pasteLook() {
         cancelIdleRefinement()
-        guard var copiedLook, let activeIndex = selectedIndex else { return }
+        guard var copiedLook, let activeIndex = selectedIndex else {
+            status = "Copy edits first (⌘C), then paste (⌘V)"
+            return
+        }
         copiedLook.normalizeForProOnly()
-
         let ids = batchEditIDs
         undoStack.append(project.images[activeIndex].look)
         redoStack.removeAll()
-
-        var pastedCount = 0
-        var autoWBTargets: [ProjectImageRecord] = []
+        let autoWBSources = project.images.indices.filter { ids.contains(project.images[$0].id) &&
+            lookCopyOptions.whiteBalance && copiedLook.raw.whiteBalanceMode == .auto }
         for index in project.images.indices where ids.contains(project.images[index].id) {
+            // Copies editing MODE and relative offsets, never freezes a source photo's
+            // measured auto WB, auto exposure, or auto contrast into a different photo.
             let merged = mergedLookForPaste(source: copiedLook, target: project.images[index].look)
             project.images[index].look = merged
-            pastedCount += 1
-            if lookCopyOptions.whiteBalance, merged.raw.whiteBalanceMode == .auto {
-                autoWBTargets.append(project.images[index])
-            }
         }
-
+        let affected = project.images.filter { ids.contains($0.id) }
+        let autoURLs = autoWBSources.map { project.images[$0].url }
+        // A previous preview could race the cache reset and reuse stale auto values.
+        // Invalidate *all* destination caches before scheduling the settled render.
+        status = "Pasting to \(affected.count) photo(s) · recalculating automatic edits…"
+        let selectedAtPaste = project.selectedImageID
         Task { [weak self] in
             guard let self else { return }
-            for image in autoWBTargets {
-                await decoder.invalidateAutoWhiteBalance(url: image.url)
-            }
-            for image in project.images where ids.contains(image.id) {
+            for url in autoURLs { await decoder.invalidateAutoWhiteBalance(url: url) }
+            for image in affected {
                 await renderedDiskCache.invalidate(url: image.url)
                 removeRenderedFrames(for: image.id)
             }
-            if project.selectedImageID != nil {
+            if project.selectedImageID == selectedAtPaste {
                 refreshWhiteBalanceReference()
-                scheduleIdleRefinement(changedParameter: "paste")
+                scheduleIdleRefinement(changedParameter: "paste", delayMilliseconds: 30)
             }
+            status = "Pasted \(affected.count) photo(s) · Auto WB/Exposure/Contrast evaluated per image"
         }
-
-        status = "Pasted selected edits to \(pastedCount) photo\(pastedCount == 1 ? "" : "s") · auto settings recalculate per photo"
     }
 
     func resetLook() {
@@ -2775,13 +2880,16 @@ final class AppModel: ObservableObject {
                 // Before/source preview remains the developed source, while preview/export share
                 // the same host-grade -> native-render ordering.
                 let renderInput = input.applyingHostGrade(tone: request.look.tone, density: request.look.colorDensity)
+                    .applyingHostGrade(tone: request.look.filmTone, density: nil)
                 let (filmOutput, d) = try await activeRenderer.render(renderInput, look: renderLook)
                 if Task.isCancelled { break }
                 // Geometry is deliberately post-render and color-neutral. Crop/straighten/keystone
                 // therefore never changes SpektraFilm's spectral processing and can be previewed
                 // independently from expensive film renders.
-                let lensOutput = LensCharacterEngine.apply(filmOutput, settings: request.look.lensEffects)
-                let output = GeometryEngine.transformed(lensOutput, settings: request.look.geometry)
+                let localOutput = MaskedLocalGradeEngine.apply(filmOutput, grades: request.look.localGrades)
+                let lensOutput = LensCharacterEngine.apply(localOutput, settings: request.look.lensEffects)
+                let geometryOutput = GeometryEngine.transformed(lensOutput, settings: request.look.geometry)
+                let output = ExposureBoundaryEngine.apply(geometryOutput, look: request.look, preferences: request.preferences)
                 if Task.isCancelled { break }
 
                 guard request.generation == renderGeneration,
@@ -3604,29 +3712,68 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // Loading old projects can decode thousands of images and RLE mask payloads.
+    // Never parse/migrate them on the UI actor, and never replace the current
+    // document unless the whole decode and validation succeeds.
     func openProject() {
         guard confirmDestructiveTransitionIfNeeded() else { return }
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.spektrafilmProject]
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            invalidateRendering()
-            var opened = try Self.decoderJSON.decode(SpektraProjectDocument.self, from: Data(contentsOf: url))
-            opened.migrateForV2()
-            suppressDirtyTracking = true
-            project = opened
-            suppressDirtyTracking = false
-            projectURL = url
-            isProjectDirty = false
-            Task { [recoveryStore] in await recoveryStore.clear() }
-            configureCaches()
-            page = .edit
-            if project.selectedImageID == nil { project.selectedImageID = project.images.first?.id }
-            if let image = selectedImage { presentFastSelectionPreview(for: image) }
-            workspaceDidChange(.edit)
-            status = "Opened \(url.lastPathComponent)"
-        } catch { status = "Open failed: \(error.localizedDescription)" }
+
+        status = "Opening \(url.lastPathComponent)…"
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                // A fresh decoder is confined to this worker; JSONDecoder is
+                // not shared across concurrent project/open/autosave tasks.
+                let opened = try await Task.detached(priority: .userInitiated) {
+                    let accessing = url.startAccessingSecurityScopedResource()
+                    defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+                    let data = try Data(contentsOf: url, options: .mappedIfSafe)
+                    try Task.checkCancellation()
+                    let decoder = JSONDecoder()
+                    decoder.dateDecodingStrategy = .iso8601
+                    var loaded = try decoder.decode(SpektraProjectDocument.self, from: data)
+                    loaded.migrateForV2()
+                    if loaded.selectedImageID == nil { loaded.selectedImageID = loaded.images.first?.id }
+                    try Task.checkCancellation()
+                    return loaded
+                }.value
+                // Cancel old rendering only after a fully successful decode.
+                invalidateRendering()
+                autosaveTask?.cancel()
+                suppressDirtyTracking = true
+                project = opened
+                projectURL = url
+                isProjectDirty = false
+                suppressDirtyTracking = false
+                undoStack.removeAll()
+                redoStack.removeAll()
+                renderedFrameCache.removeAll()
+                renderedFrameCacheOrder.removeAll()
+                renderedFrameCacheBytes = 0
+                Task { [recoveryStore] in await recoveryStore.clear() }
+                configureCaches()
+                // Missing media should not force an Edit render of a missing path.
+                page = project.images.isEmpty ? .library : .edit
+                if let image = selectedImage,
+                   FileManager.default.fileExists(atPath: image.sourcePath) {
+                    presentFastSelectionPreview(for: image)
+                    workspaceDidChange(.edit)
+                } else if !project.images.isEmpty {
+                    status = "Project loaded · media missing · Relink Missing Media…"
+                    return
+                }
+                status = "Opened \(url.lastPathComponent)"
+            } catch is CancellationError {
+                status = "Project open cancelled"
+            } catch {
+                // The existing workspace remains untouched on a decoding error.
+                status = "Open failed: \(error.localizedDescription)"
+            }
+        }
     }
 
 
@@ -3662,7 +3809,7 @@ final class AppModel: ObservableObject {
                 input.applyingHostGrade(
                     tone: look.tone,
                     density: look.colorDensity
-                )
+                ).applyingHostGrade(tone: look.filmTone, density: nil)
             }.value
 
             let (filmOutput, _) = try await activeRenderer.render(
@@ -3670,11 +3817,15 @@ final class AppModel: ObservableObject {
                 look: look
             )
 
+            let exportPreviewPrefs = project.preferences
             let output = await Task.detached(priority: .utility) {
-                GeometryEngine.transformed(
-                    LensCharacterEngine.apply(filmOutput, settings: look.lensEffects),
+                ExposureBoundaryEngine.apply(GeometryEngine.transformed(
+                    LensCharacterEngine.apply(
+                        MaskedLocalGradeEngine.apply(filmOutput, grades: look.localGrades),
+                        settings: look.lensEffects
+                    ),
                     settings: look.geometry
-                )
+                ), look: look, preferences: exportPreviewPrefs)
             }.value
 
             let payload = await Task.detached(priority: .utility) {
@@ -4154,7 +4305,7 @@ final class AppModel: ObservableObject {
                     decoded.buffer.applyingHostGrade(
                         tone: item.look.tone,
                         density: item.look.colorDensity
-                    )
+                    ).applyingHostGrade(tone: item.look.filmTone, density: nil)
                 }.value
                 timings.gradeMs = Self.msSince(gradeStarted)
                 try Task.checkCancellation()
@@ -4179,6 +4330,8 @@ final class AppModel: ObservableObject {
                 // Stage 1 boundary: the serialized render lane ENDS here.
                 let geometrySettings = item.look.geometry
                 let lensSettings = item.look.lensEffects
+                let localGrades = item.look.localGrades
+                let clipPreferences = project.preferences
                 let exportSettings = job.settings
                 let destination = URL(fileURLWithPath: item.destinationPath)
                 let writer = exportEngine
@@ -4198,12 +4351,14 @@ final class AppModel: ObservableObject {
 
                     let geometryStarted =
                         ProcessInfo.processInfo.systemUptime
-                    let lensOutput = LensCharacterEngine.apply(filmOutput, settings: lensSettings)
+                    let localOutput = MaskedLocalGradeEngine.apply(filmOutput, grades: localGrades)
+                    let lensOutput = LensCharacterEngine.apply(localOutput, settings: lensSettings)
                     let geometryOutput = GeometryEngine.transformed(
                         lensOutput,
                         settings: geometrySettings
                     )
-                    let output = try geometryOutput.resizedForExport(
+                    let boundaryOutput = ExposureBoundaryEngine.apply(geometryOutput, look: lookForWriter, preferences: clipPreferences)
+                    let output = try boundaryOutput.resizedForExport(
                         settings: exportSettings
                     )
                     let geometryResizeMs =

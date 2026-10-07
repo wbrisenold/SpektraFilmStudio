@@ -115,8 +115,14 @@ final class ShortcutMonitor {
             // isolation boundary; the outer closure maps it back to nil/event.
             let handled: Bool = MainActor.assumeIsolated {
                 guard let model else { return false }
-                if NSApp.keyWindow?.firstResponder is NSTextView { return false }
+                // Never intercept native text editing / search / numeric fields.
+                if NSApp.keyWindow?.firstResponder is NSTextView || NSApp.keyWindow?.firstResponder is NSTextField { return false }
                 let key = Self.keyName(event)
+                let shortcutFlags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+                if model.page == .edit, shortcutFlags == .command {
+                    if key.lowercased() == "c" { model.copyLook(); return true }
+                    if key.lowercased() == "v" { model.pasteLook(); return true }
+                }
                 let p = model.project.preferences
                 let inLibrary = model.page == .library
 

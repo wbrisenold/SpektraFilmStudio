@@ -2,37 +2,76 @@ import SwiftUI
 
 struct LensCharacterPanel: View {
     @ObservedObject var model: AppModel
-    private var value: LensEffectsSettings { model.selectedLook.lensEffects ?? LensEffectsSettings() }
+    @Binding var isExpanded: Bool
+    private var settings: LensEffectsSettings { model.selectedLook.lensEffects ?? LensEffectsSettings() }
+
     var body: some View {
-        DisclosureGroup {
-            VStack(alignment: .leading, spacing: 9) {
-                Toggle("Enable Lens Character", isOn: Binding(get:{ value.enabled }, set:{ v in model.setLensEffectsSettings { $0.enabled=v } }))
-                Picker("Lens", selection: Binding(get:{ value.preset }, set:{ p in model.setLensEffectsSettings { $0.preset=p } })) {
-                    ForEach(LensCharacterPreset.allCases) { Text($0.rawValue).tag($0) }
-                }
-                scalar("Distortion", value.resolved.distortion, -0.22...0.22) { v in model.setLensEffectsSettings { $0.distortion=v; $0.preset = .custom } }
-                scalar("Chromatic Aberration", value.resolved.chromaticAberration, 0...8) { v in model.setLensEffectsSettings { $0.chromaticAberration=v; $0.preset = .custom } }
-                scalar("CA on Highlights", value.resolved.highlightChromaticAberration, 0...10) { v in model.setLensEffectsSettings { $0.highlightChromaticAberration=v; $0.preset = .custom } }
-                scalar("Spherical Aberration", value.resolved.sphericalAberration, 0...1) { v in model.setLensEffectsSettings { $0.sphericalAberration=v; $0.preset = .custom } }
-                scalar("Petzval Swirl", value.resolved.petzvalSwirl, 0...1) { v in model.setLensEffectsSettings { $0.petzvalSwirl=v; $0.preset = .custom } }
-                scalar("Edge Softness", value.resolved.edgeSoftness, 0...1) { v in model.setLensEffectsSettings { $0.edgeSoftness=v; $0.preset = .custom } }
-                scalar("Vignette", value.resolved.vignette, 0...1) { v in model.setLensEffectsSettings { $0.vignette=v; $0.preset = .custom } }
-                Text("35mm Spherical, 50mm Standard, 85mm Portrait, 28mm Wide, Anamorphic 2×, Petzval and Vintage 58mm presets are parameterized from open-source lens-effect references. Effects run after film color and before Crop/Geometry.")
+        DisclosureGroup(isExpanded: $isExpanded) {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle("Enable Optical Character", isOn: Binding(
+                    get: { settings.enabled }, set: { enabled in model.setLensEffectsSettings { $0.enabled = enabled } }
+                ))
+                Picker("Optical profile", selection: Binding(
+                    get: { settings.preset }, set: { preset in model.setLensEffectsSettings { $0.preset = preset } }
+                )) { ForEach(LensCharacterPreset.allCases) { preset in Text(preset.rawValue).tag(preset) } }
+                Text("These are artistic profiles, not measured lens calibrations. A protected sharp center transitions to curved peripheral blur, color fringing, and optical falloff.")
                     .font(.caption2).foregroundStyle(.secondary)
-            }.padding(.top,8)
+
+                Divider()
+                Text("Optical Blur / Swirl").font(.caption.weight(.semibold))
+                scalar("Rotational Blur", settings.resolved.edgeSoftness, 0...1) { value in update { s, v in s.edgeSoftness = v }(value) }
+                scalar("Spherical Blur", settings.resolved.sphericalAberration, 0...1) { value in update { s, v in s.sphericalAberration = v }(value) }
+                scalar("Swirl", settings.resolved.petzvalSwirl, 0...1) { value in update { s, v in s.petzvalSwirl = v }(value) }
+                scalar("Protected Center", settings.resolved.swirlRadius, 0.02...0.94) { value in update { s, v in s.swirlRadius = v }(value) }
+                scalar("Blur Thickness", settings.resolved.blurThickness, 0.1...3) { value in update { s, v in s.blurThickness = v }(value) }
+                scalar("Lens Shape", settings.resolved.lensShape, 0.5...2) { value in update { s, v in s.lensShape = v }(value) }
+                Divider()
+                Text("Glass / Color Separation").font(.caption.weight(.semibold))
+                scalar("Distortion", settings.resolved.distortion, -0.22...0.22) { value in update { s, v in s.distortion = v }(value) }
+                scalar("Chromatic Aberration", settings.resolved.chromaticAberration, 0...8) { value in update { s, v in s.chromaticAberration = v }(value) }
+                scalar("Highlight Fringing", settings.resolved.highlightChromaticAberration, 0...10) { value in update { s, v in s.highlightChromaticAberration = v }(value) }
+                Picker("CA Channel", selection: Binding(
+                    get: { settings.resolved.caChannel },
+                    set: { value in model.setLensEffectsSettings { $0.bakePresetForEditing(); $0.caChannel = value } }
+                )) { ForEach(LensCAChannel.allCases) { value in Text(value.rawValue).tag(value) } }
+                Divider()
+                Text("Light Falloff").font(.caption.weight(.semibold))
+                scalar("Vignette", settings.resolved.vignette, 0...1) { value in update { s, v in s.vignette = v }(value) }
+                scalar("Vignette Radius", settings.resolved.vignetteRadius, 0.1...0.98) { value in update { s, v in s.vignetteRadius = v }(value) }
+                scalar("Vignette Falloff", settings.resolved.vignetteFalloff, 0.4...5) { value in update { s, v in s.vignetteFalloff = v }(value) }
+                Text("Optical stage runs after the film renderer and before Crop/Geometry, identically for settled Edit previews and exported images.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }.padding(.top, 8)
         } label: {
-            HStack { Text("Lens Character").font(.caption.weight(.semibold)); Spacer(); if value.enabled { Text(value.preset.rawValue).font(.caption2).foregroundStyle(.secondary) } }
+            HStack {
+                Text("Lens Character").font(.caption.weight(.semibold))
+                Spacer()
+                if settings.enabled { Text(settings.preset.rawValue).font(.caption2).foregroundStyle(.secondary) }
+            }
         }
         .padding(10)
         .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 8))
         .overlay { RoundedRectangle(cornerRadius: 8).stroke(StudioPalette.subtleBorder, lineWidth: 0.5) }
     }
-    @ViewBuilder private func scalar(_ name:String,_ current:Double,_ range:ClosedRange<Double>,_ set:@escaping(Double)->Void)->some View {
-        let setter = ScalarSetter(apply: set)
-        VStack(alignment:.leading,spacing:3){HStack{Text(name).font(.caption2);Spacer();Text(current,format:.number.precision(.fractionLength(2))).font(.caption2.monospacedDigit())};Slider(value:Binding(get:{current},set:{ setter.apply($0) }),in:range)}
+
+    private func update(_ mutate: @escaping (inout LensEffectsSettings, Double) -> Void) -> (Double) -> Void {
+        { value in model.setLensEffectsSettings { settings in settings.bakePresetForEditing(); mutate(&settings, value) } }
+    }
+
+    @ViewBuilder private func scalar(_ label: String, _ value: Double, _ range: ClosedRange<Double>, set: @escaping (Double) -> Void) -> some View {
+        let action = LensScalarAction(set)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(label).font(.caption2)
+                Spacer()
+                Text(value, format: .number.precision(.fractionLength(2))).font(.caption2.monospacedDigit())
+            }
+            Slider(value: Binding(get: { value }, set: { action.set($0) }), in: range)
+        }
     }
 }
 
-private struct ScalarSetter: @unchecked Sendable {
-    let apply: (Double) -> Void
+private struct LensScalarAction: @unchecked Sendable {
+    let set: (Double) -> Void
+    init(_ set: @escaping (Double) -> Void) { self.set = set }
 }

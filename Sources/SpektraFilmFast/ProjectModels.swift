@@ -395,26 +395,139 @@ struct GeometrySettings: Codable, Equatable, Hashable, Sendable {
 
 
 enum LensCharacterPreset: String, Codable, CaseIterable, Identifiable, Sendable {
-    case custom="Custom", spherical35="35mm Spherical", standard50="50mm Standard", portrait85="85mm Portrait", wide28="28mm Wide", anamorphic2x="Anamorphic 2×", petzval="Petzval", vintage58="Vintage 58mm"
-    var id:String{rawValue}
+    case custom = "Custom"
+    case spherical35 = "35mm Spherical"
+    case standard50 = "50mm Standard"
+    case portrait85 = "85mm Portrait"
+    case wide28 = "28mm Wide"
+    case anamorphic2x = "Anamorphic 2×"
+    case petzval = "Petzval"
+    case vintage58 = "Vintage 58mm"
+    var id: String { rawValue }
 }
-struct LensEffectsResolved: Sendable { var distortion=0.0;var chromaticAberration=0.0;var highlightChromaticAberration=0.0;var sphericalAberration=0.0;var petzvalSwirl=0.0;var edgeSoftness=0.0;var vignette=0.0 }
+
+enum LensCAChannel: String, Codable, CaseIterable, Identifiable, Sendable {
+    case redBlue = "Red / Blue"
+    case red = "Red Only"
+    case blue = "Blue Only"
+    var id: String { rawValue }
+}
+
+struct LensEffectsResolved: Sendable {
+    var distortion = 0.0
+    var chromaticAberration = 0.0
+    var highlightChromaticAberration = 0.0
+    var sphericalAberration = 0.0
+    var petzvalSwirl = 0.0
+    var edgeSoftness = 0.0
+    var vignette = 0.0
+    var lensShape = 1.0
+    var blurThickness = 1.0
+    var swirlRadius = 0.22
+    var vignetteRadius = 0.40
+    var vignetteFalloff = 1.6
+    var caChannel: LensCAChannel = .redBlue
+}
+
 struct LensEffectsSettings: Codable, Equatable, Hashable, Sendable {
-    var enabled=false; var preset:LensCharacterPreset = .custom; var distortion=0.0; var chromaticAberration=0.0; var highlightChromaticAberration=0.0; var sphericalAberration=0.0; var petzvalSwirl=0.0; var edgeSoftness=0.0; var vignette=0.0
-    var resolved:LensEffectsResolved {
-        if preset == .custom { return .init(distortion:distortion,chromaticAberration:chromaticAberration,highlightChromaticAberration:highlightChromaticAberration,sphericalAberration:sphericalAberration,petzvalSwirl:petzvalSwirl,edgeSoftness:edgeSoftness,vignette:vignette) }
+    var enabled = false
+    var preset: LensCharacterPreset = .custom
+    var distortion = 0.0
+    var chromaticAberration = 0.0
+    var highlightChromaticAberration = 0.0
+    var sphericalAberration = 0.0
+    var petzvalSwirl = 0.0
+    var edgeSoftness = 0.0
+    var vignette = 0.0
+    var lensShape = 1.0
+    var blurThickness = 1.0
+    var swirlRadius = 0.22
+    var vignetteRadius = 0.40
+    var vignetteFalloff = 1.6
+    var caChannel: LensCAChannel = .redBlue
+
+    init() {}
+
+    // Explicit defaults are necessary for saved projects written before this upgrade.
+    private enum CodingKeys: String, CodingKey {
+        case enabled, preset, distortion, chromaticAberration, highlightChromaticAberration,
+             sphericalAberration, petzvalSwirl, edgeSoftness, vignette, lensShape,
+             blurThickness, swirlRadius, vignetteRadius, vignetteFalloff, caChannel
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        preset = try c.decodeIfPresent(LensCharacterPreset.self, forKey: .preset) ?? .custom
+        distortion = try c.decodeIfPresent(Double.self, forKey: .distortion) ?? 0
+        chromaticAberration = try c.decodeIfPresent(Double.self, forKey: .chromaticAberration) ?? 0
+        highlightChromaticAberration = try c.decodeIfPresent(Double.self, forKey: .highlightChromaticAberration) ?? 0
+        sphericalAberration = try c.decodeIfPresent(Double.self, forKey: .sphericalAberration) ?? 0
+        petzvalSwirl = try c.decodeIfPresent(Double.self, forKey: .petzvalSwirl) ?? 0
+        edgeSoftness = try c.decodeIfPresent(Double.self, forKey: .edgeSoftness) ?? 0
+        vignette = try c.decodeIfPresent(Double.self, forKey: .vignette) ?? 0
+        lensShape = try c.decodeIfPresent(Double.self, forKey: .lensShape) ?? 1
+        blurThickness = try c.decodeIfPresent(Double.self, forKey: .blurThickness) ?? 1
+        swirlRadius = try c.decodeIfPresent(Double.self, forKey: .swirlRadius) ?? 0.22
+        vignetteRadius = try c.decodeIfPresent(Double.self, forKey: .vignetteRadius) ?? 0.4
+        vignetteFalloff = try c.decodeIfPresent(Double.self, forKey: .vignetteFalloff) ?? 1.6
+        caChannel = try c.decodeIfPresent(LensCAChannel.self, forKey: .caChannel) ?? .redBlue
+    }
+
+    var resolved: LensEffectsResolved {
+        if preset == .custom {
+            return .init(distortion: distortion, chromaticAberration: chromaticAberration,
+                         highlightChromaticAberration: highlightChromaticAberration,
+                         sphericalAberration: sphericalAberration, petzvalSwirl: petzvalSwirl,
+                         edgeSoftness: edgeSoftness, vignette: vignette, lensShape: lensShape,
+                         blurThickness: blurThickness, swirlRadius: swirlRadius,
+                         vignetteRadius: vignetteRadius, vignetteFalloff: vignetteFalloff,
+                         caChannel: caChannel)
+        }
         switch preset {
-        case .spherical35:return .init(distortion:0.025,chromaticAberration:1.1,highlightChromaticAberration:1.8,sphericalAberration:0.24,petzvalSwirl:0.08,edgeSoftness:0.18,vignette:0.16)
-        case .standard50:return .init(distortion:0.006,chromaticAberration:0.65,highlightChromaticAberration:1.0,sphericalAberration:0.12,petzvalSwirl:0.03,edgeSoftness:0.08,vignette:0.10)
-        case .portrait85:return .init(distortion:-0.004,chromaticAberration:0.40,highlightChromaticAberration:0.75,sphericalAberration:0.18,petzvalSwirl:0.05,edgeSoftness:0.12,vignette:0.13)
-        case .wide28:return .init(distortion:0.055,chromaticAberration:1.5,highlightChromaticAberration:2.2,sphericalAberration:0.10,petzvalSwirl:0.03,edgeSoftness:0.22,vignette:0.22)
-        case .anamorphic2x:return .init(distortion:0.018,chromaticAberration:1.8,highlightChromaticAberration:2.8,sphericalAberration:0.22,petzvalSwirl:0.10,edgeSoftness:0.20,vignette:0.20)
-        case .petzval:return .init(distortion:0.020,chromaticAberration:0.8,highlightChromaticAberration:1.4,sphericalAberration:0.30,petzvalSwirl:0.72,edgeSoftness:0.34,vignette:0.28)
-        case .vintage58:return .init(distortion:0.012,chromaticAberration:1.0,highlightChromaticAberration:1.6,sphericalAberration:0.36,petzvalSwirl:0.18,edgeSoftness:0.27,vignette:0.23)
-        case .custom:return .init()
+        case .spherical35:
+            return .init(distortion: 0.016, chromaticAberration: 0.42, highlightChromaticAberration: 0.8, sphericalAberration: 0.26, petzvalSwirl: 0.10, edgeSoftness: 0.18, vignette: 0.24, lensShape: 1.0, blurThickness: 1.1, swirlRadius: 0.27, vignetteRadius: 0.46, vignetteFalloff: 1.8)
+        case .standard50:
+            return .init(distortion: 0.004, chromaticAberration: 0.30, highlightChromaticAberration: 0.5, sphericalAberration: 0.12, petzvalSwirl: 0.03, edgeSoftness: 0.09, vignette: 0.17, lensShape: 1.0, blurThickness: 0.9, swirlRadius: 0.34, vignetteRadius: 0.50, vignetteFalloff: 1.8)
+        case .portrait85:
+            return .init(distortion: -0.004, chromaticAberration: 0.28, highlightChromaticAberration: 0.55, sphericalAberration: 0.32, petzvalSwirl: 0.07, edgeSoftness: 0.20, vignette: 0.27, lensShape: 1.0, blurThickness: 1.2, swirlRadius: 0.38, vignetteRadius: 0.50, vignetteFalloff: 1.7)
+        case .wide28:
+            return .init(distortion: 0.043, chromaticAberration: 1.0, highlightChromaticAberration: 1.55, sphericalAberration: 0.08, petzvalSwirl: 0.04, edgeSoftness: 0.18, vignette: 0.35, lensShape: 1.0, blurThickness: 1.05, swirlRadius: 0.25, vignetteRadius: 0.36, vignetteFalloff: 1.4)
+        case .anamorphic2x:
+            return .init(distortion: 0.018, chromaticAberration: 0.85, highlightChromaticAberration: 1.6, sphericalAberration: 0.34, petzvalSwirl: 0.36, edgeSoftness: 0.38, vignette: 0.26, lensShape: 1.8, blurThickness: 1.6, swirlRadius: 0.16, vignetteRadius: 0.48, vignetteFalloff: 1.5)
+        case .petzval:
+            return .init(distortion: 0.008, chromaticAberration: 0.65, highlightChromaticAberration: 1.05, sphericalAberration: 0.65, petzvalSwirl: 0.95, edgeSoftness: 0.85, vignette: 0.42, lensShape: 1.05, blurThickness: 2.3, swirlRadius: 0.19, vignetteRadius: 0.32, vignetteFalloff: 1.4)
+        case .vintage58:
+            return .init(distortion: 0.009, chromaticAberration: 0.82, highlightChromaticAberration: 1.25, sphericalAberration: 0.60, petzvalSwirl: 0.32, edgeSoftness: 0.60, vignette: 0.37, lensShape: 1.0, blurThickness: 1.85, swirlRadius: 0.22, vignetteRadius: 0.40, vignetteFalloff: 1.5)
+        case .custom:
+            return .init()
         }
     }
-    var isIdentity:Bool { let r=resolved;return abs(r.distortion)<1e-9 && r.chromaticAberration<1e-9 && r.highlightChromaticAberration<1e-9 && r.sphericalAberration<1e-9 && r.petzvalSwirl<1e-9 && r.edgeSoftness<1e-9 && r.vignette<1e-9 }
+    /// When changing a preset slider, materialize every resolved value first.
+    /// Otherwise switching to Custom would silently reset the untouched sliders.
+    mutating func bakePresetForEditing() {
+        guard preset != .custom else { return }
+        let r = resolved
+        distortion = r.distortion
+        chromaticAberration = r.chromaticAberration
+        highlightChromaticAberration = r.highlightChromaticAberration
+        sphericalAberration = r.sphericalAberration
+        petzvalSwirl = r.petzvalSwirl
+        edgeSoftness = r.edgeSoftness
+        vignette = r.vignette
+        lensShape = r.lensShape
+        blurThickness = r.blurThickness
+        swirlRadius = r.swirlRadius
+        vignetteRadius = r.vignetteRadius
+        vignetteFalloff = r.vignetteFalloff
+        caChannel = r.caChannel
+        preset = .custom
+    }
+    var isIdentity: Bool {
+        let r = resolved
+        return abs(r.distortion) < 1e-9 && r.chromaticAberration < 1e-9 &&
+            r.highlightChromaticAberration < 1e-9 && r.sphericalAberration < 1e-9 &&
+            r.petzvalSwirl < 1e-9 && r.edgeSoftness < 1e-9 && r.vignette < 1e-9
+    }
 }
 
 struct RenderLook: Codable, Equatable, Hashable, Sendable {
@@ -434,6 +547,9 @@ struct RenderLook: Codable, Equatable, Hashable, Sendable {
     var lensEffects: LensEffectsSettings? = nil
     // Stage 2: local grades own ordered mask stacks. Optional preserves backward decoding.
     var localGrades: [LocalGradeRecord]? = nil
+    // Film-feed tonal shaping is independent of the scene host grade.
+    // Optional preserves all previous project and preset JSON documents.
+    var filmTone: ToneSettings? = nil
 
     static func defaults(catalog: BridgeCatalog = .shared) -> RenderLook {
         var look = RenderLook(flavor: .pro)
@@ -442,6 +558,7 @@ struct RenderLook: Codable, Equatable, Hashable, Sendable {
         look.geometry = GeometrySettings()
         look.lensEffects = LensEffectsSettings()
         look.localGrades = []
+        look.filmTone = ToneSettings()
         for descriptor in catalog.parameters {
             look.values[descriptor.name] = descriptor.defaultValue
         }
@@ -455,6 +572,7 @@ struct RenderLook: Codable, Equatable, Hashable, Sendable {
         if geometry == nil { geometry = GeometrySettings() }
         if lensEffects == nil { lensEffects = LensEffectsSettings() }
         if localGrades == nil { localGrades = [] }
+        if filmTone == nil { filmTone = ToneSettings() }
         for index in localGrades!.indices { localGrades![index].normalize() }
     }
 }
@@ -578,6 +696,7 @@ enum ExportResizeMode: String, Codable, CaseIterable, Identifiable, Sendable {
     case width = "Width"
     case height = "Height"
     case fitBox = "Fit Inside"
+    case cropToFill = "Crop to Fill"
     var id: String { rawValue }
 }
 

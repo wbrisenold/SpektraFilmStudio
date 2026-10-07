@@ -79,11 +79,11 @@ struct ExportPresetDefinition: Identifiable, Hashable, Sendable {
     private static func social(id: String, name: String, width: Int, height: Int) -> ExportPresetDefinition {
         .init(
             id: id, name: name, category: .social,
-            detail: "Fit inside \(width) × \(height) · preserve aspect · no enlargement",
+            detail: "Crop to fill \(width) × \(height) · center-cropped to exact platform aspect",
             source: "OpenPost open-source image editor preset dimensions",
             format: nil, jpegQuality: nil, tiff16Bit: nil,
             preserveMetadata: nil, stripGPS: nil,
-            resizeMode: .fitBox, width: width, height: height, longEdge: max(width, height), dontEnlarge: true
+            resizeMode: .cropToFill, width: width, height: height, longEdge: max(width, height), dontEnlarge: false
         )
     }
 

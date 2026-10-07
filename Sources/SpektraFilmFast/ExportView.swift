@@ -166,8 +166,8 @@ struct ExportWorkspaceView: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: 11).fill(Color.black.opacity(0.92))
                     if let image = previewImage {
-                        LocalThumbnail(url: image.url, contentMode: .fit)
-                            .padding(18)
+                        StudioExportPreview(model: model, image: image)
+                            .padding(12)
                         VStack {
                             HStack {
                                 badge(model.project.exportSettings.format.rawValue, "doc")
@@ -398,9 +398,13 @@ struct ExportWorkspaceView: View {
                 numericField("Width", value: $model.project.exportSettings.resizeWidth)
             case .height:
                 numericField("Height", value: $model.project.exportSettings.resizeHeight)
-            case .fitBox:
+            case .fitBox, .cropToFill:
                 numericField("Width", value: $model.project.exportSettings.resizeWidth)
                 numericField("Height", value: $model.project.exportSettings.resizeHeight)
+                if model.project.exportSettings.resizeMode == .cropToFill {
+                    Text("Cropping is destructive in the exported file only. The original and project edits are unchanged.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
             }
 
             if model.project.exportSettings.resizeMode != .none {
@@ -586,7 +590,8 @@ struct ExportWorkspaceView: View {
         case .longEdge: return "\(s.resizeLongEdge) px long"
         case .width: return "\(s.resizeWidth) px wide"
         case .height: return "\(s.resizeHeight) px high"
-        case .fitBox: return "\(s.resizeWidth) × \(s.resizeHeight)"
+        case .fitBox: return "Fit ≤ \(s.resizeWidth) × \(s.resizeHeight)"
+        case .cropToFill: return "Crop \(s.resizeWidth) × \(s.resizeHeight)"
         }
     }
 
