@@ -106,11 +106,11 @@ grep -q 'let exportSettings = job.settings' Sources/SpektraFilmFast/AppModel.swi
 #    pre-conversion linear one (this was a real behavioural bug in v0.6.0).
 #    Asserted behaviourally, not by expression text: the clip source must be
 #    filled from output.pixels. Later refactors route it through
-#    clippingFlags()/clippingLinearPixels; that is fine as long as the origin
+#    clippingFlags()/monitorPixels; that is fine as long as the origin
 #    is the final output. Pinning the exact expression broke on such a
 #    refactor even though behaviour was preserved (AI_PITFALLS.md 16).
 ! grep -q 'sourcePeak' Sources/SpektraFilmFast/StudioAnalysis.swift
-grep -q 'clippingLinearPixels\[p\] = linear' Sources/SpektraFilmFast/StudioAnalysis.swift
+grep -q 'monitorPixels\[p\] = monitor.0' Sources/SpektraFilmFast/StudioAnalysis.swift
 grep -q 'output.pixels\[sourceIndex\]' Sources/SpektraFilmFast/StudioAnalysis.swift
 grep -q 'let isHardHighlight' Sources/SpektraFilmFast/StudioAnalysis.swift
 grep -q 'let isHardShadow' Sources/SpektraFilmFast/StudioAnalysis.swift

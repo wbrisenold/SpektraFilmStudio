@@ -138,7 +138,7 @@ require("canonicalLinearSRGBUnclamped" in skin_ref, "unclamped final-output cano
 require("private static func clippingFlags" in analysis, "darktable-style clipping classifier missing")
 require("case .fullGamut" in analysis and "case .anyRGB" in analysis and "case .luminance" in analysis and "case .saturation" in analysis, "clipping preview modes incomplete")
 require("255, 0, 0, 255" in analysis and "0, 0, 255, 255" in analysis, "darktable red/blue hard clipping look missing")
-require("clippingLinearPixels" in analysis, "hard clipping is not using unclamped final-output pixels")
+require("monitorPixels" in analysis and "DisplayMonitorSignal.rgb" in analysis, "hard clipping is not using the final display-referred output signal")
 require("source: PixelBufferF32?" not in analysis and "sceneLuma" not in analysis and "sourcePeak" not in analysis, "diagnostics still inspect pre-film/source values")
 require("ClippingPreviewMode" in models and "fullGamut" in models, "full-gamut clipping preference missing")
 hi = 0.9999

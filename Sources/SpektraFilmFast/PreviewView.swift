@@ -241,19 +241,19 @@ struct PreviewView: View {
             if model.project.preferences.clippingEnabled {
                 HStack(spacing: 5) {
                     Circle().fill(.red).frame(width: 6, height: 6)
-                    Text(String(format: "Bright %.1f%%", model.analysisMetrics.highlightPercent))
+                    Text(String(format: "Over %.1f%%", model.analysisMetrics.highlightPercent))
                     if model.analysisMetrics.hardHighlightPercent > 0 {
-                        Text(String(format: "(%.1f%% clipped)", model.analysisMetrics.hardHighlightPercent))
+                        Text(String(format: "(%.1f%% hot)", model.analysisMetrics.hardHighlightPercent))
                     }
                     Circle().fill(.blue).frame(width: 6, height: 6)
-                    Text(String(format: "Dark %.1f%%", model.analysisMetrics.shadowPercent))
+                    Text(String(format: "Under %.1f%%", model.analysisMetrics.shadowPercent))
                     if model.analysisMetrics.hardShadowPercent > 0 {
                         Text(String(format: "(%.1f%% crushed)", model.analysisMetrics.hardShadowPercent))
                     }
                 }
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
-                .help("Bright/Dark show exposure-risk areas. The values in parentheses are the smaller subset that is effectively hard clipped.")
+                .help("Over/Under use the same final display-referred signal as False Color. Parentheses show the hottest / deepest subset.")
             }
 
             Text("\(Int(zoom * 100))%")

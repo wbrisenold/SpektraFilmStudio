@@ -89,7 +89,7 @@ actor StudioAnalysisEngine {
         try SkinToneReference.validate(look)
 
         var diagnosticPixels = [Float](repeating: 0, count: sampledPixels * 4)
-        var clippingLinearPixels = [Float](repeating: 0, count: sampledPixels * 4)
+        var monitorPixels = [Float](repeating: 0, count: sampledPixels * 4)
         for oy in 0..<overlayHeight {
             if oy & 31 == 0 { try Task.checkCancellation() }
             let y = min(height - 1, oy * analysisStep)
@@ -102,12 +102,6 @@ actor StudioAnalysisEngine {
                     g: output.pixels[sourceIndex + 1],
                     b: output.pixels[sourceIndex + 2],
                     look: look
-                ),
-                let linear = SkinToneReference.canonicalLinearSRGBUnclamped(
-                    r: output.pixels[sourceIndex],
-                    g: output.pixels[sourceIndex + 1],
-                    b: output.pixels[sourceIndex + 2],
-                    look: look
                 ) else {
                     throw DiagnosticColorError.unsupportedOutputSpace(SkinToneReference.outputSpaceIndex(look))
                 }
@@ -115,10 +109,16 @@ actor StudioAnalysisEngine {
                 diagnosticPixels[p + 1] = rgb.1
                 diagnosticPixels[p + 2] = rgb.2
                 diagnosticPixels[p + 3] = 1
-                clippingLinearPixels[p] = linear.0
-                clippingLinearPixels[p + 1] = linear.1
-                clippingLinearPixels[p + 2] = linear.2
-                clippingLinearPixels[p + 3] = 1
+                let monitor = DisplayMonitorSignal.rgb(
+                    r: output.pixels[sourceIndex],
+                    g: output.pixels[sourceIndex + 1],
+                    b: output.pixels[sourceIndex + 2],
+                    look: look
+                )
+                monitorPixels[p] = monitor.0
+                monitorPixels[p + 1] = monitor.1
+                monitorPixels[p + 2] = monitor.2
+                monitorPixels[p + 3] = 1
             }
         }
         let diagnosticBuffer = PixelBufferF32(
@@ -162,7 +162,6 @@ actor StudioAnalysisEngine {
 
         let highlightRiskThreshold = Float(min(0.995, max(0.50, preferences.exposureHighlightRiskThreshold)))
         let shadowRiskThreshold = Float(min(0.25, max(0.001, preferences.exposureShadowRiskThreshold)))
-        let highlightThreshold = Float(min(1.0, max(Double(highlightRiskThreshold), preferences.clippingHighlightThreshold)))
         let shadowThreshold = Float(min(Double(shadowRiskThreshold), max(0.0, preferences.clippingShadowThreshold)))
         let tolerance = min(45.0, max(1.0, preferences.skinToleranceDegrees))
         let baseSkinOpacity = min(0.85, max(0.05, preferences.skinOverlayOpacity))
@@ -178,29 +177,23 @@ actor StudioAnalysisEngine {
                 let outG = diagnosticBuffer.pixels[diagnosticIndex + 1]
                 let outB = diagnosticBuffer.pixels[diagnosticIndex + 2]
 
-                let clipR = clippingLinearPixels[diagnosticIndex]
-                let clipG = clippingLinearPixels[diagnosticIndex + 1]
-                let clipB = clippingLinearPixels[diagnosticIndex + 2]
-                let hardClip = Self.clippingFlags(
-                    r: clipR,
-                    g: clipG,
-                    b: clipB,
-                    mode: preferences.clippingPreviewMode,
-                    upper: highlightThreshold,
-                    lower: shadowThreshold
-                )
-                // Use the same display-referred conversion as the image overlay.
-                // Some film tone curves compress scene-linear blown highlights to just
-                // below 1.0, so linear-threshold-only diagnostics wrongly show no red.
-                let outputLuma = 0.2126 * outR + 0.7152 * outG + 0.0722 * outB
-                let outputPeak = max(outR, max(outG, outB))
-                // A nearly white film shoulder is not necessarily hard-clipped.
-                // Reserve opaque red for the hard boundary; red tint means risk.
-                let isHardHighlight = hardClip.highlight || outputPeak >= 0.999
-                let isHardShadow = hardClip.shadow
-                let visualWarnThreshold = min(0.94, highlightRiskThreshold)
-                let isHighlightRisk = isHardHighlight || outputPeak >= visualWarnThreshold
-                let isShadowRisk = isHardShadow || outputLuma <= shadowRiskThreshold
+                let monitorR = monitorPixels[diagnosticIndex]
+                let monitorG = monitorPixels[diagnosticIndex + 1]
+                let monitorB = monitorPixels[diagnosticIndex + 2]
+                let monitorLuma = 0.2126 * monitorR + 0.7152 * monitorG + 0.0722 * monitorB
+                let monitorPeak = max(monitorR, max(monitorG, monitorB))
+                let monitorFloor = min(monitorR, min(monitorG, monitorB))
+
+                // False Color is the reference monitor. Its upper red/white zones begin at
+                // 0.88 / 0.97 display-code luma; deep shadow zones are below 0.10 / 0.03.
+                // Clip overlay now follows those same final-display boundaries, so film shoulder
+                // compression cannot make an obviously hot image report only ~0.1% warning.
+                let visualHighlightRisk = min(highlightRiskThreshold, 0.88)
+                let visualShadowRisk = max(shadowRiskThreshold, 0.10)
+                let isHardHighlight = monitorLuma >= 0.97 || monitorPeak >= 0.999
+                let isHardShadow = monitorLuma <= 0.03 || monitorFloor <= shadowThreshold
+                let isHighlightRisk = isHardHighlight || monitorLuma >= visualHighlightRisk || monitorPeak >= 0.97
+                let isShadowRisk = isHardShadow || monitorLuma <= visualShadowRisk
                 if isHighlightRisk { highlightCount += 1 }
                 if isShadowRisk { shadowCount += 1 }
                 if isHardHighlight { hardHighlightCount += 1 }

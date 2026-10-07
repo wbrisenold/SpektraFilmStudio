@@ -727,7 +727,7 @@ final class AppModel: ObservableObject {
     func workspaceDidChange(_ destination: WorkspacePage) {
         if page != destination { page = destination }
         switch destination {
-        case .library, .cull, .proofs, .export:
+        case .library, .cull, .proofs, .export, .create:
             cancelIdleRefinement()
             // A render that was already in flight is obsolete once the user leaves Edit.
             // Cancel it so Library/Cull interaction always wins the device.
@@ -1269,10 +1269,11 @@ final class AppModel: ObservableObject {
             semanticMaskStatus = "Run Analyze Masks first"
             return
         }
+        let refined = SemanticMaskRefinement.refine(alpha, width: set.width, height: set.height)
         mutateGrade(gradeID) { grade in
             var source = MaskSourceRecord(name: kind.rawValue, kind: .raster)
             source.blendMode = blendMode
-            source.raster = RasterMaskPayload(width: set.width, height: set.height, alpha: alpha)
+            source.raster = RasterMaskPayload(width: set.width, height: set.height, alpha: refined)
             grade.masks.sources.append(source)
         }
     }
@@ -1306,10 +1307,11 @@ final class AppModel: ObservableObject {
             do {
                 let alpha = try await semanticMaskEngine.objectMask(cgImage: cg, normalizedPoint: normalizedPoint)
                 guard !Task.isCancelled, project.selectedImageID == imageID else { return }
+                let refined = SemanticMaskRefinement.refine(alpha, width: cg.width, height: cg.height)
                 mutateGrade(gradeID) { grade in
                     var source = MaskSourceRecord(name: "Object", kind: .raster)
                     source.blendMode = blend
-                    source.raster = RasterMaskPayload(width: cg.width, height: cg.height, alpha: alpha)
+                    source.raster = RasterMaskPayload(width: cg.width, height: cg.height, alpha: refined)
                     grade.masks.sources.append(source)
                 }
                 semanticMaskStatus = blend == .subtract ? "Object subtracted" : "Object mask added"
@@ -1992,9 +1994,9 @@ final class AppModel: ObservableObject {
             working.filmTone = film
             gestureWorkingLook = working
             activeEditChangedParameter = "filmFeed." + key
-            // Final film response is not approximated by a generic global RGB proxy.
-            // A true spectral result is scheduled after release.
-            status = "Film feed adjusting · exact preview on release"
+            // Fast display-only approximation while dragging; exact spectral film render replaces it on release.
+            publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
+            status = "Film feed adjusting · live proxy · exact preview on release"
             return
         }
         cancelIdleRefinement()

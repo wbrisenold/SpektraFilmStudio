@@ -39,7 +39,7 @@ extension PixelBufferF32 {
                 cropH = max(1, min(sourceH, Int((Double(sourceW)/ratio).rounded())))
             }
             let startX = (sourceW-cropW)/2, startY = (sourceH-cropH)/2
-            let scale = settings.dontEnlarge ? min(1.0, min(Double(wantedW)/Double(cropW), Double(wantedH)/Double(cropH))) : 1.0
+            let scale = settings.dontEnlarge ? min(1.0, min(Double(cropW)/Double(wantedW), Double(cropH)/Double(wantedH))) : 1.0
             let outputW = max(1, Int((Double(wantedW)*scale).rounded()))
             let outputH = max(1, Int((Double(wantedH)*scale).rounded()))
             // Pass an ROI into vImage directly: no second full-resolution crop allocation.

@@ -15,9 +15,11 @@ actor SemanticMaskEngine {
         let key=CacheKey(path:imageURL.path,stamp:Int64(d?.timeIntervalSince1970 ?? 0),width:cgImage.width,height:cgImage.height)
         if let v=cache[key]{return v}
         let w=cgImage.width,h=cgImage.height,rgba=try Self.rgba8(cgImage),dir=Self.modelDirectory()
+        let biref=dir.appendingPathComponent("birefnet-lite-1024.onnx")
         let modnet=dir.appendingPathComponent("modnet_photographic.onnx"),schp=dir.appendingPathComponent("schp-lip-20-int8-dynamic.onnx"),face=dir.appendingPathComponent("face_parsing_resnet18.onnx")
         var masks:[SemanticMaskKind:[UInt8]]=[:], provenance:[String]=[]
-        if FileManager.default.fileExists(atPath:modnet.path){let a=try Self.runMatte(model:modnet,rgba:rgba,w:w,h:h);masks[.subject]=a;masks[.background]=a.map{255-$0};provenance.append("MODNet Apache-2.0")}
+        if FileManager.default.fileExists(atPath:biref.path),let a=try? Self.runMatte(model:biref,rgba:rgba,w:w,h:h){masks[.subject]=a;masks[.background]=a.map{255-$0};provenance.append("BiRefNet-lite MIT") }
+        else if FileManager.default.fileExists(atPath:modnet.path){let a=try Self.runMatte(model:modnet,rgba:rgba,w:w,h:h);masks[.subject]=a;masks[.background]=a.map{255-$0};provenance.append("MODNet Apache-2.0")}
         else {let a=try Self.visionPersonMask(cgImage);masks[.subject]=a;masks[.background]=a.map{255-$0};provenance.append("Vision fallback")}
         if FileManager.default.fileExists(atPath:schp.path){let labels=try Self.runLabels(model:schp,profile:.schpLIP20,rgba:rgba,w:w,h:h);masks[.person]=Self.mask(labels,SemanticLabels.person);masks[.hair]=Self.mask(labels,SemanticLabels.hair);masks[.upperClothes]=Self.mask(labels,SemanticLabels.upperClothes);masks[.lowerClothes]=Self.mask(labels,SemanticLabels.lowerClothes);masks[.arms]=Self.mask(labels,SemanticLabels.arms);masks[.legs]=Self.mask(labels,SemanticLabels.legs);masks[.shoes]=Self.mask(labels,SemanticLabels.shoes);provenance.append("SCHP LIP-20 MIT")}
         if FileManager.default.fileExists(atPath:face.path){
@@ -31,6 +33,32 @@ actor SemanticMaskEngine {
     }
 
     func objectMask(cgImage: CGImage, normalizedPoint: CGPoint) throws -> [UInt8] {
+        // Prefer bundled MobileSAM ONNX image encoder + single-mask decoder;
+        // fall back to Apple Vision when model files are unavailable or incompatible.
+        let folder = Self.modelDirectory()
+        let encoder = folder.appendingPathComponent("mobile_sam_image_encoder.onnx")
+        let decoder = folder.appendingPathComponent("sam_mask_decoder_single.onnx")
+        if FileManager.default.fileExists(atPath: encoder.path),
+           FileManager.default.fileExists(atPath: decoder.path),
+           let rgba = try? Self.rgba8(cgImage) {
+            var alpha = [UInt8](repeating: 0, count: cgImage.width * cgImage.height)
+            var error = [CChar](repeating: 0, count: 1024)
+            let rc = encoder.path.withCString { enc in
+                decoder.path.withCString { dec in
+                    rgba.withUnsafeBufferPointer { input in
+                        alpha.withUnsafeMutableBufferPointer { result in
+                            error.withUnsafeMutableBufferPointer { err in
+                                sf_semantic_point_run(enc, dec, input.baseAddress,
+                                    Int32(cgImage.width), Int32(cgImage.height),
+                                    Float(normalizedPoint.x), Float(normalizedPoint.y),
+                                    result.baseAddress, err.baseAddress, Int32(err.count))
+                            }
+                        }
+                    }
+                }
+            }
+            if rc == 0 { return alpha }
+        }
         let request = VNGenerateForegroundInstanceMaskRequest()
         let handler = VNImageRequestHandler(cgImage: cgImage)
         try handler.perform([request])
@@ -149,22 +177,30 @@ enum PixelMaskResize {
         let stride = CVPixelBufferGetBytesPerRow(pixelBuffer)
         guard sw > 0, sh > 0, let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return [UInt8](repeating: 0, count: width * height) }
         let format = CVPixelBufferGetPixelFormatType(pixelBuffer)
+        func sample(_ x: Int, _ y: Int) -> Double {
+            let xx = min(sw - 1, max(0, x)), yy = min(sh - 1, max(0, y))
+            switch format {
+            case kCVPixelFormatType_OneComponent8:
+                let row = base.advanced(by: yy * stride).assumingMemoryBound(to: UInt8.self)
+                return Double(row[xx]) / 255.0
+            case kCVPixelFormatType_OneComponent32Float:
+                let row = base.advanced(by: yy * stride).assumingMemoryBound(to: Float.self)
+                return Double(max(0, min(1, row[xx])))
+            default:
+                return 0
+            }
+        }
         var out = [UInt8](repeating: 0, count: width * height)
         for y in 0..<height {
-            let sy = min(sh - 1, y * sh / max(1, height))
+            let fy = (Double(y) + 0.5) * Double(sh) / Double(max(1, height)) - 0.5
+            let y0 = Int(floor(fy)), y1 = y0 + 1, ty = fy - Double(y0)
             for x in 0..<width {
-                let sx = min(sw - 1, x * sw / max(1, width))
-                switch format {
-                case kCVPixelFormatType_OneComponent8:
-                    let row = base.advanced(by: sy * stride).assumingMemoryBound(to: UInt8.self)
-                    out[y * width + x] = row[sx]
-                case kCVPixelFormatType_OneComponent32Float:
-                    let row = base.advanced(by: sy * stride).assumingMemoryBound(to: Float.self)
-                    let v = max(0, min(1, row[sx]))
-                    out[y * width + x] = UInt8(clamping: Int((v * 255).rounded()))
-                default:
-                    out[y * width + x] = 0
-                }
+                let fx = (Double(x) + 0.5) * Double(sw) / Double(max(1, width)) - 0.5
+                let x0 = Int(floor(fx)), x1 = x0 + 1, tx = fx - Double(x0)
+                let a = sample(x0, y0) * (1 - tx) + sample(x1, y0) * tx
+                let b = sample(x0, y1) * (1 - tx) + sample(x1, y1) * tx
+                let v = max(0, min(1, a * (1 - ty) + b * ty))
+                out[y * width + x] = UInt8(clamping: Int((v * 255).rounded()))
             }
         }
         return out

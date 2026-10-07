@@ -113,16 +113,20 @@ struct RasterMaskPayload: Codable, Equatable, Hashable, Sendable {
 
     private static func decodeRLE(_ data: Data, expectedCount: Int) -> [UInt8] {
         let bytes = [UInt8](data)
-        var out: [UInt8] = []
-        out.reserveCapacity(expectedCount)
-        var i = 0
-        while i + 2 < bytes.count, out.count < expectedCount {
-            let run = Int(bytes[i]) | (Int(bytes[i + 1]) << 8)
-            let value = bytes[i + 2]
-            if run > 0 { out += Array(repeating: value, count: min(run, expectedCount - out.count)) }
-            i += 3
+        var out = [UInt8](repeating: 0, count: expectedCount)
+        var sourceIndex = 0
+        var outputIndex = 0
+        while sourceIndex + 2 < bytes.count, outputIndex < expectedCount {
+            let run = Int(bytes[sourceIndex]) | (Int(bytes[sourceIndex + 1]) << 8)
+            let value = bytes[sourceIndex + 2]
+            sourceIndex += 3
+            guard run > 0 else { continue }
+            let end = min(expectedCount, outputIndex + run)
+            if end > outputIndex {
+                for index in outputIndex..<end { out[index] = value }
+                outputIndex = end
+            }
         }
-        if out.count < expectedCount { out += Array(repeating: 0, count: expectedCount - out.count) }
         return out
     }
 }

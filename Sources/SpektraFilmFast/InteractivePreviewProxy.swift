@@ -77,6 +77,34 @@ enum InteractivePreviewProxy {
                 break
             }
 
+            if name.hasPrefix("filmFeed.") {
+                let beforeFilm = baselineLook.filmTone ?? ToneSettings()
+                let afterFilm = targetLook.filmTone ?? ToneSettings()
+                let key = String(name.dropFirst("filmFeed.".count))
+                switch key {
+                case "exposureEV":
+                    return baseline.pointTransform(exposureStops: afterFilm.exposureEV - beforeFilm.exposureEV)
+                case "brightness":
+                    return baseline.pointTransform(exposureStops: (afterFilm.brightness - beforeFilm.brightness) / 125.0)
+                case "contrast":
+                    return baseline.pointTransform(contrastDelta: (afterFilm.contrast - beforeFilm.contrast) / 125.0)
+                case "highlights":
+                    return baseline.pointTransform(highlightDelta: (afterFilm.highlights - beforeFilm.highlights) / 100.0)
+                case "shadows":
+                    return baseline.pointTransform(shadowDelta: (afterFilm.shadows - beforeFilm.shadows) / 100.0)
+                case "whites":
+                    return baseline.pointTransform(highlightDelta: (afterFilm.whites - beforeFilm.whites) / 125.0)
+                case "blacks":
+                    return baseline.pointTransform(shadowDelta: (afterFilm.blacks - beforeFilm.blacks) / 125.0)
+                case "highlightRecovery":
+                    return baseline.pointTransform(highlightDelta: -(afterFilm.highlightRecovery - beforeFilm.highlightRecovery) / 135.0)
+                case "shadowRecovery":
+                    return baseline.pointTransform(shadowDelta: (afterFilm.shadowRecovery - beforeFilm.shadowRecovery) / 135.0)
+                default:
+                    break
+                }
+            }
+
             if name.hasPrefix("density.") {
                 let beforeDensity = baselineLook.colorDensity ?? ColorDensitySettings()
                 let afterDensity = targetLook.colorDensity ?? ColorDensitySettings()

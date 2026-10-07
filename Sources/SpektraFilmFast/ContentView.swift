@@ -45,6 +45,7 @@ struct ContentView: View {
         case .proofs: ProofsWorkspaceView(model: model)
         case .edit: EditWorkspaceView(model: model)
         case .export: ExportWorkspaceView(model: model)
+        case .create: CreationWorkspaceView(model: model)
         }
     }
 

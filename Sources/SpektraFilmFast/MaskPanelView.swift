@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreGraphics
 
 struct MaskPanelView: View {
     @ObservedObject var model: AppModel
@@ -169,27 +170,13 @@ struct MaskOverlayView: View {
                 let image = model.frameState.renderedPreview
                 let imageRect = gradientImageRect(in: proxy.size, imageWidth: image?.width ?? 1, imageHeight: image?.height ?? 1)
                 ZStack {
-            Canvas { context, size in
-                context.opacity = 0.34
-                for source in grade.masks.sources where source.enabled {
-                    let shade = source.blendMode == .subtract ? Color.red : (source.blendMode == .intersect ? Color.yellow : Color.cyan)
-                    switch source.kind {
-                    case .radial:
-                        let g = source.radial ?? RadialMaskGeometry()
-                        let rect = CGRect(x: (g.center.x - g.radiusX) * size.width, y: (g.center.y - g.radiusY) * size.height, width: g.radiusX * 2 * size.width, height: g.radiusY * 2 * size.height)
-                        context.fill(Path(ellipseIn: rect), with: .color(shade.opacity(source.opacity)))
-                    case .linearGradient:
-                        let g = source.linearGradient ?? LinearGradientMaskGeometry()
-                        let start = CGPoint(x: g.start.x * size.width, y: g.start.y * size.height)
-                        let end = CGPoint(x: g.end.x * size.width, y: g.end.y * size.height)
-                        context.fill(Path(CGRect(origin: .zero, size: size)), with: .linearGradient(Gradient(colors: [.clear, shade.opacity(source.opacity)]), startPoint: start, endPoint: end))
-                    case .raster:
-                        // Raster paint storage is implemented in Stage 2. The geometry overlay intentionally
-                        // avoids decoding a full painted bitmap on every SwiftUI frame; the Metal path consumes it.
-                        break
-                    }
-                }
-            }
+            MaskCoverageOverlay(
+                grade: grade,
+                imageWidth: image?.width ?? 1,
+                imageHeight: image?.height ?? 1
+            )
+            .frame(width: imageRect.width, height: imageRect.height)
+            .position(x: imageRect.midX, y: imageRect.midY)
             .allowsHitTesting(false)
 
             if model.isGradientMaskEditing,
@@ -248,5 +235,59 @@ struct MaskOverlayView: View {
         let grades = model.selectedLook.localGrades ?? []
         if let id = UUID(uuidString: selectedGradeID), let grade = grades.first(where: { $0.id == id }) { return grade }
         return grades.first
+    }
+}
+
+
+private struct MaskOverlayKey: Hashable {
+    let grade: LocalGradeRecord
+    let width: Int
+    let height: Int
+}
+
+private struct MaskCoveragePayload: Sendable {
+    let width: Int
+    let height: Int
+    let rgba: [UInt8]
+}
+
+private struct MaskCoverageOverlay: View {
+    let grade: LocalGradeRecord
+    let imageWidth: Int
+    let imageHeight: Int
+    @State private var overlayImage: CGImage?
+
+    var body: some View {
+        Group {
+            if let overlayImage {
+                Image(decorative: overlayImage, scale: 1)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFill()
+            }
+        }
+        .task(id: MaskOverlayKey(grade: grade, width: imageWidth, height: imageHeight)) {
+            let g = grade
+            let sourceW = max(1, imageWidth)
+            let sourceH = max(1, imageHeight)
+            let scale = min(1.0, 720.0 / Double(max(sourceW, sourceH)))
+            let width = max(1, Int((Double(sourceW) * scale).rounded()))
+            let height = max(1, Int((Double(sourceH) * scale).rounded()))
+            let payload = await Task.detached(priority: .utility) { () -> MaskCoveragePayload in
+                let coverage = MaskedLocalGradeEngine.coverageForGrade(g, width: width, height: height)
+                var rgba = [UInt8](repeating: 0, count: width * height * 4)
+                for i in 0..<min(coverage.count, width * height) {
+                    let a = UInt8(clamping: Int((max(0, min(1, coverage[i])) * 150).rounded()))
+                    let p = i * 4
+                    rgba[p] = 25
+                    rgba[p + 1] = 220
+                    rgba[p + 2] = 255
+                    rgba[p + 3] = a
+                }
+                return MaskCoveragePayload(width: width, height: height, rgba: rgba)
+            }.value
+            guard !Task.isCancelled else { return }
+            overlayImage = CGImage.fromRGBA8(width: payload.width, height: payload.height, bytes: payload.rgba)
+        }
     }
 }

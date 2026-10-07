@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SemanticMaskPanel: View {
     @ObservedObject var model: AppModel
+    @AppStorage("SpektraFilmFast.selectedLocalGradeID") private var selectedGradeID = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -16,7 +17,7 @@ struct SemanticMaskPanel: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
 
-            if let grade = model.selectedLook.localGrades?.first {
+            if let grade = selectedGrade {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 84))], spacing: 5) {
                     ForEach(SemanticMaskKind.allCases.filter { $0 != .object }) { kind in
                         Button(kind.rawValue) { model.addSemanticMask(kind, to: grade.id) }
@@ -50,6 +51,13 @@ struct SemanticMaskPanel: View {
         }
         .padding(8)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var selectedGrade: LocalGradeRecord? {
+        let grades = model.selectedLook.localGrades ?? []
+        if let id = UUID(uuidString: selectedGradeID),
+           let grade = grades.first(where: { $0.id == id }) { return grade }
+        return grades.first
     }
 }
 

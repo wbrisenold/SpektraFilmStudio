@@ -25,11 +25,11 @@ actor ScopeEngine {
             try Task.checkCancellation()
             switch mode {
             case .histogram:
-                return Self.histogram(buffer)
+                return Self.histogram(buffer, look: look)
             case .waveform:
-                return Self.waveform(buffer, parade: false)
+                return Self.waveform(buffer, look: look, parade: false)
             case .parade:
-                return Self.waveform(buffer, parade: true)
+                return Self.waveform(buffer, look: look, parade: true)
             case .vectorscope:
                 return Self.vectorscope(buffer, look: look, skinReference: false, toleranceDegrees: skinToleranceDegrees)
             case .saturation:
@@ -53,7 +53,7 @@ actor ScopeEngine {
 
     // MARK: - Histogram
 
-    private nonisolated static func histogram(_ buffer: PixelBufferF32) -> ScopePayload {
+    private nonisolated static func histogram(_ buffer: PixelBufferF32, look: RenderLook) -> ScopePayload {
         let width = 384
         let height = 180
         let bins = 256
@@ -65,9 +65,12 @@ actor ScopeEngine {
         for y in stride(from: 0, to: buffer.height, by: step) {
             for x in stride(from: 0, to: buffer.width, by: step) {
                 let p = (y * buffer.width + x) * 4
-                red[Int((clamp01(buffer.pixels[p]) * 255).rounded())] &+= 1
-                green[Int((clamp01(buffer.pixels[p + 1]) * 255).rounded())] &+= 1
-                blue[Int((clamp01(buffer.pixels[p + 2]) * 255).rounded())] &+= 1
+                let monitor = DisplayMonitorSignal.rgb(
+                    r: buffer.pixels[p], g: buffer.pixels[p + 1], b: buffer.pixels[p + 2], look: look
+                )
+                red[Int((max(0, min(1, monitor.0)) * 255).rounded())] &+= 1
+                green[Int((max(0, min(1, monitor.1)) * 255).rounded())] &+= 1
+                blue[Int((max(0, min(1, monitor.2)) * 255).rounded())] &+= 1
             }
         }
 
@@ -104,7 +107,7 @@ actor ScopeEngine {
 
     // MARK: - Waveform / RGB parade
 
-    private nonisolated static func waveform(_ buffer: PixelBufferF32, parade: Bool) -> ScopePayload {
+    private nonisolated static func waveform(_ buffer: PixelBufferF32, look: RenderLook, parade: Bool) -> ScopePayload {
         let width = 384
         let height = 192
         let planeSize = width * height
@@ -116,10 +119,8 @@ actor ScopeEngine {
         for sy in stride(from: 0, to: buffer.height, by: yStep) {
             for sx in stride(from: 0, to: buffer.width, by: xStep) {
                 let p = (sy * buffer.width + sx) * 4
-                let values = (
-                    clamp01(buffer.pixels[p]),
-                    clamp01(buffer.pixels[p + 1]),
-                    clamp01(buffer.pixels[p + 2])
+                let values = DisplayMonitorSignal.rgb(
+                    r: buffer.pixels[p], g: buffer.pixels[p + 1], b: buffer.pixels[p + 2], look: look
                 )
 
                 for channel in 0..<3 {
@@ -188,13 +189,7 @@ actor ScopeEngine {
     // Both diagnostics use the *final* post-lens/post-geometry rendered frame,
     // never camera-linear RAW before grading. Interpret coded signal properly.
     private nonisolated static func monitorCode(_ x: Float, outputSpace: Int) -> Float {
-        let v=max(0,min(1,x))
-        if [14,15,16].contains(outputSpace) {
-            // Convert linear-light renderer output to an approximate Rec709 display code.
-            return v < 0.018 ? 4.5*v : 1.099*pow(v,0.45)-0.099
-        }
-        // 17(sRGB), 18(P3), 24/25(Rec709 gamma) are already display-coded.
-        return v
+        DisplayMonitorSignal.code(x, outputSpace: outputSpace)
     }
 
     private nonisolated static func saturationScope(_ buffer: PixelBufferF32, look: RenderLook) -> ScopePayload {
@@ -303,7 +298,8 @@ actor ScopeEngine {
                     px = min(size - 1, max(0, Int(((chroma.uNormalized * 0.5 + 0.5) * Float(size - 1)).rounded())))
                     py = min(size - 1, max(0, Int((((-chroma.vNormalized) * 0.5 + 0.5) * Float(size - 1)).rounded())))
                 } else {
-                    r = rawR; g = rawG; b = rawB
+                    let monitor = DisplayMonitorSignal.rgb(r: rawR, g: rawG, b: rawB, look: look)
+                    r = monitor.0; g = monitor.1; b = monitor.2
                     let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
                     let cb = (b - luma) / (2 * (1 - 0.0722))
                     let cr = (r - luma) / (2 * (1 - 0.2126))
