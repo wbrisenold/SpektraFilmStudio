@@ -9,143 +9,194 @@ struct MaskPanelView: View {
 
     private var grades: [LocalGradeRecord] { model.selectedLook.localGrades ?? [] }
     private var selectedGrade: LocalGradeRecord? {
-        if let id = UUID(uuidString: selectedGradeID), let value = grades.first(where: { $0.id == id }) { return value }
+        if let id = UUID(uuidString: selectedGradeID), let grade = grades.first(where: { $0.id == id }) { return grade }
         return grades.first
     }
 
     var body: some View {
-        DisclosureGroup("LOCAL GRADES / MASKS") {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Picker("Grade", selection: Binding(get: { selectedGrade?.id.uuidString ?? "" }, set: { selectedGradeID = $0 })) {
-                        ForEach(grades) { grade in Text(grade.name).tag(grade.id.uuidString) }
-                    }
-                    .labelsHidden()
-                    .frame(maxWidth: .infinity)
-                    Button { let id = model.addLocalGrade(); selectedGradeID = id.uuidString } label: { Image(systemName: "plus") }
-                    .buttonStyle(.borderless)
-                    if let grade = selectedGrade {
-                        Button(role: .destructive) { model.removeLocalGrade(grade.id) } label: { Image(systemName: "trash") }
-                        .buttonStyle(.borderless)
-                    }
-                }
-
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 12) {
+                gradeHeader
                 if let grade = selectedGrade {
-                    Toggle("Show mask overlay", isOn: $overlayEnabled).toggleStyle(.checkbox)
-                    Toggle("Grade enabled", isOn: Binding(get: { grade.enabled }, set: { model.setLocalGradeEnabled(grade.id, $0) })).toggleStyle(.checkbox)
-                    HStack {
-                        Text("Opacity").font(.caption2).frame(width: 54, alignment: .leading)
-                        Slider(value: Binding(get: { grade.opacity }, set: { model.setLocalGradeOpacity(grade.id, $0) }), in: 0...1)
-                        Text(String(format: "%.0f%%", grade.opacity * 100)).font(.caption2.monospacedDigit()).frame(width: 38)
-                    }
-
-                    Text("LOCAL ADJUSTMENTS · masked to this grade")
-                        .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                    localSlider("Exposure", grade: grade, key: "exposure", value: grade.tone?.exposureEV ?? 0, range: -5...5)
-                    localSlider("Brightness", grade: grade, key: "brightness", value: grade.tone?.brightness ?? 0, range: -100...100)
-                    localSlider("Contrast", grade: grade, key: "contrast", value: grade.tone?.contrast ?? 0, range: -100...100)
-                    localSlider("Highlights", grade: grade, key: "highlights", value: grade.tone?.highlights ?? 0, range: -100...100)
-                    localSlider("Shadows", grade: grade, key: "shadows", value: grade.tone?.shadows ?? 0, range: -100...100)
-                    HStack(spacing: 6) {
-                        Text("Density").font(.caption2).frame(width: 66, alignment: .leading)
-                        Slider(value: Binding(get: { grade.colorDensity?.master ?? 0 }, set: { model.setLocalDensity(grade.id, $0) }), in: -1...1)
-                        Text(String(format: "%+.2f", grade.colorDensity?.master ?? 0)).font(.caption2.monospacedDigit()).frame(width: 45)
-                    }
-                    Text("Global adjustments elsewhere still affect the full image. These local controls affect only this mask.")
-                        .font(.caption2).foregroundStyle(.secondary)
-
-                    HStack {
-                        Text("Masks").font(.caption.weight(.semibold)); Spacer()
-                        Menu {
-                            Button("Radial") { model.addMaskSource(gradeID: grade.id, kind: .radial) }
-                            Button("Linear Gradient") { model.addMaskSource(gradeID: grade.id, kind: .linearGradient) }
-                            Button("Raster / Paint") { model.addMaskSource(gradeID: grade.id, kind: .raster) }
-                        } label: { Image(systemName: "plus.circle") }
-                        .menuStyle(.borderlessButton)
-                    }
-
-                    ForEach(grade.masks.sources) { source in
-                        VStack(alignment: .leading, spacing: 5) {
-                            HStack {
-                                Toggle("", isOn: Binding(get: { source.enabled }, set: { model.setMaskEnabled(gradeID: grade.id, maskID: source.id, $0) })).labelsHidden().toggleStyle(.checkbox)
-                                Text(source.name).font(.caption)
-                                Spacer()
-                                Button(role: .destructive) { model.removeMaskSource(gradeID: grade.id, maskID: source.id) } label: { Image(systemName: "xmark") }.buttonStyle(.plain)
-                            }
-                            HStack {
-                                Picker("Mode", selection: Binding(get: { source.blendMode }, set: { model.setMaskBlendMode(gradeID: grade.id, maskID: source.id, $0) })) {
-                                    ForEach(MaskBlendMode.allCases) { Text($0.rawValue).tag($0) }
-                                }.labelsHidden().frame(width: 92)
-                                Toggle("Invert", isOn: Binding(get: { source.inverted }, set: { model.setMaskInverted(gradeID: grade.id, maskID: source.id, $0) })).toggleStyle(.checkbox)
-                            }
-                            if source.kind == .linearGradient {
-                                let gradient = source.linearGradient ?? LinearGradientMaskGeometry()
-                                HStack(spacing: 6) {
-                                    Button {
-                                        selectedGradeID = grade.id.uuidString
-                                        selectedGradientMaskID = source.id.uuidString
-                                        model.isGradientMaskEditing = true
-                                    } label: {
-                                        Label("Edit Gradient on Image", systemImage: "arrow.up.left.and.arrow.down.right")
-                                    }
-                                    .controlSize(.small)
-                                    Spacer()
-                                    if model.isGradientMaskEditing && selectedGradientMaskID == source.id.uuidString {
-                                        Button("Done") { model.isGradientMaskEditing = false }
-                                            .controlSize(.small)
-                                    }
-                                }
-                                gradientSlider("Start X", grade: grade, source: source, axis: "startX", value: gradient.start.x)
-                                gradientSlider("Start Y", grade: grade, source: source, axis: "startY", value: gradient.start.y)
-                                gradientSlider("End X", grade: grade, source: source, axis: "endX", value: gradient.end.x)
-                                gradientSlider("End Y", grade: grade, source: source, axis: "endY", value: gradient.end.y)
-                                HStack(spacing: 6) {
-                                    Button("Horizontal") {
-                                        model.setGradientEndpoints(gradeID: grade.id, maskID: source.id,
-                                            start: NormalizedPoint(x: 0.2, y: 0.5), end: NormalizedPoint(x: 0.8, y: 0.5))
-                                    }
-                                    Button("Vertical") {
-                                        model.setGradientEndpoints(gradeID: grade.id, maskID: source.id,
-                                            start: NormalizedPoint(x: 0.5, y: 0.2), end: NormalizedPoint(x: 0.5, y: 0.8))
-                                    }
-                                    Button("Diagonal") {
-                                        model.setGradientEndpoints(gradeID: grade.id, maskID: source.id,
-                                            start: NormalizedPoint(x: 0.2, y: 0.2), end: NormalizedPoint(x: 0.8, y: 0.8))
-                                    }
-                                }
-                                .buttonStyle(.borderless).controlSize(.small)
-                                Text("Feather below sets transition softness. Drag either endpoint directly on the photo to position and rotate the gradient.")
-                                    .font(.caption2).foregroundStyle(.secondary)
-                            }
-                            HStack {
-                                Text("Feather").font(.caption2).frame(width: 48, alignment: .leading)
-                                Slider(value: Binding(get: { source.feather }, set: { model.setMaskFeather(gradeID: grade.id, maskID: source.id, $0) }), in: 0...1)
-                            }
-                            HStack {
-                                Text("Opacity").font(.caption2).frame(width: 48, alignment: .leading)
-                                Slider(value: Binding(get: { source.opacity }, set: { model.setMaskOpacity(gradeID: grade.id, maskID: source.id, $0) }), in: 0...1)
-                            }
-                        }
-                        .padding(7)
-                        .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 6))
-                    }
+                    selectArea(grade)
+                    Divider().opacity(0.45)
+                    refineMasks(grade)
+                    Divider().opacity(0.45)
+                    localAdjustments(grade)
                 } else {
-                    Text("Add a local grade to start masking.").font(.caption2).foregroundStyle(.secondary)
+                    VStack(spacing: 8) {
+                        Text("Create a local adjustment first.").font(.caption)
+                        Button("New Local Adjustment") { createGrade() }
+                            .buttonStyle(.borderedProminent).controlSize(.small)
+                    }.frame(maxWidth: .infinity).padding(.vertical, 14)
+                }
+            }.padding(.top, 8)
+        } label: {
+            HStack {
+                Label("Masks & Local Adjustments", systemImage: "circle.lefthalf.filled")
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                if selectedGrade != nil {
+                    Button { overlayEnabled.toggle() } label: {
+                        Image(systemName: overlayEnabled ? "eye.fill" : "eye.slash")
+                    }.buttonStyle(.plain)
                 }
             }
-            .padding(.vertical, 6)
+        }
+        .onAppear { normalizeSelection() }
+        .onChange(of: grades.map(\.id)) { _, _ in normalizeSelection() }
+    }
+
+    private var gradeHeader: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Picker("Local adjustment", selection: Binding(
+                    get: { selectedGrade?.id.uuidString ?? "" },
+                    set: { selectedGradeID = $0; overlayEnabled = true }
+                )) {
+                    ForEach(grades) { Text($0.name).tag($0.id.uuidString) }
+                }.labelsHidden().frame(maxWidth: .infinity)
+                Button { createGrade() } label: { Image(systemName: "plus") }
+                    .buttonStyle(.bordered).controlSize(.small)
+                if let grade = selectedGrade {
+                    Button(role: .destructive) { model.removeLocalGrade(grade.id) } label: { Image(systemName: "trash") }
+                        .buttonStyle(.bordered).controlSize(.small)
+                }
+            }
+            if let grade = selectedGrade {
+                HStack {
+                    Toggle("Enabled", isOn: Binding(get: { grade.enabled }, set: { model.setLocalGradeEnabled(grade.id, $0) }))
+                        .toggleStyle(.checkbox)
+                    Toggle("Show Overlay", isOn: $overlayEnabled).toggleStyle(.checkbox)
+                    Spacer()
+                    Text(overlayEnabled ? "CYAN = SELECTED" : "OVERLAY OFF")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(overlayEnabled ? .cyan : .secondary)
+                }
+            }
         }
     }
 
-    private func gradientSlider(_ label: String, grade: LocalGradeRecord, source: MaskSourceRecord, axis: String, value: Double) -> some View {
-        HStack(spacing: 6) {
-            Text(label).font(.caption2).frame(width: 48, alignment: .leading)
-            Slider(value: Binding(
-                get: { value },
-                set: { model.setGradientCoordinate(gradeID: grade.id, maskID: source.id, axis: axis, value: $0) }
-            ), in: 0...1)
-            Text(value, format: .number.precision(.fractionLength(2)))
-                .font(.caption2.monospacedDigit()).frame(width: 42)
+    private func selectArea(_ grade: LocalGradeRecord) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("1 · SELECT AREA").font(.caption2.weight(.bold))
+                Spacer()
+                Button { model.refreshCanonicalSemanticMasks(); overlayEnabled = true } label: {
+                    Label("Analyze AI", systemImage: "sparkles")
+                }.buttonStyle(.bordered).controlSize(.small)
+            }
+            Text(model.semanticMaskStatus).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+
+            let primary: [SemanticMaskKind] = [.subject, .skin, .person, .background, .hair]
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 82), spacing: 5)], spacing: 5) {
+                ForEach(primary) { kind in
+                    Button { overlayEnabled = true; model.addSemanticMask(kind, to: grade.id) } label: {
+                        Text(kind.rawValue).frame(maxWidth: .infinity)
+                    }.buttonStyle(.bordered).controlSize(.small)
+                     .disabled(model.semanticMasks?.alpha(kind) == nil)
+                }
+            }
+
+            DisclosureGroup("More AI selections") {
+                let secondary: [SemanticMaskKind] = [.eyes, .lips, .body, .upperClothes, .lowerClothes, .arms, .legs, .shoes]
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 80), spacing: 5)], spacing: 5) {
+                    ForEach(secondary) { kind in
+                        Button { overlayEnabled = true; model.addSemanticMask(kind, to: grade.id) } label: {
+                            Text(kind.rawValue).frame(maxWidth: .infinity)
+                        }.buttonStyle(.bordered).controlSize(.small)
+                         .disabled(model.semanticMasks?.alpha(kind) == nil)
+                    }
+                }.padding(.top, 5)
+            }.font(.caption2)
+
+            HStack(spacing: 6) {
+                Button { overlayEnabled = true; model.beginObjectMaskPick(gradeID: grade.id, blendMode: .add) } label: {
+                    Label("Pick Object", systemImage: "scope")
+                }
+                Button { overlayEnabled = true; model.beginObjectMaskPick(gradeID: grade.id, blendMode: .subtract) } label: {
+                    Label("Subtract", systemImage: "minus.circle")
+                }
+                Menu {
+                    Button("Radial Mask") { overlayEnabled = true; model.addMaskSource(gradeID: grade.id, kind: .radial) }
+                    Button("Linear Gradient") { overlayEnabled = true; model.addMaskSource(gradeID: grade.id, kind: .linearGradient) }
+                    Button("Raster / Paint") { overlayEnabled = true; model.addMaskSource(gradeID: grade.id, kind: .raster) }
+                } label: { Label("Manual", systemImage: "plus.circle") }
+            }.buttonStyle(.bordered).controlSize(.small)
+
+            if model.isObjectMaskPicking {
+                HStack {
+                    ProgressView().controlSize(.mini)
+                    Text("Click the object directly on the photo.").font(.caption2)
+                    Spacer()
+                    Button("Cancel") { model.cancelObjectMaskPick() }.buttonStyle(.borderless)
+                }
+            }
+        }
+    }
+
+    private func refineMasks(_ grade: LocalGradeRecord) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text("2 · REFINE MASK").font(.caption2.weight(.bold))
+                Spacer()
+                Text("\(grade.masks.sources.count) mask\(grade.masks.sources.count == 1 ? "" : "s")")
+                    .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            if grade.masks.sources.isEmpty {
+                Text("Add an AI, object, gradient or radial selection above. With no mask, the local adjustment affects the whole image.")
+                    .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(grade.masks.sources) { source in maskCard(grade: grade, source: source) }
+        }
+    }
+
+    private func maskCard(grade: LocalGradeRecord, source: MaskSourceRecord) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Image(systemName: source.kind == .radial ? "circle" : (source.kind == .linearGradient ? "square.split.diagonal.2x2" : "wand.and.stars"))
+                    .foregroundStyle(source.enabled ? .cyan : .secondary)
+                Toggle("", isOn: Binding(get: { source.enabled }, set: { model.setMaskEnabled(gradeID: grade.id, maskID: source.id, $0) }))
+                    .labelsHidden().toggleStyle(.checkbox)
+                Text(source.name).font(.caption.weight(.semibold)).lineLimit(1)
+                Spacer()
+                Button(role: .destructive) { model.removeMaskSource(gradeID: grade.id, maskID: source.id) } label: { Image(systemName: "trash") }
+                    .buttonStyle(.plain)
+            }
+            Picker("Combine", selection: Binding(get: { source.blendMode }, set: { model.setMaskBlendMode(gradeID: grade.id, maskID: source.id, $0) })) {
+                ForEach(MaskBlendMode.allCases) { Text($0.rawValue).tag($0) }
+            }.pickerStyle(.segmented).controlSize(.small)
+            HStack {
+                Toggle("Invert", isOn: Binding(get: { source.inverted }, set: { model.setMaskInverted(gradeID: grade.id, maskID: source.id, $0) }))
+                    .toggleStyle(.checkbox)
+                Spacer()
+                if source.kind == .linearGradient {
+                    Button { selectedGradientMaskID = source.id.uuidString; model.isGradientMaskEditing = true; overlayEnabled = true } label: {
+                        Label("Edit on Photo", systemImage: "arrow.up.left.and.arrow.down.right")
+                    }.buttonStyle(.borderless).controlSize(.small)
+                }
+            }
+            sliderRow("Feather", value: Binding(get: { source.feather }, set: { model.setMaskFeather(gradeID: grade.id, maskID: source.id, $0) }))
+            sliderRow("Mask Opacity", value: Binding(get: { source.opacity }, set: { model.setMaskOpacity(gradeID: grade.id, maskID: source.id, $0) }))
+        }
+        .padding(8)
+        .background(StudioPalette.recessed.opacity(0.9), in: RoundedRectangle(cornerRadius: 7))
+        .overlay { RoundedRectangle(cornerRadius: 7).stroke(source.enabled ? Color.cyan.opacity(0.22) : StudioPalette.subtleBorder, lineWidth: 0.7) }
+    }
+
+    private func localAdjustments(_ grade: LocalGradeRecord) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("3 · ADJUST SELECTED AREA").font(.caption2.weight(.bold))
+            HStack {
+                Text("Adjustment Opacity").font(.caption2)
+                Slider(value: Binding(get: { grade.opacity }, set: { model.setLocalGradeOpacity(grade.id, $0) }), in: 0...1)
+                Text(String(format: "%.0f%%", grade.opacity * 100)).font(.caption2.monospacedDigit()).frame(width: 36)
+            }
+            localSlider("Exposure", grade: grade, key: "exposure", value: grade.tone?.exposureEV ?? 0, range: -5...5)
+            localSlider("Brightness", grade: grade, key: "brightness", value: grade.tone?.brightness ?? 0, range: -100...100)
+            localSlider("Contrast", grade: grade, key: "contrast", value: grade.tone?.contrast ?? 0, range: -100...100)
+            localSlider("Highlights", grade: grade, key: "highlights", value: grade.tone?.highlights ?? 0, range: -100...100)
+            localSlider("Shadows", grade: grade, key: "shadows", value: grade.tone?.shadows ?? 0, range: -100...100)
         }
     }
 
@@ -155,6 +206,22 @@ struct MaskPanelView: View {
             Slider(value: Binding(get: { value }, set: { model.setLocalTone(grade.id, key, $0) }), in: range)
             Text(String(format: "%+.1f", value)).font(.caption2.monospacedDigit()).frame(width: 45)
         }
+    }
+
+    private func sliderRow(_ label: String, value: Binding<Double>) -> some View {
+        HStack(spacing: 6) {
+            Text(label).font(.caption2).frame(width: 76, alignment: .leading)
+            Slider(value: value, in: 0...1)
+            Text(String(format: "%.0f%%", value.wrappedValue * 100)).font(.caption2.monospacedDigit()).frame(width: 38)
+        }
+    }
+
+    private func createGrade() {
+        let id = model.addLocalGrade(); selectedGradeID = id.uuidString; overlayEnabled = true
+    }
+    private func normalizeSelection() {
+        if let id = UUID(uuidString: selectedGradeID), grades.contains(where: { $0.id == id }) { return }
+        selectedGradeID = grades.first?.id.uuidString ?? ""
     }
 }
 
@@ -168,67 +235,53 @@ struct MaskOverlayView: View {
         if overlayEnabled, let grade = selectedGrade, !grade.masks.sources.isEmpty {
             GeometryReader { proxy in
                 let image = model.frameState.renderedPreview
-                let imageRect = gradientImageRect(in: proxy.size, imageWidth: image?.width ?? 1, imageHeight: image?.height ?? 1)
+                let rect = fittedImageRect(in: proxy.size, imageWidth: image?.width ?? 1, imageHeight: image?.height ?? 1)
                 ZStack {
-            MaskCoverageOverlay(
-                grade: grade,
-                imageWidth: image?.width ?? 1,
-                imageHeight: image?.height ?? 1
-            )
-            .frame(width: imageRect.width, height: imageRect.height)
-            .position(x: imageRect.midX, y: imageRect.midY)
-            .allowsHitTesting(false)
-
-            if model.isGradientMaskEditing,
-               let maskID = UUID(uuidString: selectedGradientMaskID),
-               let source = grade.masks.sources.first(where: { $0.id == maskID && $0.kind == .linearGradient && $0.enabled }),
-               let gradient = source.linearGradient,
-               imageRect.width > 0, imageRect.height > 0 {
-                gradientHandles(grade: grade, source: source, geometry: gradient, rect: imageRect)
-            }
-                }
-                .frame(width: proxy.size.width, height: proxy.size.height)
+                    MaskCoverageOverlay(grade: grade, imageWidth: image?.width ?? 1, imageHeight: image?.height ?? 1)
+                        .frame(width: rect.width, height: rect.height)
+                        .position(x: rect.midX, y: rect.midY)
+                        .allowsHitTesting(false)
+                    if model.isGradientMaskEditing,
+                       let maskID = UUID(uuidString: selectedGradientMaskID),
+                       let source = grade.masks.sources.first(where: { $0.id == maskID && $0.kind == .linearGradient && $0.enabled }),
+                       let gradient = source.linearGradient {
+                        gradientHandles(grade: grade, source: source, geometry: gradient, rect: rect)
+                    }
+                }.frame(width: proxy.size.width, height: proxy.size.height)
             }
         }
     }
 
-    private func gradientImageRect(in available: CGSize, imageWidth: Int, imageHeight: Int) -> CGRect {
+    private func fittedImageRect(in available: CGSize, imageWidth: Int, imageHeight: Int) -> CGRect {
         guard available.width > 0, available.height > 0, imageWidth > 0, imageHeight > 0 else { return .zero }
-        let factor = min(available.width / CGFloat(imageWidth), available.height / CGFloat(imageHeight))
-        let width = CGFloat(imageWidth) * factor
-        let height = CGFloat(imageHeight) * factor
-        return CGRect(x: (available.width - width) / 2, y: (available.height - height) / 2, width: width, height: height)
+        let f = min(available.width / CGFloat(imageWidth), available.height / CGFloat(imageHeight))
+        let w = CGFloat(imageWidth) * f, h = CGFloat(imageHeight) * f
+        return CGRect(x: (available.width-w)/2, y: (available.height-h)/2, width: w, height: h)
     }
 
     private func gradientHandles(grade: LocalGradeRecord, source: MaskSourceRecord, geometry: LinearGradientMaskGeometry, rect: CGRect) -> some View {
         let start = CGPoint(x: rect.minX + rect.width * CGFloat(geometry.start.x), y: rect.minY + rect.height * CGFloat(geometry.start.y))
         let end = CGPoint(x: rect.minX + rect.width * CGFloat(geometry.end.x), y: rect.minY + rect.height * CGFloat(geometry.end.y))
         return ZStack {
-            Path { path in path.move(to: start); path.addLine(to: end) }
-                .stroke(.white.opacity(0.92), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+            Path { $0.move(to: start); $0.addLine(to: end) }
+                .stroke(.white.opacity(0.95), style: StrokeStyle(lineWidth: 1.5, dash: [5,4]))
                 .allowsHitTesting(false)
-            gradientHandle(point: start, isStart: true, gradeID: grade.id, maskID: source.id, geometry: geometry, rect: rect)
-            gradientHandle(point: end, isStart: false, gradeID: grade.id, maskID: source.id, geometry: geometry, rect: rect)
+            handle(start, true, grade.id, source.id, geometry, rect)
+            handle(end, false, grade.id, source.id, geometry, rect)
         }
     }
 
-    private func gradientHandle(point: CGPoint, isStart: Bool, gradeID: UUID, maskID: UUID, geometry: LinearGradientMaskGeometry, rect: CGRect) -> some View {
-        Circle()
-            .fill(isStart ? Color.cyan : Color.white)
+    private func handle(_ point: CGPoint, _ isStart: Bool, _ gradeID: UUID, _ maskID: UUID, _ geometry: LinearGradientMaskGeometry, _ rect: CGRect) -> some View {
+        Circle().fill(isStart ? Color.cyan : Color.white)
             .overlay(Circle().stroke(Color.black.opacity(0.85), lineWidth: 2))
-            .frame(width: 18, height: 18)
-            .contentShape(Circle())
-            .position(point)
+            .frame(width: 18, height: 18).position(point)
             .gesture(DragGesture(minimumDistance: 0).onEnded { gesture in
                 guard rect.width > 0, rect.height > 0 else { return }
                 let x = max(0, min(1, Double((point.x + gesture.translation.width - rect.minX) / rect.width)))
                 let y = max(0, min(1, Double((point.y + gesture.translation.height - rect.minY) / rect.height)))
-                let location = NormalizedPoint(x: x, y: y)
-                model.setGradientEndpoints(gradeID: gradeID, maskID: maskID,
-                    start: isStart ? location : geometry.start,
-                    end: isStart ? geometry.end : location)
+                let p = NormalizedPoint(x: x, y: y)
+                model.setGradientEndpoints(gradeID: gradeID, maskID: maskID, start: isStart ? p : geometry.start, end: isStart ? geometry.end : p)
             })
-            .help(isStart ? "Drag the gradient start" : "Drag the gradient end")
     }
 
     private var selectedGrade: LocalGradeRecord? {
@@ -238,18 +291,8 @@ struct MaskOverlayView: View {
     }
 }
 
-
-private struct MaskOverlayKey: Hashable {
-    let grade: LocalGradeRecord
-    let width: Int
-    let height: Int
-}
-
-private struct MaskCoveragePayload: Sendable {
-    let width: Int
-    let height: Int
-    let rgba: [UInt8]
-}
+private struct MaskOverlayKey: Hashable { let grade: LocalGradeRecord; let width: Int; let height: Int }
+private struct MaskCoveragePayload: Sendable { let width: Int; let height: Int; let rgba: [UInt8] }
 
 private struct MaskCoverageOverlay: View {
     let grade: LocalGradeRecord
@@ -260,31 +303,24 @@ private struct MaskCoverageOverlay: View {
     var body: some View {
         Group {
             if let overlayImage {
-                Image(decorative: overlayImage, scale: 1)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
+                Image(decorative: overlayImage, scale: 1).resizable().interpolation(.high)
+                    .aspectRatio(CGFloat(max(1,imageWidth)) / CGFloat(max(1,imageHeight)), contentMode: .fit)
             }
         }
         .task(id: MaskOverlayKey(grade: grade, width: imageWidth, height: imageHeight)) {
             let g = grade
-            let sourceW = max(1, imageWidth)
-            let sourceH = max(1, imageHeight)
-            let scale = min(1.0, 720.0 / Double(max(sourceW, sourceH)))
-            let width = max(1, Int((Double(sourceW) * scale).rounded()))
-            let height = max(1, Int((Double(sourceH) * scale).rounded()))
+            let sw = max(1,imageWidth), sh = max(1,imageHeight)
+            let scale = min(1.0, 960.0 / Double(max(sw,sh)))
+            let w = max(1,Int((Double(sw)*scale).rounded())), h = max(1,Int((Double(sh)*scale).rounded()))
             let payload = await Task.detached(priority: .utility) { () -> MaskCoveragePayload in
-                let coverage = MaskedLocalGradeEngine.coverageForGrade(g, width: width, height: height)
-                var rgba = [UInt8](repeating: 0, count: width * height * 4)
-                for i in 0..<min(coverage.count, width * height) {
-                    let a = UInt8(clamping: Int((max(0, min(1, coverage[i])) * 220).rounded()))
-                    let p = i * 4
-                    rgba[p] = 25
-                    rgba[p + 1] = 220
-                    rgba[p + 2] = 255
-                    rgba[p + 3] = a
+                let coverage = MaskedLocalGradeEngine.coverageForGrade(g, width: w, height: h)
+                var rgba = [UInt8](repeating: 0, count: w*h*4)
+                for i in 0..<min(coverage.count,w*h) {
+                    let c = max(0,min(1,coverage[i])); guard c > 0.003 else { continue }
+                    let a: UInt8 = c >= 0.20 ? 218 : UInt8(clamping: Int((55.0 + Double(c/0.20)*163.0).rounded()))
+                    let p=i*4; rgba[p]=0; rgba[p+1]=220; rgba[p+2]=255; rgba[p+3]=a
                 }
-                return MaskCoveragePayload(width: width, height: height, rgba: rgba)
+                return MaskCoveragePayload(width:w,height:h,rgba:rgba)
             }.value
             guard !Task.isCancelled else { return }
             overlayImage = CGImage.fromRGBA8(width: payload.width, height: payload.height, bytes: payload.rgba)

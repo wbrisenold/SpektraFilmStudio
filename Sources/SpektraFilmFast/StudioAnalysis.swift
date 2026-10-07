@@ -161,9 +161,6 @@ actor StudioAnalysisEngine {
         var skinCbWeightedSum = 0.0
         var skinCrWeightedSum = 0.0
 
-        let highlightRiskThreshold = Float(min(0.995, max(0.50, preferences.exposureHighlightRiskThreshold)))
-        let shadowRiskThreshold = Float(min(0.25, max(0.001, preferences.exposureShadowRiskThreshold)))
-        let shadowThreshold = Float(min(Double(shadowRiskThreshold), max(0.0, preferences.clippingShadowThreshold)))
         let tolerance = min(45.0, max(1.0, preferences.skinToleranceDegrees))
         let baseSkinOpacity = min(0.85, max(0.05, preferences.skinOverlayOpacity))
 
@@ -178,25 +175,18 @@ actor StudioAnalysisEngine {
                 let outG = diagnosticBuffer.pixels[diagnosticIndex + 1]
                 let outB = diagnosticBuffer.pixels[diagnosticIndex + 2]
 
-                let monitorR = monitorPixels[diagnosticIndex]
-                let monitorG = monitorPixels[diagnosticIndex + 1]
-                let monitorB = monitorPixels[diagnosticIndex + 2]
-                let monitorLuma = 0.2126 * monitorR + 0.7152 * monitorG + 0.0722 * monitorB
-                let monitorPeak = max(monitorR, max(monitorG, monitorB))
-                let monitorFloor = min(monitorR, min(monitorG, monitorB))
+                let monitor = DisplayMonitorSignal.sampleDisplay(
+                    r: monitorPixels[diagnosticIndex],
+                    g: monitorPixels[diagnosticIndex + 1],
+                    b: monitorPixels[diagnosticIndex + 2]
+                )
 
-                // False Color is the reference monitor. Its upper red/white zones begin at
-                // 0.88 / 0.97 display-code luma; deep shadow zones are below 0.10 / 0.03.
-                // Clip overlay now follows those same final-display boundaries, so film shoulder
-                // compression cannot make an obviously hot image report only ~0.1% warning.
-                let visualHighlightRisk = min(highlightRiskThreshold, 0.88)
-                let visualShadowRisk = max(shadowRiskThreshold, 0.10)
-                // Keep true output clipping separate from the *look* of overexposure.
-                // False Color enters its hot band at 0.88; this is a warning, not hard clip.
-                let isHardHighlight = monitorPeak >= 0.9985
-                let isHardShadow = monitorFloor <= shadowThreshold
-                let isHighlightRisk = isHardHighlight || monitorLuma >= visualHighlightRisk || monitorPeak >= 0.97
-                let isShadowRisk = isHardShadow || monitorLuma <= visualShadowRisk
+                // False Color is the calibration reference. Percentages and overlay now use
+                // the exact same final-display luma bands.
+                let isHardHighlight = monitor.falseColorHighlightHard
+                let isHardShadow = monitor.falseColorShadowHard
+                let isHighlightRisk = monitor.falseColorHighlightRisk
+                let isShadowRisk = monitor.falseColorShadowRisk
                 if isHighlightRisk { highlightCount += 1 }
                 if isShadowRisk { shadowCount += 1 }
                 if isHardHighlight { hardHighlightCount += 1 }

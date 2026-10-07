@@ -339,21 +339,65 @@ private enum SourcedToneMath {
             }
         }
 
-        if abs(shadows) > 1e-9 || abs(highlights) > 1e-9 {
-            let sourceY = 0.2126 * rr + 0.7152 * gg + 0.0722 * bb
-            let curve = makeSharedCurve(shadows: shadows, highlights: highlights)
-            let mappedY = evaluate(sourceY, curve: curve)
-            let dr = rr - sourceY, dg = gg - sourceY, db = bb - sourceY
-            var scale = 1.0
-            if dr < 0 { scale = min(scale, mappedY / max(-dr, 1e-12)) }
-            if dg < 0 { scale = min(scale, mappedY / max(-dg, 1e-12)) }
-            if db < 0 { scale = min(scale, mappedY / max(-db, 1e-12)) }
-            scale = max(0, min(1, scale))
-            rr = mappedY + dr * scale
-            gg = mappedY + dg * scale
-            bb = mappedY + db * scale
+        // Scene-linear tonal behavior translated from RapidRAW's published tonal path.
+        // Exposure EV remains the first 2^EV light multiplier; these controls operate after it
+        // but still before the native film simulation.
+        if abs(shadows) > 1e-9 {
+            (rr, gg, bb) = sourcedShadows(r: rr, g: gg, b: bb, value: shadows)
+        }
+        if abs(highlights) > 1e-9 {
+            (rr, gg, bb) = sourcedHighlights(r: rr, g: gg, b: bb, value: highlights)
         }
 
+        return (rr, gg, bb)
+    }
+
+    private static func sourcedShadows(r: Double, g: Double, b: Double, value: Double) -> (Double, Double, Double) {
+        let amount = max(-1.0, min(1.0, value / 100.0))
+        guard abs(amount) > 1e-12 else { return (r, g, b) }
+        let y = max(0.0, 0.2126*r + 0.7152*g + 0.0722*b)
+        guard y > 1e-6 else { return (r, g, b) }
+        let t = pow(y, 1.0 / 2.2)
+        let lift = amount * t * pow(max(1.0 - t, 0.0), 4.5)
+        let targetY = pow(max(t + lift, 0.0), 2.2)
+        let ratio = targetY / max(y, 1e-12)
+        var rr = r * ratio, gg = g * ratio, bb = b * ratio
+        if ratio > 1.0 {
+            let neutralize = min(0.40, max(0.0, (ratio - 1.0) * 0.15))
+            rr += (targetY - rr) * neutralize
+            gg += (targetY - gg) * neutralize
+            bb += (targetY - bb) * neutralize
+        }
+        return (rr, gg, bb)
+    }
+
+    private static func sourcedHighlights(r: Double, g: Double, b: Double, value: Double) -> (Double, Double, Double) {
+        let amount = max(-1.0, min(1.0, value / 100.0))
+        guard abs(amount) > 1e-12 else { return (r, g, b) }
+        let y = max(0.0, 0.2126*r + 0.7152*g + 0.0722*b)
+        let pivot = 0.10
+        guard y > pivot else { return (r, g, b) }
+        let delta = max(y - pivot, 0.0)
+        let targetBase: Double
+        if amount < 0 {
+            let k = -amount
+            let strength = k * 2.2
+            let compressed = delta / (1.0 + strength * (delta / (1.0 + delta * 0.35)))
+            targetBase = pivot + compressed
+        } else {
+            let boost = amount * 0.70
+            targetBase = pivot + delta * (1.0 + boost / (1.0 + delta * 0.25))
+        }
+        let blend = smoothstep(pivot, pivot + 0.35, y)
+        let targetY = y + (targetBase - y) * blend
+        let ratio = targetY / max(y, 1e-12)
+        var rr = r * ratio, gg = g * ratio, bb = b * ratio
+        if amount < 0 && y > 1.0 {
+            let blowout = smoothstep(1.0, 3.5, y) * (-amount) * 0.40
+            rr += (targetY - rr) * blowout
+            gg += (targetY - gg) * blowout
+            bb += (targetY - bb) * blowout
+        }
         return (rr, gg, bb)
     }
 

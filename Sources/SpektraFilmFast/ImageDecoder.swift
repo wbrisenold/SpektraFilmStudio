@@ -415,6 +415,27 @@ actor ImageDecoder {
                 }
             }
 
+            rawFilter.exposure = Float(min(5, max(-5, raw.developExposureEV)))
+            rawFilter.boostAmount = Float(min(1, max(0, raw.developGlobalTone)))
+            rawFilter.boostShadowAmount = Float(min(2, max(0, raw.developShadowBoost)))
+            rawFilter.extendedDynamicRangeAmount = Float(min(2, max(0, raw.developHighlightHeadroom)))
+
+            let rawCurve = ToneCurveMath.normalize(raw.developCurvePoints)
+            let identityCurve = rawCurve.count == 2
+                && abs(rawCurve[0].x) < 1e-9 && abs(rawCurve[0].y) < 1e-9
+                && abs(rawCurve[1].x - 1) < 1e-9 && abs(rawCurve[1].y - 1) < 1e-9
+            if !identityCurve, let curveFilter = CIFilter(name: "CIToneCurve") {
+                let cache = ToneCurveMath.buildCache(rawCurve)
+                for index in 0...4 {
+                    let x = Double(index) / 4.0
+                    let y = min(1.0, max(0.0, ToneCurveMath.evaluate(x, points: rawCurve, cache: cache)))
+                    curveFilter.setValue(CIVector(x: CGFloat(x), y: CGFloat(y)), forKey: "inputPoint\(index)")
+                }
+                rawFilter.linearSpaceFilter = curveFilter
+            } else {
+                rawFilter.linearSpaceFilter = nil
+            }
+
             if let output = rawFilter.outputImage {
                 return SourceImageResult(
                     image: output,

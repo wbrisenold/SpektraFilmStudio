@@ -250,7 +250,6 @@ private struct EditorInspectorView: View {
                 ScrollView {
                     VStack(spacing: 10) {
                         MaskPanelView(model: model)
-                        SemanticMaskPanel(model: model)
                         ControlsView(model: model)
                     }
                     .padding(.horizontal, 8)

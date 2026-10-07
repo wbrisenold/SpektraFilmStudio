@@ -440,7 +440,7 @@ extension AppModel {
             let renderLook = look
             let graded = await Task.detached(priority: .utility) {
                 base.applyingHostGrade(tone: renderLook.tone, density: renderLook.colorDensity)
-                    .applyingHostGrade(tone: renderLook.filmTone, density: nil)
+                    .applyingFilmExposureShape(renderLook.filmTone)
             }.value
             let (film, _) = try await activeRenderer.render(graded, look: renderLook)
             try Task.checkCancellation()

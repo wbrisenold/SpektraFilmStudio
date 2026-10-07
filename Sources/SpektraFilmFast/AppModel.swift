@@ -1104,9 +1104,20 @@ final class AppModel: ObservableObject {
                 gestureWorkingLook?.filmTone?.autoContrast = false
             }
             activeEditChangedParameter = name
-            // Pointer-rate work is display-only. Do not enqueue the spectral renderer here.
-            // Mouse-up/idle schedules one exact render from the committed settings.
+            // Proxy first. Native film exposure is not equivalent to a display gain, so
+            // coalesce a small exact render through the real film pipeline while dragging.
             publishInteractiveProxy(changedParameter: name, rawField: nil)
+            if name == "filmExposureEv" || name == "autoExposure" {
+                scheduleRender(
+                    interactive: true,
+                    changedParameter: name,
+                    longEdgeOverride: min(720, project.preferences.previewLongEdge),
+                    cacheResult: false,
+                    reason: "accurate film exposure preview",
+                    useInteractiveRenderPolicy: false,
+                    lookOverride: gestureWorkingLook
+                )
+            }
             return
         }
 
@@ -1726,7 +1737,7 @@ final class AppModel: ObservableObject {
                         exactLinear.applyingHostGrade(
                             tone: look.tone,
                             density: look.colorDensity
-                        ).applyingHostGrade(tone: look.filmTone, density: nil)
+                        ).applyingFilmExposureShape(look.filmTone)
                     }.value
                     try Task.checkCancellation()
                     let (filmOutput, _) = try await exactRenderer.render(prepared, look: look)
@@ -1927,6 +1938,39 @@ final class AppModel: ObservableObject {
         scheduleIdleRefinement()
     }
 
+    private func mutateRawDevelop(interactive: Bool, changedParameter: String, _ mutate: (inout RawSettings) -> Void) {
+        guard let i = selectedIndex else { return }
+        if interactive {
+            if gestureWorkingLook == nil { beginEditGesture() }
+            guard var working = gestureWorkingLook else { return }
+            mutate(&working.raw)
+            gestureWorkingLook = working
+            activeEditChangedParameter = changedParameter
+            publishInteractiveProxy(changedParameter: changedParameter, rawField: nil)
+            scheduleRender(interactive: true, changedParameter: changedParameter, longEdgeOverride: min(720, project.preferences.previewLongEdge), cacheResult: false, reason: "RAW develop interactive", useInteractiveRenderPolicy: false, lookOverride: working)
+            return
+        }
+        cancelIdleRefinement()
+        if activeEditBaseline == nil { undoStack.append(project.images[i].look); redoStack.removeAll() }
+        mutate(&project.images[i].look.raw)
+        propagateBatchEdit(from: project.images[i].look, activeIndex: i, changedParameter: changedParameter)
+        scheduleIdleRefinement(changedParameter: changedParameter, delayMilliseconds: 20)
+    }
+
+    func setRawDevelopExposure(_ value: Double, interactive: Bool) { mutateRawDevelop(interactive: interactive, changedParameter: "rawDevelopExposure") { $0.developExposureEV=min(5,max(-5,value)) } }
+    func setRawDevelopGlobalTone(_ value: Double, interactive: Bool) { mutateRawDevelop(interactive: interactive, changedParameter: "rawDevelopGlobalTone") { $0.developGlobalTone=min(1,max(0,value)) } }
+    func setRawDevelopShadowBoost(_ value: Double, interactive: Bool) { mutateRawDevelop(interactive: interactive, changedParameter: "rawDevelopShadowBoost") { $0.developShadowBoost=min(2,max(0,value)) } }
+    func setRawDevelopHighlightHeadroom(_ value: Double, interactive: Bool) { mutateRawDevelop(interactive: interactive, changedParameter: "rawDevelopHeadroom") { $0.developHighlightHeadroom=min(2,max(0,value)) } }
+    func setRawDevelopCurvePoints(_ points: [ToneCurvePoint], interactive: Bool) { let n=ToneCurveMath.normalize(points); mutateRawDevelop(interactive: interactive, changedParameter: "rawDevelopCurve") { $0.developCurvePoints=n } }
+    func applyRawDevelopCurvePreset(_ preset: ToneCurvePreset) { setRawDevelopCurvePoints(preset.points, interactive: false) }
+    func resetRawDevelopCurve() { setRawDevelopCurvePoints([.init(x:0,y:0),.init(x:1,y:1)], interactive:false) }
+    func resetRawDevelop() {
+        guard let i=selectedIndex else { return }
+        cancelIdleRefinement(); undoStack.append(project.images[i].look); redoStack.removeAll()
+        project.images[i].look.raw.developExposureEV=0; project.images[i].look.raw.developGlobalTone=1; project.images[i].look.raw.developShadowBoost=1; project.images[i].look.raw.developHighlightHeadroom=0; project.images[i].look.raw.developCurvePoints=[.init(x:0,y:0),.init(x:1,y:1)]; project.images[i].look.tone=ToneSettings()
+        scheduleIdleRefinement(changedParameter:"rawDevelopReset",delayMilliseconds:20)
+    }
+
     func resetWhiteBalanceSliders() {
         guard let i = selectedIndex else { return }
         cancelIdleRefinement()
@@ -1991,7 +2035,6 @@ final class AppModel: ObservableObject {
         guard let i = selectedIndex else { return }
         func change(_ tone: inout ToneSettings) {
             switch key {
-            case "exposureEV": tone.exposureEV = min(8, max(-8, value))
             case "highlights": tone.highlights = min(100, max(-100, value))
             case "highlightRecovery": tone.highlightRecovery = min(100, max(0, value))
             case "shadows": tone.shadows = min(100, max(-100, value))
@@ -2012,10 +2055,22 @@ final class AppModel: ObservableObject {
             if key != "autoContrast" { film.autoContrast = false; working.tone?.autoContrast = false }
             working.filmTone = film
             gestureWorkingLook = working
-            activeEditChangedParameter = "filmFeed." + key
-            // Fast display-only approximation while dragging; exact spectral film render replaces it on release.
+            activeEditChangedParameter = "filmStockShape." + key
+            // Immediate proxy, followed by an accurate coalesced render through the same
+            // scene-linear host grade + native film path used by the settled frame.
             publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
-            status = "Film feed adjusting · live proxy · exact preview on release"
+            if key != "autoContrast" {
+                scheduleRender(
+                    interactive: true,
+                    changedParameter: activeEditChangedParameter,
+                    longEdgeOverride: min(720, project.preferences.previewLongEdge),
+                    cacheResult: false,
+                    reason: "accurate film feed preview",
+                    useInteractiveRenderPolicy: false,
+                    lookOverride: working
+                )
+            }
+            status = "Film feed · accurate preview updating"
             return
         }
         cancelIdleRefinement()
@@ -2027,7 +2082,7 @@ final class AppModel: ObservableObject {
         change(&film)
         if key != "autoContrast" { film.autoContrast = false; project.images[i].look.tone?.autoContrast = false }
         project.images[i].look.filmTone = film
-        scheduleIdleRefinement(changedParameter: "filmFeed." + key, delayMilliseconds: 40)
+        scheduleIdleRefinement(changedParameter: "filmStockShape." + key, delayMilliseconds: 40)
     }
 
     func resetFilmTone() {
@@ -2036,7 +2091,7 @@ final class AppModel: ObservableObject {
         undoStack.append(project.images[i].look)
         redoStack.removeAll()
         project.images[i].look.filmTone = ToneSettings()
-        scheduleIdleRefinement(changedParameter: "filmFeed.reset")
+        scheduleIdleRefinement(changedParameter: "filmStockShape.reset")
     }
 
     func setExposureEV(_ value: Double, interactive: Bool) {
@@ -2133,8 +2188,20 @@ final class AppModel: ObservableObject {
             working.tone = tone
             gestureWorkingLook = working
             activeEditChangedParameter = changedParameter
-            // Immediate 1080p working-frame feedback; exact spectral work waits for settle.
+            // Scene Exposure EV has an exact multiplicative proxy. Zone-dependent controls
+            // need the true pre-film working buffer or they can look dead/snap on release.
             publishInteractiveProxy(changedParameter: changedParameter, rawField: nil)
+            if changedParameter != "hostExposure" && changedParameter != "hostAutoContrast" {
+                scheduleRender(
+                    interactive: true,
+                    changedParameter: changedParameter,
+                    longEdgeOverride: min(720, project.preferences.previewLongEdge),
+                    cacheResult: false,
+                    reason: "accurate scene tone preview",
+                    useInteractiveRenderPolicy: false,
+                    lookOverride: working
+                )
+            }
             return
         }
 
@@ -2904,8 +2971,8 @@ final class AppModel: ObservableObject {
                 // Exposure + tone curve are a sourced host grade before the SpektraFilm engine.
                 // Before/source preview remains the developed source, while preview/export share
                 // the same host-grade -> native-render ordering.
-                let renderInput = input.applyingHostGrade(tone: request.look.tone, density: request.look.colorDensity)
-                    .applyingHostGrade(tone: request.look.filmTone, density: nil)
+                let renderInput = input.applyingHostGrade(tone: nil, density: request.look.colorDensity)
+                    .applyingFilmExposureShape(request.look.filmTone)
                 let (filmOutput, d) = try await activeRenderer.render(renderInput, look: renderLook)
                 if Task.isCancelled { break }
                 // Geometry is deliberately post-render and color-neutral. Crop/straighten/keystone
@@ -3840,7 +3907,7 @@ final class AppModel: ObservableObject {
                 input.applyingHostGrade(
                     tone: look.tone,
                     density: look.colorDensity
-                ).applyingHostGrade(tone: look.filmTone, density: nil)
+                ).applyingFilmExposureShape(look.filmTone)
             }.value
 
             let (filmOutput, _) = try await activeRenderer.render(
@@ -4336,7 +4403,7 @@ final class AppModel: ObservableObject {
                     decoded.buffer.applyingHostGrade(
                         tone: item.look.tone,
                         density: item.look.colorDensity
-                    ).applyingHostGrade(tone: item.look.filmTone, density: nil)
+                    ).applyingFilmExposureShape(item.look.filmTone)
                 }.value
                 timings.gradeMs = Self.msSince(gradeStarted)
                 try Task.checkCancellation()

@@ -33,7 +33,7 @@ struct ControlsView: View {
             ScrollView {
             LazyVStack(spacing: 7) {
                 if sectionMatches("raw", terms: ["raw", "white balance", "wb", "as shot", "auto white balance", "temperature", "tint", "denoise", "camera", "lens correction"]) { rawSection }
-                if sectionMatches("tone", terms: ["exposure", "scene exposure", "curves", "tone", "brightness", "contrast", "shadows", "highlights", "recovery", "whites", "blacks", "midtones", "auto contrast", "black point", "white point"]) { toneSection }
+                if sectionMatches("tone", terms: ["raw develop", "raw exposure", "raw tone", "curve", "shadow boost", "highlight headroom", "edr"]) { toneSection }
                 if sectionMatches("film-stock", terms: ["film stock", "film exposure", "film tone", "film highlights", "film shadows", "film whites", "film blacks", "stock response", "auto exposure", "film contrast", "film recovery"]) { filmExposureSection }
                 if sectionMatches("density", terms: ["color density", "density", "red", "yellow", "green", "cyan", "blue", "magenta", "luminance"]) { colorDensitySection }
                 if sectionMatches("geometry", terms: ["crop", "geometry", "aspect", "rotation", "perspective", "flip", "straighten", "scale", "offset"]) { geometrySection }
@@ -131,7 +131,7 @@ struct ControlsView: View {
         guard !searchTerm.isEmpty else { return openAdjustment }
         let sections: [(String, [String])] = [
             ("raw", ["raw", "white balance", "temperature", "tint", "denoise", "iso"]),
-            ("tone", ["exposure", "scene exposure", "tone", "curve", "auto contrast", "highlights", "shadows", "brightness", "contrast", "recovery"]),
+            ("tone", ["raw develop", "raw exposure", "raw tone", "curve", "shadow boost", "highlight headroom", "edr"]),
             ("film-stock", ["film stock", "film exposure", "film tone", "stock response", "film contrast", "auto exposure"]),
             ("density", ["density", "red", "yellow", "green", "cyan", "blue", "magenta"]),
             ("geometry", ["geometry", "crop", "rotation", "perspective", "aspect", "straighten", "flip"]),
@@ -335,222 +335,31 @@ struct ControlsView: View {
     }
 
     private var toneSection: some View {
-        DisclosureGroup(isExpanded: sectionBinding("tone")) {
+        let raw = model.selectedLook.raw
+        return DisclosureGroup(isExpanded: sectionBinding("tone")) {
             VStack(alignment: .leading, spacing: 10) {
-                // This is an early, scene-linear exposure control. It runs before
-                // film rendering, so one EV means twice the input light. In contrast,
-                // Film Stock Exposure below changes the film simulation's exposure.
-                DraftScalarSlider(
-                    label: "Scene Exposure EV",
-                    committedValue: model.selectedLook.tone?.exposureEV ?? 0,
-                    range: -10...10,
-                    precision: 2,
-                    helpText: "Exposure before film rendering. +1 EV doubles scene-linear light, -1 EV halves it. This can be moderated by the film shoulder and is not guaranteed to clip the final output.",
-                    resetValue: 0,
-                    onReset: { model.setExposureEV(0, interactive: false) },
-                    onBegin: { model.beginEditGesture() },
-                    onChange: { model.setExposureEV($0, interactive: true) },
-                    onEnd: { model.endEditGesture() }
-                )
+                Text("RAW DEVELOPMENT → FILM STOCK → DISPLAY").font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundStyle(.secondary)
+                Text("These controls are now part of Apple RAW development before SpektraFilm. Film Stock Exposure EV remains a separate native film-emulsion control.").font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)
 
-                // Film-only exposure and Auto Exposure are in a dedicated section.
-
-                Toggle("Auto Contrast", isOn: Binding(
-                    get: { model.selectedLook.tone?.autoContrast ?? false },
-                    set: { model.setAutoContrast($0) }
-                ))
-                .help("Automatically stretches this photo's meaningful luminance range to the black and white limits before the film render. It recalculates per photo instead of copying fixed endpoints.")
-
-                DraftScalarSlider(
-                    label: "Brightness",
-                    committedValue: model.selectedLook.tone?.brightness ?? 0,
-                    range: -100...100,
-                    precision: 0,
-                    helpText: "Changes how bright the picture feels, mostly through the middle tones, without acting like another camera Exposure control. Move right for a brighter-looking image; move left for a darker-looking image.",
-                    resetValue: 0,
-                    onReset: { model.setToneBrightness(0, interactive: false) },
-                    onBegin: { model.beginEditGesture() },
-                    onChange: { model.setToneBrightness($0, interactive: true) },
-                    onEnd: { model.endEditGesture() }
-                )
-
-                DraftScalarSlider(
-                    label: "Contrast",
-                    committedValue: model.selectedLook.tone?.contrast ?? 0,
-                    range: -100...100,
-                    precision: 0,
-                    helpText: "Changes the separation between dark and bright tones around middle gray. Move right for more punch; move left for a flatter, softer image.",
-                    resetValue: 0,
-                    onReset: { model.setToneContrast(0, interactive: false) },
-                    onBegin: { model.beginEditGesture() },
-                    onChange: { model.setToneContrast($0, interactive: true) },
-                    onEnd: { model.endEditGesture() }
-                )
-
-                DraftScalarSlider(
-                    label: "Midtones",
-                    committedValue: model.selectedLook.tone?.midtones ?? 0,
-                    range: -100...100,
-                    precision: 0,
-                    helpText: "Targets the middle brightness range where faces and most subjects often live. Move right to lift the middle tones; move left to darken them while leaving the deepest blacks and brightest whites less affected.",
-                    resetValue: 0,
-                    onReset: { model.setToneMidtones(0, interactive: false) },
-                    onBegin: { model.beginEditGesture() },
-                    onChange: { model.setToneMidtones($0, interactive: true) },
-                    onEnd: { model.endEditGesture() }
-                )
-
-                DraftScalarSlider(
-                    label: "Highlights",
-                    committedValue: model.selectedLook.tone?.highlights ?? 0,
-                    range: -100...100,
-                    precision: 0,
-                    helpText: "Targets bright detail. Left reduces highlights, right raises highlights. Both live and final renders now follow the same direction.",
-                    resetValue: 0,
-                    onReset: { model.setToneHighlights(0, interactive: false) },
-                    onBegin: { model.beginEditGesture() },
-                    onChange: { model.setToneHighlights($0, interactive: true) },
-                    onEnd: { model.endEditGesture() }
-                )
-
-                DraftScalarSlider(
-                    label: "Highlight Recovery",
-                    committedValue: model.selectedLook.tone?.highlightRecovery ?? 0,
-                    range: 0...100,
-                    precision: 0,
-                    helpText: "Pulls back very bright detail without simply darkening the whole image. Use it when bright skin, clouds, lamps, or reflections are getting too hot. Higher values compress and gently neutralize the brightest areas more strongly.",
-                    resetValue: 0,
-                    onReset: { model.setHighlightRecovery(0, interactive: false) },
-                    onBegin: { model.beginEditGesture() },
-                    onChange: { model.setHighlightRecovery($0, interactive: true) },
-                    onEnd: { model.endEditGesture() }
-                )
-
-                DraftScalarSlider(
-                    label: "Shadows",
-                    committedValue: model.selectedLook.tone?.shadows ?? 0,
-                    range: -100...100,
-                    precision: 0,
-                    helpText: "Targets darker detail. Move right to open dark areas; move left to make shadows deeper.",
-                    resetValue: 0,
-                    onReset: { model.setToneShadows(0, interactive: false) },
-                    onBegin: { model.beginEditGesture() },
-                    onChange: { model.setToneShadows($0, interactive: true) },
-                    onEnd: { model.endEditGesture() }
-                )
-
-                DraftScalarSlider(
-                    label: "Shadow Recovery",
-                    committedValue: model.selectedLook.tone?.shadowRecovery ?? 0,
-                    range: 0...100,
-                    precision: 0,
-                    helpText: "Recovers detail from the darkest useful tones while fading out before the midtones. Use it when hair, suits, interiors, or backgrounds are disappearing into black. Higher values open more shadow detail.",
-                    resetValue: 0,
-                    onReset: { model.setShadowRecovery(0, interactive: false) },
-                    onBegin: { model.beginEditGesture() },
-                    onChange: { model.setShadowRecovery($0, interactive: true) },
-                    onEnd: { model.endEditGesture() }
-                )
-
-                DraftScalarSlider(
-                    label: "Whites",
-                    committedValue: model.selectedLook.tone?.whites ?? 0,
-                    range: -100...100,
-                    precision: 0,
-                    helpText: "Moves the bright end of the image. Use it after Exposure to control how strong the whites feel without changing the shadow floor.",
-                    resetValue: 0,
-                    onReset: { model.setToneWhites(0, interactive: false) },
-                    onBegin: { model.beginEditGesture() },
-                    onChange: { model.setToneWhites($0, interactive: true) },
-                    onEnd: { model.endEditGesture() }
-                )
-
-                DraftScalarSlider(
-                    label: "Blacks",
-                    committedValue: model.selectedLook.tone?.blacks ?? 0,
-                    range: -100...100,
-                    precision: 0,
-                    helpText: "Moves the darkest end of the image. Move left for deeper blacks; move right to lift the black floor.",
-                    resetValue: 0,
-                    onReset: { model.setToneBlacks(0, interactive: false) },
-                    onBegin: { model.beginEditGesture() },
-                    onChange: { model.setToneBlacks($0, interactive: true) },
-                    onEnd: { model.endEditGesture() }
-                )
-
-                DraftScalarSlider(
-                    label: "White Point",
-                    committedValue: model.selectedLook.tone?.whitePoint ?? 0,
-                    range: -100...100,
-                    precision: 0,
-                    helpText: "Sets where the bright end reaches white before the film look. Move right to make whites reach their endpoint sooner; move left to leave more headroom in the brightest tones.",
-                    resetValue: 0,
-                    onReset: { model.setWhitePoint(0, interactive: false) },
-                    onBegin: { model.beginEditGesture() },
-                    onChange: { model.setWhitePoint($0, interactive: true) },
-                    onEnd: { model.endEditGesture() }
-                )
-
-                DraftScalarSlider(
-                    label: "Black Point",
-                    committedValue: model.selectedLook.tone?.blackPoint ?? 0,
-                    range: -100...100,
-                    precision: 0,
-                    helpText: "Sets where the dark end reaches black before the film look. Move right for a firmer, deeper black point; move left to keep more room below the darkest visible tones.",
-                    resetValue: 0,
-                    onReset: { model.setBlackPoint(0, interactive: false) },
-                    onBegin: { model.beginEditGesture() },
-                    onChange: { model.setBlackPoint($0, interactive: true) },
-                    onEnd: { model.endEditGesture() }
-                )
+                DraftScalarSlider(label:"RAW Exposure EV", committedValue:raw.developExposureEV, range:-5...5, precision:2, helpText:"CIRAWFilter exposure before film. +1 EV is one stop brighter.", resetValue:0, onReset:{model.setRawDevelopExposure(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setRawDevelopExposure($0,interactive:true)}, onEnd:{model.endEditGesture()})
+                DraftScalarSlider(label:"RAW Global Tone", committedValue:raw.developGlobalTone*100, range:0...100, precision:0, helpText:"Apple RAW global tone curve. 0 is linear; 100 is full RAW tone response.", resetValue:100, onReset:{model.setRawDevelopGlobalTone(1,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setRawDevelopGlobalTone($0/100,interactive:true)}, onEnd:{model.endEditGesture()})
+                DraftScalarSlider(label:"RAW Shadow Boost", committedValue:raw.developShadowBoost*100, range:0...200, precision:0, helpText:"Apple RAW shadow recovery. 100 is normal strength.", resetValue:100, onReset:{model.setRawDevelopShadowBoost(1,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setRawDevelopShadowBoost($0/100,interactive:true)}, onEnd:{model.endEditGesture()})
+                DraftScalarSlider(label:"Highlight Headroom (EDR)", committedValue:raw.developHighlightHeadroom*100, range:0...200, precision:0, helpText:"Apple RAW extended dynamic range. Raise it to preserve more recoverable RAW highlight information before the film stock.", resetValue:0, onReset:{model.setRawDevelopHighlightHeadroom(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setRawDevelopHighlightHeadroom($0/100,interactive:true)}, onEnd:{model.endEditGesture()})
 
                 Divider().opacity(0.5)
-
                 HStack {
-                    Text("Tone Curve")
-                        .font(.caption.weight(.semibold))
+                    VStack(alignment:.leading,spacing:1) { Text("Creative RAW Tone Curve").font(.caption.weight(.semibold)); Text("Runs inside CIRAWFilter's linear-space stage.").font(.system(size:9)).foregroundStyle(.tertiary) }
                     Spacer()
-                    Menu("Presets") {
-                        ForEach(ToneCurvePresetGroup.allCases) { group in
-                            Section(group.rawValue) {
-                                ForEach(ToneCurvePreset.allCases.filter { $0.group == group }) { preset in
-                                    Button(preset.rawValue) { model.applyToneCurvePreset(preset) }
-                                        .help(preset.summary)
-                                }
-                            }
-                        }
-                    }
-                    .controlSize(.small)
-                    .help("Choose a technical, film-response, or creative tone curve. Film-response curves shape contrast only; the Film section still controls the actual stock simulation.")
-                    Button("Reset") { model.resetToneCurve() }
-                        .controlSize(.small)
+                    Menu("Presets") { ForEach(ToneCurvePresetGroup.allCases) { group in Section(group.rawValue) { ForEach(ToneCurvePreset.allCases.filter{$0.group==group}) { preset in Button(preset.rawValue){model.applyRawDevelopCurvePreset(preset)}.help(preset.summary) } } } }.controlSize(.small)
+                    Button("Reset"){model.resetRawDevelopCurve()}.controlSize(.small)
                 }
-
-                ToneCurveEditorView(model: model)
-                    .frame(height: 230)
-
-                Text("Drag points to shape the curve. Click empty space to add a point. Right-click an interior point to remove it. Double-click the graph to reset.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.top, 8)
+                ToneCurveEditorView(model:model).frame(height:230)
+                Text("The curve now shapes the linear RAW image before Film Stock Exposure and the stock response.").font(.caption2).foregroundStyle(.tertiary)
+            }.padding(.top,8)
         } label: {
-            HStack {
-                Text("Exposure & Curves")
-                    .font(.caption.weight(.semibold))
-                Spacer()
-                Button { model.resetToneSection() } label: { Image(systemName: "arrow.counterclockwise") }
-                    .buttonStyle(.plain)
-                    .help("Reset all Exposure & Curves controls, recovery controls, points, and the Tone Curve to neutral.")
-            }
+            HStack { Text("RAW Develop").font(.caption.weight(.semibold)); Spacer(); Button{model.resetRawDevelop()}label:{Image(systemName:"arrow.counterclockwise")}.buttonStyle(.plain).help("Reset RAW Develop") }
         }
-        .padding(10)
-        .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(StudioPalette.subtleBorder, lineWidth: 0.5)
-        }
+        .padding(10).background(StudioPalette.recessed,in:RoundedRectangle(cornerRadius:8)).overlay{RoundedRectangle(cornerRadius:8).stroke(StudioPalette.subtleBorder,lineWidth:0.5)}
     }
 
     // Distinct, pre-native-film feed grade: does not modify scene adjustments.
@@ -559,10 +368,10 @@ struct ControlsView: View {
         let tone = model.selectedLook.filmTone ?? ToneSettings()
         return DisclosureGroup(isExpanded: sectionBinding("film-stock")) {
             VStack(alignment: .leading, spacing: 9) {
-                Text("SCENE → FILM FEED → NATIVE FILM EMULSION → DISPLAY")
+                Text("RAW DEVELOP → FILM EXPOSURE SHAPE → NATIVE FILM STOCK → DISPLAY")
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundStyle(.secondary)
-                Text("These tonal controls shape the film feed after Scene adjustments and before native film rendering. Film Stock Exposure EV and Auto Exposure operate inside the native film simulation. Print controls remain separate.")
+                Text("Exposure EV below is the original native Film Stock Exposure control. The other sliders shape exposure by luminance zone immediately before that same film simulation instead of using a second host-tone exposure pass.")
                     .font(.caption2).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -576,31 +385,29 @@ struct ControlsView: View {
                     ParameterControlRow(model: model, descriptor: descriptor, options: catalog.options(for: descriptor))
                 }
                 Divider().opacity(0.5)
-                Toggle("Film Feed Auto Contrast", isOn: Binding(
+                Toggle("Auto Film Exposure Shape", isOn: Binding(
                     get: { tone.autoContrast },
                     set: { model.setFilmToneValue("autoContrast", value: $0 ? 1 : 0, interactive: false) }
                 ))
                 .help("Use this film feed's luminance distribution and final display clipping boundary for automatic contrast. Recomputes for each photograph.")
 
-                filmToneControl("Film Feed Exposure EV", "exposureEV", tone.exposureEV, -8...8,
-                                "Additional light entering the film simulation, after the separate Scene grade.")
                 filmToneControl("Film Highlights", "highlights", tone.highlights, -100...100,
-                                "Negative compresses the brighter film feed; positive raises it.")
+                                "Adds or removes EV from bright film-input zones before native stock response.")
                 filmToneControl("Film Highlight Recovery", "highlightRecovery", tone.highlightRecovery, 0...100,
-                                "Compresses very bright film-feed information before spectral processing.")
+                                "Applies negative EV only to the hottest film-input zones for recovery.")
                 filmToneControl("Film Shadows", "shadows", tone.shadows, -100...100,
-                                "Negative deepens dark film-feed values; positive lifts them.")
+                                "Adds or removes EV from shadow film-input zones before native stock response.")
                 filmToneControl("Film Shadow Recovery", "shadowRecovery", tone.shadowRecovery, 0...100,
-                                "Recovers dark film-feed detail before emulsion simulation.")
+                                "Applies positive EV only to deep film-input zones for recovery.")
                 filmToneControl("Film Whites", "whites", tone.whites, -100...100,
-                                "Moves the upper film-feed white response.")
+                                "Adds or removes EV at the brightest film-input exposure band.")
                 filmToneControl("Film Blacks", "blacks", tone.blacks, -100...100,
-                                "Moves the lower film-feed black response.")
+                                "Adds or removes EV at the darkest film-input exposure band.")
                 filmToneControl("Film Contrast", "contrast", tone.contrast, -100...100,
-                                "Increases or reduces film-feed tonal separation.")
+                                "Spreads or compresses exposure around photographic mid-grey before native film response.")
                 filmToneControl("Film Brightness", "brightness", tone.brightness, -100...100,
-                                "Adjusts the perceived middle tones feeding the film simulation.")
-                Button("Reset Film Feed Tonal Controls") { model.resetFilmTone() }
+                                "Adds or removes broad mid-zone exposure before the native film stock.")
+                Button("Reset Film Exposure Shape") { model.resetFilmTone() }
                     .font(.caption2).buttonStyle(.borderless)
             }.padding(.top, 8)
         } label: {
@@ -619,7 +426,7 @@ struct ControlsView: View {
                                  _ range: ClosedRange<Double>, _ helpText: String) -> some View {
         DraftScalarSlider(
             label: label, committedValue: value, range: range,
-            precision: key == "exposureEV" ? 2 : 0,
+            precision: 0,
             helpText: helpText, resetValue: 0,
             onReset: { model.setFilmToneValue(key, value: 0, interactive: false) },
             onBegin: { model.beginEditGesture() },
@@ -1276,7 +1083,7 @@ private struct ToneCurveEditorView: View {
     @State private var draggingIndex: Int?
 
     private var committedPoints: [ToneCurvePoint] {
-        ToneCurveMath.normalize(model.selectedLook.tone?.curvePoints ?? ToneCurvePreset.linear.points)
+        ToneCurveMath.normalize(model.selectedLook.raw.developCurvePoints)
     }
 
     var body: some View {
@@ -1300,7 +1107,7 @@ private struct ToneCurveEditorView: View {
                 .simultaneousGesture(
                     SpatialTapGesture(count: 2).onEnded { _ in
                         draftPoints = ToneCurvePreset.linear.points
-                        model.resetToneCurve()
+                        model.resetRawDevelopCurve()
                     }
                 )
                 .simultaneousGesture(
@@ -1404,7 +1211,7 @@ private struct ToneCurveEditorView: View {
         if index + 1 < next.count { value.x = min(value.x, next[index + 1].x - ToneCurveMath.minimumPointSpacing) }
         next[index] = value
         draftPoints = ToneCurveMath.normalize(next)
-        model.setToneCurvePoints(draftPoints, interactive: true)
+        model.setRawDevelopCurvePoints(draftPoints, interactive: true)
     }
 
     private func addPoint(at location: CGPoint, size: CGSize) {
@@ -1420,7 +1227,7 @@ private struct ToneCurveEditorView: View {
         next.append(point)
         next = ToneCurveMath.normalize(next)
         draftPoints = next
-        model.setToneCurvePoints(next, interactive: false)
+        model.setRawDevelopCurvePoints(next, interactive: false)
     }
 
     private func removePoint(_ index: Int) {
@@ -1429,6 +1236,6 @@ private struct ToneCurveEditorView: View {
         next.remove(at: index)
         next = ToneCurveMath.normalize(next)
         draftPoints = next
-        model.setToneCurvePoints(next, interactive: false)
+        model.setRawDevelopCurvePoints(next, interactive: false)
     }
 }

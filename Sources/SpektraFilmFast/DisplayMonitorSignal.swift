@@ -1,5 +1,19 @@
 import Foundation
 
+struct DisplayMonitorSample: Sendable {
+    let r: Float
+    let g: Float
+    let b: Float
+    let luma: Float
+    let saturation: Float
+    let peak: Float
+    let floor: Float
+    var falseColorHighlightRisk: Bool { luma >= 0.88 }
+    var falseColorHighlightHard: Bool { luma >= 0.97 }
+    var falseColorShadowRisk: Bool { luma <= 0.10 }
+    var falseColorShadowHard: Bool { luma <= 0.03 }
+}
+
 enum DisplayMonitorSignal {
     static func code(_ value: Float, outputSpace: Int) -> Float {
         let v = max(0, min(1, value))
@@ -23,8 +37,24 @@ enum DisplayMonitorSignal {
         return (code(r, outputSpace: space), code(g, outputSpace: space), code(b, outputSpace: space))
     }
 
-    static func luma(r: Float, g: Float, b: Float, look: RenderLook) -> Float {
+    static func sample(r: Float, g: Float, b: Float, look: RenderLook) -> DisplayMonitorSample {
         let m = rgb(r: r, g: g, b: b, look: look)
-        return 0.2126 * m.0 + 0.7152 * m.1 + 0.0722 * m.2
+        let peak = max(m.0, max(m.1, m.2))
+        let floor = min(m.0, min(m.1, m.2))
+        let luma = 0.2126 * m.0 + 0.7152 * m.1 + 0.0722 * m.2
+        let saturation = peak > 1.0e-6 ? (peak - floor) / peak : 0
+        return DisplayMonitorSample(r: m.0, g: m.1, b: m.2, luma: luma, saturation: saturation, peak: peak, floor: floor)
+    }
+
+    static func sampleDisplay(r: Float, g: Float, b: Float) -> DisplayMonitorSample {
+        let peak = max(r, max(g, b))
+        let floor = min(r, min(g, b))
+        let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        let saturation = peak > 1.0e-6 ? (peak - floor) / peak : 0
+        return DisplayMonitorSample(r: r, g: g, b: b, luma: luma, saturation: saturation, peak: peak, floor: floor)
+    }
+
+    static func luma(r: Float, g: Float, b: Float, look: RenderLook) -> Float {
+        sample(r: r, g: g, b: b, look: look).luma
     }
 }

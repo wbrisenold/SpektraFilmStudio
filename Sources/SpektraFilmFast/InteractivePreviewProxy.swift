@@ -42,6 +42,9 @@ enum InteractivePreviewProxy {
         }
 
         if let name = changedParameter {
+            if name == "rawDevelopExposure" {
+                return baseline.pointTransform(exposureStops: targetLook.raw.developExposureEV - baselineLook.raw.developExposureEV)
+            }
             let beforeTone = baselineLook.tone ?? ToneSettings()
             let afterTone = targetLook.tone ?? ToneSettings()
             switch name {
@@ -62,13 +65,13 @@ enum InteractivePreviewProxy {
             case "hostContrast":
                 return baseline.pointTransform(contrastDelta: (afterTone.contrast - beforeTone.contrast) / 125.0)
             case "hostHighlights":
-                return baseline.pointTransform(highlightDelta: (afterTone.highlights - beforeTone.highlights) / 100.0)
+                return baseline.pointTransform(highlightDelta: (afterTone.highlights - beforeTone.highlights) / 72.0)
             case "hostShadows":
-                return baseline.pointTransform(shadowDelta: (afterTone.shadows - beforeTone.shadows) / 100.0)
+                return baseline.pointTransform(shadowDelta: (afterTone.shadows - beforeTone.shadows) / 72.0)
             case "hostWhites":
-                return baseline.pointTransform(highlightDelta: (afterTone.whites - beforeTone.whites) / 125.0)
+                return baseline.pointTransform(highlightDelta: (afterTone.whites - beforeTone.whites) / 90.0)
             case "hostBlacks":
-                return baseline.pointTransform(shadowDelta: (afterTone.blacks - beforeTone.blacks) / 125.0)
+                return baseline.pointTransform(shadowDelta: (afterTone.blacks - beforeTone.blacks) / 90.0)
             case "hostToneCurve":
                 // Pointer feedback only: estimate the visible curve change from the quarter,
                 // middle, and three-quarter anchors. The queued native working-file render
@@ -89,25 +92,23 @@ enum InteractivePreviewProxy {
                 break
             }
 
-            if name.hasPrefix("filmFeed.") {
+            if name.hasPrefix("filmStockShape.") {
                 let beforeFilm = baselineLook.filmTone ?? ToneSettings()
                 let afterFilm = targetLook.filmTone ?? ToneSettings()
-                let key = String(name.dropFirst("filmFeed.".count))
+                let key = String(name.dropFirst("filmStockShape.".count))
                 switch key {
-                case "exposureEV":
-                    return baseline.pointTransform(exposureStops: afterFilm.exposureEV - beforeFilm.exposureEV)
                 case "brightness":
                     return baseline.pointTransform(exposureStops: (afterFilm.brightness - beforeFilm.brightness) / 125.0)
                 case "contrast":
                     return baseline.pointTransform(contrastDelta: (afterFilm.contrast - beforeFilm.contrast) / 125.0)
                 case "highlights":
-                    return baseline.pointTransform(highlightDelta: (afterFilm.highlights - beforeFilm.highlights) / 100.0)
+                    return baseline.pointTransform(highlightDelta: (afterFilm.highlights - beforeFilm.highlights) / 72.0)
                 case "shadows":
-                    return baseline.pointTransform(shadowDelta: (afterFilm.shadows - beforeFilm.shadows) / 100.0)
+                    return baseline.pointTransform(shadowDelta: (afterFilm.shadows - beforeFilm.shadows) / 72.0)
                 case "whites":
-                    return baseline.pointTransform(highlightDelta: (afterFilm.whites - beforeFilm.whites) / 125.0)
+                    return baseline.pointTransform(highlightDelta: (afterFilm.whites - beforeFilm.whites) / 90.0)
                 case "blacks":
-                    return baseline.pointTransform(shadowDelta: (afterFilm.blacks - beforeFilm.blacks) / 125.0)
+                    return baseline.pointTransform(shadowDelta: (afterFilm.blacks - beforeFilm.blacks) / 90.0)
                 case "highlightRecovery":
                     return baseline.pointTransform(highlightDelta: -(afterFilm.highlightRecovery - beforeFilm.highlightRecovery) / 135.0)
                 case "shadowRecovery":

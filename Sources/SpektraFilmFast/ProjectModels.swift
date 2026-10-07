@@ -238,7 +238,20 @@ struct RawSettings: Codable, Equatable, Hashable, Sendable {
     var denoiseChroma: Double = 0.16
     var denoiseModel: String = "TreeNetDenoiseHeavy"
 
-    private enum CodingKeys: String, CodingKey { case whiteBalanceMode, temperature, tint, lensCorrection, temperatureOffsetMired, tintOffsetMired = "tintOffset", denoiseMode, denoiseLuma, denoiseChroma, denoiseModel }
+    // True RAW-develop controls. These are consumed by CIRAWFilter before SpektraFilm.
+    var developExposureEV: Double = 0
+    var developGlobalTone: Double = 1
+    var developShadowBoost: Double = 1
+    var developHighlightHeadroom: Double = 0
+    var developCurvePoints: [ToneCurvePoint] = [.init(x: 0, y: 0), .init(x: 1, y: 1)]
+
+    private enum CodingKeys: String, CodingKey {
+        case whiteBalanceMode, temperature, tint, lensCorrection
+        case temperatureOffsetMired, tintOffsetMired = "tintOffset"
+        case denoiseMode, denoiseLuma, denoiseChroma, denoiseModel
+        case developExposureEV, developGlobalTone, developShadowBoost
+        case developHighlightHeadroom, developCurvePoints
+    }
     init() {}
     init(from decoder: Decoder) throws {
         let c=try decoder.container(keyedBy:CodingKeys.self)
@@ -252,9 +265,18 @@ struct RawSettings: Codable, Equatable, Hashable, Sendable {
         denoiseLuma=min(1,max(0,try c.decodeIfPresent(Double.self,forKey:.denoiseLuma) ?? 0.22))
         denoiseChroma=min(1,max(0,try c.decodeIfPresent(Double.self,forKey:.denoiseChroma) ?? 0.16))
         denoiseModel=try c.decodeIfPresent(String.self,forKey:.denoiseModel) ?? "TreeNetDenoiseHeavy"
+        developExposureEV=min(5,max(-5,try c.decodeIfPresent(Double.self,forKey:.developExposureEV) ?? 0))
+        developGlobalTone=min(1,max(0,try c.decodeIfPresent(Double.self,forKey:.developGlobalTone) ?? 1))
+        developShadowBoost=min(2,max(0,try c.decodeIfPresent(Double.self,forKey:.developShadowBoost) ?? 1))
+        developHighlightHeadroom=min(2,max(0,try c.decodeIfPresent(Double.self,forKey:.developHighlightHeadroom) ?? 0))
+        developCurvePoints=ToneCurveMath.normalize(try c.decodeIfPresent([ToneCurvePoint].self,forKey:.developCurvePoints) ?? [.init(x:0,y:0),.init(x:1,y:1)])
     }
     func encode(to encoder: Encoder) throws {
-        var c=encoder.container(keyedBy:CodingKeys.self); try c.encode(whiteBalanceMode,forKey:.whiteBalanceMode);try c.encode(temperature,forKey:.temperature);try c.encode(tint,forKey:.tint);try c.encode(lensCorrection,forKey:.lensCorrection);try c.encodeIfPresent(temperatureOffsetMired,forKey:.temperatureOffsetMired);try c.encodeIfPresent(tintOffset,forKey:.tintOffsetMired);try c.encode(denoiseMode,forKey:.denoiseMode);try c.encode(denoiseLuma,forKey:.denoiseLuma);try c.encode(denoiseChroma,forKey:.denoiseChroma);try c.encode(denoiseModel,forKey:.denoiseModel)
+        var c=encoder.container(keyedBy:CodingKeys.self)
+        try c.encode(whiteBalanceMode,forKey:.whiteBalanceMode);try c.encode(temperature,forKey:.temperature);try c.encode(tint,forKey:.tint);try c.encode(lensCorrection,forKey:.lensCorrection)
+        try c.encodeIfPresent(temperatureOffsetMired,forKey:.temperatureOffsetMired);try c.encodeIfPresent(tintOffset,forKey:.tintOffsetMired)
+        try c.encode(denoiseMode,forKey:.denoiseMode);try c.encode(denoiseLuma,forKey:.denoiseLuma);try c.encode(denoiseChroma,forKey:.denoiseChroma);try c.encode(denoiseModel,forKey:.denoiseModel)
+        try c.encode(developExposureEV,forKey:.developExposureEV);try c.encode(developGlobalTone,forKey:.developGlobalTone);try c.encode(developShadowBoost,forKey:.developShadowBoost);try c.encode(developHighlightHeadroom,forKey:.developHighlightHeadroom);try c.encode(developCurvePoints,forKey:.developCurvePoints)
     }
 }
 
@@ -933,10 +955,19 @@ struct SpektraProjectDocument: Codable, Equatable, Sendable {
     }
 
     mutating func migrateForV2() {
-        formatVersion = max(formatVersion, 6)
+        let migrateSceneToneToRaw = formatVersion < 7
+        formatVersion = max(formatVersion, 7)
         let validIDs = Set(images.map(\.id))
         for index in images.indices {
             images[index].look.normalizeForProOnly()
+            if migrateSceneToneToRaw {
+                let oldTone = images[index].look.tone ?? ToneSettings()
+                images[index].look.raw.developExposureEV = min(5, max(-5, oldTone.exposureEV))
+                let oldCurve = ToneCurveMath.normalize(oldTone.curvePoints)
+                let identity = oldCurve.count == 2 && abs(oldCurve[0].x) < 1e-9 && abs(oldCurve[0].y) < 1e-9 && abs(oldCurve[1].x - 1) < 1e-9 && abs(oldCurve[1].y - 1) < 1e-9
+                if !identity { images[index].look.raw.developCurvePoints = oldCurve }
+                images[index].look.tone = ToneSettings()
+            }
         }
         for index in albums.indices {
             albums[index].imageIDs.formIntersection(validIDs)

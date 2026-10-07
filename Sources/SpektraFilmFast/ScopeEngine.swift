@@ -199,11 +199,10 @@ actor ScopeEngine {
             let sx=min(buffer.width-1,x*buffer.width/width)
             let sy=min(buffer.height-1,y*buffer.height/height)
             let p=(sy*buffer.width+sx)*4
-            let display = DisplayMonitorSignal.rgb(r: buffer.pixels[p], g: buffer.pixels[p+1], b: buffer.pixels[p+2], look: look)
-            let r=display.0, g=display.1, b=display.2
-            let mx=max(r,max(g,b)), mn=min(r,min(g,b))
-            let saturation=mx > 1e-6 ? (mx-mn)/mx : 0
-            let luma=0.2126*r+0.7152*g+0.0722*b
+            let monitor = DisplayMonitorSignal.sample(r: buffer.pixels[p], g: buffer.pixels[p+1], b: buffer.pixels[p+2], look: look)
+            let mx=monitor.peak
+            let saturation=monitor.saturation
+            let luma=monitor.luma
             let intensity=min(0.8,max(0.07,luma))*155
             var color:(UInt8,UInt8,UInt8)=(UInt8(clamping:Int(intensity)),UInt8(clamping:Int(intensity)),UInt8(clamping:Int(intensity)))
             // Black and near-white pixels have unreliable/noisy HSV saturation.
@@ -226,11 +225,8 @@ actor ScopeEngine {
         var out=[UInt8](repeating:0,count:width*height*4)
         for y in 0..<height { for x in 0..<width {
             let sx=min(buffer.width-1,x*buffer.width/width), sy=min(buffer.height-1,y*buffer.height/height), p=(sy*buffer.width+sx)*4
-            let display = DisplayMonitorSignal.rgb(r: buffer.pixels[p], g: buffer.pixels[p+1], b: buffer.pixels[p+2], look: look)
-            let r=display.0, g=display.1, b=display.2
-            // Y' (display-code luma) as 0–100 video-level index; unlike the old
-            // implementation, linear working data must be transfer-encoded first.
-            let yPrime=0.2126*r+0.7152*g+0.0722*b
+            let monitor = DisplayMonitorSignal.sample(r: buffer.pixels[p], g: buffer.pixels[p+1], b: buffer.pixels[p+2], look: look)
+            let yPrime=monitor.luma
             let color:(UInt8,UInt8,UInt8)
             switch yPrime {
             case ..<0.03: color=(30,29,91)     // deepest shadows
