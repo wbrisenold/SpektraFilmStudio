@@ -2333,97 +2333,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "photocraft-algo"
-version = "0.3.0"
-dependencies = [
- "photocraft-color",
- "photocraft-geom",
- "photocraft-raster",
- "rayon",
- "serde",
-]
-
-[[package]]
-name = "photocraft-cms"
-version = "0.3.0"
-dependencies = [
- "rayon",
-]
-
-[[package]]
-name = "photocraft-color"
-version = "0.3.0"
-dependencies = [
- "photocraft-cms",
- "serde",
-]
-
-[[package]]
-name = "photocraft-compose"
-version = "0.3.0"
-dependencies = [
- "photocraft-color",
- "photocraft-doc",
- "photocraft-geom",
- "photocraft-raster",
- "photocraft-vector",
- "rayon",
-]
-
-[[package]]
-name = "photocraft-doc"
-version = "0.3.0"
-dependencies = [
- "photocraft-color",
- "photocraft-geom",
- "photocraft-raster",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "photocraft-geom"
-version = "0.3.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "photocraft-ops"
-version = "0.3.0"
-dependencies = [
- "photocraft-doc",
-]
-
-[[package]]
-name = "photocraft-psd"
-version = "0.3.0"
-dependencies = [
- "flate2",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "photocraft-raster"
-version = "0.3.0"
-dependencies = [
- "photocraft-color",
- "photocraft-geom",
- "serde",
-]
-
-[[package]]
-name = "photocraft-vector"
-version = "0.3.0"
-dependencies = [
- "photocraft-color",
- "photocraft-doc",
- "photocraft-geom",
- "photocraft-raster",
- "rayon",
-]
-
-[[package]]
 name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3167,15 +3076,6 @@ dependencies = [
  "lightcraft-raster",
  "lightcraft-raw",
  "lightcraft-segment",
- "photocraft-algo",
- "photocraft-cms",
- "photocraft-color",
- "photocraft-compose",
- "photocraft-doc",
- "photocraft-geom",
- "photocraft-ops",
- "photocraft-psd",
- "photocraft-raster",
  "serde",
  "serde_json",
 ]

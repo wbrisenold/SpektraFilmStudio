@@ -1,42 +1,98 @@
 import Foundation
+import CoreGraphics
 
-/// Mirrors ExportResize.swift dimension decisions, without allocating pixels.
-/// Input dimensions must be the post-geometry image dimensions, not the camera RAW dimensions.
+/// Mirrors ExportResize.swift dimension and center-crop decisions without allocating pixels.
 struct StudioOutputGeometry: Equatable, Sendable {
     let width: Int
     let height: Int
 
-    static func calculate(sourceWidth: Int, sourceHeight: Int, mode: ExportResizeMode,
-                          width: Int, height: Int, longEdge: Int, dontEnlarge: Bool) -> Self {
-        let sw = max(1, sourceWidth), sh = max(1, sourceHeight)
-        let w = max(1, width), h = max(1, height), edge = max(1, longEdge)
-        if mode == .none { return .init(width: sw, height: sh) }
-        if mode == .cropToFill {
-            let aspect = Double(w) / Double(h)
-            let cw: Int, ch: Int
-            if Double(sw) / Double(sh) > aspect {
-                cw = max(1, min(sw, Int((Double(sh) * aspect).rounded())))
-                ch = sh
-            } else {
-                cw = sw
-                ch = max(1, min(sh, Int((Double(sw) / aspect).rounded())))
-            }
-            let factor = dontEnlarge ? min(1, min(Double(cw) / Double(w), Double(ch) / Double(h))) : 1.0
-            return .init(width: max(1, Int((Double(w) * factor).rounded())),
-                         height: max(1, Int((Double(h) * factor).rounded())))
+    static func centerCropRect(
+        sourceWidth: Int,
+        sourceHeight: Int,
+        targetWidth: Int,
+        targetHeight: Int
+    ) -> CGRect {
+        let sw = max(1, sourceWidth)
+        let sh = max(1, sourceHeight)
+        let tw = max(1, targetWidth)
+        let th = max(1, targetHeight)
+        let targetRatio = Double(tw) / Double(th)
+
+        let cropW: Int
+        let cropH: Int
+        if Double(sw) / Double(sh) > targetRatio {
+            cropW = max(1, min(sw, Int((Double(sh) * targetRatio).rounded())))
+            cropH = sh
+        } else {
+            cropW = sw
+            cropH = max(1, min(sh, Int((Double(sw) / targetRatio).rounded())))
         }
+
+        return CGRect(
+            x: (sw - cropW) / 2,
+            y: (sh - cropH) / 2,
+            width: cropW,
+            height: cropH
+        )
+    }
+
+    static func calculate(
+        sourceWidth: Int,
+        sourceHeight: Int,
+        mode: ExportResizeMode,
+        width: Int,
+        height: Int,
+        longEdge: Int,
+        dontEnlarge: Bool
+    ) -> Self {
+        let sw = max(1, sourceWidth)
+        let sh = max(1, sourceHeight)
+        let w = max(1, width)
+        let h = max(1, height)
+        let edge = max(1, longEdge)
+
+        if mode == .none {
+            return .init(width: sw, height: sh)
+        }
+
+        if mode == .cropToFill {
+            let crop = centerCropRect(
+                sourceWidth: sw,
+                sourceHeight: sh,
+                targetWidth: w,
+                targetHeight: h
+            )
+            let cw = Int(crop.width)
+            let ch = Int(crop.height)
+            let factor = dontEnlarge
+                ? min(1, min(Double(cw) / Double(w), Double(ch) / Double(h)))
+                : 1.0
+            return .init(
+                width: max(1, Int((Double(w) * factor).rounded())),
+                height: max(1, Int((Double(h) * factor).rounded()))
+            )
+        }
+
         let ratio: Double
         switch mode {
-        case .none, .cropToFill: ratio = 1 // handled above
-        case .longEdge: ratio = Double(edge) / Double(max(sw, sh))
-        case .width: ratio = Double(w) / Double(sw)
-        case .height: ratio = Double(h) / Double(sh)
-        case .fitBox: ratio = min(Double(w) / Double(sw), Double(h) / Double(sh))
+        case .none, .cropToFill:
+            ratio = 1
+        case .longEdge:
+            ratio = Double(edge) / Double(max(sw, sh))
+        case .width:
+            ratio = Double(w) / Double(sw)
+        case .height:
+            ratio = Double(h) / Double(sh)
+        case .fitBox:
+            ratio = min(Double(w) / Double(sw), Double(h) / Double(sh))
         }
-        // Exact export first rounds the requested target and then applies no-upscale logic.
+
         var tw = mode == .width ? w : max(1, Int((Double(sw) * ratio).rounded()))
         var th = mode == .height ? h : max(1, Int((Double(sh) * ratio).rounded()))
-        if dontEnlarge && tw >= sw && th >= sh { return .init(width: sw, height: sh) }
+
+        if dontEnlarge && tw >= sw && th >= sh {
+            return .init(width: sw, height: sh)
+        }
         if dontEnlarge {
             let factor = min(1, min(Double(tw) / Double(sw), Double(th) / Double(sh)))
             tw = max(1, Int((Double(sw) * factor).rounded()))

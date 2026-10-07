@@ -383,27 +383,46 @@ struct ExportWorkspaceView: View {
     }
 
     private var sizeControls: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Picker("Resize", selection: $model.project.exportSettings.resizeMode) {
-                ForEach(ExportResizeMode.allCases) { Text($0.rawValue).tag($0) }
+        VStack(alignment: .leading, spacing: 10) {
+            fieldLabel("Output sizing")
+            Picker("Output sizing", selection: $model.project.exportSettings.resizeMode) {
+                Text("Full Size").tag(ExportResizeMode.none)
+                Text("Long Edge").tag(ExportResizeMode.longEdge)
+                Section("Target Size") {
+                    Text("Fit Whole Photo · No Crop").tag(ExportResizeMode.fitBox)
+                    Text("Fill Target · Crop Edges").tag(ExportResizeMode.cropToFill)
+                }
+                Section("Advanced") {
+                    Text("Width Only").tag(ExportResizeMode.width)
+                    Text("Height Only").tag(ExportResizeMode.height)
+                }
             }
 
             switch model.project.exportSettings.resizeMode {
             case .none:
-                Text("Original rendered dimensions")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text("Keep the rendered photo's full pixel dimensions and framing.")
+                    .font(.caption2).foregroundStyle(.secondary)
             case .longEdge:
                 numericField("Long edge", value: $model.project.exportSettings.resizeLongEdge)
+                Text("Aspect ratio stays unchanged. No crop.")
+                    .font(.caption2).foregroundStyle(.secondary)
             case .width:
                 numericField("Width", value: $model.project.exportSettings.resizeWidth)
+                Text("Height follows the photo automatically. No crop.")
+                    .font(.caption2).foregroundStyle(.secondary)
             case .height:
                 numericField("Height", value: $model.project.exportSettings.resizeHeight)
+                Text("Width follows the photo automatically. No crop.")
+                    .font(.caption2).foregroundStyle(.secondary)
             case .fitBox, .cropToFill:
-                numericField("Width", value: $model.project.exportSettings.resizeWidth)
-                numericField("Height", value: $model.project.exportSettings.resizeHeight)
-                if model.project.exportSettings.resizeMode == .cropToFill {
-                    Text("Cropping is destructive in the exported file only. The original and project edits are unchanged.")
+                numericField("Target width", value: $model.project.exportSettings.resizeWidth)
+                numericField("Target height", value: $model.project.exportSettings.resizeHeight)
+                if model.project.exportSettings.resizeMode == .fitBox {
+                    Label("Fit keeps the whole photo. The target is a maximum box; no padding is exported.", systemImage: "arrow.down.right.and.arrow.up.left")
                         .font(.caption2).foregroundStyle(.secondary)
+                } else {
+                    Label("Fill never stretches the photo. It center-crops edges until the target aspect is filled.", systemImage: "crop")
+                        .font(.caption2).foregroundStyle(.orange)
                 }
             }
 
@@ -412,11 +431,14 @@ struct ExportWorkspaceView: View {
             }
 
             Divider()
-            fieldLabel("Social sizes")
+            HStack {
+                fieldLabel("Platform target")
+                Spacer()
+                Text("sets size · defaults to Fit")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
-                ForEach(
-                    ExportPresetDefinition.all.filter { $0.category == .social }.prefix(6)
-                ) { preset in
+                ForEach(ExportPresetDefinition.all.filter { $0.category == .social }) { preset in
                     Button(preset.name) { model.applyExportPreset(preset.id) }
                         .controlSize(.small)
                         .lineLimit(1)

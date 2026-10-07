@@ -740,7 +740,7 @@ final class AppModel: ObservableObject {
     func workspaceDidChange(_ destination: WorkspacePage) {
         if page != destination { page = destination }
         switch destination {
-        case .library, .cull, .proofs, .export, .create:
+        case .library, .cull, .proofs, .export:
             cancelIdleRefinement()
             // A render that was already in flight is obsolete once the user leaves Edit.
             // Cancel it so Library/Cull interaction always wins the device.

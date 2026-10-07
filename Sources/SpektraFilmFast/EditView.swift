@@ -219,6 +219,7 @@ struct EditWorkspaceView: View {
 
 private struct EditorInspectorView: View {
     @ObservedObject var model: AppModel
+    @AppStorage(EditorPanelVisibilityStore.key) private var hiddenEditorPanels = ""
 
     var body: some View {
         StudioPanel {
@@ -249,7 +250,9 @@ private struct EditorInspectorView: View {
 
                 ScrollView {
                     VStack(spacing: 10) {
-                        MaskPanelView(model: model)
+                        if !EditorPanelVisibilityStore.hidden(from: hiddenEditorPanels).contains("masks") {
+                            MaskPanelView(model: model)
+                        }
                         ControlsView(model: model)
                     }
                     .padding(.horizontal, 8)

@@ -6,6 +6,7 @@ struct ControlsView: View {
     @State private var openAdjustment: String? = "tone"
     @State private var inspectorSearch = ""
     @State private var showModifiedOnly = false
+    @AppStorage(EditorPanelVisibilityStore.key) private var hiddenEditorPanels = ""
     private let catalog = BridgeCatalog.shared
 
     var body: some View {
@@ -26,25 +27,35 @@ struct ControlsView: View {
                 Toggle("Modified", isOn: $showModifiedOnly)
                     .toggleStyle(.button)
                     .controlSize(.small)
+                EditorPanelVisibilityMenu(
+                    serializedHidden: $hiddenEditorPanels,
+                    panels: [
+                        (id: "raw", title: "RAW / White Balance"),
+                        (id: "tone", title: "RAW Develop"),
+                        (id: "density", title: "Color Density"),
+                        (id: "geometry", title: "Geometry"),
+                        (id: "lens", title: "Lens Character")
+                    ] + catalog.groups.filter { $0.id != "raw" }.map { (id: "film.\($0.id)", title: $0.label) }
+                )
+                .controlSize(.small)
             }
             .padding(.horizontal, 9)
             .padding(.top, 9)
 
             ScrollView {
             LazyVStack(spacing: 7) {
-                if sectionMatches("raw", terms: ["raw", "white balance", "wb", "as shot", "auto white balance", "temperature", "tint", "denoise", "camera", "lens correction"]) { rawSection }
-                if sectionMatches("tone", terms: ["raw develop", "raw exposure", "raw tone", "curve", "shadow boost", "highlight headroom", "edr"]) { toneSection }
-                if sectionMatches("film-stock", terms: ["film stock", "film exposure", "film tone", "film highlights", "film shadows", "film whites", "film blacks", "stock response", "auto exposure", "film contrast", "film recovery"]) { filmExposureSection }
-                if sectionMatches("density", terms: ["color density", "density", "red", "yellow", "green", "cyan", "blue", "magenta", "luminance"]) { colorDensitySection }
-                if sectionMatches("geometry", terms: ["crop", "geometry", "aspect", "rotation", "perspective", "flip", "straighten", "scale", "offset"]) { geometrySection }
-                if sectionMatches("lens", terms: ["lens character", "lens", "optical", "aberration", "vignette", "petzval", "swirl", "spherical", "distortion", "edge blur"]) {
+                if panelVisible("raw") && sectionMatches("raw", terms: ["raw", "white balance", "wb", "as shot", "auto white balance", "temperature", "tint", "denoise", "camera", "lens correction"]) { rawSection }
+                if panelVisible("tone") && sectionMatches("tone", terms: ["raw develop", "raw exposure", "raw tone", "curve", "shadow boost", "highlight headroom", "edr"]) { toneSection }
+                if panelVisible("density") && sectionMatches("density", terms: ["color density", "density", "red", "yellow", "green", "cyan", "blue", "magenta", "luminance"]) { colorDensitySection }
+                if panelVisible("geometry") && sectionMatches("geometry", terms: ["crop", "geometry", "aspect", "rotation", "perspective", "flip", "straighten", "scale", "offset"]) { geometrySection }
+                if panelVisible("lens") && sectionMatches("lens", terms: ["lens character", "lens", "optical", "aberration", "vignette", "petzval", "swirl", "spherical", "distortion", "edge blur"]) {
                     LensCharacterPanel(model: model, isExpanded: sectionBinding("lens"))
                 }
 
                 ForEach(catalog.groups.filter { $0.id != "raw" }) { group in
                     let descriptors = catalog.parameters(in: group.id, flavor: .pro)
                         .filter(bridgeControlVisible)
-                    if !descriptors.isEmpty {
+                    if !descriptors.isEmpty && panelVisible("film.\(group.id)") {
                         DisclosureGroup(isExpanded: sectionBinding("film.\(group.id)")) {
                             VStack(spacing: 10) {
                                 ForEach(descriptors) { descriptor in
@@ -98,6 +109,10 @@ struct ControlsView: View {
         .onChange(of: showModifiedOnly) { _, _ in
             if !inspectorSearch.isEmpty { openAdjustment = preferredSearchSection }
         }
+    }
+
+    private func panelVisible(_ id: String) -> Bool {
+        !EditorPanelVisibilityStore.hidden(from: hiddenEditorPanels).contains(id)
     }
 
     private var searchTerm: String { inspectorSearch.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -336,103 +351,61 @@ struct ControlsView: View {
 
     private var toneSection: some View {
         let raw = model.selectedLook.raw
+        let tone = model.selectedLook.tone ?? ToneSettings()
         return DisclosureGroup(isExpanded: sectionBinding("tone")) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("RAW DEVELOPMENT → FILM STOCK → DISPLAY").font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundStyle(.secondary)
-                Text("These controls are now part of Apple RAW development before SpektraFilm. Film Stock Exposure EV remains a separate native film-emulsion control.").font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)
+                Text("APPLE RAW DEVELOP → PRE-FILM LIGHT CONTROLS → SPEKTRAFILM STOCK → DISPLAY")
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Text("RAW Exposure and RAW Global Tone keep the exact Apple CIRAWFilter behavior. The added light controls run after RAW development and before the film renderer; they do not replace those Apple controls.")
+                    .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)
 
-                DraftScalarSlider(label:"RAW Exposure EV", committedValue:raw.developExposureEV, range:-5...5, precision:2, helpText:"CIRAWFilter exposure before film. +1 EV is one stop brighter.", resetValue:0, onReset:{model.setRawDevelopExposure(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setRawDevelopExposure($0,interactive:true)}, onEnd:{model.endEditGesture()})
-                DraftScalarSlider(label:"RAW Global Tone", committedValue:raw.developGlobalTone*100, range:0...100, precision:0, helpText:"Apple RAW global tone curve. 0 is linear; 100 is full RAW tone response.", resetValue:100, onReset:{model.setRawDevelopGlobalTone(1,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setRawDevelopGlobalTone($0/100,interactive:true)}, onEnd:{model.endEditGesture()})
+                DraftScalarSlider(label:"RAW Exposure EV", committedValue:raw.developExposureEV, range:-5...5, precision:2, helpText:"CIRAWFilter exposure before film. +1 EV is one stop brighter. This behavior is locked and must not be replaced.", resetValue:0, onReset:{model.setRawDevelopExposure(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setRawDevelopExposure($0,interactive:true)}, onEnd:{model.endEditGesture()})
+                DraftScalarSlider(label:"RAW Global Tone", committedValue:raw.developGlobalTone*100, range:0...100, precision:0, helpText:"Apple CIRAWFilter global tone response. This behavior is locked and must not be replaced.", resetValue:100, onReset:{model.setRawDevelopGlobalTone(1,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setRawDevelopGlobalTone($0/100,interactive:true)}, onEnd:{model.endEditGesture()})
                 DraftScalarSlider(label:"RAW Shadow Boost", committedValue:raw.developShadowBoost*100, range:0...200, precision:0, helpText:"Apple RAW shadow recovery. 100 is normal strength.", resetValue:100, onReset:{model.setRawDevelopShadowBoost(1,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setRawDevelopShadowBoost($0/100,interactive:true)}, onEnd:{model.endEditGesture()})
-                DraftScalarSlider(label:"Highlight Headroom (EDR)", committedValue:raw.developHighlightHeadroom*100, range:0...200, precision:0, helpText:"Apple RAW extended dynamic range. Raise it to preserve more recoverable RAW highlight information before the film stock.", resetValue:0, onReset:{model.setRawDevelopHighlightHeadroom(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setRawDevelopHighlightHeadroom($0/100,interactive:true)}, onEnd:{model.endEditGesture()})
+                DraftScalarSlider(label:"Highlight Headroom (EDR)", committedValue:raw.developHighlightHeadroom*100, range:0...200, precision:0, helpText:"Apple RAW extended dynamic range. Raise it to preserve recoverable RAW highlight information before film.", resetValue:0, onReset:{model.setRawDevelopHighlightHeadroom(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setRawDevelopHighlightHeadroom($0/100,interactive:true)}, onEnd:{model.endEditGesture()})
+
+                Divider().opacity(0.5)
+                Text("Light").font(.caption.weight(.semibold))
+                DraftScalarSlider(label:"Contrast", committedValue:tone.contrast, range:-100...100, precision:0, resetValue:0, onReset:{model.setToneContrast(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setToneContrast($0,interactive:true)}, onEnd:{model.endEditGesture()})
+                DraftScalarSlider(label:"Midtones", committedValue:tone.midtones, range:-100...100, precision:0, resetValue:0, onReset:{model.setToneMidtones(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setToneMidtones($0,interactive:true)}, onEnd:{model.endEditGesture()})
+                DraftScalarSlider(label:"Highlights", committedValue:tone.highlights, range:-100...100, precision:0, resetValue:0, onReset:{model.setToneHighlights(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setToneHighlights($0,interactive:true)}, onEnd:{model.endEditGesture()})
+                DraftScalarSlider(label:"Highlight Recovery", committedValue:tone.highlightRecovery, range:0...100, precision:0, resetValue:0, onReset:{model.setHighlightRecovery(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setHighlightRecovery($0,interactive:true)}, onEnd:{model.endEditGesture()})
+                DraftScalarSlider(label:"Shadows", committedValue:tone.shadows, range:-100...100, precision:0, resetValue:0, onReset:{model.setToneShadows(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setToneShadows($0,interactive:true)}, onEnd:{model.endEditGesture()})
+                DraftScalarSlider(label:"Shadow Recovery", committedValue:tone.shadowRecovery, range:0...100, precision:0, resetValue:0, onReset:{model.setShadowRecovery(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setShadowRecovery($0,interactive:true)}, onEnd:{model.endEditGesture()})
+                DraftScalarSlider(label:"Whites", committedValue:tone.whites, range:-100...100, precision:0, resetValue:0, onReset:{model.setToneWhites(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setToneWhites($0,interactive:true)}, onEnd:{model.endEditGesture()})
+                DraftScalarSlider(label:"Blacks", committedValue:tone.blacks, range:-100...100, precision:0, resetValue:0, onReset:{model.setToneBlacks(0,interactive:false)}, onBegin:{model.beginEditGesture()}, onChange:{model.setToneBlacks($0,interactive:true)}, onEnd:{model.endEditGesture()})
 
                 Divider().opacity(0.5)
                 HStack {
-                    VStack(alignment:.leading,spacing:1) { Text("Creative RAW Tone Curve").font(.caption.weight(.semibold)); Text("Runs inside CIRAWFilter's linear-space stage.").font(.system(size:9)).foregroundStyle(.tertiary) }
+                    VStack(alignment:.leading,spacing:1) {
+                        Text("Creative RAW Tone Curve").font(.caption.weight(.semibold))
+                        Text("Runs inside CIRAWFilter's linear-space stage.").font(.system(size:9)).foregroundStyle(.tertiary)
+                    }
                     Spacer()
-                    Menu("Presets") { ForEach(ToneCurvePresetGroup.allCases) { group in Section(group.rawValue) { ForEach(ToneCurvePreset.allCases.filter{$0.group==group}) { preset in Button(preset.rawValue){model.applyRawDevelopCurvePreset(preset)}.help(preset.summary) } } } }.controlSize(.small)
+                    Menu("Presets") {
+                        ForEach(ToneCurvePresetGroup.allCases) { group in
+                            Section(group.rawValue) {
+                                ForEach(ToneCurvePreset.allCases.filter{$0.group==group}) { preset in
+                                    Button(preset.rawValue){model.applyRawDevelopCurvePreset(preset)}.help(preset.summary)
+                                }
+                            }
+                        }
+                    }.controlSize(.small)
                     Button("Reset"){model.resetRawDevelopCurve()}.controlSize(.small)
                 }
                 ToneCurveEditorView(model:model).frame(height:230)
-                Text("The curve now shapes the linear RAW image before Film Stock Exposure and the stock response.").font(.caption2).foregroundStyle(.tertiary)
             }.padding(.top,8)
         } label: {
-            HStack { Text("RAW Develop").font(.caption.weight(.semibold)); Spacer(); Button{model.resetRawDevelop()}label:{Image(systemName:"arrow.counterclockwise")}.buttonStyle(.plain).help("Reset RAW Develop") }
-        }
-        .padding(10).background(StudioPalette.recessed,in:RoundedRectangle(cornerRadius:8)).overlay{RoundedRectangle(cornerRadius:8).stroke(StudioPalette.subtleBorder,lineWidth:0.5)}
-    }
-
-    // Distinct, pre-native-film feed grade: does not modify scene adjustments.
-    // Native Film Exposure EV remains the spectral film-emulsion parameter.
-    private var filmExposureSection: some View {
-        let tone = model.selectedLook.filmTone ?? ToneSettings()
-        return DisclosureGroup(isExpanded: sectionBinding("film-stock")) {
-            VStack(alignment: .leading, spacing: 9) {
-                Text("RAW DEVELOP → FILM EXPOSURE SHAPE → NATIVE FILM STOCK → DISPLAY")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                Text("Exposure EV below is the original native Film Stock Exposure control. The other sliders shape exposure by luminance zone immediately before that same film simulation instead of using a second host-tone exposure pass.")
-                    .font(.caption2).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if let descriptor = catalog.parameters.first(where: { $0.name == "filmExposureEv" }) {
-                    ParameterControlRow(model: model, descriptor: descriptor, options: catalog.options(for: descriptor))
-                }
-                if let descriptor = catalog.parameters.first(where: { $0.name == "autoExposure" }) {
-                    ParameterControlRow(model: model, descriptor: descriptor, options: catalog.options(for: descriptor))
-                }
-                if let descriptor = catalog.parameters.first(where: { $0.name == "autoExposureMethod" }) {
-                    ParameterControlRow(model: model, descriptor: descriptor, options: catalog.options(for: descriptor))
-                }
-                Divider().opacity(0.5)
-                Toggle("Auto Film Exposure Shape", isOn: Binding(
-                    get: { tone.autoContrast },
-                    set: { model.setFilmToneValue("autoContrast", value: $0 ? 1 : 0, interactive: false) }
-                ))
-                .help("Use this film feed's luminance distribution and final display clipping boundary for automatic contrast. Recomputes for each photograph.")
-
-                filmToneControl("Film Highlights", "highlights", tone.highlights, -100...100,
-                                "Adds or removes EV from bright film-input zones before native stock response.")
-                filmToneControl("Film Highlight Recovery", "highlightRecovery", tone.highlightRecovery, 0...100,
-                                "Applies negative EV only to the hottest film-input zones for recovery.")
-                filmToneControl("Film Shadows", "shadows", tone.shadows, -100...100,
-                                "Adds or removes EV from shadow film-input zones before native stock response.")
-                filmToneControl("Film Shadow Recovery", "shadowRecovery", tone.shadowRecovery, 0...100,
-                                "Applies positive EV only to deep film-input zones for recovery.")
-                filmToneControl("Film Whites", "whites", tone.whites, -100...100,
-                                "Adds or removes EV at the brightest film-input exposure band.")
-                filmToneControl("Film Blacks", "blacks", tone.blacks, -100...100,
-                                "Adds or removes EV at the darkest film-input exposure band.")
-                filmToneControl("Film Contrast", "contrast", tone.contrast, -100...100,
-                                "Spreads or compresses exposure around photographic mid-grey before native film response.")
-                filmToneControl("Film Brightness", "brightness", tone.brightness, -100...100,
-                                "Adds or removes broad mid-zone exposure before the native film stock.")
-                Button("Reset Film Exposure Shape") { model.resetFilmTone() }
-                    .font(.caption2).buttonStyle(.borderless)
-            }.padding(.top, 8)
-        } label: {
             HStack {
-                Text("Film Stock Exposure").font(.caption.weight(.semibold))
+                Text("RAW Develop").font(.caption.weight(.semibold))
                 Spacer()
-                Image(systemName: "camera.filters").font(.caption2).foregroundStyle(.secondary)
+                Button{model.resetRawDevelop()}label:{Image(systemName:"arrow.counterclockwise")}.buttonStyle(.plain).help("Reset RAW Develop")
             }
         }
         .padding(10)
-        .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 8))
-        .overlay { RoundedRectangle(cornerRadius: 8).stroke(StudioPalette.subtleBorder, lineWidth: 0.5) }
-    }
-
-    private func filmToneControl(_ label: String, _ key: String, _ value: Double,
-                                 _ range: ClosedRange<Double>, _ helpText: String) -> some View {
-        DraftScalarSlider(
-            label: label, committedValue: value, range: range,
-            precision: 0,
-            helpText: helpText, resetValue: 0,
-            onReset: { model.setFilmToneValue(key, value: 0, interactive: false) },
-            onBegin: { model.beginEditGesture() },
-            onChange: { model.setFilmToneValue(key, value: $0, interactive: true) },
-            onEnd: { model.endEditGesture() }
-        )
+        .background(StudioPalette.recessed,in:RoundedRectangle(cornerRadius:8))
+        .overlay{RoundedRectangle(cornerRadius:8).stroke(StudioPalette.subtleBorder,lineWidth:0.5)}
     }
 
     private var colorDensitySection: some View {

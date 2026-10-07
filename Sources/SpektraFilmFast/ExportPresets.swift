@@ -63,10 +63,6 @@ struct ExportPresetDefinition: Identifiable, Hashable, Sendable {
             preserveMetadata: true, stripGPS: false,
             resizeMode: .none, width: 2048, height: 2048, longEdge: 2048, dontEnlarge: true
         ),
-
-        // Social-media dimensions are sourced from OpenPost's open-source image editor presets.
-        // These presets intentionally keep the user's chosen file format/quality; only delivery
-        // dimensions and no-upscale policy are changed. The current crop determines composition.
         .social(id: "instagram-square", name: "Instagram Square", width: 1080, height: 1080),
         .social(id: "instagram-portrait", name: "Instagram Portrait", width: 1080, height: 1350),
         .social(id: "story-reel-tiktok", name: "Story / Reel / TikTok", width: 1080, height: 1920),
@@ -78,14 +74,22 @@ struct ExportPresetDefinition: Identifiable, Hashable, Sendable {
 
     private static func social(id: String, name: String, width: Int, height: Int) -> ExportPresetDefinition {
         .init(
-            id: id, name: name, category: .social,
-            detail: "Crop to fill \(width) × \(height) · center-cropped to exact platform aspect",
+            id: id,
+            name: name,
+            category: .social,
+            detail: "Fit whole photo inside \(width) × \(height) · no silent crop",
             source: "OpenPost open-source image editor preset dimensions",
             format: nil, jpegQuality: nil, tiff16Bit: nil,
             preserveMetadata: nil, stripGPS: nil,
-            resizeMode: .cropToFill, width: width, height: height, longEdge: max(width, height), dontEnlarge: false
+            resizeMode: .fitBox,
+            width: width,
+            height: height,
+            longEdge: max(width, height),
+            dontEnlarge: false
         )
     }
 
-    static func preset(id: String) -> ExportPresetDefinition? { all.first { $0.id == id } }
+    static func preset(id: String) -> ExportPresetDefinition? {
+        all.first { $0.id == id }
+    }
 }

@@ -31,8 +31,11 @@ swift package dump-package >/dev/null
 
 echo "Checking shell syntax..."
 bash -n BUILD_ON_MAC.command scripts/*.sh
-[[ -x scripts/bootstrap_photocraft_web.sh ]] || { echo "PhotoCraft web bootstrap is missing or not executable" >&2; exit 2; }
-grep -q 'bootstrap_photocraft_web.sh' scripts/build_app.sh
+# The consolidated build removed the PhotoCraft web target and its bootstrap.
+# Assert they stay gone so a future patch cannot silently resurrect WebKit.
+[[ ! -e scripts/bootstrap_photocraft_web.sh ]] || { echo "PhotoCraft web bootstrap must remain removed in the consolidated build" >&2; exit 2; }
+! grep -q 'bootstrap_photocraft_web.sh' scripts/build_app.sh \
+  || { echo "build_app.sh must not reference the removed PhotoCraft bootstrap" >&2; exit 2; }
 
 echo "Checking known release/build pitfalls..."
 

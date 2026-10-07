@@ -20,11 +20,6 @@ actor SemanticMaskEngine {
         var masks:[SemanticMaskKind:[UInt8]]=[:], provenance:[String]=[]
         if FileManager.default.fileExists(atPath:biref.path),let a=try? Self.runMatte(model:biref,rgba:rgba,w:w,h:h){masks[.subject]=a;masks[.background]=a.map{255-$0};provenance.append("BiRefNet-lite MIT") }
         else if FileManager.default.fileExists(atPath:modnet.path), let a=try? Self.runMatte(model:modnet,rgba:rgba,w:w,h:h) {masks[.subject]=a;masks[.background]=a.map{255-$0};provenance.append("MODNet Apache-2.0")}
-        else if let a = SpektraStudioCore.selectSubject(rgba: rgba, width: w, height: h) {
-            masks[.subject] = a
-            masks[.background] = a.map { 255 - $0 }
-            provenance.append("PhotoCraft Select Subject · unified Rust core")
-        }
         else {
             let a=try Self.visionPersonMask(cgImage)
             masks[.subject]=a

@@ -54,7 +54,6 @@ fi
 python3 "$ROOT/scripts/qa_stage5.py"
 "$ROOT/scripts/bootstrap_native.sh"
 "$ROOT/scripts/bootstrap_unified_rust_core.sh"
-"$ROOT/scripts/bootstrap_photocraft_web.sh"
 
 if [[ ! -f "$ROOT/Vendor/onnxruntime/lib/libonnxruntime.dylib" && ! -f "$ROOT/Vendor/onnxruntime/lib/libonnxruntime.1.30.0.dylib" ]]; then
   echo "Stage 3 AI runtime missing. Run ./PREPARE_STAGE3_AI_MODELS.command first." >&2
@@ -88,7 +87,7 @@ mkdir -p "$ROOT/dist"
 
 APP="$ROOT/dist/SpektraFilmStudio.app"
 CONTENTS="$APP/Contents"
-mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources" "$CONTENTS/Frameworks" "$CONTENTS/Resources/AIModels" "$CONTENTS/Resources/PhotoCraftWeb"
+mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources" "$CONTENTS/Frameworks" "$CONTENTS/Resources/AIModels"
 cp "$BIN" "$CONTENTS/MacOS/SpektraFilmStudio"
 cp "$ROOT/Vendor/onnxruntime/lib/"libonnxruntime*.dylib "$CONTENTS/Frameworks/"
 cp "$ROOT/Resources/AIModels/"*.onnx "$CONTENTS/Resources/AIModels/"
@@ -99,10 +98,8 @@ cp "$ROOT/Resources/AppIcon.icns" "$CONTENTS/Resources/SpektraFilm.icns"
 cp "$ROOT/Resources/SpektraFilm.metallib" "$CONTENTS/Resources/"
 cp "$ROOT/Resources/SpektraHanatos2025Spectra.f32" "$CONTENTS/Resources/"
 cp "$ROOT/Resources/SpektraOutputGamutCompression.f32" "$CONTENTS/Resources/"
-cp -R "$ROOT/.build/photocraft-web/." "$CONTENTS/Resources/PhotoCraftWeb/"
-mkdir -p "$CONTENTS/Resources/Licenses/LightCraft" "$CONTENTS/Resources/Licenses/PhotoCraft"
+mkdir -p "$CONTENTS/Resources/Licenses/LightCraft"
 cp "$ROOT/THIRD_PARTY/LightCraft/"* "$CONTENTS/Resources/Licenses/LightCraft/" 2>/dev/null || true
-cp "$ROOT/THIRD_PARTY/PhotoCraft/"* "$CONTENTS/Resources/Licenses/PhotoCraft/" 2>/dev/null || true
 
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

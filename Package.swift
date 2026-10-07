@@ -37,6 +37,7 @@ let package = Package(
                 .unsafeFlags(["-L\(studioCoreLib)", "-lspektrastudio_core"]),
                 .unsafeFlags(["-L\(root)/Vendor/onnxruntime/lib", "-lonnxruntime", "-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"]),
                 .linkedLibrary("c++"),
+                .linkedLibrary("sqlite3"),
                 .linkedFramework("Accelerate"),
                 .linkedFramework("AppKit"),
                 .linkedFramework("CoreGraphics"),
@@ -49,7 +50,6 @@ let package = Package(
                 .linkedFramework("QuartzCore"),
                 .linkedFramework("UniformTypeIdentifiers"),
                 .linkedFramework("Vision"),
-                .linkedFramework("WebKit"),
             ]
         )
     ],

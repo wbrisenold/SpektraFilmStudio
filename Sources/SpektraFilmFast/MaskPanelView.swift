@@ -314,13 +314,11 @@ private struct MaskCoverageOverlay: View {
             let w = max(1,Int((Double(sw)*scale).rounded())), h = max(1,Int((Double(sh)*scale).rounded()))
             let payload = await Task.detached(priority: .utility) { () -> MaskCoveragePayload in
                 let coverage = MaskedLocalGradeEngine.coverageForGrade(g, width: w, height: h)
-                var rgba = [UInt8](repeating: 0, count: w*h*4)
-                for i in 0..<min(coverage.count,w*h) {
-                    let c = max(0,min(1,coverage[i])); guard c > 0.003 else { continue }
-                    let a: UInt8 = c >= 0.20 ? 218 : UInt8(clamping: Int((55.0 + Double(c/0.20)*163.0).rounded()))
-                    let p=i*4; rgba[p]=0; rgba[p+1]=220; rgba[p+2]=255; rgba[p+3]=a
+                let alpha = coverage.prefix(w*h).map { value in
+                    UInt8(clamping: Int((max(0, min(1, value)) * 255.0).rounded()))
                 }
-                return MaskCoveragePayload(width:w,height:h,rgba:rgba)
+                let canonical = CanonicalMaskBuffer(width: w, height: h, coverage: alpha)
+                return MaskCoveragePayload(width:w,height:h,rgba:canonical.overlayRGBA(maximumAlpha:218))
             }.value
             guard !Task.isCancelled else { return }
             overlayImage = CGImage.fromRGBA8(width: payload.width, height: payload.height, bytes: payload.rgba)

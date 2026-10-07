@@ -12,7 +12,6 @@ enum SpektraStudioCore {
     ) -> String? {
         var buffer = [UInt8](repeating: 0, count: initialCapacity)
         var rc = buffer.withUnsafeMutableBufferPointer { call($0.baseAddress, $0.count) }
-
         if rc > 0 {
             buffer = [UInt8](repeating: 0, count: Int(rc))
             rc = buffer.withUnsafeMutableBufferPointer { call($0.baseAddress, $0.count) }
@@ -36,85 +35,14 @@ enum SpektraStudioCore {
     static func setLightCraftControl(settingsJSON: String, id: String, value: Double) -> String? {
         settingsJSON.withCString { settingsPtr in
             id.withCString { idPtr in
-                jsonString {
-                    sf_core_lc_set_control_json(settingsPtr, idPtr, value, $0, $1)
-                }
+                jsonString { sf_core_lc_set_control_json(settingsPtr, idPtr, value, $0, $1) }
             }
         }
-    }
-
-    static func selectSubject(rgba: [UInt8], width: Int, height: Int) -> [UInt8]? {
-        guard isAvailable, rgba.count == width * height * 4 else { return nil }
-        var out = [UInt8](repeating: 0, count: width * height)
-        let rc = rgba.withUnsafeBufferPointer { input in
-            out.withUnsafeMutableBufferPointer { output in
-                sf_core_pc_select_subject_rgba8(
-                    input.baseAddress, UInt32(width), UInt32(height), output.baseAddress
-                )
-            }
-        }
-        return rc == 0 ? out : nil
-    }
-
-    static func quickSelect(
-        rgba: [UInt8], width: Int, height: Int,
-        points: [(Float, Float)], brushSize: Float
-    ) -> [UInt8]? {
-        guard isAvailable, !points.isEmpty, rgba.count == width * height * 4 else { return nil }
-        var packed: [Float] = []
-        packed.reserveCapacity(points.count * 2)
-        for p in points { packed.append(p.0); packed.append(p.1) }
-        var out = [UInt8](repeating: 0, count: width * height)
-
-        let rc = rgba.withUnsafeBufferPointer { input in
-            packed.withUnsafeBufferPointer { pts in
-                out.withUnsafeMutableBufferPointer { output in
-                    sf_core_pc_quick_select_rgba8(
-                        input.baseAddress, UInt32(width), UInt32(height),
-                        pts.baseAddress, UInt32(points.count), brushSize, output.baseAddress
-                    )
-                }
-            }
-        }
-        return rc == 0 ? out : nil
-    }
-
-    static func magicWand(
-        rgba: [UInt8], width: Int, height: Int,
-        x: Int, y: Int, tolerance: Float
-    ) -> [UInt8]? {
-        guard isAvailable, rgba.count == width * height * 4 else { return nil }
-        var out = [UInt8](repeating: 0, count: width * height)
-        let rc = rgba.withUnsafeBufferPointer { input in
-            out.withUnsafeMutableBufferPointer { output in
-                sf_core_pc_magic_wand_rgba8(
-                    input.baseAddress, UInt32(width), UInt32(height),
-                    Int32(x), Int32(y), tolerance, output.baseAddress
-                )
-            }
-        }
-        return rc == 0 ? out : nil
-    }
-
-    static func feather(
-        _ alpha: [UInt8], width: Int, height: Int, radius: Float
-    ) -> [UInt8]? {
-        guard isAvailable, alpha.count == width * height else { return nil }
-        var out = [UInt8](repeating: 0, count: alpha.count)
-        let rc = alpha.withUnsafeBufferPointer { input in
-            out.withUnsafeMutableBufferPointer { output in
-                sf_core_pc_feather_mask_u8(
-                    input.baseAddress, UInt32(width), UInt32(height),
-                    radius, output.baseAddress
-                )
-            }
-        }
-        return rc == 0 ? out : nil
     }
 }
 
 enum SpektraFeatureCompatibility {
-    enum Backend: String { case spektraNative, lightCraft, photoCraft, hybrid }
+    enum Backend: String { case spektraNative, lightCraft, hybrid }
 
     struct Feature {
         let id: String
@@ -131,10 +59,7 @@ enum SpektraFeatureCompatibility {
         .init(id: "autoSkinWB", backend: .hybrid, preserveExistingUIUntilParity: true),
         .init(id: "presets", backend: .hybrid, preserveExistingUIUntilParity: true),
         .init(id: "curvePresets", backend: .hybrid, preserveExistingUIUntilParity: true),
-        .init(id: "nativeFilmStockExposureEV", backend: .spektraNative, preserveExistingUIUntilParity: true),
-        .init(id: "filmExposureShape", backend: .spektraNative, preserveExistingUIUntilParity: true),
         .init(id: "semanticMasks", backend: .hybrid, preserveExistingUIUntilParity: true),
-        .init(id: "createSocial", backend: .hybrid, preserveExistingUIUntilParity: true),
         .init(id: "export", backend: .hybrid, preserveExistingUIUntilParity: true),
     ]
 }

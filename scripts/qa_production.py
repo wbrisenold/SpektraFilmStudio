@@ -303,11 +303,11 @@ for field in ("brightness", "midtones", "highlightRecovery", "shadowRecovery", "
 for setter in ("setToneBrightness", "setToneMidtones", "setHighlightRecovery", "setShadowRecovery", "setWhitePoint", "setBlackPoint"):
     require(f"func {setter}" in app, f"AppModel missing {setter}")
 for label in ("RAW Exposure EV", "RAW Global Tone", "RAW Shadow Boost", "Highlight Headroom (EDR)",
-              "Film Highlights", "Film Highlight Recovery", "Film Shadows", "Film Shadow Recovery",
-              "Film Whites", "Film Blacks", "Film Contrast", "Film Brightness"):
-    require(f'"{label}"' in controls, f"Tone UI missing {label}")
-require("func setRawDevelopExposure" in app and "func setRawDevelopCurvePoints" in app and "func setFilmToneValue" in app,
-        "RAW Develop / Film Exposure Shape controls are not wired to the model")
+              "Contrast", "Midtones", "Highlights", "Highlight Recovery",
+              "Shadows", "Shadow Recovery", "Whites", "Blacks"):
+    require(f'"{label}"' in controls, f"RAW Develop UI missing {label}")
+require("func setRawDevelopExposure" in app and "func setRawDevelopCurvePoints" in app,
+        "RAW Develop controls are not wired to the model")
 require("filmicBrightness" in tone_engine and "midtones(" in tone_engine, "Brightness/Midtones processing missing")
 require("highlightRecovery(" in tone_engine and "shadowRecovery(" in tone_engine, "highlight/shadow recovery processing missing")
 require("remapPoints" in tone_engine and "tone.blackPoint" in tone_engine and "tone.whitePoint" in tone_engine, "black/white point processing missing")

@@ -24,16 +24,6 @@ lightcraft-engine = { path = "../../Vendor/lightcraft/crates/engine" }
 lightcraft-segment = { path = "../../Vendor/lightcraft/crates/segment" }
 lightcraft-merge = { path = "../../Vendor/lightcraft/crates/merge" }
 
-photocraft-algo = { path = "../../Vendor/photocraft/crates/algo" }
-photocraft-geom = { path = "../../Vendor/photocraft/crates/geom" }
-photocraft-doc = { path = "../../Vendor/photocraft/crates/doc" }
-photocraft-ops = { path = "../../Vendor/photocraft/crates/ops" }
-photocraft-compose = { path = "../../Vendor/photocraft/crates/compose" }
-photocraft-psd = { path = "../../Vendor/photocraft/crates/psd" }
-photocraft-color = { path = "../../Vendor/photocraft/crates/color" }
-photocraft-cms = { path = "../../Vendor/photocraft/crates/cms" }
-photocraft-raster = { path = "../../Vendor/photocraft/crates/raster" }
-
 [profile.release]
 lto = "thin"
 codegen-units = 1

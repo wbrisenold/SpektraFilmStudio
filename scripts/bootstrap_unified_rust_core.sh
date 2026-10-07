@@ -3,7 +3,6 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LC_PIN="b35487add2e8169c18e36dff3a9815501c901d69"
-PC_PIN="47f9306fd06d5dee11acb84b108606f4c867222a"
 TARGET_DIR="$ROOT/.build/spektrastudio-core"
 
 for tool in git cargo rustc; do
@@ -28,13 +27,11 @@ clone_pin () {
 }
 
 clone_pin "https://github.com/storytold/lightcraft.git" "$LC_PIN" "$ROOT/Vendor/lightcraft"
-clone_pin "https://github.com/storytold/photocraft.git" "$PC_PIN" "$ROOT/Vendor/photocraft"
 
-mkdir -p "$ROOT/THIRD_PARTY/LightCraft" "$ROOT/THIRD_PARTY/PhotoCraft"
+mkdir -p "$ROOT/THIRD_PARTY/LightCraft"
 
 for f in LICENSE-MIT LICENSE-APACHE NOTICE ATTRIBUTION.md; do
   [[ -f "$ROOT/Vendor/lightcraft/$f" ]] && cp "$ROOT/Vendor/lightcraft/$f" "$ROOT/THIRD_PARTY/LightCraft/"
-  [[ -f "$ROOT/Vendor/photocraft/$f" ]] && cp "$ROOT/Vendor/photocraft/$f" "$ROOT/THIRD_PARTY/PhotoCraft/"
 done
 
 if command -v rustup >/dev/null 2>&1; then

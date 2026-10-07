@@ -170,14 +170,6 @@ Social resize is fit-inside/non-destructive and does not silently crop. Exact ta
 
 Use explicit `decodeIfPresent` defaults for newly added persisted fields. Existing projects must open with neutral defaults rather than failing to decode. `clientPicked` and all newer ToneSettings/Preferences fields follow this rule.
 
-## PhotoCraft workspace
-
-- The legacy custom Create/collage editor is removed from the UI.
-- The persisted `WorkspacePage.create` raw value remains `Create` only for backward compatibility with existing projects/preferences; its visible title is `PhotoCraft`.
-- PhotoCraft is the actual pinned open-source PhotoCraft web target running inside WKWebView, not a visual imitation or a rewritten subset.
-- `scripts/bootstrap_photocraft_web.sh` builds the same `PhotocraftApp` used by PhotoCraft's web target and `scripts/build_app.sh` packages it under `Contents/Resources/PhotoCraftWeb`.
-- The embedded editor is served from a private local URL scheme with correct WebAssembly MIME types; it does not depend on a hosted PhotoCraft website at runtime.
-- Keep app-wide masking convergence on the existing PhotoCraft-backed Rust bridge (`SpektraStudioCore`) rather than creating a second masking implementation.
 
 ## UI policy
 
