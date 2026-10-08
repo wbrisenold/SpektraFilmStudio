@@ -35,6 +35,10 @@ fi
 
 VERSION="${SPEKTRAFILM_VERSION:-$(tr -d '[:space:]' < "$ROOT/VERSION")}"
 BUILD_NUMBER="${SPEKTRAFILM_BUILD_NUMBER:-1}"
+SOURCE_COMMIT="$(git -C "$ROOT" rev-parse --verify HEAD 2>/dev/null || printf 'unknown')"
+if [[ -n "$(git -C "$ROOT" status --porcelain --untracked-files=normal 2>/dev/null)" ]]; then
+  SOURCE_COMMIT="${SOURCE_COMMIT}-dirty"
+fi
 CLEAN="${SPEKTRAFILM_CLEAN:-0}"
 
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
@@ -70,9 +74,12 @@ fi
 SCRATCH="$ROOT/.build/swift-x86_64"
 swift build -c release --arch x86_64 --scratch-path "$SCRATCH" >&2
 
-BIN="$(find "$SCRATCH" -type f -name SpektraFilmStudio -perm +111 2>/dev/null | grep -v '/plugins/' | head -n 1 || true)"
-if [[ -z "$BIN" ]]; then
-  echo "Could not locate SwiftPM x86_64 release executable." >&2
+# Resolve the actual product path from SwiftPM, never pick the first executable
+# encountered during recursive find (which can select a stale scratch artifact).
+BIN_DIR="$(swift build -c release --arch x86_64 --scratch-path "$SCRATCH" --show-bin-path)"
+BIN="$BIN_DIR/SpektraFilmStudio"
+if [[ ! -f "$BIN" || ! -x "$BIN" ]]; then
+  echo "SwiftPM product not found or not executable: $BIN" >&2
   exit 3
 fi
 
@@ -118,6 +125,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   <key>CFBundleVersion</key><string>${BUILD_NUMBER}</string>
+  <key>SpektraSourceCommit</key><string>${SOURCE_COMMIT}</string>
   <key>CFBundleIconFile</key><string>SpektraFilm.icns</string>
   <key>CFBundleIconName</key><string>SpektraFilm</string>
   <key>LSMinimumSystemVersion</key><string>15.0</string>
@@ -165,6 +173,8 @@ ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 cat > "$ROOT/dist/build-info.txt" <<INFO
 version=${VERSION}
 build_number=${BUILD_NUMBER}
+source_commit=${SOURCE_COMMIT}
+source_binary=${BIN}
 architectures=x86_64
 native_core_commit=8f6651858f439a99b7202b4b8dea59e344dadf5d
 minimum_macos=15.0

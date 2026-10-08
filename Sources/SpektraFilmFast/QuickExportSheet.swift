@@ -155,17 +155,8 @@ struct QuickExportSheet: View {
     }
 
     private func chooseDestination() {
-        let panel = NSOpenPanel()
-        panel.title = "Choose Export Folder"
-        panel.prompt = "Choose"
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = true
-        if !settings.destinationPath.isEmpty {
-            panel.directoryURL = URL(fileURLWithPath: settings.destinationPath, isDirectory: true)
+        SpektraFilePanel.chooseFolder(title: "Choose Export Folder") { url in
+            settings.destinationPath = url.path
         }
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        settings.destinationPath = url.path
     }
 }

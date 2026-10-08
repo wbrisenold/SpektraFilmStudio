@@ -26,12 +26,6 @@ struct CloudSetupWizard: View {
     @State private var publicResponse = ""
     @State private var secretResponse = ""
     @State private var confirmedRemoteCredentialStorage = false
-    @State private var showingSetupFilePicker = false
-    @State private var showingCloudLibraryPicker = false
-    @State private var setupPickerTarget = "ssh"
-    private var setupFileTypes: [UTType] {
-        setupPickerTarget == "worker" ? [.folder] : [.data]
-    }
 
     private let steps: [(name: String, symbol: String)] = [
         ("Mac iCloud", "icloud"),
@@ -106,30 +100,6 @@ struct CloudSetupWizard: View {
         }
         .padding(18)
         .frame(minWidth: 720, idealWidth: 840, minHeight: 620, idealHeight: 780)
-        .fileImporter(isPresented: $showingCloudLibraryPicker,
-                      allowedContentTypes: [.folder]) { result in
-            Task { @MainActor in
-                switch result {
-                case .success(let url): model.openICloudLibrary(at: url)
-                case .failure(let error): runner.status = "Cloud library chooser failed: \(error.localizedDescription)"
-                }
-            }
-        }
-        .fileImporter(isPresented: $showingSetupFilePicker,
-                      allowedContentTypes: setupFileTypes) { result in
-            Task { @MainActor in
-                switch result {
-            case .failure(let error): runner.status = "File chooser failed: \(error.localizedDescription)"
-            case .success(let url):
-                switch setupPickerTarget {
-                case "ssh": sshKeyPath = url.path
-                case "worker": workerPath = url.path
-                case "rclone": rcloneConfigPath = url.path
-                default: manifestPath = url.path
-                }
-                }
-            }
-        }
         .onAppear {
             if workerPath.isEmpty {
                 let preferred = FileManager.default.homeDirectoryForCurrentUser
@@ -150,7 +120,7 @@ struct CloudSetupWizard: View {
                   systemImage: FileManager.default.ubiquityIdentityToken == nil ? "exclamationmark.circle" : "checkmark.circle")
                 .foregroundStyle(.secondary)
             HStack {
-                Button("Open iCloud Library…") { showingCloudLibraryPicker = true }
+                Button("Open iCloud Library…") { model.openICloudLibrary() }
                 Button("Move Current Library…") { model.moveCurrentLibraryToICloud() }
                     .disabled(model.project.images.isEmpty || model.isCloudLibraryConnected)
                 Button("Sync Now") { Task { await model.synchronizeCloudNow() } }
@@ -323,7 +293,7 @@ struct CloudSetupWizard: View {
                 .font(.caption).foregroundStyle(.secondary)
             jobLog
             HStack {
-                Button("Open SpektraFilm iCloud Library…") { showingCloudLibraryPicker = true }
+                Button("Open SpektraFilm iCloud Library…") { model.openICloudLibrary() }
                 Button("Sync Library") { Task { await model.synchronizeCloudNow() } }
                     .disabled(!model.isCloudLibraryConnected)
             }
@@ -382,7 +352,21 @@ struct CloudSetupWizard: View {
     }
 
     private func selectSetupFile(_ target: String) {
-        setupPickerTarget = target
-        showingSetupFilePicker = true
+        if target == "worker" {
+            SpektraFilePanel.chooseFolder(title: "Choose Oracle Transfer Worker Folder") { url in
+                workerPath = url.path
+            }
+            return
+        }
+        // SSH keys and rclone.conf may not have registered macOS content types.
+        SpektraFilePanel.chooseFiles(title: target == "ssh" ? "Choose SSH Key" :
+                                     target == "rclone" ? "Choose rclone.conf" : "Choose Transfer Manifest") { urls in
+            guard let url = urls.first else { return }
+            switch target {
+            case "ssh": sshKeyPath = url.path
+            case "rclone": rcloneConfigPath = url.path
+            default: manifestPath = url.path
+            }
+        }
     }
 }

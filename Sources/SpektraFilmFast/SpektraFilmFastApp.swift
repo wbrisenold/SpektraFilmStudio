@@ -11,7 +11,14 @@ struct SpektraFilmFastApp: App {
         WindowGroup {
             ContentView(model: model)
                 .onAppear {
-                    if CommandLine.arguments.contains("--mask-overlay-self-test") {
+                    if CommandLine.arguments.contains("--picker-smoke-test") {
+                        Task { @MainActor in
+                            let passed = await SpektraFilePanel.runSmokeTest(model: model)
+                            print(passed ? "PICKER_SMOKE_PASS" : "PICKER_SMOKE_FAIL")
+                            fflush(stdout)
+                            exit(passed ? 0 : 22)
+                        }
+                    } else if CommandLine.arguments.contains("--mask-overlay-self-test") {
                         exit(Int32(RedlampMaskSmokeTest.run()))
                     } else if CommandLine.arguments.contains("--self-test") || CommandLine.arguments.contains("--studio-soak-test") {
                         Task {
@@ -114,7 +121,10 @@ final class SpektraApplicationDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let model else { return .terminateNow }
-        return model.prepareForTermination() ? .terminateNow : .terminateCancel
+        Task { @MainActor in
+            model.prepareForTermination { allowed in sender.reply(toApplicationShouldTerminate: allowed) }
+        }
+        return .terminateLater
     }
 }
 

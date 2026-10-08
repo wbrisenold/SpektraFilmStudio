@@ -202,17 +202,11 @@ final class AppModel: ObservableObject {
     // filters do not dirty a project merely because the photographer changes views.
     // Project launchers are always available, even with a populated photo library.
     @Published var showProjectHome = true
-    // File choosers are presented from the owning SwiftUI window, never AppKit runModal.
-    @Published var showingStandalonePhotoPicker = false
-    @Published var showingImagesImportPicker = false
-    @Published var showingFolderImportPicker = false
-    @Published var showingCloudMigrationFolderPicker = false
+    // Lightroom opens its existing guided import sheet; file picking is centralized
+    // in SpektraFilePanel, not independent Published booleans on ContentView.
     @Published var showingLightroomImportWizard = false
-    @Published var showingScratchFolderPicker = false
     // Prevent delayed startup iCloud autorestore from replacing a user-selected project.
     var didStartProjectWorkflow = false
-    @Published var showingProjectOpenPicker = false
-    @Published var showingICloudFolderPicker = false
     @Published var libraryFilter: LibraryFilter = .all
     @Published var libraryFolderFilter: String? = nil
     @Published var librarySearch = ""
@@ -380,6 +374,11 @@ final class AppModel: ObservableObject {
         configureCaches()
         installCacheVolumeObservers()
 
+        if CommandLine.arguments.contains("--picker-smoke-test") {
+            didStartProjectWorkflow = true
+            return
+        }
+
         Task { [weak self] in
             guard let self else { return }
             await restoreExportJobIfNeeded()
@@ -538,7 +537,12 @@ final class AppModel: ObservableObject {
     }
 
     func newProject() {
-        guard confirmDestructiveTransitionIfNeeded() else { return }
+        confirmDestructiveTransitionIfNeeded { [weak self] allowed in
+            if allowed { self?.createNewProject() }
+        }
+    }
+
+    private func createNewProject() {
         disconnectCloudLibrary()
         invalidateRendering()
         autosaveTask?.cancel()
@@ -570,11 +574,19 @@ final class AppModel: ObservableObject {
     }
 
     func standalonePhotoMode() {
-        showingStandalonePhotoPicker = true
+        SpektraFilePanel.chooseFiles(title: "Open Standalone Photo", types: [.image, .rawImage]) { [weak self] urls in
+            guard let self, let url = urls.first else { return }
+            self.standalonePhotoMode(at: url)
+        }
     }
 
     func standalonePhotoMode(at url: URL) {
-        guard confirmDestructiveTransitionIfNeeded() else { return }
+        confirmDestructiveTransitionIfNeeded { [weak self] allowed in
+            if allowed { self?.openStandalonePhoto(at: url) }
+        }
+    }
+
+    private func openStandalonePhoto(at url: URL) {
         invalidateRendering()
         project = SpektraProjectDocument()
         project.migrateForV2()
@@ -593,14 +605,19 @@ final class AppModel: ObservableObject {
     }
 
     func importImages() {
-        showingImagesImportPicker = true
+        SpektraFilePanel.chooseFiles(title: "Import Photos", types: [.image, .rawImage], multiple: true) { [weak self] urls in
+            guard let self, !urls.isEmpty else { return }
+            self.addImages(urls: urls)
+        }
     }
 
     /// Imports an entire shoot without asking the user to select thousands of files.
     /// Enumeration and type filtering happen off the main actor; adding records remains one
     /// project publication followed by the existing bounded thumbnail/metadata hydration path.
     func importFolder() {
-        showingFolderImportPicker = true
+        SpektraFilePanel.chooseFolder(title: "Import Photo Folder") { [weak self] folder in
+            self?.importFolder(at: folder)
+        }
     }
 
     /// Source-aware import for the guided wizard. Uses the existing non-blocking scanner.
@@ -3699,8 +3716,8 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func prepareForTermination() -> Bool {
-        guard isProjectDirty else { return true }
+    func prepareForTermination(completion: @escaping (Bool) -> Void) {
+        guard isProjectDirty else { completion(true); return }
         let alert = NSAlert()
         alert.messageText = "Save changes before quitting?"
         alert.informativeText = "Unsaved changes are still in this SpektraFilm Studio project."
@@ -3709,17 +3726,17 @@ final class AppModel: ObservableObject {
         alert.addButton(withTitle: "Don't Save")
         switch alert.runModal() {
         case .alertFirstButtonReturn:
-            return saveProject()
+            saveProject(completion: completion)
         case .alertSecondButtonReturn:
-            return false
+            completion(false)
         default:
             ProjectRecoveryStore.clearSynchronously()
-            return true
+            completion(true)
         }
     }
 
-    private func confirmDestructiveTransitionIfNeeded() -> Bool {
-        guard isProjectDirty else { return true }
+    private func confirmDestructiveTransitionIfNeeded(completion: @escaping (Bool) -> Void) {
+        guard isProjectDirty else { completion(true); return }
         let alert = NSAlert()
         alert.messageText = "Save the current project first?"
         alert.informativeText = "Opening or creating another project will replace the current workspace."
@@ -3727,11 +3744,11 @@ final class AppModel: ObservableObject {
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Don't Save")
         switch alert.runModal() {
-        case .alertFirstButtonReturn: return saveProject()
-        case .alertSecondButtonReturn: return false
+        case .alertFirstButtonReturn: saveProject(completion: completion)
+        case .alertSecondButtonReturn: completion(false)
         default:
             ProjectRecoveryStore.clearSynchronously()
-            return true
+            completion(true)
         }
     }
 
@@ -3798,17 +3815,12 @@ final class AppModel: ObservableObject {
     }
 
     func chooseCacheFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Use for Cache"
-        panel.message = "Choose any writable local or mounted external-drive folder. SpektraFilm Studio will create a visible ‘SpektraFilmFast Cache’ folder inside it."
-        if !cacheDirectoryParentPath.isEmpty {
-            panel.directoryURL = URL(fileURLWithPath: cacheDirectoryParentPath, isDirectory: true)
+        SpektraFilePanel.chooseFolder(title: "Choose Cache Folder") { [weak self] parent in
+            self?.setCacheFolder(parent)
         }
-        guard panel.runModal() == .OK, let parent = panel.url else { return }
+    }
+
+    private func setCacheFolder(_ parent: URL) {
         do {
             _ = try CacheLocation.root(parentPath: parent.path)
             cacheDirectoryParentPath = parent.path
@@ -3962,12 +3974,12 @@ final class AppModel: ObservableObject {
     func relinkMissingMedia() {
         let missing = project.images.filter { !FileManager.default.fileExists(atPath: $0.sourcePath) }
         guard !missing.isEmpty else { status = "No missing media"; return }
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Search Folder"
-        guard panel.runModal() == .OK, let root = panel.url else { return }
+        SpektraFilePanel.chooseFolder(title: "Search for Missing Media") { [weak self] root in
+            self?.relinkMissingMedia(in: root, missing: missing)
+        }
+    }
+
+    private func relinkMissingMedia(in root: URL, missing: [ProjectImageRecord]) {
         status = "Scanning for \(missing.count) missing file\(missing.count == 1 ? "" : "s")…"
 
         Task { [weak self, missing, root] in
@@ -4072,23 +4084,25 @@ final class AppModel: ObservableObject {
         clearStudioAnalysis()
     }
 
-    func confirmCloudLibraryTransition() -> Bool {
-        confirmDestructiveTransitionIfNeeded()
+    func confirmCloudLibraryTransition(completion: @escaping (Bool) -> Void) {
+        confirmDestructiveTransitionIfNeeded(completion: completion)
     }
 
     // MARK: - Project and presets
 
-    @discardableResult
-    func saveProject(asNew: Bool = false) -> Bool {
-        var target = projectURL
-        if asNew || target == nil {
-            let panel = NSSavePanel()
-            panel.allowedContentTypes = [.spektrafilmProject]
-            panel.nameFieldStringValue = "\(project.name).\(UTTypeNames.projectExtension)"
-            guard panel.runModal() == .OK else { return false }
-            target = panel.url
+    func saveProject(asNew: Bool = false, completion: @escaping (Bool) -> Void = { _ in }) {
+        if !asNew, let target = projectURL {
+            completion(writeProject(to: target))
+            return
         }
-        guard let target else { return false }
+        SpektraFilePanel.saveFile(title: "Save Project", types: [.spektrafilmProject],
+                                  filename: "\(project.name).\(UTTypeNames.projectExtension)") { [weak self] target in
+            guard let self, let target else { completion(false); return }
+            completion(self.writeProject(to: target))
+        }
+    }
+
+    private func writeProject(to target: URL) -> Bool {
         do {
             suppressDirtyTracking = true
             project.migrateForV2()
@@ -4114,9 +4128,10 @@ final class AppModel: ObservableObject {
     // document unless the whole decode and validation succeeds.
     func openProject() {
         didStartProjectWorkflow = true
-        // Present the system document importer in SwiftUI. Do not nest AppKit runModal
-        // inside a sheet or live view update: it can terminate the presentation stack.
-        showingProjectOpenPicker = true
+        SpektraFilePanel.chooseFiles(title: "Open SpektraFilm Project", types: [.spektrafilmProject]) { [weak self] urls in
+            guard let self, let url = urls.first else { return }
+            self.openProject(at: url)
+        }
     }
 
     func openProject(at url: URL) {
@@ -4125,7 +4140,12 @@ final class AppModel: ObservableObject {
             status = "Choose a .spektrafilm project file"
             return
         }
-        guard confirmDestructiveTransitionIfNeeded() else { return }
+        confirmDestructiveTransitionIfNeeded { [weak self] allowed in
+            if allowed { self?.loadProject(at: url) }
+        }
+    }
+
+    private func loadProject(at url: URL) {
         status = "Opening \(url.lastPathComponent)…"
         Task { [weak self] in
             guard let self else { return }
@@ -4331,10 +4351,14 @@ final class AppModel: ObservableObject {
     }
 
     func exportPreset(_ preset: SpektraPreset) {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.spektrafilmPreset]
-        panel.nameFieldStringValue = "\(preset.name).\(UTTypeNames.presetExtension)"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        SpektraFilePanel.saveFile(title: "Export Preset", types: [.spektrafilmPreset],
+                                  filename: "\(preset.name).\(UTTypeNames.presetExtension)") { [weak self] url in
+            guard let self, let url else { return }
+            self.exportPreset(preset, to: url)
+        }
+    }
+
+    private func exportPreset(_ preset: SpektraPreset, to url: URL) {
         do {
             var value = preset
             value.look.normalizeForProOnly()
@@ -4344,30 +4368,29 @@ final class AppModel: ObservableObject {
     }
 
     func importPreset() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.spektrafilmPreset]
-        panel.allowsMultipleSelection = true
-        guard panel.runModal() == .OK else { return }
+        SpektraFilePanel.chooseFiles(title: "Import Presets", types: [.spektrafilmPreset], multiple: true) { [weak self] urls in
+            self?.importPresets(at: urls)
+        }
+    }
+
+    private func importPresets(at urls: [URL]) {
         do {
-            for url in panel.urls {
+            for url in urls {
                 var preset = try Self.decoderJSON.decode(SpektraPreset.self, from: Data(contentsOf: url))
                 preset.look.normalizeForProOnly()
                 presets.append(preset)
             }
             persistPresetLibrary()
-            status = "Imported \(panel.urls.count) preset(s)"
+            status = "Imported \(urls.count) preset(s)"
         } catch { status = "Preset import failed: \(error.localizedDescription)" }
     }
 
     // MARK: - Export
 
     func chooseExportDestination() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        project.exportSettings.destinationPath = url.path
+        SpektraFilePanel.chooseFolder(title: "Choose Export Folder") { [weak self] url in
+            self?.project.exportSettings.destinationPath = url.path
+        }
     }
 
     func applyExportPreset(_ presetID: String) {

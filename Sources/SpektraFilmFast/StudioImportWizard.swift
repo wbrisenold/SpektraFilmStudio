@@ -48,18 +48,6 @@ struct StudioImportWizard: View {
     @State private var cloudParentURL: URL?
     @State private var problem: String?
     @State private var started = false
-    @State private var showingSourcePicker = false
-    @State private var showingDestinationPicker = false
-    @State private var destinationTarget = "working"
-
-    private var sourceTypes: [UTType] {
-        switch source {
-        case .files: return [.image, .rawImage]
-        case .folder, .cloudLibrary: return [.folder]
-        // Lightroom Classic catalog UTI varies by installation. Validate extension after selection.
-        case .lightroom: return [.data]
-        }
-    }
 
     init(model: AppModel, preferredSource: String? = nil) {
         self.model = model
@@ -156,34 +144,6 @@ struct StudioImportWizard: View {
         }
         .frame(width: 720, height: 495)
         .background(StudioPalette.canvas)
-        .fileImporter(isPresented: $showingSourcePicker,
-                      allowedContentTypes: sourceTypes,
-                      allowsMultipleSelection: source == .files) { result in
-            switch result {
-            case .failure(let error): problem = "Cannot select source: \(error.localizedDescription)"
-            case .success(let urls):
-                guard !urls.isEmpty else { return }
-                if source == .lightroom && (urls.count != 1 || urls[0].pathExtension.lowercased() != "lrcat") {
-                    problem = "Choose a Lightroom Classic .lrcat catalog."
-                    return
-                }
-                pickedURLs = urls
-                problem = nil
-            }
-        }
-        .fileImporter(isPresented: $showingDestinationPicker,
-                      allowedContentTypes: [.folder]) { result in
-            switch result {
-            case .failure(let error): problem = "Cannot select destination: \(error.localizedDescription)"
-            case .success(let url):
-                switch destinationTarget {
-                case "working": primaryURL = url
-                case "backup": backupURL = url
-                default: cloudParentURL = url
-                }
-                problem = nil
-            }
-        }
     }
 
     private func stepLabel(_ index: Int, _ name: String) -> some View {
@@ -431,11 +391,37 @@ struct StudioImportWizard: View {
     }
 
     private func chooseSource() {
-        showingSourcePicker = true
+        switch source {
+        case .folder, .cloudLibrary:
+            SpektraFilePanel.chooseFolder(title: source == .cloudLibrary ? "Choose Existing iCloud Library" : "Choose Photo Folder") { url in
+                pickedURLs = [url]
+                problem = nil
+            }
+        case .files, .lightroom:
+            let isLightroom = source == .lightroom
+            SpektraFilePanel.chooseFiles(title: isLightroom ? "Choose Lightroom Classic Catalog" : "Choose Photos",
+                                         types: isLightroom ? nil : [.image, .rawImage],
+                                         multiple: !isLightroom) { urls in
+                guard !urls.isEmpty else { return }
+                if isLightroom && (urls.count != 1 || urls[0].pathExtension.lowercased() != "lrcat") {
+                    problem = "Choose one Lightroom Classic .lrcat catalog."
+                    return
+                }
+                pickedURLs = urls
+                problem = nil
+            }
+        }
     }
 
     private func chooseDestination(_ target: String) {
-        destinationTarget = target
-        showingDestinationPicker = true
+        SpektraFilePanel.chooseFolder(title: target == "working" ? "Choose Working Folder" :
+                                     target == "backup" ? "Choose Backup Folder" : "Choose iCloud Destination") { url in
+            switch target {
+            case "working": primaryURL = url
+            case "backup": backupURL = url
+            default: cloudParentURL = url
+            }
+            problem = nil
+        }
     }
 }

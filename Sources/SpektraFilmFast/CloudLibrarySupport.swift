@@ -52,7 +52,9 @@ extension AppModel {
 
     func moveCurrentLibraryToICloud() {
         guard !isCloudSyncing else { return }
-        showingCloudMigrationFolderPicker = true
+        SpektraFilePanel.chooseFolder(title: "Choose iCloud Drive Destination") { [weak self] parent in
+            self?.moveCurrentLibraryToICloud(parent: parent)
+        }
     }
 
     func moveCurrentLibraryToICloud(parent: URL) {
@@ -128,7 +130,7 @@ extension AppModel {
                 var snapshot = try await Task.detached(priority: .userInitiated) {
                     try LightroomCatalogImport().read(catalogURL)
                 }.value
-                remapMissingLightroomOriginalsIfRequested(snapshot: &snapshot)
+                await remapMissingLightroomOriginalsIfRequested(snapshot: &snapshot)
 
                 var empty = SpektraProjectDocument()
                 empty.name = projectName
@@ -188,8 +190,9 @@ extension AppModel {
     func openICloudLibrary() {
         guard !isCloudSyncing else { return }
         didStartProjectWorkflow = true
-        // SwiftUI presents the folder chooser; AppKit's nested runModal was unsafe.
-        showingICloudFolderPicker = true
+        SpektraFilePanel.chooseFolder(title: "Open SpektraFilm iCloud Library") { [weak self] root in
+            self?.openICloudLibrary(at: root)
+        }
     }
 
     func openICloudLibrary(at root: URL) {
@@ -209,7 +212,13 @@ extension AppModel {
             cloudLibraryStatus = "Not a SpektraFilm library: select the folder containing manifest.json"
             return
         }
-        guard confirmCloudLibraryTransition() else { return }
+        confirmCloudLibraryTransition { [weak self] allowed in
+            if allowed { self?.openValidatedICloudLibrary(at: root) }
+        }
+    }
+
+    private func openValidatedICloudLibrary(at root: URL) {
+        guard !isCloudSyncing else { return }
         isCloudSyncing = true
         cloudLibraryStatus = "Opening iCloud Library…"
         Task { [weak self] in
@@ -305,7 +314,9 @@ extension AppModel {
     }
 
     func chooseExternalOriginalScratch() {
-        showingScratchFolderPicker = true
+        SpektraFilePanel.chooseFolder(title: "Choose External RAW Scratch Drive") { [weak self] parent in
+            self?.setExternalOriginalScratch(parent: parent)
+        }
     }
 
     func setExternalOriginalScratch(parent: URL) {
@@ -486,7 +497,7 @@ extension AppModel {
 
     private func remapMissingLightroomOriginalsIfRequested(
         snapshot: inout LightroomCatalogImport.Snapshot
-    ) {
+    ) async {
         let fm = FileManager.default
         let missingIndices = snapshot.photos.indices.filter {
             !fm.fileExists(atPath: snapshot.photos[$0].absolutePath)
@@ -506,13 +517,7 @@ extension AppModel {
         alert.addButton(withTitle: "Continue With Missing")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-        let panel = NSOpenPanel()
-        panel.title = "Locate Lightroom Originals"
-        panel.prompt = "Use This Root"
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let replacementRoot = panel.url else { return }
+        guard let replacementRoot = await SpektraFilePanel.folder(title: "Locate Lightroom Originals") else { return }
 
         guard let oldRoot else {
             snapshot.warnings.append("Could not infer a common Lightroom source root for path remapping.")

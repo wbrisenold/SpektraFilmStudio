@@ -274,3 +274,19 @@ There is no GitHub Actions release requirement in this package. Local Mac build 
 - Files: +SpektraFilePanel.swift (NSBeep build fix), SOURCE_MANIFEST regenerated
 - Build: Intel x86_64, dist zip present (sha256 d61adbd2…)
 - Gates: verify_source.sh PASS, qa_10_passes.sh 10/10; no new warnings
+
+### 2026-10-08 — Completed picker crash repair and local/main reconciliation
+- Reviewed basis: `cfb58fc7db8a2c0224f8f8c7ecd5f6ced5d039dd`; GitHub main matched. Preserved and completed all nine existing local changes. No reset, stash discard, tag rewrite, or force push.
+- Runtime evidence: AppKit asserted in `NSSavePanel._initBridgeAndStuff` before selection. Its open/save XPC service was blocked in recent-folder bookmark resolution and `__getattrlist`. Presentation flags alone cannot fix this host failure.
+- All open/save routes now use one in-app browser. Folder I/O runs off the UI actor, with timeout and stale-result rejection. Files/folders, multiple selection, hidden files, typed paths, drive navigation, new folders, and overwrite confirmation remain available. Save-before-open/quit waits asynchronously for the real outcome.
+- Build selection uses SwiftPM `--show-bin-path`. Info.plist/build-info embed the exact source commit and dirty state; the visible status no longer truncates `-dirty`.
+- Validated: Intel x86_64 release build (162.51s Swift build), macOS SDK 26.2 / Swift 6.2.4, codesign verification (ad hoc), parse/package/production gates, macOS typecheck and 10/10 QA.
+- GUI: normal Launch Services launch returned 0 with `PICKER_SMOKE_PASS`; all 19 checks passed, including real project decode with missing media, save/cancel, nested-sheet selection, duplicate rejection, slow-folder timeout/stale results, and malformed-project preservation. Tests isolate recovery and recent-project data.
+- Applicator: four unit tests plus real-source clean, reviewed-local, mixed, already-applied and unrelated-edit scenarios passed. It preflights every file, uses reviewed merge ancestors, preserves the index, rejects conflicts before writes, backs up changes, and is idempotent.
+- Existing warnings retained: PresetBrowserView.swift:89 (`var` never mutated), LensCharacterPanel.swift:68 (non-Sendable setter). No new build warnings. Developer ID notarization/stapling were not run; this is not a production-approved notarized release.
+- Earlier direct executable test launches hit foreground/exit timing issues; the final documented Launch Services test is the authoritative successful GUI run.
+
+#### Build issues encountered during this repair
+- StudioFileBrowser.swift:94: throwing resource lookup on the right of `||` required `try` on the rethrowing expression. Replaced with explicit branching; introduced and fixed in this repair.
+- StudioFileBrowser.swift:70: weak `self` capture nested across concurrent closures warned under Swift 6. Kept publication in an inherited MainActor task and confined only I/O to Task.detached; introduced and fixed in this repair.
+- qa_production.py:283 required NSOpenPanel text for cache selection. Updated to verify the replacement chooser and cache callback; obsolete implementation-specific source assertion.

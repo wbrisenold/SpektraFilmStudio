@@ -124,6 +124,8 @@ grep -q 'let isHardShadow' Sources/SpektraFilmFast/StudioAnalysis.swift
 
 echo "Running production regression checks..."
 python3 scripts/qa_production.py
+python3 scripts/qa_picker.py
+python3 -B scripts/test_picker_application.py
 
 echo "Checking source manifest coverage and hashes..."
 EXPECTED_LIST="$(mktemp)"

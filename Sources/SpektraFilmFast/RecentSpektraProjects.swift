@@ -15,6 +15,7 @@ enum RecentSpektraProjects {
     }
 
     static func record(_ url: URL) {
+        guard !CommandLine.arguments.contains("--picker-smoke-test") else { return }
         let target = url.standardizedFileURL
         guard target.isFileURL else { return }
         var entries = urls.filter { $0.standardizedFileURL != target }

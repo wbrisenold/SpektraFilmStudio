@@ -26,74 +26,8 @@ struct ContentView: View {
         }
         .background(StudioPalette.canvas)
         .frame(minWidth: 1024, minHeight: 650)
-        .fileImporter(isPresented: $model.showingStandalonePhotoPicker,
-                      allowedContentTypes: [.image, .rawImage]) { result in
-            Task { @MainActor in
-                switch result {
-                case .success(let url): model.standalonePhotoMode(at: url)
-                case .failure(let error): model.status = "Photo chooser failed: \(error.localizedDescription)"
-                }
-            }
-        }
-        .fileImporter(isPresented: $model.showingImagesImportPicker,
-                      allowedContentTypes: [.image, .rawImage],
-                      allowsMultipleSelection: true) { result in
-            Task { @MainActor in
-                switch result {
-                case .success(let urls):
-                    guard !urls.isEmpty else { return }
-                    model.addImages(urls: urls)
-                case .failure(let error): model.status = "Image chooser failed: \(error.localizedDescription)"
-                }
-            }
-        }
-        .fileImporter(isPresented: $model.showingFolderImportPicker,
-                      allowedContentTypes: [.folder]) { result in
-            Task { @MainActor in
-                switch result {
-                case .success(let url): model.importFolder(at: url)
-                case .failure(let error): model.status = "Folder chooser failed: \(error.localizedDescription)"
-                }
-            }
-        }
-        .fileImporter(isPresented: $model.showingCloudMigrationFolderPicker,
-                      allowedContentTypes: [.folder]) { result in
-            Task { @MainActor in
-                switch result {
-                case .success(let url): model.moveCurrentLibraryToICloud(parent: url)
-                case .failure(let error): model.cloudLibraryStatus = "iCloud destination chooser failed: \(error.localizedDescription)"
-                }
-            }
-        }
         .sheet(isPresented: $model.showingLightroomImportWizard) {
             StudioImportWizard(model: model, preferredSource: "Lightroom Classic")
-        }
-        .fileImporter(isPresented: $model.showingScratchFolderPicker,
-                      allowedContentTypes: [.folder]) { result in
-            Task { @MainActor in
-                switch result {
-                case .success(let folder): model.setExternalOriginalScratch(parent: folder)
-                case .failure(let error): model.cloudLibraryStatus = "Scratch folder chooser failed: \(error.localizedDescription)"
-                }
-            }
-        }
-        .fileImporter(isPresented: $model.showingProjectOpenPicker,
-                      allowedContentTypes: [.spektrafilmProject]) { result in
-            Task { @MainActor in
-                switch result {
-                case .success(let url): model.openProject(at: url)
-                case .failure(let error): model.status = "Project file picker failed: \(error.localizedDescription)"
-                }
-            }
-        }
-        .fileImporter(isPresented: $model.showingICloudFolderPicker,
-                      allowedContentTypes: [.folder]) { result in
-            Task { @MainActor in
-                switch result {
-                case .success(let url): model.openICloudLibrary(at: url)
-                case .failure(let error): model.cloudLibraryStatus = "iCloud folder picker failed: \(error.localizedDescription)"
-                }
-            }
         }
         .sheet(isPresented: $showingImportWizard) {
             StudioImportWizard(model: model)
@@ -266,6 +200,11 @@ struct ContentView: View {
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
+            let sourceCommit = Bundle.main.object(forInfoDictionaryKey: "SpektraSourceCommit") as? String ?? "unidentified"
+            Text("Source: \(String(sourceCommit.prefix(12)))\(sourceCommit.hasSuffix("-dirty") ? "-dirty" : "")")
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .help("Source: \(sourceCommit). A dirty build includes uncommitted changes.")
             // GPU timing stays available in the scopes/diagnostics inspector,
             // rather than occupying permanent toolbar/status real estate.
         }

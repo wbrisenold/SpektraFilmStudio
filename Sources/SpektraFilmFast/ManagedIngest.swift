@@ -322,32 +322,13 @@ extension AppModel {
     func beginManagedIngest() {
         guard !isIngesting else { return }
 
-        let sourcePanel = NSOpenPanel()
-        sourcePanel.canChooseFiles = false
-        sourcePanel.canChooseDirectories = true
-        sourcePanel.allowsMultipleSelection = false
-        sourcePanel.prompt = "Choose Source"
-        sourcePanel.message = "Choose the camera card or source folder."
-        guard sourcePanel.runModal() == .OK, let source = sourcePanel.url else { return }
-
-        let primaryPanel = NSOpenPanel()
-        primaryPanel.canChooseFiles = false
-        primaryPanel.canChooseDirectories = true
-        primaryPanel.canCreateDirectories = true
-        primaryPanel.allowsMultipleSelection = false
-        primaryPanel.prompt = "Choose Primary"
-        primaryPanel.message = "Choose the working photo destination."
-        guard primaryPanel.runModal() == .OK, let primary = primaryPanel.url else { return }
-
-        let backupPanel = NSOpenPanel()
-        backupPanel.canChooseFiles = false
-        backupPanel.canChooseDirectories = true
-        backupPanel.canCreateDirectories = true
-        backupPanel.allowsMultipleSelection = false
-        backupPanel.prompt = "Choose Backup"
-        backupPanel.message = "Choose a second drive/folder for the verified backup copy."
-        guard backupPanel.runModal() == .OK, let backup = backupPanel.url else { return }
-        beginManagedIngest(source: source, primary: primary, backup: backup)
+        Task { @MainActor [weak self] in
+            guard let self,
+                  let source = await SpektraFilePanel.folder(title: "Choose Camera Card or Source Folder"),
+                  let primary = await SpektraFilePanel.folder(title: "Choose Working Photo Destination"),
+                  let backup = await SpektraFilePanel.folder(title: "Choose Verified Backup Folder") else { return }
+            self.beginManagedIngest(source: source, primary: primary, backup: backup)
+        }
     }
 
     func beginManagedIngest(source: URL, primary: URL, backup: URL) {

@@ -40,6 +40,9 @@ actor ProjectRecoveryStore {
     }
 
     nonisolated private static func recoveryURL() -> URL {
+        if CommandLine.arguments.contains("--picker-smoke-test") {
+            return FileManager.default.temporaryDirectory.appendingPathComponent("SpektraPicker-Recovery-\(ProcessInfo.processInfo.processIdentifier).json")
+        }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent("SpektraFilm/Recovery/latest.json")
     }

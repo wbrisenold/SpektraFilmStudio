@@ -280,7 +280,7 @@ require("case .warning:" in thumb and "trimMemory()" in thumb, "thumbnail cache 
 require("cacheDerivedThumbnailIfNeeded" in thumb and "vImageScale_ARGB8888" in thumb, "dual-resolution warmup still decodes the source twice")
 require("SpektraFilmFast Cache" in text("CacheLocation.swift"), "visible app-owned cache folder missing")
 require("UserDefaults.standard" in app and "SpektraFilmFast.cacheDirectoryParentPath" in app, "cache folder is not an app-level preference")
-require("NSOpenPanel" in app and "Use for Cache" in app, "local/external cache folder chooser missing")
+require('SpektraFilePanel.chooseFolder(title: "Choose Cache Folder")' in app and "setCacheFolder(parent)" in app, "local/external cache folder chooser missing")
 require("activateFileViewerSelecting" in app, "Reveal in Finder cache action missing")
 require("CullAnalysisDiskCache" in cache and "CacheLocation.cullAnalysisDirectory" in cache, "Smart Cull disk cache missing")
 require("cacheDirectoryPath" not in models, "cache location must not be stored in project files")
