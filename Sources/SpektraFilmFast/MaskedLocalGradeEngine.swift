@@ -33,84 +33,14 @@ enum MaskedLocalGradeEngine {
 
     /// A stack with no sources means full frame by design. A stack with only disabled
     /// sources means zero coverage, so disabling a mask never silently grades globally.
+    // Redlamp-derived coverage is the only evaluator used by local edit AND overlay.
     static func coverageForGrade(_ grade: LocalGradeRecord, width: Int, height: Int) -> [Float] {
-        guard width > 0, height > 0 else { return [] }
-        let count = width * height
-        if grade.masks.sources.isEmpty { return [Float](repeating: 1, count: count) }
-        let enabled = grade.masks.sources.filter(\.enabled)
-        if enabled.isEmpty { return [Float](repeating: 0, count: count) }
-        var coverage = [Float](repeating: 0, count: count)
-        for (index, source) in enabled.enumerated() {
-            let alpha = coverageForSource(source, width: width, height: height)
-            for i in 0..<count {
-                if index == 0 {
-                    coverage[i] = source.blendMode == .subtract ? 1 - alpha[i] : alpha[i]
-                } else {
-                    switch source.blendMode {
-                    case .add: coverage[i] = max(coverage[i], alpha[i])
-                    case .subtract: coverage[i] *= 1 - alpha[i]
-                    case .intersect: coverage[i] = min(coverage[i], alpha[i])
-                    }
-                }
-            }
+        guard let gpu = MaskMetalEngine.shared?.renderCoverage(
+            grade: grade, width: width, height: height
+        ), gpu.count == width * height else {
+            GPUProcessingFailure.report("Mask Metal pipeline failed. Local mask processing stopped; no CPU fallback is running.")
+            return []
         }
-        return coverage
-    }
-
-    private static func coverageForSource(_ source: MaskSourceRecord, width: Int, height: Int) -> [Float] {
-        let count = width * height
-        let opacity = Float(max(0, min(1, source.opacity)))
-        var result = [Float](repeating: 0, count: count)
-        let feather = Float(max(0, min(1, source.feather)))
-        let radial = source.radial ?? RadialMaskGeometry()
-        let linear = source.linearGradient ?? LinearGradientMaskGeometry()
-        let angle = -Float(radial.rotationDegrees) * .pi / 180
-        let cosA = cos(angle), sinA = sin(angle)
-        let dx = Float(linear.end.x - linear.start.x)
-        let dy = Float(linear.end.y - linear.start.y)
-        let denominator = max(0.000001, dx * dx + dy * dy)
-        let bitmap: [UInt8]
-        let bitmapWidth: Int
-        let bitmapHeight: Int
-        if source.kind == .raster, let raster = source.raster,
-           raster.width > 0, raster.height > 0, raster.width <= 8192,
-           raster.height <= 8192, raster.width * raster.height <= 16_777_216 {
-            bitmap = raster.decodedAlpha()
-            bitmapWidth = raster.width
-            bitmapHeight = raster.height
-        } else { bitmap = []; bitmapWidth = 0; bitmapHeight = 0 }
-        for y in 0..<height {
-            let v = (Float(y) + 0.5) / Float(height)
-            for x in 0..<width {
-                let u = (Float(x) + 0.5) / Float(width)
-                var strength: Float
-                switch source.kind {
-                case .radial:
-                    let px = u - Float(radial.center.x), py = v - Float(radial.center.y)
-                    let rx = (cosA * px - sinA * py) / max(0.0001, Float(radial.radiusX))
-                    let ry = (sinA * px + cosA * py) / max(0.0001, Float(radial.radiusY))
-                    let radius = sqrt(rx * rx + ry * ry)
-                    strength = 1 - smoothstep(1 - feather, 1 + feather, radius)
-                case .linearGradient:
-                    let t = ((u - Float(linear.start.x)) * dx + (v - Float(linear.start.y)) * dy) / denominator
-                    strength = smoothstep(0.5 - feather, 0.5 + feather, t)
-                case .raster:
-                    if bitmapWidth > 0 && bitmapHeight > 0 {
-                        let px = min(bitmapWidth - 1, max(0, Int(u * Float(bitmapWidth))))
-                        let py = min(bitmapHeight - 1, max(0, Int(v * Float(bitmapHeight))))
-                        let pos = py * bitmapWidth + px
-                        strength = pos < bitmap.count ? Float(bitmap[pos]) / 255 : 0
-                    } else { strength = 0 }
-                }
-                if source.inverted { strength = 1 - strength }
-                result[y * width + x] = max(0, min(1, strength)) * opacity
-            }
-        }
-        return result
-    }
-
-    private static func smoothstep(_ low: Float, _ high: Float, _ value: Float) -> Float {
-        let t = max(0, min(1, (value - low) / max(0.000001, high - low)))
-        return t * t * (3 - 2 * t)
+        return gpu
     }
 }

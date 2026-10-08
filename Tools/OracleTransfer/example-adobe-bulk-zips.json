@@ -1,0 +1,9 @@
+{
+  "archives": [
+    {
+      "id": "archive-001",
+      "url": "https://example.adobe.com/REPLACE_WITH_YOUR_AUTHORIZED_BULK_EXPORT_LINK",
+      "size": 4294967296
+    }
+  ]
+}

@@ -5,12 +5,15 @@ import Metal
 /// the exact SpektraFilm renderer remains untouched. A caller can render any grade into a
 /// second texture, then composite it through the mask coverage generated here.
 final class MaskMetalEngine: @unchecked Sendable {
+    // Reuse a single compiled Metal kernel suite instead of recompiling per mask.
+    static let shared = MaskMetalEngine()
     enum EngineError: Error { case unavailable, compileFailed, pipelineFailed, allocationFailed }
 
     private let device: MTLDevice
     private let queue: MTLCommandQueue
     private let radialPSO: MTLComputePipelineState
     private let gradientPSO: MTLComputePipelineState
+    private let rasterPSO: MTLComputePipelineState
     private let combinePSO: MTLComputePipelineState
     private let compositePSO: MTLComputePipelineState
 
@@ -22,10 +25,12 @@ final class MaskMetalEngine: @unchecked Sendable {
             let lib = try device.makeLibrary(source: Self.shaderSource, options: nil)
             guard let radial = lib.makeFunction(name: "mask_radial"),
                   let gradient = lib.makeFunction(name: "mask_linear_gradient"),
+                  let raster = lib.makeFunction(name: "mask_raster"),
                   let combine = lib.makeFunction(name: "mask_combine"),
                   let composite = lib.makeFunction(name: "mask_composite_rgba") else { return nil }
             radialPSO = try device.makeComputePipelineState(function: radial)
             gradientPSO = try device.makeComputePipelineState(function: gradient)
+            rasterPSO = try device.makeComputePipelineState(function: raster)
             combinePSO = try device.makeComputePipelineState(function: combine)
             compositePSO = try device.makeComputePipelineState(function: composite)
         } catch { return nil }
@@ -38,6 +43,77 @@ final class MaskMetalEngine: @unchecked Sendable {
 
     struct CombineUniforms { var mode: UInt32 }
     struct CompositeUniforms { var opacity: Float }
+
+    /// Redlamp-derived ordered mask evaluator, now on the Metal device.
+    /// The exact same coverage plane is used for post-film local adjustments and
+    /// on-screen mask compositing. Return nil on memory/kernel failure so the
+    /// CPU Redlamp port is a deterministic fallback on older Intel hardware.
+    func renderCoverage(grade: LocalGradeRecord, width: Int, height: Int) -> [Float]? {
+        guard width > 0, height > 0, width <= 16384,
+              height <= 16384, width <= Int.max / height else { return nil }
+        let count = width * height
+        let sources = grade.masks.sources.filter(\.enabled)
+        if grade.masks.sources.isEmpty { return [Float](repeating: 1, count: count) }
+        if sources.isEmpty { return [Float](repeating: 0, count: count) }
+        guard let commands = queue.makeCommandBuffer(),
+              var current = makeCoverageBuffer(pixelCount: count) else { return nil }
+        memset(current.contents(), 0, count * MemoryLayout<Float>.stride)
+        do {
+            for (index, source) in sources.enumerated() {
+                guard let next = makeCoverageBuffer(pixelCount: count) else { return nil }
+                if source.kind == .raster {
+                    try encodeRasterSource(commandBuffer: commands, source: source,
+                                           width: width, height: height, output: next)
+                } else {
+                    try encodeGeometricSource(commandBuffer: commands, source: source,
+                                              width: width, height: height, output: next)
+                }
+                if index == 0 {
+                    if source.blendMode != .subtract { current = next }
+                } else {
+                    guard let combined = makeCoverageBuffer(pixelCount: count) else { return nil }
+                    try encodeCombine(commandBuffer: commands, lhs: current, rhs: next,
+                                      destination: combined, count: count, mode: source.blendMode)
+                    current = combined
+                }
+            }
+            commands.commit()
+            commands.waitUntilCompleted()
+            guard commands.status == .completed else { return nil }
+            let ptr = current.contents().assumingMemoryBound(to: Float.self)
+            return Array(UnsafeBufferPointer(start: ptr, count: count))
+        } catch { return nil }
+    }
+
+    private func encodeRasterSource(
+        commandBuffer: MTLCommandBuffer, source: MaskSourceRecord,
+        width: Int, height: Int, output: MTLBuffer
+    ) throws {
+        guard let payload = source.raster,
+              payload.width > 0, payload.height > 0 else { throw EngineError.unavailable }
+        let alpha = payload.decodedAlpha()
+        guard alpha.count == payload.width * payload.height,
+              let mask = device.makeBuffer(length: alpha.count, options: .storageModeShared),
+              let encoder = commandBuffer.makeComputeCommandEncoder() else {
+            throw EngineError.allocationFailed
+        }
+        alpha.withUnsafeBytes { ptr in
+            if let base = ptr.baseAddress { memcpy(mask.contents(), base, alpha.count) }
+        }
+        var u = GeometryUniforms(p0x: 0, p0y: 0, p1x: 0, p1y: 0, rotation: 0,
+                                 feather: Float(source.feather), opacity: Float(source.opacity),
+                                 inverted: source.inverted ? 1 : 0)
+        var dims = SIMD2<UInt32>(UInt32(width), UInt32(height))
+        var rasterDims = SIMD2<UInt32>(UInt32(payload.width), UInt32(payload.height))
+        encoder.setComputePipelineState(rasterPSO)
+        encoder.setBuffer(mask, offset: 0, index: 0)
+        encoder.setBuffer(output, offset: 0, index: 1)
+        encoder.setBytes(&u, length: MemoryLayout<GeometryUniforms>.stride, index: 2)
+        encoder.setBytes(&dims, length: MemoryLayout<SIMD2<UInt32>>.stride, index: 3)
+        encoder.setBytes(&rasterDims, length: MemoryLayout<SIMD2<UInt32>>.stride, index: 4)
+        dispatch(encoder, pso: rasterPSO, count: width * height)
+        encoder.endEncoding()
+    }
 
     func makeCoverageBuffer(pixelCount: Int) -> MTLBuffer? {
         device.makeBuffer(length: max(1, pixelCount) * MemoryLayout<Float>.stride, options: .storageModeShared)
@@ -119,15 +195,29 @@ inline float apply_common(float v, constant G& g) { v = clamp(v, 0.0f, 1.0f); if
 kernel void mask_radial(device float* out [[buffer(0)]], constant G& g [[buffer(1)]], constant uint2& dims [[buffer(2)]], uint id [[thread_position_in_grid]]) {
     uint n=dims.x*dims.y; if(id>=n) return; uint x=id%dims.x, y=id/dims.x; float2 p=(float2(x,y)+0.5f)/float2(dims);
     float2 d=p-g.p0; float c=cos(-g.rotation), s=sin(-g.rotation); d=float2(c*d.x-s*d.y,s*d.x+c*d.y);
-    float2 r=max(g.p1,float2(1e-4f)); float q=length(d/r); float fw=max(g.feather,1e-5f); float v=1.0f-smoothstep(1.0f-fw,1.0f+fw,q); out[id]=apply_common(v,g);
+    float2 r=max(g.p1,float2(1e-4f)); float q=length(d/r); float fw=clamp(g.feather,1e-5f,1.0f); float inner=min(0.999f,1.0f-fw); float v=1.0f-smoothstep(inner,1.0f,q); out[id]=apply_common(v,g);
 }
 kernel void mask_linear_gradient(device float* out [[buffer(0)]], constant G& g [[buffer(1)]], constant uint2& dims [[buffer(2)]], uint id [[thread_position_in_grid]]) {
     uint n=dims.x*dims.y; if(id>=n) return; uint x=id%dims.x, y=id/dims.x; float2 p=(float2(x,y)+0.5f)/float2(dims);
     float2 axis=g.p1-g.p0; float denom=max(dot(axis,axis),1e-6f); float t=dot(p-g.p0,axis)/denom; float fw=max(g.feather,1e-5f); float v=smoothstep(0.5f-fw,0.5f+fw,t); out[id]=apply_common(v,g);
 }
+// Redlamp Masks.h bilinear raster sampling, adapted to RLE-decoded 8-bit alpha.
+kernel void mask_raster(device const uchar* alpha [[buffer(0)]], device float* out [[buffer(1)]],
+                        constant G& g [[buffer(2)]], constant uint2& dims [[buffer(3)]],
+                        constant uint2& rdims [[buffer(4)]], uint id [[thread_position_in_grid]]) {
+    uint count=dims.x*dims.y; if(id>=count) return;
+    uint x=id%dims.x,y=id/dims.x;
+    float2 uv=(float2(x,y)+0.5f)/float2(dims);
+    float2 p=clamp(uv*float2(rdims)-0.5f,float2(0.0f),float2(rdims-1));
+    uint x0=uint(p.x),y0=uint(p.y),x1=min(x0+1,rdims.x-1),y1=min(y0+1,rdims.y-1);
+    float2 t=p-float2(x0,y0);
+    float a=mix(float(alpha[y0*rdims.x+x0]),float(alpha[y0*rdims.x+x1]),t.x);
+    float b=mix(float(alpha[y1*rdims.x+x0]),float(alpha[y1*rdims.x+x1]),t.x);
+    out[id]=apply_common(mix(a,b,t.y)/255.0f,g);
+}
 kernel void mask_combine(device const float* a [[buffer(0)]], device const float* b [[buffer(1)]], device float* out [[buffer(2)]], constant C& c [[buffer(3)]], uint id [[thread_position_in_grid]]) {
     float x=clamp(a[id],0.0f,1.0f), y=clamp(b[id],0.0f,1.0f); float v;
-    if(c.mode==0) v=max(x,y); else if(c.mode==1) v=x*(1.0f-y); else v=min(x,y); out[id]=clamp(v,0.0f,1.0f);
+    if(c.mode==0) v=max(x,y); else if(c.mode==1) v=x*(1.0f-y); else v=x*y; out[id]=clamp(v,0.0f,1.0f);
 }
 kernel void mask_composite_rgba(device const float4* base [[buffer(0)]], device const float4* grade [[buffer(1)]], device const float* coverage [[buffer(2)]], device float4* out [[buffer(3)]], constant O& o [[buffer(4)]], uint id [[thread_position_in_grid]]) {
     float a=clamp(coverage[id]*o.opacity,0.0f,1.0f); out[id]=mix(base[id],grade[id],a);

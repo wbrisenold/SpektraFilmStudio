@@ -8,6 +8,9 @@ struct PreviewView: View {
     @State private var committedZoom: CGFloat = 1
     @State private var offset: CGSize = .zero
     @State private var committedOffset: CGSize = .zero
+    @State private var redlampCompositedFrame: CGImage?
+    @AppStorage("SpektraFilmFast.redlampOverlayStyle") private var redlampStyle = RedlampMaskDisplayStyle.color.rawValue
+    @AppStorage("SpektraFilmFast.maskOverlayEnabled") private var maskOverlayEnabled = true
 
     init(model: AppModel) {
         self.model = model
@@ -21,9 +24,18 @@ struct PreviewView: View {
 
                 if let image = model.showingBefore ? frameState.sourcePreview : frameState.renderedPreview {
                     ZStack {
-                        Image(decorative: image, scale: 1)
+                        // Redlamp-derived mask is composited in the image itself, not an
+                        // independent translucent view whose size can drift after crop.
+                        Image(decorative: model.showingBefore ? image : (redlampCompositedFrame ?? image), scale: 1)
                             .resizable()
                             .scaledToFit()
+                            // Overlay follows exactly the displayed image's layout, not
+                            // the size proposed by the outer viewer ZStack.
+                            .overlay {
+                                if !model.showingBefore {
+                                    MaskOverlayView(model: model)
+                                }
+                            }
 
                         if !model.showingBefore,
                            let overlay = model.analysisOverlay,
@@ -35,7 +47,6 @@ struct PreviewView: View {
                         }
 
                         if !model.showingBefore {
-                            MaskOverlayView(model: model)
                             LensCharacterOverlay(model: model, imageWidth: image.width, imageHeight: image.height)
                         }
 
@@ -50,6 +61,36 @@ struct PreviewView: View {
                                 imageHeight: image.height
                             )
                         }
+                    }
+                    .task(id: maskFrameKey(image)) {
+                        redlampCompositedFrame = nil
+                        guard !model.showingBefore, maskOverlayEnabled,
+                              let grade = model.activeLocalGrade,
+                              !grade.masks.sources.isEmpty,
+                              let bytes = RedlampMaskDisplay.rgbaBytes(image) else { return }
+                        let dims = model.maskSourceDimensions ?? (width: image.width, height: image.height)
+                        let geometry = model.selectedLook.geometry
+                        let chosenStyle = RedlampMaskDisplayStyle(rawValue: redlampStyle) ?? .color
+                        let width = image.width, height = image.height
+                        let task = Task.detached(priority: .userInitiated) {
+                            RedlampMaskDisplay.compose(
+                                rgba: bytes, displayWidth: width, displayHeight: height,
+                                grade: grade, preGeometryWidth: dims.width,
+                                preGeometryHeight: dims.height, geometry: geometry,
+                                style: chosenStyle
+                            )
+                        }
+                        let output = await withTaskCancellationHandler {
+                            await task.value
+                        } onCancel: {
+                            task.cancel()
+                        }
+                        guard !Task.isCancelled, model.activeLocalGradeID == grade.id,
+                              let output else { return }
+                        redlampCompositedFrame = RedlampMaskDisplay.image(
+                            width: width, height: height, rgba: output,
+                            colorSpace: image.colorSpace
+                        )
                     }
                     .scaleEffect(zoom)
                     .offset(offset)
@@ -107,6 +148,18 @@ struct PreviewView: View {
             .clipped()
             .safeAreaInset(edge: .bottom, spacing: 0) { bottomToolbar }
         }
+    }
+
+    private func maskFrameKey(_ image: CGImage) -> RedlampFrameToken {
+        RedlampFrameToken(
+            photoID: model.project.selectedImageID,
+            frameID: ObjectIdentifier(image as AnyObject),
+            maskID: model.activeLocalGradeID,
+            revision: model.maskOverlayRevision,
+            geometry: model.selectedLook.geometry,
+            enabled: maskOverlayEnabled && !model.showingBefore,
+            style: redlampStyle
+        )
     }
 
     private var viewerBackground: some View {
@@ -222,6 +275,18 @@ struct PreviewView: View {
             .buttonStyle(.borderless)
 
             Divider().frame(height: 18)
+
+            if model.activeLocalGradeID != nil {
+                Button {
+                    maskOverlayEnabled.toggle()
+                } label: {
+                    Label(maskOverlayEnabled ? "Overlay On" : "Overlay Off",
+                          systemImage: maskOverlayEnabled ? "eye.fill" : "eye.slash")
+                }
+                .buttonStyle(.borderless)
+                .help("Show or hide the active mask overlay on the photo")
+                .keyboardShortcut("o", modifiers: [])
+            }
 
             Button {
                 if model.project.preferences.fullResolutionPreview {
@@ -460,4 +525,14 @@ private struct CropEditorOverlay: View {
         }
         context.stroke(lines, with: .color(.white.opacity(0.48)), lineWidth: 0.7)
     }
+}
+
+private struct RedlampFrameToken: Hashable {
+    let photoID: UUID?
+    let frameID: ObjectIdentifier
+    let maskID: UUID?
+    let revision: Int
+    let geometry: GeometrySettings?
+    let enabled: Bool
+    let style: String
 }

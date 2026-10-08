@@ -10,88 +10,14 @@ enum LensCharacterEngine {
         guard let s = optional, s.enabled, !s.isIdentity,
               input.width > 2, input.height > 2 else { return input }
         let parameters = s.resolvedWithCenter
-        if let metal = LensOpticalMetal.shared.apply(input, parameters: parameters) { return metal }
-        return applyCPU(input, parameters: parameters)
+        guard let metal = LensOpticalMetal.shared.apply(input, parameters: parameters) else {
+            GPUProcessingFailure.report("Lens Character Metal stage failed. CPU fallback has been disabled.")
+            return input
+        }
+        return metal
     }
 
-    private static func applyCPU(_ input: PixelBufferF32, parameters p: LensEffectsResolved) -> PixelBufferF32 {
-        let w = input.width, h = input.height
-        let invW = 1 / Float(max(1, w - 1)), invH = 1 / Float(max(1, h - 1))
-        let a = Float(w) / Float(h), shape = Float(max(0.5, min(2, p.lensShape)))
-        let protect = Float(max(0.02, min(0.94, p.swirlRadius)))
-        let thickness = Float(max(0.1, min(3, p.blurThickness)))
-        let size = Float(max(w, h))
-        let outputCount = w * h * 4
-        var pixels = [Float](repeating: 0, count: outputCount)
 
-        @inline(__always) func smooth(_ t: Float) -> Float {
-            let q = max(0, min(1, t)); return q * q * (3 - 2 * q)
-        }
-        @inline(__always) func sample(_ u: Float, _ v: Float, _ channel: Int) -> Float {
-            let x = max(0, min(Float(w - 1), u * Float(w - 1)))
-            let y = max(0, min(Float(h - 1), v * Float(h - 1)))
-            let x0 = Int(x), y0 = Int(y), x1 = min(w - 1, x0 + 1), y1 = min(h - 1, y0 + 1)
-            let fx = x - Float(x0), fy = y - Float(y0)
-            let top = input.pixels[(y0 * w + x0) * 4 + channel] * (1 - fx) + input.pixels[(y0 * w + x1) * 4 + channel] * fx
-            let bottom = input.pixels[(y1 * w + x0) * 4 + channel] * (1 - fx) + input.pixels[(y1 * w + x1) * 4 + channel] * fx
-            return top * (1 - fy) + bottom * fy
-        }
-        for y in 0..<h {
-            for x in 0..<w {
-                let xu = Float(x) * invW * 2 - 1
-                let yu = Float(y) * invH * 2 - 1
-                let cx = Float(p.centerX * 2 - 1), cy = Float(p.centerY * 2 - 1)
-                let lx = xu - cx, ly = yu - cy
-                let dx = lx * a / shape, dy = ly * shape
-                let radius = min(1, sqrt(dx * dx + dy * dy) / sqrt(a * a / (shape * shape) + shape * shape))
-                let edge = smooth((radius - protect) / max(0.02, 1 - protect))
-                let r2 = dx * dx + dy * dy
-                let warp = 1 + Float(p.distortion) * r2 + Float(p.sphericalAberration) * 0.012 * r2 * r2
-                var wx = lx * warp, wy = ly * warp
-                let angle = Float(p.petzvalSwirl) * 0.33 * edge * edge
-                let ca = cos(angle), sa = sin(angle)
-                let ox = wx * ca - wy * sa; wy = wx * sa + wy * ca; wx = ox
-                wx += cx; wy += cy
-                let u = wx * 0.5 + 0.5, v = wy * 0.5 + 0.5
-                let caShift = Float(p.chromaticAberration) / size
-                let bright = max(0, 0.2126 * sample(u,v,0) + 0.7152 * sample(u,v,1) + 0.0722 * sample(u,v,2))
-                let high = smooth((bright - 0.55) / 0.8)
-                let shift = edge * (caShift + Float(p.highlightChromaticAberration) * high / size)
-                let directionX = lx, directionY = ly
-                let blur = edge * (Float(p.edgeSoftness) * 0.005 + Float(p.sphericalAberration) * 0.002) * thickness
-                let tangentX = -ly / max(0.001, a), tangentY = lx * a
-                let curve = Float(p.petzvalSwirl) * 0.16 * edge
-                let start = (y * w + x) * 4
-                for channel in 0..<3 {
-                    let offset: Float
-                    if p.caChannel == .red && channel != 0 { offset = 0 }
-                    else if p.caChannel == .blue && channel != 2 { offset = 0 }
-                    else { offset = channel == 0 ? shift : (channel == 2 ? -shift : 0) }
-                    let cu = u + directionX * offset, cv = v + directionY * offset
-                    var result = sample(cu, cv, channel)
-                    if blur > 0.000001 {
-                        var weighted = Float(0), weights = Float(0)
-                        for i in -3...3 {
-                            let t = Float(i) / 3
-                            let arcX = tangentX * t + lx * curve * t * t
-                            let arcY = tangentY * t + ly * curve * t * t
-                            let weight = 1 - 0.55 * abs(t)
-                            weighted += sample(cu + arcX * blur, cv + arcY * blur, channel) * weight
-                            weights += weight
-                        }
-                        let amount = smooth(min(1, blur * 210))
-                        result = result * (1 - amount) + (weighted / weights) * amount
-                    }
-                    let vignetteRadius = Float(max(0.10, min(0.98, p.vignetteRadius)))
-                    let falloff = Float(max(0.4, min(5, p.vignetteFalloff)))
-                    let vig = 1 - Float(p.vignette) * pow(smooth((radius - vignetteRadius) / max(0.02, 1 - vignetteRadius)), falloff)
-                    pixels[start + channel] = result * max(0, vig)
-                }
-                pixels[start + 3] = input.pixels[start + 3]
-            }
-        }
-        return PixelBufferF32(width: w, height: h, pixels: pixels)
-    }
 }
 
 private final class LensOpticalMetal: @unchecked Sendable {

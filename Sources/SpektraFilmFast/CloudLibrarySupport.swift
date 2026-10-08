@@ -316,77 +316,97 @@ extension AppModel {
         }
     }
 
-    func keepSelectedCloudOriginalsDownloaded() {
-        guard let library = cloudLibrary else { return }
-        let images = cloudTargetImages()
-        guard !images.isEmpty else { return }
-        isCloudSyncing = true
-        cloudSyncProgress = 0
-        cloudLibraryStatus = "Downloading originals…"
+    func chooseExternalOriginalScratch() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose External RAW Scratch Drive"
+        panel.message = "Select a mounted external SSD or network volume. Cloud originals are staged there only while editing or exporting. Internal startup disk is not allowed."
+        panel.prompt = "Use as RAW Scratch"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let parent = panel.url else { return }
+        do {
+            _ = try ExternalOriginalScratch.validatedRoot(parent)
+            externalOriginalScratchParent = parent.path
+            UserDefaults.standard.set(parent.path, forKey: "SpektraFilmStudio.externalOriginalScratchParent")
+            cloudLibraryStatus = "External RAW scratch: \(parent.lastPathComponent)"
+        } catch {
+            cloudLibraryStatus = error.localizedDescription
+        }
+    }
 
-        Task { [weak self] in
-            guard let self else { return }
-            var done = 0
-            for image in images {
-                guard let relative = image.cloudRelativePath else { continue }
-                do { try await library.requestDownload(relativePath: relative) }
-                catch { }
-                done += 1
-                cloudSyncProgress = Double(done) / Double(max(1, images.count))
-                cloudLibraryStatus = "Downloaded \(done)/\(images.count)"
-            }
-            isCloudSyncing = false
-            cloudLastSync = Date()
-            cloudLibraryStatus = "Selected originals kept downloaded"
+    func keepSelectedCloudOriginalsDownloaded() {
+        // Legacy action now means only the currently edited original, never bulk pinning.
+        guard page == .edit, let photo = selectedImage,
+              photo.cloudRelativePath != nil else {
+            cloudLibraryStatus = "Open the photo in Edit to stage its original; library browsing uses previews"
+            return
+        }
+        if !deferPreviewForCloudOriginalIfNeeded(photo, renderPreview: true) {
+            cloudLibraryStatus = "Current RAW is already staged on the external drive"
         }
     }
 
     func freeSelectedCloudOriginals() {
         guard let library = cloudLibrary else { return }
         let images = cloudTargetImages()
-        guard !images.isEmpty else { return }
-
+        let ids = Set(images.map(\.id))
         Task { [weak self] in
             guard let self else { return }
-            var done = 0
+            await ExternalOriginalScratch.shared.forget(ids)
             for image in images {
                 guard let relative = image.cloudRelativePath else { continue }
                 try? await library.evict(relativePath: relative)
-                done += 1
             }
-            cloudLibraryStatus = "Freed local copies for \(done) photo\(done == 1 ? "" : "s")"
+            cloudLibraryStatus = "Unused scratch originals cleared and iCloud cache eviction requested"
         }
     }
 
-    /// Called by selectImage before decoding. Returns true when preview work should wait for iCloud.
+    /// A cloud original is staged only after entering Edit or beginning Export.
+    /// Library/Cull selection uses previews and never calls the RAW decoder.
     func deferPreviewForCloudOriginalIfNeeded(
         _ image: ProjectImageRecord,
         renderPreview: Bool
     ) -> Bool {
         guard let library = cloudLibrary, let relative = image.cloudRelativePath else { return false }
-        let url = image.url
-        guard let values = try? url.resourceValues(
-            forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]
-        ), values.isUbiquitousItem == true else { return false }
-
-        if values.ubiquitousItemDownloadingStatus == .current ||
-            values.ubiquitousItemDownloadingStatus == .downloaded {
-            return false
+        guard renderPreview else {
+            status = "Selected \(image.fileName) · cloud preview only"
+            return true
         }
-
-        status = "Downloading \(image.fileName) from iCloud…"
+        if let staged = stagedCloudOriginals[image.id],
+           FileManager.default.fileExists(atPath: staged.path) { return false }
+        guard !externalOriginalScratchParent.isEmpty else {
+            status = "Choose an external RAW scratch drive in Library before editing cloud photos"
+            return true
+        }
+        let parent = URL(fileURLWithPath: externalOriginalScratchParent, isDirectory: true)
+        let imageID = image.id
+        let originalURL = URL(fileURLWithPath: cloudLibraryRootPath, isDirectory: true)
+            .appendingPathComponent(relative)
+        status = "Staging \(image.fileName) to external RAW scratch…"
         Task { [weak self] in
             guard let self else { return }
+            await ExternalOriginalScratch.shared.setEditing(imageID)
             do {
-                try await library.requestDownload(relativePath: relative)
-                guard project.selectedImageID == image.id else { return }
-                status = "Downloaded \(image.fileName)"
-                if renderPreview {
-                    presentFastSelectionPreview(for: image, renderOnMiss: true)
+                let staged = try await ExternalOriginalScratch.shared.stage(
+                    photoID: imageID, fileName: image.fileName,
+                    original: originalURL, relativePath: relative,
+                    library: library, parent: parent
+                )
+                guard project.selectedImageID == imageID, page == .edit else {
+                    await ExternalOriginalScratch.shared.setEditing(nil)
+                    return
                 }
+                stagedCloudOriginals[imageID] = staged
+                guard let active = selectedImage else { return }
+                status = "External RAW ready: \(active.fileName)"
+                refreshWhiteBalanceReference(for: active)
+                presentFastSelectionPreview(for: active, renderOnMiss: true)
             } catch {
-                guard project.selectedImageID == image.id else { return }
-                status = "iCloud download failed · \(error.localizedDescription)"
+                if project.selectedImageID == imageID {
+                    status = "RAW scratch failed · \(error.localizedDescription)"
+                }
             }
         }
         return true
@@ -467,7 +487,9 @@ extension AppModel {
               !cloudLibraryRootPath.isEmpty else { return image.url }
         let candidate = URL(fileURLWithPath: cloudLibraryRootPath, isDirectory: true)
             .appendingPathComponent(relative)
-        return FileManager.default.fileExists(atPath: candidate.path) ? candidate : image.url
+        // No preview available: show a placeholder, never trigger File Provider RAW fetch.
+        return FileManager.default.fileExists(atPath: candidate.path)
+            ? candidate : URL(fileURLWithPath: "/dev/null")
     }
 
     private func cloudTargetImages() -> [ProjectImageRecord] {

@@ -15,7 +15,8 @@ struct ExportWorkspaceView: View {
     @ObservedObject var model: AppModel
     @State private var sourceFilter: ExportSourceFilter = .all
     @State private var search = ""
-    @AppStorage("SpektraFilmStudio.designA.showExportBrowser") private var showExportBrowser = true
+    @AppStorage("SpektraFilmStudio.designA.v2.showExportBrowser") private var showExportBrowser = false
+    @AppStorage("SpektraFilmStudio.designA.v2.showExportInspector") private var showExportInspector = false
 
     var body: some View {
         HSplitView {
@@ -26,7 +27,9 @@ struct ExportWorkspaceView: View {
 
             HSplitView {
                 previewAndQueue.frame(minWidth: 500)
-                inspector.frame(minWidth: 350, idealWidth: 370, maxWidth: 440)
+                if showExportInspector {
+                    inspector.frame(minWidth: 290, idealWidth: 320, maxWidth: 390)
+                }
             }
         }
         .background(StudioPalette.canvas)
@@ -154,11 +157,46 @@ struct ExportWorkspaceView: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                Button { showExportBrowser.toggle() } label: {
-                    Image(systemName: "sidebar.left")
+                Button {
+                    showExportBrowser.toggle()
+                    if showExportBrowser { showExportInspector = false }
+                } label: {
+                    Label("Photos", systemImage: "photo.stack")
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
                 .help(showExportBrowser ? "Hide photo browser" : "Show photo browser")
+                Button {
+                    showExportInspector.toggle()
+                    if showExportInspector { showExportBrowser = false }
+                } label: {
+                    Label("Settings", systemImage: "slider.horizontal.3")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Show or hide detailed export settings")
+                if model.isExporting {
+                    ProgressView().controlSize(.mini)
+                    Button("Stop") { model.stopExport() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                } else {
+                    Button {
+                        if model.project.exportSettings.destinationPath.isEmpty {
+                            showExportInspector = true
+                            showExportBrowser = false
+                        } else {
+                            model.exportSelected()
+                        }
+                    } label: {
+                        Label(model.project.exportSettings.destinationPath.isEmpty
+                              ? "Set Destination" : "Export \(model.selectedExportCount)",
+                              systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(model.selectedExportCount == 0)
+                }
                 if let image = previewImage {
                     Button {
                         if model.isCropToolActive {
@@ -566,6 +604,13 @@ struct ExportWorkspaceView: View {
 
     private var actionFooter: some View {
         VStack(spacing: 9) {
+            if !model.exportPerformanceSummary.isEmpty {
+                Text(model.exportPerformanceSummary)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .help("Breakdown for the last completed photo. JPEG quality affects only the last stage.")
+            }
             if let job = model.activeExportJob {
                 HStack {
                     Text("\(job.completedCount)/\(max(1, job.items.count))")

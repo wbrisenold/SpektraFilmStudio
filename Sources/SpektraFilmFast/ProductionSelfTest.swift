@@ -68,8 +68,8 @@ struct ProductionSelfTest {
                 let i = (y * width + x) * 4
                 let texture = Float((x + y) % 17) / 500.0
                 pixels[i] = 0.72 + texture
-                pixels[i + 1] = 0.48 + texture * 0.8
-                pixels[i + 2] = 0.29 + texture * 0.6
+                pixels[i + 1] = 0.56 + texture * 0.8
+                pixels[i + 2] = 0.44 + texture * 0.6
                 pixels[i + 3] = 1
             }
         }

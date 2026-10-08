@@ -77,28 +77,49 @@ actor ScopeEngine {
         var out = background(width, height)
         drawCartesianGrid(&out, width, height, vertical: true)
         let channels: [([UInt32], (UInt8, UInt8, UInt8))] = [
-            (red, (255, 76, 90)),
-            (green, (76, 226, 132)),
-            (blue, (82, 150, 255))
+            (red, (255, 90, 99)),
+            (green, (83, 221, 153)),
+            (blue, (97, 153, 255))
         ]
-
+        // Three translucent filled curves, a neutral white envelope, and gentle
+        // three-bin smoothing. This remains data-driven (not a decorative chart).
+        var envelope = [Double](repeating: 0, count: width)
         for (values, color) in channels {
-            let maxCount = max(1, values.max() ?? 1)
-            var previous: (Int, Int)?
-            for x in 0..<width {
-                let bin = min(bins - 1, x * bins / width)
-                let normalized = log1p(Double(values[bin])) / log1p(Double(maxCount))
-                let y = height - 2 - Int(normalized * Double(height - 8))
-                let point = (x, max(1, min(height - 2, y)))
-                if let previous {
-                    // A dim under-trace gives the thin RGB curves the same readable density
-                    // Alcedo achieves without turning the graph into a filled bar chart.
-                    drawLine(&out, width, height, previous, point, color.0, color.1, color.2, 54)
-                    drawLine(&out, width, height, (previous.0, previous.1 - 1), (point.0, point.1 - 1), color.0, color.1, color.2, 32)
-                    drawLine(&out, width, height, previous, point, color.0, color.1, color.2, 210)
+            var smooth = [Double](repeating: 0, count: bins)
+            for bin in 0..<bins {
+                var sum = 0.0, weight = 0.0
+                for offset in -2...2 {
+                    let index = max(0, min(bins - 1, bin + offset))
+                    let w = Double(3 - abs(offset))
+                    sum += Double(values[index]) * w
+                    weight += w
                 }
-                previous = point
+                smooth[bin] = sum / max(1, weight)
             }
+            let peak = max(1, smooth.max() ?? 1)
+            var prior: (Int, Int)?
+            for x in 0..<width {
+                let v = smooth[min(bins - 1, x * bins / width)]
+                // Compress outliers without erasing low-level information.
+                let normalized = pow(log1p(v) / log1p(peak), 0.85)
+                envelope[x] = max(envelope[x], normalized)
+                let y = height - 3 - Int(normalized * Double(height - 17))
+                let top = max(8, min(height - 3, y))
+                if top < height - 3 {
+                    for fillY in (top + 1)..<(height - 2) {
+                        blend(&out, width, x, fillY, color.0, color.1, color.2, 21)
+                    }
+                }
+                if let prior {
+                    drawLine(&out, width, height, prior, (x,top), color.0, color.1, color.2, 216)
+                }
+                prior = (x, top)
+            }
+        }
+        for x in 1..<width {
+            let y0 = height - 3 - Int(envelope[x - 1] * Double(height - 17))
+            let y1 = height - 3 - Int(envelope[x] * Double(height - 17))
+            drawLine(&out, width, height, (x-1,y0), (x,y1), 233, 235, 241, 85)
         }
 
         drawTopBottomRules(&out, width, height)

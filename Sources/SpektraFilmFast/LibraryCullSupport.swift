@@ -53,9 +53,11 @@ extension AppModel {
     private func startCullAnalysis(ids: [UUID]) {
         let unique = Array(Set(ids))
         let items: [(UUID, URL)] = unique.compactMap { id in
-            guard let image = project.images.first(where: { $0.id == id }),
-                  FileManager.default.fileExists(atPath: image.sourcePath) else { return nil }
-            return (id, image.url)
+            guard let image = project.images.first(where: { $0.id == id }) else { return nil }
+            let source = thumbnailURL(for: image)
+            guard source.path != "/dev/null",
+                  FileManager.default.fileExists(atPath: source.path) else { return nil }
+            return (id, source)
         }
         guard !items.isEmpty else { return }
 
@@ -367,8 +369,10 @@ extension AppModel {
     func rebuildPeopleGroups() {
         guard !isGroupingPeople else { return }
         let items = project.images.compactMap { image -> (UUID, URL)? in
-            guard FileManager.default.fileExists(atPath: image.sourcePath) else { return nil }
-            return (image.id, image.url)
+            let source = thumbnailURL(for: image)
+            guard source.path != "/dev/null",
+                  FileManager.default.fileExists(atPath: source.path) else { return nil }
+            return (image.id, source)
         }
         guard !items.isEmpty else {
             peopleGroupingStatus = "No photos available"

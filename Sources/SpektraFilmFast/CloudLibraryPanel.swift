@@ -27,6 +27,20 @@ struct CloudLibraryPanel: View {
             }
 
             if model.isCloudLibraryConnected {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("RAW SESSION SCRATCH")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(model.externalOriginalScratchParent.isEmpty
+                         ? "Choose an external drive before Edit/Export"
+                         : model.externalOriginalScratchParent)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                    Button("Choose External Scratch…") {
+                        model.chooseExternalOriginalScratch()
+                    }.controlSize(.small)
+                }
                 HStack(spacing: 6) {
                     Button("Sync Now") {
                         Task { await model.synchronizeCloudNow() }
@@ -34,10 +48,10 @@ struct CloudLibraryPanel: View {
                     .disabled(model.isCloudSyncing)
 
                     Menu {
-                        Button("Keep Selected Downloaded") {
+                        Button("Stage Current Edited RAW") {
                             model.keepSelectedCloudOriginalsDownloaded()
                         }
-                        Button("Free Local Copies") {
+                        Button("Free Scratch Copies") {
                             model.freeSelectedCloudOriginals()
                         }
                         Divider()

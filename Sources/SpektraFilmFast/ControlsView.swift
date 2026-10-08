@@ -43,10 +43,27 @@ struct ControlsView: View {
             .padding(.horizontal, 9)
             .padding(.top, 9)
 
+            if mode == .adjust {
+                Picker("RAW workflow", selection: Binding(
+                    get: { ["raw", "tone", "geometry", "lens"].contains(openAdjustment ?? "")
+                        ? (openAdjustment ?? "tone") : "tone" },
+                    set: { openAdjustment = $0 }
+                )) {
+                    Text("WB").tag("raw")
+                    Text("Develop").tag("tone")
+                    Text("Crop").tag("geometry")
+                    Text("Optics").tag("lens")
+                }
+                .pickerStyle(.segmented)
+                .controlSize(.small)
+                .padding(.horizontal, 9)
+                .padding(.top, 7)
+            }
+
             ScrollView {
             LazyVStack(spacing: 7) {
                 if mode == .adjust && panelVisible("raw") && sectionMatches("raw", terms: ["raw", "white balance", "wb", "as shot", "auto white balance", "temperature", "tint", "denoise", "camera", "lens correction"]) { rawSection }
-                if mode != .film && panelVisible("tone") && sectionMatches("tone", terms: ["raw develop", "raw exposure", "raw tone", "curve", "shadow boost", "highlight headroom", "edr"]) { toneSection }
+                if mode == .adjust && panelVisible("tone") && sectionMatches("tone", terms: ["raw develop", "raw exposure", "raw tone", "curve", "shadow boost", "highlight headroom", "edr"]) { toneSection }
                 if mode == .film && panelVisible("density") && sectionMatches("density", terms: ["color density", "density", "red", "yellow", "green", "cyan", "blue", "magenta", "luminance"]) { colorDensitySection }
                 if mode == .adjust && panelVisible("geometry") && sectionMatches("geometry", terms: ["crop", "geometry", "aspect", "rotation", "perspective", "flip", "straighten", "scale", "offset"]) { geometrySection }
                 if mode == .adjust && panelVisible("lens") && sectionMatches("lens", terms: ["lens character", "lens", "optical", "aberration", "vignette", "petzval", "swirl", "spherical", "distortion", "edge blur"]) {
@@ -105,6 +122,9 @@ struct ControlsView: View {
         }
         .tint(Color.primary.opacity(0.78))
         .onChange(of: mode) { _, newMode in
+            if newMode == .masks { model.setCropToolActive(false) }
+            // Mask edits are contextual. Leaving Masks returns to global adjustments.
+            if newMode != .masks { model.selectLocalGrade(nil) }
             openAdjustment = newMode == .film
                 ? catalog.groups.first(where: { $0.id != "raw" }).map { "film.\($0.id)" }
                 : "tone"
@@ -184,6 +204,19 @@ struct ControlsView: View {
     private var rawSection: some View {
         DisclosureGroup(isExpanded: sectionBinding("raw")) {
             VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Camera development")
+                        .font(.caption.weight(.semibold))
+                    Spacer()
+                    Button("Exposure") { openAdjustment = "tone" }
+                        .controlSize(.mini)
+                        .help("Open original Apple RAW Exposure and Global Tone controls")
+                }
+                Text("Start from the camera neutral, correct white balance, then develop light before selecting a SpektraFilm stock.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 Picker("White Balance", selection: Binding(
                     get: { model.selectedLook.raw.whiteBalanceMode },
                     set: { mode in model.setWhiteBalanceMode(mode) }
@@ -796,7 +829,7 @@ private struct IntegerParameterControl: View {
     }
 }
 
-private struct DraftScalarSlider: View {
+struct DraftScalarSlider: View {
     let label: String
     let committedValue: Double
     let range: ClosedRange<Double>

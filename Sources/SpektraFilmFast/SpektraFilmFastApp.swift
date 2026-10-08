@@ -11,7 +11,9 @@ struct SpektraFilmFastApp: App {
         WindowGroup {
             ContentView(model: model)
                 .onAppear {
-                    if CommandLine.arguments.contains("--self-test") || CommandLine.arguments.contains("--studio-soak-test") {
+                    if CommandLine.arguments.contains("--mask-overlay-self-test") {
+                        exit(Int32(RedlampMaskSmokeTest.run()))
+                    } else if CommandLine.arguments.contains("--self-test") || CommandLine.arguments.contains("--studio-soak-test") {
                         Task {
                             let result = CommandLine.arguments.contains("--studio-soak-test")
                                 ? await ProductionSelfTest.runSoak()

@@ -9,6 +9,7 @@ import Darwin
 private struct ExportDecodedFrame: Sendable {
     let buffer: PixelBufferF32
     let decodeMs: Double
+    let originalForMetadata: URL
 }
 
 private struct ExportPostprocessResult: Sendable {
@@ -236,6 +237,9 @@ final class AppModel: ObservableObject {
     @Published var proofStatus = "ProofDock ready"
 
     @Published var cloudLibraryStatus = "Not connected"
+    @Published var externalOriginalScratchParent =
+        UserDefaults.standard.string(forKey: "SpektraFilmStudio.externalOriginalScratchParent") ?? ""
+    @Published var stagedCloudOriginals: [UUID: URL] = [:]
     @Published var cloudLibraryRootPath =
         UserDefaults.standard.string(forKey: "SpektraFilmStudio.cloudLibraryRootPath") ?? ""
     @Published var isCloudSyncing = false
@@ -287,6 +291,14 @@ final class AppModel: ObservableObject {
     private var latestWorkingRenderedBuffer: PixelBufferF32?
     private var latestWorkingFilmRenderedBuffer: PixelBufferF32?
     private var latestFilmRenderedBuffer: PixelBufferF32?
+
+    var maskSourceDimensions: (width: Int, height: Int)? {
+        if let current = latestWorkingFilmRenderedBuffer ?? latestFilmRenderedBuffer {
+            return (current.width, current.height)
+        }
+        if let original = frameState.sourcePreview { return (original.width, original.height) }
+        return nil
+    }
     private var latestWorkingRenderedLook: RenderLook?
     private var lastSourcePreviewKey: SourcePreviewKey?
 
@@ -399,7 +411,14 @@ final class AppModel: ObservableObject {
 
     var selectedImage: ProjectImageRecord? {
         guard let i = selectedIndex else { return nil }
-        return project.images[i]
+        var image = project.images[i]
+        if image.cloudRelativePath != nil,
+           let external = stagedCloudOriginals[image.id],
+           FileManager.default.fileExists(atPath: external.path) {
+            // Transient session location: NEVER write this local path to the synced catalog.
+            image.sourcePath = external.path
+        }
+        return image
     }
 
     var selectedLook: RenderLook {
@@ -767,6 +786,10 @@ final class AppModel: ObservableObject {
         if page != destination { page = destination }
         switch destination {
         case .library, .cull, .proofs, .export:
+            if !stagedCloudOriginals.isEmpty {
+                stagedCloudOriginals.removeAll()
+                Task { await ExternalOriginalScratch.shared.setEditing(nil) }
+            }
             cancelIdleRefinement()
             // A render that was already in flight is obsolete once the user leaves Edit.
             // Cancel it so Library/Cull interaction always wins the device.
@@ -790,6 +813,7 @@ final class AppModel: ObservableObject {
                 status = "Select a photo in Library or Cull"
                 return
             }
+            if deferPreviewForCloudOriginalIfNeeded(image, renderPreview: true) { return }
             guard FileManager.default.fileExists(atPath: image.sourcePath) else {
                 status = "Missing media · use Relink Missing Media…"
                 return
@@ -802,6 +826,13 @@ final class AppModel: ObservableObject {
     func selectImage(_ id: UUID, renderPreview: Bool = true) {
         let changed = project.selectedImageID != id
         if changed {
+            if !stagedCloudOriginals.isEmpty {
+                stagedCloudOriginals = stagedCloudOriginals.filter { $0.key == id }
+                Task {
+                    try? await Task.sleep(for: .seconds(2))
+                    await ExternalOriginalScratch.shared.setEditing(page == .edit ? id : nil)
+                }
+            }
             isGradientMaskEditing = false
             activeLocalGradeID = nil
             isLensCenterEditing = false
@@ -811,6 +842,8 @@ final class AppModel: ObservableObject {
             semanticMaskTask?.cancel()
             semanticMaskTask = nil
             semanticMasks = nil
+            pendingNewSemanticKind = nil
+            pendingSemanticComponent = nil
             latestSkinMaskWidth = 0
             latestSkinMaskHeight = 0
             latestSkinMaskAlpha = []
@@ -862,13 +895,11 @@ final class AppModel: ObservableObject {
     /// resident and the first Spektrafilm frame can start immediately.
     private func warmEditorSourceAfterSelectionIdle(_ image: ProjectImageRecord) {
         editorWarmupTask?.cancel()
+        // Library/Cull must never trigger iCloud File Provider RAW downloads.
+        if image.cloudRelativePath != nil { return }
         let prefs = project.preferences
-        let currentIndex = project.images.firstIndex(where: { $0.id == image.id })
-        var candidates: [ProjectImageRecord] = [image]
-        if let currentIndex {
-            if currentIndex > 0 { candidates.append(project.images[currentIndex - 1]) }
-            if currentIndex + 1 < project.images.count { candidates.append(project.images[currentIndex + 1]) }
-        }
+        // Only the focused local photo is warmed, never its neighbors.
+        let candidates: [ProjectImageRecord] = [image]
         let memoryMode = cacheMemoryMode
         editorWarmupTask = Task { [weak self] in
             guard let self else { return }
@@ -1196,6 +1227,7 @@ final class AppModel: ObservableObject {
         grade.normalize()
         if project.images[i].look.localGrades == nil { project.images[i].look.localGrades = [] }
         project.images[i].look.localGrades?.append(grade)
+        maskOverlayRevision &+= 1
         requestPreviewRefresh()
         return grade.id
     }
@@ -1376,10 +1408,16 @@ final class AppModel: ObservableObject {
         redoStack.removeAll()
         body(&project.images[i].look)
         project.images[i].look.normalizeForProOnly()
+        maskOverlayRevision &+= 1
         requestPreviewRefresh()
     }
 
     // MARK: - Stage 3 canonical semantic masks
+    // Monotonic mask-geometry revision. Do NOT use the large raster arrays as a SwiftUI
+    // task/hash identity: that rehashes megabytes of mask data on every viewer update.
+    @Published var maskOverlayRevision = 0
+    private var pendingNewSemanticKind: SemanticMaskKind?
+    private var pendingSemanticComponent: (kind: SemanticMaskKind, gradeID: UUID, blend: MaskBlendMode)?
     @Published var semanticMaskStatus = "AI masks idle"
     @Published var semanticMasks: CanonicalSemanticMaskSet?
     @Published var objectMaskPickGradeID: UUID?
@@ -1389,10 +1427,37 @@ final class AppModel: ObservableObject {
 
     var isObjectMaskPicking: Bool { objectMaskPickGradeID != nil }
 
+    // Called from the Masks tab. Does not require returning to Main Image.
+    func createSemanticLocalGrade(_ kind: SemanticMaskKind) {
+        guard semanticMasks?.alpha(kind) != nil else {
+            pendingNewSemanticKind = kind
+            pendingSemanticComponent = nil
+            refreshCanonicalSemanticMasks()
+            return
+        }
+        let gradeID = addLocalGrade()
+        selectLocalGrade(gradeID)
+        UserDefaults.standard.set(true, forKey: "SpektraFilmFast.maskOverlayEnabled")
+        addSemanticMask(kind, to: gradeID)
+    }
+
+    func requestSemanticMask(_ kind: SemanticMaskKind, gradeID: UUID, blend: MaskBlendMode) {
+        guard semanticMasks?.alpha(kind) != nil else {
+            pendingNewSemanticKind = nil
+            pendingSemanticComponent = (kind, gradeID, blend)
+            refreshCanonicalSemanticMasks()
+            return
+        }
+        addSemanticMask(kind, to: gradeID, blendMode: blend)
+    }
+
     func refreshCanonicalSemanticMasks() {
         semanticMaskTask?.cancel()
         guard let image = selectedImage,
-              let cg = frameState.sourcePreview ?? frameState.renderedPreview else { return }
+              let cg = frameState.sourcePreview ?? frameState.renderedPreview else {
+            semanticMaskStatus = "Waiting for a RAW preview before selecting a mask"
+            return
+        }
         let imageID = image.id
         // Segmentation must not move when editing exposure/color; analyze Before/source pixels.
         semanticMaskStatus = "Analyzing subject / skin / clothing…"
@@ -1408,9 +1473,24 @@ final class AppModel: ObservableObject {
                     latestSkinMaskAlpha = skin
                 }
                 semanticMaskStatus = "AI masks ready · \(result.provenance.joined(separator: " + "))"
+                if let requested = pendingNewSemanticKind {
+                    pendingNewSemanticKind = nil
+                    if result.alpha(requested) != nil { createSemanticLocalGrade(requested) }
+                    else { semanticMaskStatus = "\(requested.rawValue) unavailable; model is missing" }
+                }
+                if let component = pendingSemanticComponent {
+                    pendingSemanticComponent = nil
+                    if result.alpha(component.kind) != nil {
+                        addSemanticMask(component.kind, to: component.gradeID, blendMode: component.blend)
+                    } else {
+                        semanticMaskStatus = "\(component.kind.rawValue) unavailable; model is missing"
+                    }
+                }
                 refreshStudioAnalysis()
                 requestEditorScopeUpdate()
             } catch {
+                pendingNewSemanticKind = nil
+                pendingSemanticComponent = nil
                 semanticMaskStatus = "AI masks unavailable · \(error.localizedDescription)"
             }
         }
@@ -1421,7 +1501,10 @@ final class AppModel: ObservableObject {
             semanticMaskStatus = "Run Analyze Masks first"
             return
         }
-        let refined = kind == .skin ? alpha : SemanticMaskRefinement.refine(alpha, width: set.width, height: set.height)
+        // The canonical SemanticMaskEngine already refines skin where appropriate.
+        // A second generic blur/erode pass destroys hair strands, fingers and small gaps.
+        // Local editing and viewer overlay must use the exact same immutable alpha.
+        let refined = alpha
         mutateGrade(gradeID) { grade in
             var source = MaskSourceRecord(name: kind.rawValue, kind: .raster)
             source.blendMode = blendMode
@@ -1459,7 +1542,9 @@ final class AppModel: ObservableObject {
             do {
                 let alpha = try await semanticMaskEngine.objectMask(cgImage: cg, normalizedPoint: normalizedPoint)
                 guard !Task.isCancelled, project.selectedImageID == imageID else { return }
-                let refined = SemanticMaskRefinement.refine(alpha, width: cg.width, height: cg.height)
+                // Preserve the instance/SAM silhouette; the generic post-filter may
+                // erase edge detail or bridge nearby independent objects.
+                let refined = alpha
                 mutateGrade(gradeID) { grade in
                     var source = MaskSourceRecord(name: "Object", kind: .raster)
                     source.blendMode = blend
@@ -3089,10 +3174,12 @@ final class AppModel: ObservableObject {
                 // Geometry is deliberately post-render and color-neutral. Crop/straighten/keystone
                 // therefore never changes SpektraFilm's spectral processing and can be previewed
                 // independently from expensive film renders.
+                let gpuCheckpoint = GPUProcessingFailure.checkpoint()
                 let localOutput = MaskedLocalGradeEngine.apply(filmOutput, grades: request.look.localGrades)
                 let lensOutput = LensCharacterEngine.apply(localOutput, settings: request.look.lensEffects)
                 let geometryOutput = GeometryEngine.transformed(lensOutput, settings: request.look.geometry)
                 let output = ExposureBoundaryEngine.apply(geometryOutput, look: request.look, preferences: request.preferences)
+                try GPUProcessingFailure.requireSuccess(after: gpuCheckpoint)
                 if Task.isCancelled { break }
 
                 guard request.generation == renderGeneration,
@@ -4363,7 +4450,10 @@ final class AppModel: ObservableObject {
         try? await ExportJobJournal.shared.save(job)
     }
 
+    @Published var exportPerformanceSummary = ""
+
     private func startExport(_ initialJob: ExportJob) {
+        exportPerformanceSummary = ""
         exportTask?.cancel()
         isExporting = true
         isStoppingExport = false
@@ -4419,11 +4509,37 @@ final class AppModel: ObservableObject {
             let bypass = job.bypassImportTransform
             let decoderActor = decoder
             let denoiseService = rawDenoiseService
+            let cloudRelative = project.images.first(where: { $0.id == item.sourceImageID })?.cloudRelativePath
+            let library = cloudLibrary
+            let scratchPath = externalOriginalScratchParent
 
             return Task {
                 let started = ProcessInfo.processInfo.systemUptime
-                try await SpektraCloudLibrary.materializeIfNeeded(url)
-                let renderURL = try await denoiseService.prepare(source: url, raw: raw, iso: nil)
+                let original: URL
+                if let cloudRelative {
+                    guard let library, !scratchPath.isEmpty else {
+                        throw ExternalOriginalScratch.ScratchError.notConfigured
+                    }
+                    let scratch = ExternalOriginalScratch.shared
+                    await scratch.holdExport(item.sourceImageID)
+                    do {
+                        original = try await scratch.stage(
+                            photoID: item.sourceImageID,
+                            fileName: item.sourceFileName,
+                            original: url,
+                            relativePath: cloudRelative,
+                            library: library,
+                            parent: URL(fileURLWithPath: scratchPath, isDirectory: true)
+                        )
+                    } catch {
+                        await scratch.releaseExport(item.sourceImageID)
+                        throw error
+                    }
+                } else {
+                    try await SpektraCloudLibrary.materializeIfNeeded(url)
+                    original = url
+                }
+                let renderURL = try await denoiseService.prepare(source: original, raw: raw, iso: nil)
                 let buffer = try await decoderActor.fullResolution(
                     url: renderURL,
                     raw: raw,
@@ -4431,7 +4547,8 @@ final class AppModel: ObservableObject {
                 )
                 return ExportDecodedFrame(
                     buffer: buffer,
-                    decodeMs: Self.msSince(started)
+                    decodeMs: Self.msSince(started),
+                    originalForMetadata: original
                 )
             }
         }
@@ -4459,6 +4576,12 @@ final class AppModel: ObservableObject {
                 job.items[pending.index].state = .completed
                 job.items[pending.index].errorMessage = nil
                 await ExportTimingLog.shared.record(job.items[pending.index])
+                exportPerformanceSummary = String(
+                    format: "Decode %.1fs · Host %.1fs · Film %.1fs · Post %.1fs · JPEG/write %.1fs",
+                    timings.decodeMs / 1000, timings.gradeMs / 1000,
+                    timings.renderMs / 1000, timings.geometryResizeMs / 1000,
+                    timings.writeMs / 1000
+                )
 
             } catch is CancellationError {
                 let destination = URL(
@@ -4495,6 +4618,9 @@ final class AppModel: ObservableObject {
                 )
             }
 
+            if project.images.first(where: { $0.id == job.items[pending.index].sourceImageID })?.cloudRelativePath != nil {
+                await ExternalOriginalScratch.shared.releaseExport(job.items[pending.index].sourceImageID)
+            }
             job.updatedAt = Date()
             activeExportJob = job
             exportProgress = job.fractionComplete
@@ -4546,8 +4672,10 @@ final class AppModel: ObservableObject {
                 let item = job.items[index]
                 let sourceURL = URL(fileURLWithPath: item.sourcePath)
 
+                let cloudOriginal = project.images.first(where: { $0.id == item.sourceImageID })?.cloudRelativePath != nil
                 try await makePostprocessHeadroom(
-                    for: Self.estimatedExportPostprocessBytes(sourceURL)
+                    for: cloudOriginal ? UInt64(2 * 1024 * 1024 * 1024)
+                        : Self.estimatedExportPostprocessBytes(sourceURL)
                 )
 
                 job.items[index].state = .rendering
@@ -4562,6 +4690,7 @@ final class AppModel: ObservableObject {
                 let itemStarted = ProcessInfo.processInfo.systemUptime
                 var timings = ExportItemTimings()
 
+                status = "Decoding original · \(item.sourceFileName)"
                 let decoded: ExportDecodedFrame
                 if decodeAheadIndex == index, let task = decodeAhead {
                     decoded = try await task.value
@@ -4583,12 +4712,17 @@ final class AppModel: ObservableObject {
                     let nextURL = URL(
                         fileURLWithPath: job.items[nextIndex].sourcePath
                     )
-                    if Self.shouldPrefetchExportDecode(nextURL) {
+                    // Cloud originals are never decoded in anticipation of a neighboring export.
+                    let nextIsCloud = project.images.first(where: {
+                        $0.id == job.items[nextIndex].sourceImageID
+                    })?.cloudRelativePath != nil
+                    if !nextIsCloud && Self.shouldPrefetchExportDecode(nextURL) {
                         decodeAheadIndex = nextIndex
                         decodeAhead = startDecode(index: nextIndex)
                     }
                 }
 
+                status = "Preparing host grade · \(item.sourceFileName)"
                 let gradeStarted = ProcessInfo.processInfo.systemUptime
                 let renderInput = await Task.detached(priority: .userInitiated) {
                     decoded.buffer.applyingHostGrade(
@@ -4605,6 +4739,7 @@ final class AppModel: ObservableObject {
                     exportLook.values["outputRole"] = .int(0)
                 }
 
+                status = "SpektraFilm simulation (full resolution) · \(item.sourceFileName)"
                 let renderStarted = ProcessInfo.processInfo.systemUptime
                 let (filmOutput, renderDiagnostics) =
                     try await exactRenderer.render(
@@ -4624,7 +4759,7 @@ final class AppModel: ObservableObject {
                 let exportSettings = job.settings
                 let destination = URL(fileURLWithPath: item.destinationPath)
                 let writer = exportEngine
-                let sourceForWriter = sourceURL
+                let sourceForWriter = decoded.originalForMetadata
                 let lookForWriter = exportLook
                 let retainedBytes =
                     Self.actualExportPostprocessBytes(filmOutput)
@@ -4635,7 +4770,9 @@ final class AppModel: ObservableObject {
                 exportProgress = job.fractionComplete
                 try await ExportJobJournal.shared.save(job)
 
-                let postTask = Task.detached(priority: .utility) {
+                // A foreground user export must not compete at background utility QoS.
+                let postTask = Task.detached(priority: .userInitiated) {
+                    let gpuCheckpoint = GPUProcessingFailure.checkpoint()
                     try Task.checkCancellation()
 
                     let geometryStarted =
@@ -4662,6 +4799,7 @@ final class AppModel: ObservableObject {
 
                     try Task.checkCancellation()
 
+                    try GPUProcessingFailure.requireSuccess(after: gpuCheckpoint)
                     let writeStarted =
                         ProcessInfo.processInfo.systemUptime
                     try await writer.write(
@@ -4707,6 +4845,10 @@ final class AppModel: ObservableObject {
                     "Rendering pipeline · \(pendingPostprocess.count) post-process worker\(pendingPostprocess.count == 1 ? "" : "s") active"
 
             } catch is CancellationError {
+                if !pendingPostprocess.contains(where: { $0.index == index }),
+                   project.images.first(where: { $0.id == job.items[index].sourceImageID })?.cloudRelativePath != nil {
+                    await ExternalOriginalScratch.shared.releaseExport(job.items[index].sourceImageID)
+                }
                 decodeAhead?.cancel()
                 decodeAhead = nil
                 decodeAheadIndex = nil
@@ -4728,6 +4870,9 @@ final class AppModel: ObservableObject {
                 return
 
             } catch {
+                if project.images.first(where: { $0.id == job.items[index].sourceImageID })?.cloudRelativePath != nil {
+                    await ExternalOriginalScratch.shared.releaseExport(job.items[index].sourceImageID)
+                }
                 job.items[index].state = .failed
                 job.items[index].errorMessage =
                     error.localizedDescription

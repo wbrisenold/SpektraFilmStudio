@@ -35,9 +35,15 @@ actor RawForgeDenoiseService {
     ]
 
     nonisolated static func cacheRoot() -> URL {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("SpektraFilmFast", isDirectory: true)
-            .appendingPathComponent("RawForgeDNG", isDirectory: true)
+        if let external = UserDefaults.standard.string(forKey: "SpektraFilmStudio.externalOriginalScratchParent"),
+           !external.isEmpty {
+            // Do not fall back to the internal caches directory when a selected external
+            // drive is disconnected. The downstream write must report a drive error.
+            return URL(fileURLWithPath: external, isDirectory: true)
+                .appendingPathComponent("SpektraFilm Studio Scratch/RawForgeDNG", isDirectory: true)
+        }
+        return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("SpektraFilmFast/RawForgeDNG", isDirectory: true)
     }
 
     nonisolated static func executableURL() -> URL {
@@ -70,36 +76,17 @@ actor RawForgeDenoiseService {
     }
 
     nonisolated static func cacheURL(source: URL, raw: RawSettings, iso: Int? = nil) -> URL? {
-        guard let url = destinationURL(source: source, raw: raw, iso: iso), FileManager.default.fileExists(atPath: url.path) else { return nil }
-        return url
+        // Cached RawForge DNGs may have been CPU-produced; do not use in GPU-only mode.
+        return nil
     }
 
     func prepare(source: URL, raw: RawSettings, iso: Int?) async throws -> URL {
-        guard raw.denoiseMode != .off else { return source }
-        guard Self.supportedExtensions.contains(source.pathExtension.lowercased()) else { throw ServiceError.unsupportedSource }
-        if let cached = Self.cacheURL(source: source, raw: raw, iso: iso) { return cached }
-        guard let destination = Self.destinationURL(source: source, raw: raw, iso: iso) else { return source }
-        let exe = Self.executableURL()
-        guard FileManager.default.isExecutableFile(atPath: exe.path) else { throw ServiceError.rawForgeMissing }
-        let root = Self.cacheRoot()
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let strengths = Self.strength(raw: raw, iso: iso)
-        let temporary = root.appendingPathComponent(".\(UUID().uuidString).dng")
-        let process = Process()
-        process.executableURL = exe
-        process.arguments = [raw.denoiseModel, source.path, temporary.path, "--cfa", "--device", "cpu", "--disable_tqdm",
-                             "--lumi", String(format: "%.4f", strengths.luma), "--chroma", String(format: "%.4f", strengths.chroma)]
-        let stderr = Pipe(); process.standardError = stderr
-        try process.run()
-        process.waitUntilExit()
-        let errorText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        guard process.terminationStatus == 0, FileManager.default.fileExists(atPath: temporary.path) else {
-            try? FileManager.default.removeItem(at: temporary)
-            throw ServiceError.failed(process.terminationStatus, errorText.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard raw.denoiseMode == .off else {
+            throw NSError(domain: "SpektraFilmStudio.GPUOnlyDenoise", code: 1,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "RAW AI denoise unavailable: this build has no verified Intel Metal denoiser."])
         }
-        if FileManager.default.fileExists(atPath: destination.path) { try? FileManager.default.removeItem(at: destination) }
-        try FileManager.default.moveItem(at: temporary, to: destination)
-        return destination
+        return source
     }
 
     /// Background/pre-export prewarm. Concurrency is intentionally bounded because RawForge is

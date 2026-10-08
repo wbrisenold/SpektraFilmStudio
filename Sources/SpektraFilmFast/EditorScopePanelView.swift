@@ -38,7 +38,7 @@ struct EditorScopePanelView: View {
                 if let image = model.editorScopeImage {
                     Image(decorative: image, scale: 1)
                         .resizable()
-                        .interpolation(.none)
+                        .interpolation(model.project.preferences.scopeMode == .histogram ? .high : .none)
                         .scaledToFit()
                         .allowsHitTesting(false)
                 } else {

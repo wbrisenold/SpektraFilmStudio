@@ -30,6 +30,9 @@ struct ContentView: View {
         .onChange(of: model.page) { _, newPage in
             model.workspaceDidChange(newPage)
         }
+        .onReceive(NotificationCenter.default.publisher(for: GPUProcessingFailure.notification)) { event in
+            if let detail = event.object as? String { model.rendererError = detail }
+        }
         .alert(
             "Metal Renderer",
             isPresented: Binding(
@@ -56,30 +59,18 @@ struct ContentView: View {
 
     private var topToolbar: some View {
         HStack(spacing: 12) {
-            Menu {
-                Button("New Project") { model.newProject() }
-                Button("Open Project…") { model.openProject() }
-                Divider()
-                Button("Import Photos…") { showingImportWizard = true }
-                Button("Standalone Photo Mode…") { model.standalonePhotoMode() }
-            } label: {
-                HStack(spacing: 5) {
-                    Text(model.project.name == "Untitled Project" ? "SpektraFilm" : model.project.name)
-                        .font(.system(size: 13, weight: .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    if model.isProjectDirty {
-                        Circle().fill(.secondary).frame(width: 5, height: 5)
-                            .help("Unsaved project changes")
-                    }
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: 190)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("SPEKTRAFILM")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .tracking(1.3)
+                    .foregroundStyle(.secondary)
+                Text(model.project.name)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
-            .menuStyle(.borderlessButton)
-            .help("Project and import actions")
+            .frame(maxWidth: 190, alignment: .leading)
+            .help("Project commands are in the native File menu")
 
             Spacer(minLength: 6)
 

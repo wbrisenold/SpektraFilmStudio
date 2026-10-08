@@ -1,0 +1,10 @@
+name = "spektrafilm-raw-transfer"
+main = "worker.mjs"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+[[r2_buckets]]
+binding = "ORIGINALS"
+bucket_name = "spektrafilm-originals"
+# Secrets, never checked in: TRANSFER_TOKEN (>=24 chars), ADOBE_CLIENT_ID.
+# Adobe OAuth access token supplied for an individual transfer via authenticated HTTPS.
