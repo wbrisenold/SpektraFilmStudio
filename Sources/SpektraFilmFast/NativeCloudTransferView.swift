@@ -9,137 +9,8 @@ import UniformTypeIdentifiers
 struct NativeCloudTransferView: View {
     @ObservedObject var model: AppModel
     @StateObject private var runner = NativeCloudTransferRunner()
-    @Environment(\.dismiss) private var dismiss
-
-    @AppStorage("SpektraFilmStudio.oracle.host") private var host = ""
-    @AppStorage("SpektraFilmStudio.oracle.user") private var username = "ubuntu"
-    @AppStorage("SpektraFilmStudio.oracle.sshKeyPath") private var sshKeyPath = ""
-    @AppStorage("SpektraFilmStudio.oracle.workerPath") private var workerPath = ""
-    @AppStorage("SpektraFilmStudio.oracle.transferMode") private var transferMode = "bulk"
-    @State private var manifestPath = ""
-    @AppStorage("SpektraFilmStudio.oracle.allowedHost") private var approvedCDNHost = ""
-
-    private var configuration: NativeCloudTransferRunner.Configuration {
-        .init(host: host, username: username, sshKey: sshKeyPath,
-              workerDirectory: workerPath, manifest: manifestPath,
-              allowedCDNHost: approvedCDNHost, isBulk: transferMode == "bulk")
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("CLOUD CONNECTIONS").font(.title2.weight(.semibold))
-                Spacer()
-                Button("Close") { dismiss() }
-            }
-            Text("Lightroom → Oracle transfer server → iCloud Drive. RAW originals never transfer through this Mac during migration.")
-                .font(.subheadline).foregroundStyle(.secondary)
-
-            Form {
-                Section("1 · Lightroom") {
-                    Text("Lightroom Cloud API requires Adobe-approved partner entitlement. An ordinary Adobe developer app registration is not sufficient to download RAW originals.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    HStack {
-                        Button("Adobe Partner Access") {
-                            NSWorkspace.shared.open(URL(string: "https://developer.adobe.com/lightroom/lightroom-api-docs/getting-started/")!)
-                        }
-                        Button("Choose Adobe Export Manifest…") { selectJSON() }
-                        Text(manifestPath.isEmpty ? "No manifest selected" : URL(fileURLWithPath: manifestPath).lastPathComponent)
-                            .foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    Picker("Authorized export", selection: $transferMode) {
-                        Text("Adobe bulk archive URLs").tag("bulk")
-                        Text("Entitled RAW original URLs").tag("originals")
-                    }
-                    .pickerStyle(.radioGroup)
-                    TextField("Reviewed Adobe download/CDN hostname (optional)", text: $approvedCDNHost)
-                        .help("Use only an independently verified domain from your Adobe-generated download URL")
-                    Text("Manifest contains authorized signed URLs; it will be copied over SSH to the Oracle VM. Never place it in a public repository.")
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
-                Section("2 · Oracle transfer server") {
-                    TextField("Public hostname or IP", text: $host)
-                    TextField("SSH username", text: $username)
-                    HStack {
-                        Text(sshKeyPath.isEmpty ? "No SSH private key selected" : URL(fileURLWithPath: sshKeyPath).lastPathComponent)
-                            .lineLimit(1)
-                        Spacer()
-                        Button("Choose SSH Key…") { selectKey() }
-                    }
-                    HStack {
-                        Text(workerPath.isEmpty ? "Choose the repository's Tools/OracleTransfer folder" : workerPath)
-                            .lineLimit(1)
-                        Spacer()
-                        Button("Choose Worker Folder…") { selectWorker() }
-                    }
-                    HStack {
-                        Button("Test SSH") { runner.run(.testSSH, configuration: configuration) }
-                        Button("Deploy Worker") { runner.run(.deploy, configuration: configuration) }
-                        Button("Check iCloud") { runner.run(.checkICloud, configuration: configuration) }
-                    }
-                    .disabled(runner.running)
-                    Text("SSH uses strict host-key checking. Verify the server fingerprint and add the host to your Mac's known_hosts before connecting. Oracle provisioning and Apple's initial iCloud/rclone 2FA must be completed with your own accounts.")
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
-                Section("3 · Transfer") {
-                    HStack {
-                        Button("Validate") { runner.run(.validate, configuration: configuration) }
-                        Button("Pilot One Batch") { runner.run(.pilot, configuration: configuration) }
-                        Button("Start / Resume Transfer") { runner.run(.migrate, configuration: configuration) }
-                            .buttonStyle(.borderedProminent)
-                    }
-                    .disabled(runner.running || manifestPath.isEmpty)
-                    Text("The VM streams from Adobe-authorized HTTPS originals/archives to iCloud Drive using the repository worker. A transfer can resume after an interrupted session; do not delete Adobe originals until read-back verification and a second backup.")
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
-                Section("4 · SpektraFilm library") {
-                    HStack {
-                        Button("Open iCloud Library…") { model.openICloudLibrary() }
-                        Button("Sync Now") { Task { await model.synchronizeCloudNow() } }
-                            .disabled(!model.isCloudLibraryConnected)
-                        Button("Choose External Scratch…") { model.chooseExternalOriginalScratch() }
-                    }
-                    Text(model.cloudLibraryStatus).font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            .formStyle(.grouped)
-
-            HStack {
-                if runner.running { ProgressView().controlSize(.small) }
-                Text(runner.status).font(.caption).foregroundStyle(runner.failed ? Color.red : Color.secondary)
-                Spacer()
-            }
-            ScrollView {
-                Text(runner.output.isEmpty ? "Connection and transfer diagnostics will appear here." : runner.output)
-                    .font(.system(size: 11, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-            }
-            .padding(10)
-            .frame(height: 110)
-            .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 8))
-        }
-        .padding(20)
-        .frame(minWidth: 750, idealWidth: 800, minHeight: 700)
-    }
-
-    private func selectJSON() {
-        let p = NSOpenPanel()
-        p.allowsMultipleSelection = false
-        p.canChooseDirectories = false
-        p.allowedContentTypes = [.json]
-        if p.runModal() == .OK { manifestPath = p.url?.path ?? "" }
-    }
-    private func selectKey() {
-        let p = NSOpenPanel()
-        p.canChooseDirectories = false
-        if p.runModal() == .OK { sshKeyPath = p.url?.path ?? "" }
-    }
-    private func selectWorker() {
-        let p = NSOpenPanel()
-        p.canChooseFiles = false
-        p.canChooseDirectories = true
-        if p.runModal() == .OK { workerPath = p.url?.path ?? "" }
+        CloudSetupWizard(model: model, runner: runner)
     }
 }
 
@@ -154,7 +25,7 @@ final class NativeCloudTransferRunner: ObservableObject {
         let allowedCDNHost: String
         let isBulk: Bool
     }
-    enum Operation: Sendable { case testSSH, deploy, checkICloud, validate, pilot, migrate }
+    enum Operation: Sendable { case testSSH, installRclone, deploy, checkICloud, validate, pilot, migrate }
     @Published var running = false
     @Published var status = "Not connected"
     @Published var output = ""
@@ -261,6 +132,9 @@ final class NativeCloudTransferRunner: ObservableObject {
         switch operation {
         case .testSSH:
             return try remote("printf 'Oracle SSH OK\\n'; uname -s; python3 --version")
+        case .installRclone:
+            // User-approved install using the official rclone installation script.
+            return try remote("bash -lc 'set -eo pipefail; python3 --version; curl -fsSL https://rclone.org/install.sh | sudo -n bash; rclone version'")
         case .deploy:
             try requireSuccess(remote("mkdir -p \(remoteDir); chmod 700 \(remoteDir)"))
             let root = URL(fileURLWithPath: config.workerDirectory)

@@ -3,6 +3,8 @@ import Foundation
 
 struct SettingsView: View {
     @ObservedObject var model: AppModel
+    @AppStorage(EditorPanelVisibilityStore.key) private var hiddenEditorPanels = ""
+    private let editorCatalog = BridgeCatalog.shared
 
     var body: some View {
         TabView {
@@ -115,6 +117,23 @@ struct SettingsView: View {
 
     private var studioTab: some View {
         Form {
+            Section("Editor layout") {
+                Text("Choose which panels are available in RAW and Film. These layout controls live here instead of crowding the inspector.")
+                    .font(.caption).foregroundStyle(.secondary)
+                EditorPanelVisibilityMenu(
+                    serializedHidden: $hiddenEditorPanels,
+                    panels: [
+                        (id: "raw", title: "RAW / White Balance"),
+                        (id: "tone", title: "RAW Light"),
+                        (id: "density", title: "Film Color Density"),
+                        (id: "geometry", title: "Crop / Geometry"),
+                        (id: "lens", title: "Lens / Optics")
+                    ] + editorCatalog.groups.filter { $0.id != "raw" }.map {
+                        (id: "film.\($0.id)", title: $0.label)
+                    }
+                )
+                Button("Show All Editor Panels") { hiddenEditorPanels = "" }
+            }
             Section("Editor Scopes") {
                 LabeledContent("Visibility") {
                     Text("Always on in Edit")

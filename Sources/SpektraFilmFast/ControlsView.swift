@@ -7,6 +7,7 @@ struct ControlsView: View {
     @State private var openAdjustment: String? = "tone"
     @State private var inspectorSearch = ""
     @State private var showModifiedOnly = false
+    @State private var filmStage = "stock"
     @AppStorage(EditorPanelVisibilityStore.key) private var hiddenEditorPanels = ""
     private let catalog = BridgeCatalog.shared
 
@@ -28,17 +29,6 @@ struct ControlsView: View {
                 Toggle("Modified", isOn: $showModifiedOnly)
                     .toggleStyle(.button)
                     .controlSize(.small)
-                EditorPanelVisibilityMenu(
-                    serializedHidden: $hiddenEditorPanels,
-                    panels: [
-                        (id: "raw", title: "RAW / White Balance"),
-                        (id: "tone", title: "RAW Develop"),
-                        (id: "density", title: "Color Density"),
-                        (id: "geometry", title: "Geometry"),
-                        (id: "lens", title: "Lens Character")
-                    ] + catalog.groups.filter { $0.id != "raw" }.map { (id: "film.\($0.id)", title: $0.label) }
-                )
-                .controlSize(.small)
             }
             .padding(.horizontal, 9)
             .padding(.top, 9)
@@ -49,10 +39,23 @@ struct ControlsView: View {
                         ? (openAdjustment ?? "tone") : "tone" },
                     set: { openAdjustment = $0 }
                 )) {
-                    Text("White Balance").tag("raw")
-                    Text("Develop").tag("tone")
-                    Text("Geometry").tag("geometry")
-                    Text("Lens / Optics").tag("lens")
+                    Text("WB").tag("raw")
+                    Text("Light").tag("tone")
+                    Text("Crop").tag("geometry")
+                    Text("Optics").tag("lens")
+                }
+                .pickerStyle(.segmented)
+                .controlSize(.small)
+                .padding(.horizontal, 9)
+                .padding(.top, 7)
+                .help("WB: white balance · Light: RAW exposure and tone · Crop: geometry · Optics: lens")
+            }
+            if mode == .film {
+                Picker("Film workflow", selection: $filmStage) {
+                    Text("Stock").tag("stock")
+                    Text("Negative").tag("negative")
+                    Text("Print").tag("print")
+                    Text("Output").tag("output")
                 }
                 .pickerStyle(.segmented)
                 .controlSize(.small)
@@ -64,7 +67,7 @@ struct ControlsView: View {
             LazyVStack(spacing: 7) {
                 if mode == .adjust && openAdjustment == "raw" && panelVisible("raw") && sectionMatches("raw", terms: ["raw", "white balance", "wb", "as shot", "auto white balance", "temperature", "tint", "denoise", "camera", "lens correction"]) { rawSection }
                 if mode == .adjust && openAdjustment == "tone" && panelVisible("tone") && sectionMatches("tone", terms: ["raw develop", "raw exposure", "raw tone", "curve", "shadow boost", "highlight headroom", "edr"]) { toneSection }
-                if mode == .film && panelVisible("density") && sectionMatches("density", terms: ["color density", "density", "red", "yellow", "green", "cyan", "blue", "magenta", "luminance"]) { colorDensitySection }
+                if mode == .film && filmStage == "print" && panelVisible("density") && sectionMatches("density", terms: ["color density", "density", "red", "yellow", "green", "cyan", "blue", "magenta", "luminance"]) { colorDensitySection }
                 if mode == .adjust && openAdjustment == "geometry" && panelVisible("geometry") && sectionMatches("geometry", terms: ["crop", "geometry", "aspect", "rotation", "perspective", "flip", "straighten", "scale", "offset"]) { geometrySection }
                 if mode == .adjust && openAdjustment == "lens" && panelVisible("lens") && sectionMatches("lens", terms: ["lens character", "lens", "optical", "aberration", "vignette", "petzval", "swirl", "spherical", "distortion", "edge blur"]) {
                     LensCharacterPanel(model: model, isExpanded: sectionBinding("lens"))
@@ -74,41 +77,36 @@ struct ControlsView: View {
                     MaskPanelView(model: model)
                 }
                 if mode == .film {
-                    ForEach(catalog.groups.filter { $0.id != "raw" }) { group in
-                    let descriptors = catalog.parameters(in: group.id, flavor: .pro)
-                        .filter(bridgeControlVisible)
-                    if !descriptors.isEmpty && panelVisible("film.\(group.id)") {
-                        DisclosureGroup(isExpanded: sectionBinding("film.\(group.id)")) {
-                            VStack(spacing: 10) {
+                    ForEach(catalog.groups.filter { filmGroups.contains($0.id) }) { group in
+                        let descriptors = catalog.parameters(in: group.id, flavor: .pro)
+                            .filter(bridgeControlVisible)
+                        if !descriptors.isEmpty && panelVisible("film.\(group.id)") &&
+                            sectionMatches("film.\(group.id)", terms: [group.label, group.id]) {
+                            VStack(alignment: .leading, spacing: 11) {
+                                HStack(alignment: .top) {
+                                    Text(group.label)
+                                        .font(.subheadline.weight(.semibold))
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Spacer(minLength: 6)
+                                    Button { model.resetParameterGroup(group.id) } label: {
+                                        Image(systemName: "arrow.counterclockwise")
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Reset \(group.label) controls")
+                                }
+                                Divider().opacity(0.5)
                                 ForEach(descriptors) { descriptor in
-                                    ParameterControlRow(
-                                        model: model,
-                                        descriptor: descriptor,
-                                        options: catalog.options(for: descriptor)
-                                    )
+                                    ParameterControlRow(model: model, descriptor: descriptor,
+                                                        options: catalog.options(for: descriptor))
                                 }
                             }
-                            .padding(.top, 8)
-                        } label: {
-                            HStack {
-                                Text(group.label)
-                                    .font(.caption.weight(.semibold))
-                                Spacer()
-                                Button { model.resetParameterGroup(group.id) } label: {
-                                    Image(systemName: "arrow.counterclockwise")
-                                }
-                                .buttonStyle(.plain)
-                                .help("Reset every control in this section to its default value.")
-                            }
-                        }
-                        .padding(10)
-                        .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 8))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(StudioPalette.subtleBorder, lineWidth: 0.5)
+                            .padding(11)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8)
+                                .stroke(StudioPalette.subtleBorder, lineWidth: 0.5))
                         }
                     }
-                }
                 }
             }
             .padding(9)
@@ -125,9 +123,8 @@ struct ControlsView: View {
             if newMode == .masks { model.setCropToolActive(false) }
             // Mask edits are contextual. Leaving Masks returns to global adjustments.
             if newMode != .masks { model.selectLocalGrade(nil) }
-            openAdjustment = newMode == .film
-                ? catalog.groups.first(where: { $0.id != "raw" }).map { "film.\($0.id)" }
-                : "tone"
+            if newMode == .film { filmStage = "stock" }
+            if newMode == .adjust { openAdjustment = "tone" }
             if newMode != .adjust { model.setCropToolActive(false) }
         }
         .onChange(of: openAdjustment) { _, section in
@@ -135,12 +132,40 @@ struct ControlsView: View {
         }
         .onChange(of: inspectorSearch) { _, value in
             if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                openAdjustment = preferredSearchSection
+                if mode == .film {
+                    if let group = preferredSearchSection?.replacingOccurrences(of: "film.", with: "") {
+                        filmStage = stageForGroup(group)
+                    }
+                } else {
+                    openAdjustment = preferredSearchSection
+                }
             }
         }
         .onChange(of: showModifiedOnly) { _, _ in
-            if !inspectorSearch.isEmpty { openAdjustment = preferredSearchSection }
+            if !inspectorSearch.isEmpty {
+                if mode == .film {
+                    if let group = preferredSearchSection?.replacingOccurrences(of: "film.", with: "") {
+                        filmStage = stageForGroup(group)
+                    }
+                } else { openAdjustment = preferredSearchSection }
+            }
         }
+    }
+
+    private var filmGroups: [String] {
+        switch filmStage {
+        case "stock": return ["film", "filtering", "filmPlane"]
+        case "negative": return ["dir", "halation", "grain", "grainSynthesis"]
+        case "print": return ["print", "diffusion"]
+        default: return ["scanner", "color", "manage"]
+        }
+    }
+
+    private func stageForGroup(_ id: String) -> String {
+        if ["film", "filtering", "filmPlane"].contains(id) { return "stock" }
+        if ["dir", "halation", "grain", "grainSynthesis"].contains(id) { return "negative" }
+        if ["print", "diffusion", "density"].contains(id) { return "print" }
+        return "output"
     }
 
     private func panelVisible(_ id: String) -> Bool {
@@ -202,7 +227,16 @@ struct ControlsView: View {
     }
 
     private var rawSection: some View {
-        DisclosureGroup(isExpanded: sectionBinding("raw")) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("RAW")
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Button { model.resetRawSection() } label: { Image(systemName: "arrow.counterclockwise") }
+                    .buttonStyle(.plain)
+                    .help("Reset the RAW section, including white balance and lens correction.")
+            }
+        
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text("Camera development")
@@ -217,11 +251,16 @@ struct ControlsView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Picker("White Balance", selection: Binding(
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("White Balance").font(.caption.weight(.medium))
+                    Picker("White Balance", selection: Binding(
                     get: { model.selectedLook.raw.whiteBalanceMode },
                     set: { mode in model.setWhiteBalanceMode(mode) }
                 )) {
                     ForEach(RawWhiteBalanceMode.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
                 }
 
                 WhiteBalanceTemperatureSlider(
@@ -253,7 +292,7 @@ struct ControlsView: View {
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
 
-                    HStack(spacing: 6) {
+                    LazyVGrid(columns: [GridItem(.flexible(minimum: 115)), GridItem(.flexible(minimum: 115))], alignment: .leading, spacing: 6) {
                         Button {
                             model.autoWhiteBalanceToSkin()
                         } label: {
@@ -344,12 +383,17 @@ struct ControlsView: View {
 
 
                 Divider().opacity(0.5)
-                Picker("RAW Denoise", selection: Binding(get:{ model.selectedLook.raw.denoiseMode }, set:{ model.setRawDenoiseMode($0) })) {
-                    ForEach(RawDenoiseMode.allCases) { Text($0.rawValue).tag($0) }
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("RAW Denoise").font(.caption.weight(.medium))
+                    Picker("RAW Denoise", selection: Binding(get:{ model.selectedLook.raw.denoiseMode }, set:{ model.setRawDenoiseMode($0) })) {
+                        ForEach(RawDenoiseMode.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
                 }
                 if model.selectedLook.raw.denoiseMode == .manual {
-                    LabeledContent("Luma") { Slider(value: Binding(get:{model.selectedLook.raw.denoiseLuma},set:{model.setRawDenoiseLuma($0)}),in:0...1) }
-                    LabeledContent("Chroma") { Slider(value: Binding(get:{model.selectedLook.raw.denoiseChroma},set:{model.setRawDenoiseChroma($0)}),in:0...1) }
+                    VStack(alignment: .leading, spacing: 3) { Text("Luma").font(.caption); Slider(value: Binding(get:{model.selectedLook.raw.denoiseLuma},set:{model.setRawDenoiseLuma($0)}),in:0...1) }
+                    VStack(alignment: .leading, spacing: 3) { Text("Chroma").font(.caption); Slider(value: Binding(get:{model.selectedLook.raw.denoiseChroma},set:{model.setRawDenoiseChroma($0)}),in:0...1) }
                 }
                 HStack {
                     Button { model.prepareRawDenoiseForSelected() } label: { if model.isPreparingRawDenoise { ProgressView().controlSize(.mini) } else { Label("Prepare RAW Denoise",systemImage:"sparkles") } }.disabled(model.selectedLook.raw.denoiseMode == .off || model.isPreparingRawDenoise)
@@ -369,15 +413,7 @@ struct ControlsView: View {
                 ))
             }
             .padding(.top, 8)
-        } label: {
-            HStack {
-                Text("RAW")
-                    .font(.caption.weight(.semibold))
-                Spacer()
-                Button { model.resetRawSection() } label: { Image(systemName: "arrow.counterclockwise") }
-                    .buttonStyle(.plain)
-                    .help("Reset the RAW section, including white balance and lens correction.")
-            }
+        
         }
         .padding(10)
         .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 8))
@@ -391,7 +427,17 @@ struct ControlsView: View {
         let raw = model.selectedLook.raw
         let active = model.activeLocalGrade
         let tone = active?.tone ?? (model.selectedLook.tone ?? ToneSettings())
-        return DisclosureGroup(isExpanded: sectionBinding("tone")) {
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack{
+                Text("RAW Develop").font(.caption.weight(.semibold))
+                if let grade=active { Text("· \(grade.name)").font(.caption2).foregroundStyle(.cyan) }
+                Spacer()
+                if active == nil {
+                    Button{model.resetRawDevelop()}label:{Image(systemName:"arrow.counterclockwise")}
+                        .buttonStyle(.plain)
+                }
+            }
+        
             VStack(alignment: .leading, spacing: 10) {
                 if let grade = active {
                     HStack {
@@ -408,8 +454,9 @@ struct ControlsView: View {
                         onChange:{model.setLocalTone(grade.id,"exposure",$0,interactive:true)},
                         onEnd:{model.endEditGesture()})
                 } else {
-                    Text("APPLE RAW DEVELOP → PRE-FILM LIGHT CONTROLS → SPEKTRAFILM STOCK → DISPLAY")
-                        .font(.system(size:9,weight:.semibold,design:.monospaced)).foregroundStyle(.secondary)
+                    Text("RAW → Light → Film → Display")
+                        .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text("RAW Exposure and RAW Global Tone keep the exact Apple CIRAWFilter behavior.")
                         .font(.caption2).foregroundStyle(.secondary)
                     DraftScalarSlider(label:"RAW Exposure EV",committedValue:raw.developExposureEV,range:-5...5,precision:2,
@@ -456,16 +503,7 @@ struct ControlsView: View {
                     ToneCurveEditorView(model:model).frame(height:230)
                 }
             }.padding(.top,8)
-        } label:{
-            HStack{
-                Text("RAW Develop").font(.caption.weight(.semibold))
-                if let grade=active { Text("· \(grade.name)").font(.caption2).foregroundStyle(.cyan) }
-                Spacer()
-                if active == nil {
-                    Button{model.resetRawDevelop()}label:{Image(systemName:"arrow.counterclockwise")}
-                        .buttonStyle(.plain)
-                }
-            }
+        
         }
         .padding(10).background(StudioPalette.recessed,in:RoundedRectangle(cornerRadius:8))
         .overlay{RoundedRectangle(cornerRadius:8).stroke(active == nil ? StudioPalette.subtleBorder : Color.cyan.opacity(0.32),lineWidth:0.5)}
@@ -489,7 +527,16 @@ struct ControlsView: View {
 
     private var colorDensitySection: some View {
         let density = model.selectedLook.colorDensity ?? ColorDensitySettings()
-        return DisclosureGroup(isExpanded: sectionBinding("density")) {
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Color Density · ME deSatch")
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Button { model.resetColorDensity() } label: { Image(systemName: "arrow.counterclockwise") }
+                    .buttonStyle(.plain)
+                    .help("Reset all ME deSatch density controls.")
+            }
+        
             VStack(alignment: .leading, spacing: 10) {
                 Text("ME deSatch density uses the cone-coordinate behavior from Moaz Elgabry's GPL-3.0 ME_Desatch DCTL. Zero is untouched; move left toward −1 to progressively deSatch/darken density globally or around one hue family. This is intentionally not a normal Saturation control.")
                     .font(.caption2)
@@ -516,15 +563,7 @@ struct ControlsView: View {
                     .foregroundStyle(.tertiary)
             }
             .padding(.top, 8)
-        } label: {
-            HStack {
-                Text("Color Density · ME deSatch")
-                    .font(.caption.weight(.semibold))
-                Spacer()
-                Button { model.resetColorDensity() } label: { Image(systemName: "arrow.counterclockwise") }
-                    .buttonStyle(.plain)
-                    .help("Reset all ME deSatch density controls.")
-            }
+        
         }
         .padding(10)
         .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 8))
@@ -536,7 +575,21 @@ struct ControlsView: View {
 
     private var geometrySection: some View {
         let geometry = model.selectedLook.geometry ?? GeometrySettings()
-        return DisclosureGroup(isExpanded: sectionBinding("geometry")) {
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Crop & Geometry")
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                if openAdjustment == "geometry" {
+                    Image(systemName: "crop")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                Button { model.resetGeometry() } label: { Image(systemName: "arrow.counterclockwise") }
+                    .buttonStyle(.plain)
+                    .help("Reset crop, rotation, perspective, scale, flips, and geometry guides.")
+            }
+        
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     Text("Crop handles are live in the viewer while this section is open.")
@@ -697,20 +750,7 @@ struct ControlsView: View {
                 .buttonStyle(.borderless)
             }
             .padding(.top, 8)
-        } label: {
-            HStack {
-                Text("Crop & Geometry")
-                    .font(.caption.weight(.semibold))
-                Spacer()
-                if openAdjustment == "geometry" {
-                    Image(systemName: "crop")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
-                Button { model.resetGeometry() } label: { Image(systemName: "arrow.counterclockwise") }
-                    .buttonStyle(.plain)
-                    .help("Reset crop, rotation, perspective, scale, flips, and geometry guides.")
-            }
+        
         }
         // Crop state follows the parent accordion selection (including search).
         .padding(10)
@@ -763,15 +803,23 @@ struct ParameterControlRow: View {
             ))
 
         case .choice, .filmStock, .printPaper:
-            Picker(descriptor.label, selection: Binding(
-                get: { Int(value.intValue) },
-                set: { model.setParameter(descriptor.name, value: .int(Int32($0)), interactive: false) }
-            )) {
-                ForEach(Array(options.enumerated()), id: \.offset) { index, label in
-                    Text(label).tag(index)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(descriptor.label)
+                    .font(.caption.weight(.medium))
+                    .fixedSize(horizontal: false, vertical: true)
+                Picker(descriptor.label, selection: Binding(
+                    get: { Int(value.intValue) },
+                    set: { model.setParameter(descriptor.name, value: .int(Int32($0)), interactive: false) }
+                )) {
+                    ForEach(Array(options.enumerated()), id: \.offset) { index, label in
+                        Text(label).tag(index)
+                    }
                 }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .pickerStyle(.menu)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
         case .int:
             IntegerParameterControl(model: model, descriptor: descriptor, value: Int(value.intValue))
@@ -805,15 +853,18 @@ private struct IntegerParameterControl: View {
     let value: Int
 
     var body: some View {
-        HStack {
-            Text(descriptor.label)
-            Spacer()
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(descriptor.label)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
             Button { model.resetParameter(descriptor.name) } label: {
                 Image(systemName: "arrow.counterclockwise")
                     .font(.system(size: 9, weight: .medium))
             }
             .buttonStyle(.plain)
             .help("Reset \(descriptor.label)")
+            }
             Stepper(
                 value: Binding(
                     get: { value },
@@ -874,9 +925,11 @@ struct DraftScalarSlider: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
+            HStack(alignment: .top, spacing: 6) {
                 Text(label)
-                Spacer()
+                    .fixedSize(horizontal: false, vertical: true)
+                    .layoutPriority(1)
+                Spacer(minLength: 4)
                 if let onReset {
                     Button {
                         if let resetValue { draft = resetValue }
@@ -976,7 +1029,8 @@ private struct VectorParameterControl: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(descriptor.label)
-                Spacer()
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 6)
                 Button { model.resetParameter(descriptor.name) } label: {
                     Image(systemName: "arrow.counterclockwise")
                         .font(.system(size: 9, weight: .medium))
