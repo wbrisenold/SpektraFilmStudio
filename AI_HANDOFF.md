@@ -253,3 +253,10 @@ There is no GitHub Actions release requirement in this package. Local Mac build 
 - Build: Intel x86_64 RELEASE, BUILD_EXIT=0, ~196s; zip: dist/SpektraFilmStudio-0.6.8-macOS-intel.zip (sha256 d61adbd2…)
 - Gates: verify_source.sh PASS, qa_10_passes.sh 10/10; only pre-existing warnings (PresetBrowserView.swift:89 var→let, LensCharacterPanel.swift:68 Sendable closure)
 - Upload: first RepairKit asset upload still in background (PID 42101, clobber; may take ~40–90min). Code is pushed and readable by ChatGPT at 9f238f5.
+
+### 2026-10-08 12:25 — v0.6.8 Home/Projects + iCloud + Crash Repair
+- Commit: 59a9b7a — Home/Projects + iCloud + crash repair (import welcome, recent projects, project models, cloud library stability)
+- Files: 10 modified (AppModel, CloudLibrarySupport, ContentView, LibraryView, ProjectModels, RecentSpektraProjects, SpektraCloudLibrary, StudioImportWelcomeView, StudioImportWizard, build_app.sh); SOURCE_MANIFEST updated (184 entries)
+- Build: Intel x86_64, app exists, build-info ok; zip: dist/SpektraFilmStudio-0.6.8-macOS-intel.zip (sha256 d61adbd2… same artifact hash in current dist snapshot)
+- Gates: verify_source.sh PASS, qa_10_passes.sh 10/10
+- Patch base: HEAD-locked at 87d95c4 for first kit; this kit applied clean with `--check` anchors OK (3 changed + 2 new files from kit context). No new warnings introduced.
