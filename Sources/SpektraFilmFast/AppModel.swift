@@ -292,11 +292,14 @@ final class AppModel: ObservableObject {
     private var latestWorkingFilmRenderedBuffer: PixelBufferF32?
     private var latestFilmRenderedBuffer: PixelBufferF32?
 
+    // The source and local grade live BEFORE crop, rotation and keystone.
+    // A displayed Before frame is already geometrically transformed: its size cannot
+    // serve as the authoritative pre-geometry mask dimensions.
     var maskSourceDimensions: (width: Int, height: Int)? {
-        if let current = latestWorkingFilmRenderedBuffer ?? latestFilmRenderedBuffer {
-            return (current.width, current.height)
+        if let source = latestSourceBuffer { return (source.width, source.height) }
+        if let film = latestWorkingFilmRenderedBuffer ?? latestFilmRenderedBuffer {
+            return (film.width, film.height)
         }
-        if let original = frameState.sourcePreview { return (original.width, original.height) }
         return nil
     }
     private var latestWorkingRenderedLook: RenderLook?
@@ -534,6 +537,8 @@ final class AppModel: ObservableObject {
         renderedPreview = nil
         sourcePreview = nil
         latestSourceBuffer = nil
+        latestFilmRenderedBuffer = nil
+        latestWorkingFilmRenderedBuffer = nil
         latestRenderedBuffer = nil
         latestRenderedLook = nil
         latestWorkingRenderedBuffer = nil
@@ -842,6 +847,7 @@ final class AppModel: ObservableObject {
             semanticMaskTask?.cancel()
             semanticMaskTask = nil
             semanticMasks = nil
+            semanticAnalysisDeferred = false
             pendingNewSemanticKind = nil
             pendingSemanticComponent = nil
             latestSkinMaskWidth = 0
@@ -851,10 +857,15 @@ final class AppModel: ObservableObject {
             gestureWorkingLook = nil
             activeEditBaseline = nil
             project.selectedImageID = id
+            // Never display the previous photo while a cloud download/source warmup runs.
+            renderedPreview = nil
+            sourcePreview = nil
             undoStack.removeAll()
             redoStack.removeAll()
             latestSourceBuffer = nil
             latestSourceRaw = nil
+            latestFilmRenderedBuffer = nil
+            latestWorkingFilmRenderedBuffer = nil
             latestRenderedBuffer = nil
             latestRenderedLook = nil
             latestWorkingRenderedBuffer = nil
@@ -1060,6 +1071,7 @@ final class AppModel: ObservableObject {
             guard !Task.isCancelled, project.selectedImageID == imageID else { return }
             latestSourceBuffer = source
             latestSourceRaw = image.look.raw
+            maskOverlayRevision &+= 1  // Recompose a cached viewer frame with valid source dimensions.
         }
     }
 
@@ -1424,6 +1436,9 @@ final class AppModel: ObservableObject {
     @Published var objectMaskPickBlendMode: MaskBlendMode = .add
     private let semanticMaskEngine = SemanticMaskEngine()
     private var semanticMaskTask: Task<Void, Never>?
+    // A disk/memory preview cache hit may display before the original source buffer
+    // is decoded. Queue analysis for the NEXT true pre-geometry source frame.
+    private var semanticAnalysisDeferred = false
 
     var isObjectMaskPicking: Bool { objectMaskPickGradeID != nil }
 
@@ -1453,13 +1468,26 @@ final class AppModel: ObservableObject {
 
     func refreshCanonicalSemanticMasks() {
         semanticMaskTask?.cancel()
-        guard let image = selectedImage,
-              let cg = frameState.sourcePreview ?? frameState.renderedPreview else {
-            semanticMaskStatus = "Waiting for a RAW preview before selecting a mask"
+        guard let image = selectedImage else {
+            semanticMaskStatus = "Select a photo first"
             return
         }
+        // NEVER segment displayed sourcePreview/renderedPreview: both already contain
+        // the crop/perspective transform, while masks modify pixels before that transform.
+        // The semantic model must see source pixels at the exact mask coordinate origin.
+        guard let source = latestSourceBuffer else {
+            semanticAnalysisDeferred = true
+            semanticMaskStatus = "Preparing untransformed source for AI selection…"
+            requestPreviewRefresh()
+            return
+        }
+        guard let cg = source.makeCGImage8(colorSpace: OutputColorProfile.inputLinearRec2020) else {
+            semanticMaskStatus = "Could not create pre-geometry AI input image"
+            return
+        }
+        semanticAnalysisDeferred = false
         let imageID = image.id
-        // Segmentation must not move when editing exposure/color; analyze Before/source pixels.
+        // This CGImage uses the same PRE-geometry coordinates as local grade and export.
         semanticMaskStatus = "Analyzing subject / skin / clothing…"
         semanticMaskTask = Task { [weak self] in
             guard let self else { return }
@@ -1530,8 +1558,24 @@ final class AppModel: ObservableObject {
 
     func completeObjectMaskPick(normalizedPoint: CGPoint) {
         guard let gradeID = objectMaskPickGradeID,
-              let image = selectedImage,
-              let cg = frameState.renderedPreview else { return }
+              let image = selectedImage else { return }
+        // Object picking happens on the displayed, cropped photo. Convert that click
+        // back to source coordinates and run the model on PRE-geometry pixels; otherwise
+        // the mask is transformed twice when local adjustments are composited.
+        guard let source = latestSourceBuffer,
+              let cg = source.makeCGImage8(colorSpace: OutputColorProfile.inputLinearRec2020) else {
+            semanticMaskStatus = "Waiting for original source; retry object selection"
+            requestPreviewRefresh()
+            return
+        }
+        guard let sourcePoint = GeometryEngine.sourceNormalizedPoint(
+            fromDisplay: normalizedPoint,
+            sourceWidth: source.width, sourceHeight: source.height,
+            settings: selectedLook.geometry
+        ) else {
+            semanticMaskStatus = "Object click is outside the uncropped photo"
+            return
+        }
         let blend = objectMaskPickBlendMode
         let imageID = image.id
         objectMaskPickGradeID = nil
@@ -1540,7 +1584,7 @@ final class AppModel: ObservableObject {
         semanticMaskTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let alpha = try await semanticMaskEngine.objectMask(cgImage: cg, normalizedPoint: normalizedPoint)
+                let alpha = try await semanticMaskEngine.objectMask(cgImage: cg, normalizedPoint: sourcePoint)
                 guard !Task.isCancelled, project.selectedImageID == imageID else { return }
                 // Preserve the instance/SAM silhouette; the generic post-filter may
                 // erase edge detail or bridge nearby independent objects.
@@ -3233,6 +3277,13 @@ final class AppModel: ObservableObject {
                 }
                 latestSourceBuffer = input
                 latestSourceRaw = request.look.raw
+                maskOverlayRevision &+= 1  // Source coordinates are now authoritative.
+                // A cached on-screen image can arrive before source pixels. Resume only
+                // after the matching source frame is committed by the render loop.
+                if semanticAnalysisDeferred && project.selectedImageID == request.imageID {
+                    semanticAnalysisDeferred = false
+                    refreshCanonicalSemanticMasks()
+                }
                 latestFilmRenderedBuffer = filmOutput
                 latestRenderedBuffer = output
                 latestRenderedLook = request.look

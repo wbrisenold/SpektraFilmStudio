@@ -9,6 +9,7 @@ struct PreviewView: View {
     @State private var offset: CGSize = .zero
     @State private var committedOffset: CGSize = .zero
     @State private var redlampCompositedFrame: CGImage?
+    @State private var maskOverlayError: String?
     @AppStorage("SpektraFilmFast.redlampOverlayStyle") private var redlampStyle = RedlampMaskDisplayStyle.color.rawValue
     @AppStorage("SpektraFilmFast.maskOverlayEnabled") private var maskOverlayEnabled = true
 
@@ -64,11 +65,19 @@ struct PreviewView: View {
                     }
                     .task(id: maskFrameKey(image)) {
                         redlampCompositedFrame = nil
+                        maskOverlayError = nil
                         guard !model.showingBefore, maskOverlayEnabled,
                               let grade = model.activeLocalGrade,
-                              !grade.masks.sources.isEmpty,
-                              let bytes = RedlampMaskDisplay.rgbaBytes(image) else { return }
-                        let dims = model.maskSourceDimensions ?? (width: image.width, height: image.height)
+                              !grade.masks.sources.isEmpty else { return }
+                        // Never invent pre-geometry dimensions from a transformed CGImage.
+                        guard let dims = model.maskSourceDimensions else {
+                            maskOverlayError = "Waiting for untransformed mask source"
+                            return
+                        }
+                        guard let bytes = RedlampMaskDisplay.rgbaBytes(image) else {
+                            maskOverlayError = "Cannot read image pixels for mask overlay"
+                            return
+                        }
                         let geometry = model.selectedLook.geometry
                         let chosenStyle = RedlampMaskDisplayStyle(rawValue: redlampStyle) ?? .color
                         let width = image.width, height = image.height
@@ -85,12 +94,19 @@ struct PreviewView: View {
                         } onCancel: {
                             task.cancel()
                         }
-                        guard !Task.isCancelled, model.activeLocalGradeID == grade.id,
-                              let output else { return }
-                        redlampCompositedFrame = RedlampMaskDisplay.image(
+                        guard !Task.isCancelled, model.activeLocalGradeID == grade.id else { return }
+                        guard let output else {
+                            maskOverlayError = "Mask overlay Metal/geometry evaluation failed"
+                            return
+                        }
+                        guard let composed = RedlampMaskDisplay.image(
                             width: width, height: height, rgba: output,
                             colorSpace: image.colorSpace
-                        )
+                        ) else {
+                            maskOverlayError = "Mask overlay display image could not be created"
+                            return
+                        }
+                        redlampCompositedFrame = composed
                     }
                     .scaleEffect(zoom)
                     .offset(offset)
@@ -127,6 +143,18 @@ struct PreviewView: View {
 
                 if !model.showingBefore && model.project.preferences.skinCheckEnabled {
                     skinOverlayLegend
+                }
+
+                if !model.showingBefore, let failure = maskOverlayError {
+                    Label(failure, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.orange)
+                        .padding(8)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .padding(.top, 56)
+                        .padding(.leading, 12)
+                        .allowsHitTesting(false)
                 }
 
                 if frameState.isRendering {

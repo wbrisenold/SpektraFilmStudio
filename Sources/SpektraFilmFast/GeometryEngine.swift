@@ -103,6 +103,45 @@ private struct Matrix3 {
 }
 
 enum GeometryEngine {
+    /// Map a tap on the *displayed* transformed/cropped image back into the original
+    /// pre-geometry pixel domain. The forward display transform is exactly the one
+    /// used in transformed(_:settings:); its inverse must be used for AI object picks.
+    static func sourceNormalizedPoint(
+        fromDisplay point: CGPoint,
+        sourceWidth: Int,
+        sourceHeight: Int,
+        settings: GeometrySettings?
+    ) -> CGPoint? {
+        guard sourceWidth > 0, sourceHeight > 0,
+              point.x.isFinite, point.y.isFinite,
+              point.x >= 0, point.x <= 1, point.y >= 0, point.y <= 1 else { return nil }
+        guard let settings else { return point }
+        let crop = normalizedCrop(settings.crop)
+        var effective = settings
+        if settings.autoCrop {
+            effective.scale = max(
+                settings.scale,
+                minimumScaleToCoverCrop(settings: settings, width: sourceWidth, height: sourceHeight)
+            )
+        }
+        let fullW = sourceWidth, fullH = sourceHeight
+        let cropX = Int((crop.x * Double(fullW)).rounded(.down))
+        let cropY = Int((crop.y * Double(fullH)).rounded(.down))
+        let cropW = max(1, min(fullW - cropX, Int((crop.width * Double(fullW)).rounded())))
+        let cropH = max(1, min(fullH - cropY, Int((crop.height * Double(fullH)).rounded())))
+        let pixelX = Double(cropX) + Double(point.x) * Double(max(0, cropW - 1))
+        let pixelY = Double(cropY) + Double(point.y) * Double(max(0, cropH - 1))
+        let aspect = Double(fullW) / Double(max(1, fullH))
+        let nx = (pixelX / Double(max(1, fullW - 1)) - 0.5) * aspect
+        let ny = pixelY / Double(max(1, fullH - 1)) - 0.5
+        guard let inverse = forwardMatrix(settings: effective, width: fullW, height: fullH).inverted(),
+              let mapped = inverse.map(nx, ny) else { return nil }
+        let u = mapped.0 / aspect + 0.5
+        let v = mapped.1 + 0.5
+        guard u.isFinite, v.isFinite, u >= 0, u <= 1, v >= 0, v <= 1 else { return nil }
+        return CGPoint(x: u, y: v)
+    }
+
     static func applyAspectPreset(_ preset: CropAspectPreset, sourceWidth: Int, sourceHeight: Int, to settings: inout GeometrySettings) {
         settings.lastAspectPresetID = preset.id
         guard let r = preset.ratio else { return }

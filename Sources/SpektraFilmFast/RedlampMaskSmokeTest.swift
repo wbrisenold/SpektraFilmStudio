@@ -44,7 +44,28 @@ enum RedlampMaskSmokeTest {
               output[corner + 1] == input[corner + 1],
               output[corner + 2] == input[corner + 2] else { return 12 }
         guard RedlampMaskDisplay.image(width: width, height: height, rgba: output) != nil else { return 13 }
-        print("PASS: Redlamp-derived mask overlay changes center photo pixels, preserves corners, creates CGImage")
+        // A bitmap CGContext is capable of silently flipping a CGImage vertically.
+        // The old radial-only test was symmetrical and could never detect that.
+        var stripe = input
+        for y in 0..<height {
+            for x in 0..<width {
+                let i = (y * width + x) * 4
+                stripe[i] = y < height / 2 ? 230 : 25
+                stripe[i + 1] = y < height / 2 ? 25 : 230
+                stripe[i + 2] = 65
+            }
+        }
+        guard let bandImage = RedlampMaskDisplay.image(width: width, height: height, rgba: stripe),
+              let roundTrip = RedlampMaskDisplay.rgbaBytes(bandImage),
+              roundTrip.count == stripe.count else { return 17 }
+        let upper = ((height / 4) * width + width / 2) * 4
+        let lower = (((height * 3) / 4) * width + width / 2) * 4
+        guard roundTrip[upper] > roundTrip[upper + 1],
+              roundTrip[lower] < roundTrip[lower + 1] else {
+            print("FAIL: CGContext image readback vertically flipped the mask canvas")
+            return 18
+        }
+        print("PASS: Redlamp mask Metal parity, visible center, and top/bottom CGImage orientation")
         return 0
     }
 }
