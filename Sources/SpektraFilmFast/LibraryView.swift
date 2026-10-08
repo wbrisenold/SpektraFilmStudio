@@ -45,9 +45,8 @@ struct LibraryWorkspaceView: View {
         }
         .background(StudioPalette.canvas)
         .onAppear { thumbnailSizeDraft = model.libraryThumbnailSize }
-        .onChange(of: model.project.images.count) { _, count in
-            if count > 0 { model.showProjectHome = false }
-        }
+        // Do not dismiss Home because a background import or cloud sync added photos.
+        // Navigation is explicit: Library enters the grid, Home enters the launcher.
         .onChange(of: model.libraryThumbnailSize) { _, value in
             if abs(thumbnailSizeDraft - value) > 0.5 { thumbnailSizeDraft = value }
         }

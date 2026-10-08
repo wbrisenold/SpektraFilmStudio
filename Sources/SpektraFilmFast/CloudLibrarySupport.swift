@@ -52,11 +52,7 @@ extension AppModel {
 
     func moveCurrentLibraryToICloud() {
         guard !isCloudSyncing else { return }
-        guard let parent = chooseCloudParent(
-            title: "Choose iCloud Drive Folder",
-            prompt: "Use for SpektraFilm Cloud"
-        ) else { return }
-        moveCurrentLibraryToICloud(parent: parent)
+        showingCloudMigrationFolderPicker = true
     }
 
     func moveCurrentLibraryToICloud(parent: URL) {
@@ -105,23 +101,7 @@ extension AppModel {
 
     func importLightroomCatalogToICloud() {
         guard !isCloudSyncing else { return }
-
-        let catalogPanel = NSOpenPanel()
-        catalogPanel.title = "Choose Lightroom Classic Catalog"
-        catalogPanel.prompt = "Import Catalog"
-        catalogPanel.allowsMultipleSelection = false
-        catalogPanel.canChooseDirectories = false
-        catalogPanel.canChooseFiles = true
-        if let type = UTType(filenameExtension: "lrcat") {
-            catalogPanel.allowedContentTypes = [type]
-        }
-        guard catalogPanel.runModal() == .OK, let catalogURL = catalogPanel.url else { return }
-
-        guard let parent = chooseCloudParent(
-            title: "Choose iCloud Drive Destination",
-            prompt: "Import to iCloud"
-        ) else { return }
-        importLightroomCatalogToICloud(catalogURL: catalogURL, parent: parent)
+        showingLightroomImportWizard = true
     }
 
     func importLightroomCatalogToICloud(catalogURL: URL, parent: URL) {
@@ -325,15 +305,10 @@ extension AppModel {
     }
 
     func chooseExternalOriginalScratch() {
-        let panel = NSOpenPanel()
-        panel.title = "Choose External RAW Scratch Drive"
-        panel.message = "Select a mounted external SSD or network volume. Cloud originals are staged there only while editing or exporting. Internal startup disk is not allowed."
-        panel.prompt = "Use as RAW Scratch"
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = true
-        guard panel.runModal() == .OK, let parent = panel.url else { return }
+        showingScratchFolderPicker = true
+    }
+
+    func setExternalOriginalScratch(parent: URL) {
         do {
             _ = try ExternalOriginalScratch.validatedRoot(parent)
             externalOriginalScratchParent = parent.path
@@ -585,19 +560,6 @@ extension AppModel {
         let fileComponents = file.standardizedFileURL.pathComponents
         guard fileComponents.starts(with: rootComponents) else { return nil }
         return fileComponents.dropFirst(rootComponents.count).joined(separator: "/")
-    }
-
-    private func chooseCloudParent(title: String, prompt: String) -> URL? {
-        let panel = NSOpenPanel()
-        panel.title = title
-        panel.prompt = prompt
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = true
-        panel.directoryURL = SpektraCloudLibrary.defaultICloudDriveURL()
-        guard panel.runModal() == .OK else { return nil }
-        return panel.url
     }
 
     private func confirmCloudLocation(_ url: URL) -> Bool {

@@ -48,6 +48,18 @@ struct StudioImportWizard: View {
     @State private var cloudParentURL: URL?
     @State private var problem: String?
     @State private var started = false
+    @State private var showingSourcePicker = false
+    @State private var showingDestinationPicker = false
+    @State private var destinationTarget = "working"
+
+    private var sourceTypes: [UTType] {
+        switch source {
+        case .files: return [.image, .rawImage]
+        case .folder, .cloudLibrary: return [.folder]
+        // Lightroom Classic catalog UTI varies by installation. Validate extension after selection.
+        case .lightroom: return [.data]
+        }
+    }
 
     init(model: AppModel, preferredSource: String? = nil) {
         self.model = model
@@ -144,6 +156,34 @@ struct StudioImportWizard: View {
         }
         .frame(width: 720, height: 495)
         .background(StudioPalette.canvas)
+        .fileImporter(isPresented: $showingSourcePicker,
+                      allowedContentTypes: sourceTypes,
+                      allowsMultipleSelection: source == .files) { result in
+            switch result {
+            case .failure(let error): problem = "Cannot select source: \(error.localizedDescription)"
+            case .success(let urls):
+                guard !urls.isEmpty else { return }
+                if source == .lightroom && (urls.count != 1 || urls[0].pathExtension.lowercased() != "lrcat") {
+                    problem = "Choose a Lightroom Classic .lrcat catalog."
+                    return
+                }
+                pickedURLs = urls
+                problem = nil
+            }
+        }
+        .fileImporter(isPresented: $showingDestinationPicker,
+                      allowedContentTypes: [.folder]) { result in
+            switch result {
+            case .failure(let error): problem = "Cannot select destination: \(error.localizedDescription)"
+            case .success(let url):
+                switch destinationTarget {
+                case "working": primaryURL = url
+                case "backup": backupURL = url
+                default: cloudParentURL = url
+                }
+                problem = nil
+            }
+        }
     }
 
     private func stepLabel(_ index: Int, _ name: String) -> some View {
@@ -235,12 +275,12 @@ struct StudioImportWizard: View {
             }
 
             if storage == .verified && source == .folder {
-                destinationRow("Working folder", url: primaryURL) { primaryURL = selectFolder(prompt: "Choose Working Folder") }
-                destinationRow("Backup folder", url: backupURL) { backupURL = selectFolder(prompt: "Choose Backup Folder") }
+                destinationRow("Working folder", url: primaryURL) { chooseDestination("working") }
+                destinationRow("Backup folder", url: backupURL) { chooseDestination("backup") }
             }
             if storage == .cloud || isLightroom {
                 destinationRow("iCloud Drive destination", url: cloudParentURL) {
-                    cloudParentURL = selectFolder(prompt: "Use iCloud Folder")
+                    chooseDestination("cloud")
                 }
             }
             if storage == .cloud {
@@ -391,43 +431,11 @@ struct StudioImportWizard: View {
     }
 
     private func chooseSource() {
-        if source == .cloudLibrary {
-            // Return to the main window before presenting its SwiftUI folder importer.
-            dismiss()
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(350))
-                model.openICloudLibrary()
-            }
-            return
-        }
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = source == .files
-        panel.canChooseFiles = source == .files || source == .lightroom
-        panel.canChooseDirectories = source == .folder || source == .cloudLibrary
-        panel.canCreateDirectories = false
-        panel.prompt = "Choose Source"
-        if source == .files {
-            panel.allowedContentTypes = [.image, .rawImage]
-        } else if source == .lightroom,
-                  let catalog = UTType(filenameExtension: "lrcat") {
-            panel.allowedContentTypes = [catalog]
-        }
-        if source == .cloudLibrary {
-            panel.directoryURL = SpektraCloudLibrary.defaultICloudDriveURL()
-        }
-        guard panel.runModal() == .OK else { return }
-        pickedURLs = panel.urls
-        problem = nil
+        showingSourcePicker = true
     }
 
-    private func selectFolder(prompt: String) -> URL? {
-        let panel = NSOpenPanel()
-        panel.prompt = prompt
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.directoryURL = SpektraCloudLibrary.defaultICloudDriveURL()
-        return panel.runModal() == .OK ? panel.url : nil
+    private func chooseDestination(_ target: String) {
+        destinationTarget = target
+        showingDestinationPicker = true
     }
 }

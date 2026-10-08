@@ -26,6 +26,57 @@ struct ContentView: View {
         }
         .background(StudioPalette.canvas)
         .frame(minWidth: 1024, minHeight: 650)
+        .fileImporter(isPresented: $model.showingStandalonePhotoPicker,
+                      allowedContentTypes: [.image, .rawImage]) { result in
+            Task { @MainActor in
+                switch result {
+                case .success(let url): model.standalonePhotoMode(at: url)
+                case .failure(let error): model.status = "Photo chooser failed: \(error.localizedDescription)"
+                }
+            }
+        }
+        .fileImporter(isPresented: $model.showingImagesImportPicker,
+                      allowedContentTypes: [.image, .rawImage],
+                      allowsMultipleSelection: true) { result in
+            Task { @MainActor in
+                switch result {
+                case .success(let urls):
+                    guard !urls.isEmpty else { return }
+                    model.addImages(urls: urls)
+                case .failure(let error): model.status = "Image chooser failed: \(error.localizedDescription)"
+                }
+            }
+        }
+        .fileImporter(isPresented: $model.showingFolderImportPicker,
+                      allowedContentTypes: [.folder]) { result in
+            Task { @MainActor in
+                switch result {
+                case .success(let url): model.importFolder(at: url)
+                case .failure(let error): model.status = "Folder chooser failed: \(error.localizedDescription)"
+                }
+            }
+        }
+        .fileImporter(isPresented: $model.showingCloudMigrationFolderPicker,
+                      allowedContentTypes: [.folder]) { result in
+            Task { @MainActor in
+                switch result {
+                case .success(let url): model.moveCurrentLibraryToICloud(parent: url)
+                case .failure(let error): model.cloudLibraryStatus = "iCloud destination chooser failed: \(error.localizedDescription)"
+                }
+            }
+        }
+        .sheet(isPresented: $model.showingLightroomImportWizard) {
+            StudioImportWizard(model: model, preferredSource: "Lightroom Classic")
+        }
+        .fileImporter(isPresented: $model.showingScratchFolderPicker,
+                      allowedContentTypes: [.folder]) { result in
+            Task { @MainActor in
+                switch result {
+                case .success(let folder): model.setExternalOriginalScratch(parent: folder)
+                case .failure(let error): model.cloudLibraryStatus = "Scratch folder chooser failed: \(error.localizedDescription)"
+                }
+            }
+        }
         .fileImporter(isPresented: $model.showingProjectOpenPicker,
                       allowedContentTypes: [.spektrafilmProject]) { result in
             Task { @MainActor in
@@ -99,9 +150,11 @@ struct ContentView: View {
                 model.page = .library
                 model.showProjectHome = true
             } label: {
-                Image(systemName: "house")
+                Label("Home", systemImage: "house")
+                    .font(.system(size: 12, weight: .medium))
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
             .help("Home · New, Open and Recent Projects")
             .accessibilityLabel("Home and recent projects")
 
@@ -110,6 +163,8 @@ struct ContentView: View {
             HStack(spacing: 2) {
                 ForEach(WorkspacePage.allCases) { page in
                     Button {
+                        // Library is distinct from Home even when already selected.
+                        if page == .library { model.showProjectHome = false }
                         model.page = page
                     } label: {
                         Text(page.title)

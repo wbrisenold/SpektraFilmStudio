@@ -201,7 +201,14 @@ final class AppModel: ObservableObject {
     // Library / Cull workspace state lives outside the project document so browsing
     // filters do not dirty a project merely because the photographer changes views.
     // Project launchers are always available, even with a populated photo library.
-    @Published var showProjectHome = false
+    @Published var showProjectHome = true
+    // File choosers are presented from the owning SwiftUI window, never AppKit runModal.
+    @Published var showingStandalonePhotoPicker = false
+    @Published var showingImagesImportPicker = false
+    @Published var showingFolderImportPicker = false
+    @Published var showingCloudMigrationFolderPicker = false
+    @Published var showingLightroomImportWizard = false
+    @Published var showingScratchFolderPicker = false
     // Prevent delayed startup iCloud autorestore from replacing a user-selected project.
     var didStartProjectWorkflow = false
     @Published var showingProjectOpenPicker = false
@@ -557,18 +564,17 @@ final class AppModel: ObservableObject {
         page = .library
         isProjectDirty = false
         Task { [recoveryStore] in await recoveryStore.clear() }
-        showProjectHome = false
+        showProjectHome = true
         didStartProjectWorkflow = true
         status = "New project"
     }
 
     func standalonePhotoMode() {
+        showingStandalonePhotoPicker = true
+    }
+
+    func standalonePhotoMode(at url: URL) {
         guard confirmDestructiveTransitionIfNeeded() else { return }
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.allowedContentTypes = [.image, .rawImage]
-        guard panel.runModal() == .OK, let url = panel.url else { return }
         invalidateRendering()
         project = SpektraProjectDocument()
         project.migrateForV2()
@@ -578,6 +584,8 @@ final class AppModel: ObservableObject {
         project.selectedImageID = project.images[0].id
         projectURL = nil
         page = .edit
+        showProjectHome = false
+        didStartProjectWorkflow = true
         isProjectDirty = true
         status = "Standalone photo mode"
         presentFastSelectionPreview(for: project.images[0])
@@ -585,26 +593,14 @@ final class AppModel: ObservableObject {
     }
 
     func importImages() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = false
-        panel.allowedContentTypes = [.image, .rawImage]
-        guard panel.runModal() == .OK else { return }
-        addImages(urls: panel.urls)
+        showingImagesImportPicker = true
     }
 
     /// Imports an entire shoot without asking the user to select thousands of files.
     /// Enumeration and type filtering happen off the main actor; adding records remains one
     /// project publication followed by the existing bounded thumbnail/metadata hydration path.
     func importFolder() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = false
-        panel.prompt = "Import Folder"
-        guard panel.runModal() == .OK, let folder = panel.url else { return }
-        importFolder(at: folder)
+        showingFolderImportPicker = true
     }
 
     /// Source-aware import for the guided wizard. Uses the existing non-blocking scanner.

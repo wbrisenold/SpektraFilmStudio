@@ -26,6 +26,12 @@ struct CloudSetupWizard: View {
     @State private var publicResponse = ""
     @State private var secretResponse = ""
     @State private var confirmedRemoteCredentialStorage = false
+    @State private var showingSetupFilePicker = false
+    @State private var showingCloudLibraryPicker = false
+    @State private var setupPickerTarget = "ssh"
+    private var setupFileTypes: [UTType] {
+        setupPickerTarget == "worker" ? [.folder] : [.data]
+    }
 
     private let steps: [(name: String, symbol: String)] = [
         ("Mac iCloud", "icloud"),
@@ -100,6 +106,30 @@ struct CloudSetupWizard: View {
         }
         .padding(18)
         .frame(minWidth: 720, idealWidth: 840, minHeight: 620, idealHeight: 780)
+        .fileImporter(isPresented: $showingCloudLibraryPicker,
+                      allowedContentTypes: [.folder]) { result in
+            Task { @MainActor in
+                switch result {
+                case .success(let url): model.openICloudLibrary(at: url)
+                case .failure(let error): runner.status = "Cloud library chooser failed: \(error.localizedDescription)"
+                }
+            }
+        }
+        .fileImporter(isPresented: $showingSetupFilePicker,
+                      allowedContentTypes: setupFileTypes) { result in
+            Task { @MainActor in
+                switch result {
+            case .failure(let error): runner.status = "File chooser failed: \(error.localizedDescription)"
+            case .success(let url):
+                switch setupPickerTarget {
+                case "ssh": sshKeyPath = url.path
+                case "worker": workerPath = url.path
+                case "rclone": rcloneConfigPath = url.path
+                default: manifestPath = url.path
+                }
+                }
+            }
+        }
         .onAppear {
             if workerPath.isEmpty {
                 let preferred = FileManager.default.homeDirectoryForCurrentUser
@@ -120,7 +150,7 @@ struct CloudSetupWizard: View {
                   systemImage: FileManager.default.ubiquityIdentityToken == nil ? "exclamationmark.circle" : "checkmark.circle")
                 .foregroundStyle(.secondary)
             HStack {
-                Button("Open iCloud Library…") { model.openICloudLibrary() }
+                Button("Open iCloud Library…") { showingCloudLibraryPicker = true }
                 Button("Move Current Library…") { model.moveCurrentLibraryToICloud() }
                     .disabled(model.project.images.isEmpty || model.isCloudLibraryConnected)
                 Button("Sync Now") { Task { await model.synchronizeCloudNow() } }
@@ -151,8 +181,8 @@ struct CloudSetupWizard: View {
             VStack(alignment: .leading, spacing: 8) {
                 field("VM public IP or hostname", text: $host)
                 field("SSH username", text: $username)
-                fileChoice("SSH private key", current: sshKeyPath) { selectFile(directory: false) { sshKeyPath = $0 } }
-                fileChoice("Transfer worker folder", current: workerPath) { selectFile(directory: true) { workerPath = $0 } }
+                fileChoice("SSH private key", current: sshKeyPath) { selectSetupFile("ssh") }
+                fileChoice("Transfer worker folder", current: workerPath) { selectSetupFile("worker") }
                 Text("The worker folder is Tools/OracleTransfer inside your SpektraFilm source checkout.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -240,7 +270,7 @@ struct CloudSetupWizard: View {
                 .font(.headline)
             Text("If you already authenticated an icloud remote in rclone, choose its rclone.conf. It contains sensitive session credentials. Importing transfers it over SSH and installs it with 0600 permissions for your Oracle user.")
                 .font(.caption).foregroundStyle(.secondary)
-            fileChoice("rclone.conf", current: rcloneConfigPath) { selectFile(directory: false) { rcloneConfigPath = $0 } }
+            fileChoice("rclone.conf", current: rcloneConfigPath) { selectSetupFile("rclone") }
             Toggle("I understand this copies iCloud session credentials onto my Oracle VM.", isOn: $confirmedRemoteCredentialStorage)
                 .font(.caption)
             Button("Install iCloud Credentials on Oracle") {
@@ -271,7 +301,7 @@ struct CloudSetupWizard: View {
                 Link("Adobe entitlement requirements", destination: URL(string: "https://developer.adobe.com/lightroom/lightroom-api-docs/getting-started/")!)
             }
             fileChoice("Authorized JSON transfer manifest", current: manifestPath) {
-                selectFile(directory: false) { manifestPath = $0 }
+                selectSetupFile("manifest")
             }
             field("Approved Adobe download hostname (optional)", text: $allowedHost)
             Text("The app transfers only the small manifest over SSH. Full RAW data flows directly from Adobe through Oracle to iCloud.")
@@ -293,7 +323,7 @@ struct CloudSetupWizard: View {
                 .font(.caption).foregroundStyle(.secondary)
             jobLog
             HStack {
-                Button("Open SpektraFilm iCloud Library…") { model.openICloudLibrary() }
+                Button("Open SpektraFilm iCloud Library…") { showingCloudLibraryPicker = true }
                 Button("Sync Library") { Task { await model.synchronizeCloudNow() } }
                     .disabled(!model.isCloudLibraryConnected)
             }
@@ -351,11 +381,8 @@ struct CloudSetupWizard: View {
         }
     }
 
-    private func selectFile(directory: Bool, completion: (String) -> Void) {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = !directory
-        panel.canChooseDirectories = directory
-        panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url { completion(url.path) }
+    private func selectSetupFile(_ target: String) {
+        setupPickerTarget = target
+        showingSetupFilePicker = true
     }
 }
