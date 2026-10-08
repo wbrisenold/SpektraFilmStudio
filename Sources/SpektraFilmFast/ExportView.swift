@@ -15,11 +15,14 @@ struct ExportWorkspaceView: View {
     @ObservedObject var model: AppModel
     @State private var sourceFilter: ExportSourceFilter = .all
     @State private var search = ""
+    @AppStorage("SpektraFilmStudio.designA.showExportBrowser") private var showExportBrowser = true
 
     var body: some View {
         HSplitView {
-            sourceBrowser
-                .frame(minWidth: 300, idealWidth: 330, maxWidth: 420)
+            if showExportBrowser {
+                sourceBrowser
+                    .frame(minWidth: 250, idealWidth: 290, maxWidth: 360)
+            }
 
             HSplitView {
                 previewAndQueue.frame(minWidth: 500)
@@ -65,10 +68,10 @@ struct ExportWorkspaceView: View {
                 .frame(height: 30)
                 .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 7))
 
-                Picker("Sources", selection: $sourceFilter) {
+                Picker("Show photos", selection: $sourceFilter) {
                     ForEach(ExportSourceFilter.allCases) { Text($0.rawValue).tag($0) }
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
             }
             .padding(11)
             .background(StudioPalette.panel)
@@ -88,7 +91,7 @@ struct ExportWorkspaceView: View {
                         .labelsHidden()
                         .disabled(model.isExporting)
 
-                        LocalThumbnail(url: image.url, contentMode: .fit)
+                        LocalThumbnail(url: model.thumbnailURL(for: image), contentMode: .fit)
                             .frame(width: 66, height: 48)
                             .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 5))
 
@@ -109,7 +112,13 @@ struct ExportWorkspaceView: View {
                         }
                     }
                     .contentShape(Rectangle())
-                    .onTapGesture { model.selectImage(image.id, renderPreview: false) }
+                    .onTapGesture {
+                        if model.isCropToolActive {
+                            model.beginExportCrop(image.id)
+                        } else {
+                            model.selectLibraryImage(image.id)
+                        }
+                    }
                 }
             }
             .listStyle(.inset)
@@ -145,11 +154,29 @@ struct ExportWorkspaceView: View {
                         .lineLimit(1)
                 }
                 Spacer()
+                Button { showExportBrowser.toggle() } label: {
+                    Image(systemName: "sidebar.left")
+                }
+                .buttonStyle(.borderless)
+                .help(showExportBrowser ? "Hide photo browser" : "Show photo browser")
                 if let image = previewImage {
                     Button {
-                        model.selectImage(image.id, renderPreview: false)
-                        model.page = .edit
-                        model.workspaceDidChange(.edit)
+                        if model.isCropToolActive {
+                            model.finishExportCrop()
+                        } else {
+                            model.beginExportCrop(image.id)
+                        }
+                    } label: {
+                        Label(
+                            model.isCropToolActive ? "Done Crop" : "Crop Photo",
+                            systemImage: model.isCropToolActive ? "checkmark.circle" : "crop"
+                        )
+                    }
+                    .controlSize(.small)
+                    .disabled(model.isExporting)
+
+                    Button {
+                        model.focusPhoto(image.id, destination: .edit)
                     } label: {
                         Label("Open in Edit", systemImage: "slider.horizontal.3")
                     }
@@ -166,8 +193,14 @@ struct ExportWorkspaceView: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: 11).fill(Color.black.opacity(0.92))
                     if let image = previewImage {
-                        StudioExportPreview(model: model, image: image)
-                            .padding(12)
+                        if model.isCropToolActive,
+                           model.project.selectedImageID == image.id {
+                            PreviewView(model: model)
+                                .padding(4)
+                        } else {
+                            StudioExportPreview(model: model, image: image)
+                                .padding(12)
+                        }
                         VStack {
                             HStack {
                                 badge(model.project.exportSettings.format.rawValue, "doc")
@@ -207,7 +240,9 @@ struct ExportWorkspaceView: View {
             .background(StudioPalette.recessed)
 
             Divider()
-            queuePanel.frame(height: 205)
+            if model.activeExportJob != nil {
+                queuePanel.frame(height: 180)
+            }
         }
     }
 
@@ -588,8 +623,7 @@ struct ExportWorkspaceView: View {
     }
 
     private var previewImage: ProjectImageRecord? {
-        if let selected = model.selectedImage, selected.selectedForExport { return selected }
-        return model.project.images.first { $0.selectedForExport } ?? model.selectedImage
+        model.selectedImage ?? model.project.images.first { $0.selectedForExport }
     }
 
     private var formatSummary: String {

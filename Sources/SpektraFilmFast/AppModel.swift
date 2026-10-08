@@ -164,7 +164,7 @@ final class AppModel: ObservableObject {
     @Published var presetSearch = ""
     @Published var presetCategoryFilter = "All"
     @Published var isPresetSidebarVisible: Bool = {
-        if UserDefaults.standard.object(forKey: "SpektraFilmFast.isPresetSidebarVisible") == nil { return true }
+        if UserDefaults.standard.object(forKey: "SpektraFilmFast.isPresetSidebarVisible") == nil { return false }
         return UserDefaults.standard.bool(forKey: "SpektraFilmFast.isPresetSidebarVisible")
     }() {
         didSet { UserDefaults.standard.set(isPresetSidebarVisible, forKey: "SpektraFilmFast.isPresetSidebarVisible") }
@@ -209,6 +209,8 @@ final class AppModel: ObservableObject {
     @Published var librarySmartCollectionFilter: UUID? = nil
     @Published var libraryPeopleGroupFilter: UUID? = nil
     @Published var isGroupingPeople = false
+    @Published var bestPicksPendingFolder: String?
+    @Published var bestPicksPercent: Double = 0.25
     @Published var peopleGroupingStatus = ""
     @Published var isIngesting = false
     @Published var ingestProgress = 0.0
@@ -232,6 +234,16 @@ final class AppModel: ObservableObject {
     @Published var isGeneratingProofs = false
     @Published var proofGenerationProgress = 0.0
     @Published var proofStatus = "ProofDock ready"
+
+    @Published var cloudLibraryStatus = "Not connected"
+    @Published var cloudLibraryRootPath =
+        UserDefaults.standard.string(forKey: "SpektraFilmStudio.cloudLibraryRootPath") ?? ""
+    @Published var isCloudSyncing = false
+    @Published var cloudSyncProgress = 0.0
+    @Published var cloudLastSync: Date?
+    var cloudLibrary: SpektraCloudLibrary?
+    var cloudSyncLoopTask: Task<Void, Never>?
+    var cloudPublishTask: Task<Void, Never>?
 
     let decoder = ImageDecoder()
     private let analysisEngine = StudioAnalysisEngine()
@@ -314,7 +326,7 @@ final class AppModel: ObservableObject {
     var projectGeneration = 0
     private var projectChangeCancellable: AnyCancellable?
     private var cacheVolumeCancellables = Set<AnyCancellable>()
-    private var suppressDirtyTracking = false
+    var suppressDirtyTracking = false
     private var memoryPressureMonitor: MemoryPressureMonitor?
     private var whiteBalanceReferenceTask: Task<Void, Never>?
     private var whiteBalanceReferenceGeneration = 0
@@ -344,6 +356,11 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             await restoreExportJobIfNeeded()
             await refreshRecoverableIngestState()
+        }
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(900))
+            guard let self, self.project.images.isEmpty, !self.isProjectDirty else { return }
+            await self.restoreCloudLibraryIfPossible()
         }
 
         projectChangeCancellable = $project.dropFirst().sink { [weak self] _ in
@@ -486,6 +503,7 @@ final class AppModel: ObservableObject {
 
     func newProject() {
         guard confirmDestructiveTransitionIfNeeded() else { return }
+        disconnectCloudLibrary()
         invalidateRendering()
         autosaveTask?.cancel()
         suppressDirtyTracking = true
@@ -553,7 +571,11 @@ final class AppModel: ObservableObject {
         panel.canCreateDirectories = false
         panel.prompt = "Import Folder"
         guard panel.runModal() == .OK, let folder = panel.url else { return }
+        importFolder(at: folder)
+    }
 
+    /// Source-aware import for the guided wizard. Uses the existing non-blocking scanner.
+    func importFolder(at folder: URL, cloudParent: URL? = nil) {
         status = "Scanning \(folder.lastPathComponent)…"
         Task { [weak self] in
             guard let self else { return }
@@ -566,6 +588,9 @@ final class AppModel: ObservableObject {
                 return
             }
             addImages(urls: urls)
+            if let cloudParent {
+                moveCurrentLibraryToICloud(parent: cloudParent)
+            }
         }
     }
 
@@ -738,6 +763,7 @@ final class AppModel: ObservableObject {
     /// expensive film renderer. Entering Edit restores an exact adjusted preview from RAM/SSD
     /// first and invokes the normal preview renderer only on a true cache miss.
     func workspaceDidChange(_ destination: WorkspacePage) {
+        if destination != .edit { isCropToolActive = false }
         if page != destination { page = destination }
         switch destination {
         case .library, .cull, .proofs, .export:
@@ -808,6 +834,7 @@ final class AppModel: ObservableObject {
         }
 
         guard let image = selectedImage else { return }
+        if deferPreviewForCloudOriginalIfNeeded(image, renderPreview: renderPreview) { return }
         refreshWhiteBalanceReference(for: image)
         guard FileManager.default.fileExists(atPath: image.sourcePath) else {
             renderedPreview = nil
@@ -945,7 +972,7 @@ final class AppModel: ObservableObject {
                   !Task.isCancelled,
                   generation == selectionPresentationGeneration,
                   project.selectedImageID == image.id,
-                  page == .edit else { return }
+                  (page == .edit || (page == .export && isCropToolActive)) else { return }
             scheduleRender(
                 interactive: false,
                 longEdgeOverride: longEdge,
@@ -1010,7 +1037,12 @@ final class AppModel: ObservableObject {
         let ids = visibleImages.map(\.id)
         let current = project.selectedImageID.flatMap { ids.firstIndex(of: $0) } ?? 0
         let next = max(0, min(ids.count - 1, current + delta))
-        selectImage(ids[next], renderPreview: renderPreview ?? (page == .edit))
+        let nextID = ids[next]
+        if librarySelection.count <= 1 {
+            librarySelection = [nextID]
+            librarySelectionAnchor = nextID
+        }
+        selectImage(nextID, renderPreview: renderPreview ?? (page == .edit))
     }
 
     func setRating(_ rating: Int) {
@@ -3109,6 +3141,9 @@ final class AppModel: ObservableObject {
                     throw RendererError.renderFailed("Could not create preview image")
                 }
                 renderedPreview = newRenderedPreview
+                if !request.interactive {
+                    updateCloudPreview(photoID: request.imageID, image: newRenderedPreview)
+                }
                 latestSourceBuffer = input
                 latestSourceRaw = request.look.raw
                 latestFilmRenderedBuffer = filmOutput
@@ -3417,6 +3452,7 @@ final class AppModel: ObservableObject {
         isProjectDirty = true
         configureCaches()
         scheduleAutosave()
+        scheduleCloudPublish()
     }
 
     private func scheduleAutosave() {
@@ -3928,6 +3964,9 @@ final class AppModel: ObservableObject {
                     try Task.checkCancellation()
                     return loaded
                 }.value
+                // Do not detach the existing cloud session until the replacement project
+                // has decoded successfully; a malformed file must leave the current session intact.
+                disconnectCloudLibrary()
                 // Cancel old rendering only after a fully successful decode.
                 invalidateRendering()
                 autosaveTask?.cancel()
@@ -4217,23 +4256,51 @@ final class AppModel: ObservableObject {
     }
 
     func exportImage(_ id: UUID) {
+        exportImage(id, settings: project.exportSettings)
+    }
+
+    func exportImage(_ id: UUID, settings: ExportSettings) {
         guard !isExporting, exactRenderer != nil,
               let image = project.images.first(where: { $0.id == id }) else { return }
-        if project.exportSettings.destinationPath.isEmpty { chooseExportDestination() }
-        guard !project.exportSettings.destinationPath.isEmpty else { return }
+        var effective = settings
+        if effective.destinationPath.isEmpty {
+            chooseExportDestination()
+            effective.destinationPath = project.exportSettings.destinationPath
+        }
+        guard !effective.destinationPath.isEmpty else { return }
 
         do {
             let job = try ExportJobPlanner.makeJob(
                 images: [image],
-                settings: project.exportSettings,
+                settings: effective,
                 bypassImportTransform: project.preferences.bypassImportTransform
             )
+            project.exportSettings = effective
             activeExportJob = job
             status = "Exporting \(image.fileName)…"
             startExport(job)
         } catch {
             status = "Single-photo export setup failed · \(error.localizedDescription)"
         }
+    }
+
+    func focusPhoto(_ id: UUID, destination: WorkspacePage) {
+        librarySelection = [id]
+        librarySelectionAnchor = id
+        selectImage(id, renderPreview: false)
+        workspaceDidChange(destination)
+    }
+
+    func beginExportCrop(_ id: UUID) {
+        focusPhoto(id, destination: .export)
+        isCropToolActive = true
+        selectImage(id, renderPreview: true)
+    }
+
+    func finishExportCrop() {
+        isCropToolActive = false
+        cancelIdleRefinement()
+        status = "Export crop updated"
     }
 
     func stopExport() {
@@ -4355,6 +4422,7 @@ final class AppModel: ObservableObject {
 
             return Task {
                 let started = ProcessInfo.processInfo.systemUptime
+                try await SpektraCloudLibrary.materializeIfNeeded(url)
                 let renderURL = try await denoiseService.prepare(source: url, raw: raw, iso: nil)
                 let buffer = try await decoderActor.fullResolution(
                     url: renderURL,
@@ -4441,7 +4509,9 @@ final class AppModel: ObservableObject {
                 }
                 let budget = Self.exportPostprocessBudgetBytes()
                 let workerLimitReached =
-                    pendingPostprocess.count >= ExportJob.postProcessWorkerCount
+                    pendingPostprocess.count >= Self.exportPostprocessWorkerLimit(
+                        estimatedBytes: estimatedBytes
+                    )
                 let memoryLimitReached =
                     bytesInFlight > 0 &&
                     (
@@ -4570,16 +4640,22 @@ final class AppModel: ObservableObject {
 
                     let geometryStarted =
                         ProcessInfo.processInfo.systemUptime
-                    let localOutput = MaskedLocalGradeEngine.apply(filmOutput, grades: localGrades)
-                    let lensOutput = LensCharacterEngine.apply(localOutput, settings: lensSettings)
-                    let geometryOutput = GeometryEngine.transformed(
-                        lensOutput,
-                        settings: geometrySettings
+                    var working = MaskedLocalGradeEngine.apply(
+                        filmOutput,
+                        grades: localGrades
                     )
-                    let boundaryOutput = ExposureBoundaryEngine.apply(geometryOutput, look: lookForWriter, preferences: clipPreferences)
-                    let output = try boundaryOutput.resizedForExport(
-                        settings: exportSettings
+                    try Task.checkCancellation()
+                    working = LensCharacterEngine.apply(working, settings: lensSettings)
+                    try Task.checkCancellation()
+                    working = GeometryEngine.transformed(working, settings: geometrySettings)
+                    try Task.checkCancellation()
+                    working = ExposureBoundaryEngine.apply(
+                        working,
+                        look: lookForWriter,
+                        preferences: clipPreferences
                     )
+                    try Task.checkCancellation()
+                    let output = try working.resizedForExport(settings: exportSettings)
                     let geometryResizeMs =
                         (ProcessInfo.processInfo.systemUptime -
                          geometryStarted) * 1000.0
@@ -4719,6 +4795,16 @@ final class AppModel: ObservableObject {
         return pixels * 48
     }
 
+    private static func exportPostprocessWorkerLimit(estimatedBytes: UInt64) -> Int {
+        let mib = UInt64(1024 * 1024)
+        let gib = UInt64(1024 * 1024 * 1024)
+        if estimatedBytes >= 640 * mib { return 1 }
+
+        let available = availableMemoryBytes()
+        if available == 0 || available < 4 * gib { return 1 }
+        return min(2, ExportJob.postProcessWorkerCount)
+    }
+
     private static func exportPostprocessBudgetBytes() -> UInt64 {
         let available = availableMemoryBytes()
         let mib = UInt64(1024 * 1024)
@@ -4765,16 +4851,12 @@ final class AppModel: ObservableObject {
 
     private static func shouldPrefetchExportDecode(_ url: URL) -> Bool {
         let pixels = approximatePixelCount(url)
-        guard pixels > 0 else { return false }
+        guard pixels > 0, pixels <= 12_000_000 else { return false }
 
-        // Float RGBA = 16 B/px. Reserve another 16 B/px for Core Image /
-        // decoder scratch and keep at least 512 MiB or one third of currently
-        // available allocation headroom untouched.
-        let estimate = UInt64(pixels) * 32
+        let estimate = UInt64(pixels) * 80
         let available = availableMemoryBytes()
         guard available > 0 else { return false }
-        let reserve = max(UInt64(512 * 1024 * 1024), available / 3)
-
+        let reserve = max(UInt64(1024 * 1024 * 1024), available / 2)
         guard available > reserve else { return false }
         return estimate <= available - reserve
     }

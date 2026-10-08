@@ -73,6 +73,9 @@ struct CullAnalysisRecord: Codable, Equatable, Hashable, Sendable {
     var stackID: UUID?
     var stackRank: Int?
     var stackCount: Int?
+    // Optional: synthesized Codable remains backward-compatible with old cull cache records.
+    var faceCaptureQuality: Double? = nil
+    var aestheticScore: Double? = nil
     var reasons: [String]
     var analyzedAt: Date
 }
@@ -660,6 +663,9 @@ struct ProjectImageRecord: Identifiable, Codable, Equatable, Hashable, Sendable 
     var keywords: [String]? = nil
     var note: String? = nil
     var look: RenderLook = .defaults()
+    var cloudRelativePath: String? = nil
+    var cloudPreviewRelativePath: String? = nil
+    var logicalFolderPath: String? = nil
 
     var fileName: String { URL(fileURLWithPath: sourcePath).lastPathComponent }
     var url: URL { URL(fileURLWithPath: sourcePath) }
@@ -671,6 +677,7 @@ extension ProjectImageRecord {
     private enum CodingKeys: String, CodingKey {
         case id, sourcePath, sourceFileSize, sourceModificationTime, importedAt, captureDate, metadata
         case rating, flag, selectedForExport, colorLabel, clientPicked, cullAnalysis, keywords, note, look
+        case cloudRelativePath, cloudPreviewRelativePath, logicalFolderPath
     }
 
     init(from decoder: Decoder) throws {
@@ -691,6 +698,9 @@ extension ProjectImageRecord {
         keywords = try c.decodeIfPresent([String].self, forKey: .keywords)
         note = try c.decodeIfPresent(String.self, forKey: .note)
         look = try c.decodeIfPresent(RenderLook.self, forKey: .look) ?? .defaults()
+        cloudRelativePath = try c.decodeIfPresent(String.self, forKey: .cloudRelativePath)
+        cloudPreviewRelativePath = try c.decodeIfPresent(String.self, forKey: .cloudPreviewRelativePath)
+        logicalFolderPath = try c.decodeIfPresent(String.self, forKey: .logicalFolderPath)
     }
 }
 

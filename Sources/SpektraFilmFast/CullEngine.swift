@@ -26,6 +26,11 @@ actor CullEngine {
         let (metrics, hash) = await technicalTask
         let faces = Self.detectFacesVision(payload)
         let face = Self.faceMetrics(payload, faces: faces)
+        // Additional trained on-device Vision face-quality model, rather than
+        // judging expressions from two guessed eye rectangles alone.
+        let faceCaptureQuality = Self.faceCaptureQuality(payload)
+        // Learned on-device scene aesthetics, independent of technical sharpness.
+        let aestheticScore = Self.aestheticQuality(payload)
 
         return try await Task.detached(priority: .utility) {
             try Task.checkCancellation()
@@ -35,7 +40,16 @@ actor CullEngine {
             let contrastQuality = max(0, min(1, metrics.contrast * 1.7))
             var score = (focus * 52.0) + (exposure * 22.0) + (noiseQuality * 12.0) + (contrastQuality * 14.0)
             if face.count > 0, face.sharpness < 0.28 { score -= 18 }
-            if face.possibleBlink { score -= 20 }
+            if face.possibleBlink { score -= 12 }
+            if let faceCaptureQuality, face.count > 0 {
+                // Vision quality offers independent portrait/burst evidence.
+                // Low-quality portraits are demoted, never auto-deleted.
+                score += (faceCaptureQuality - 0.5) * 22
+            }
+            if let aestheticScore {
+                // Aesthetics never auto-deletes creative photographs.
+                score += max(-1, min(1, aestheticScore)) * 16
+            }
             score = max(0, min(100, score))
 
             var reasons: [String] = []
@@ -45,6 +59,14 @@ actor CullEngine {
             if metrics.shadowClip > 0.20 { reasons.append("Deep shadow clipping") }
             if face.count > 0 { reasons.append("\(face.count) face\(face.count == 1 ? "" : "s") detected") }
             if face.possibleBlink { reasons.append("Possible blink") }
+            if let faceCaptureQuality, face.count > 0 {
+                reasons.append(faceCaptureQuality >= 0.65 ? "Strong Vision face capture" :
+                    (faceCaptureQuality < 0.35 ? "Weak Vision face capture" : "Moderate Vision face capture"))
+            }
+            if let aestheticScore {
+                reasons.append(aestheticScore >= 0.30 ? "Strong aesthetic composition" :
+                    (aestheticScore < -0.30 ? "Lower aesthetic model score" : "Moderate aesthetic model score"))
+            }
             if metrics.noise > 0.42 { reasons.append("High fine-detail noise") }
             if reasons.isEmpty { reasons.append("Balanced technical quality") }
 
@@ -68,6 +90,8 @@ actor CullEngine {
                 stackID: nil,
                 stackRank: nil,
                 stackCount: nil,
+                faceCaptureQuality: faceCaptureQuality,
+                aestheticScore: aestheticScore,
                 reasons: reasons,
                 analyzedAt: Date()
             )
@@ -147,6 +171,27 @@ actor CullEngine {
             noise: noise,
             contrast: contrast
         )
+    }
+
+    /// Native Apple Vision quality model. Returns a conservative average across
+    /// faces: an unsharp person in a group photo should matter to the decision.
+    private nonisolated static func faceCaptureQuality(_ payload: ThumbnailPayload) -> Double? {
+        guard let cgImage = payload.makeCGImage() else { return nil }
+        let request = VNDetectFaceCaptureQualityRequest()
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        guard (try? handler.perform([request])) != nil else { return nil }
+        let scores = (request.results ?? []).compactMap { $0.faceCaptureQuality.map(Double.init) }
+        guard !scores.isEmpty else { return nil }
+        return scores.reduce(0, +) / Double(scores.count)
+    }
+
+    /// Apple Vision's macOS 15+ aesthetic-scoring neural model, -1...+1.
+    private nonisolated static func aestheticQuality(_ payload: ThumbnailPayload) -> Double? {
+        guard let image = payload.makeCGImage() else { return nil }
+        let request = VNCalculateImageAestheticsScoresRequest()
+        guard (try? VNImageRequestHandler(cgImage: image, options: [:]).perform([request])) != nil,
+              let result = request.results?.first else { return nil }
+        return Double(result.overallScore)
     }
 
     private nonisolated static func detectFacesVision(_ payload: ThumbnailPayload) -> [DetectedFace] {

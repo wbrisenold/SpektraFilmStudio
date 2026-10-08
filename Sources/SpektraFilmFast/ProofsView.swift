@@ -22,10 +22,30 @@ struct ProofsWorkspaceView: View {
     @State private var quality = 0.88
 
     var body: some View {
-        HSplitView {
-            gallerySidebar
-                .frame(minWidth: 210, idealWidth: 230, maxWidth: 280)
-            galleryBody
+        Group {
+            if model.proofGalleries.isEmpty {
+                VStack(spacing: 14) {
+                    Image(systemName: "heart.text.square")
+                        .font(.system(size: 37, weight: .ultraLight))
+                        .foregroundStyle(.secondary)
+                    Text("Client proofing, without another app")
+                        .font(.title2.weight(.semibold))
+                    Text("Create a gallery from your picks, share the link, and bring client selections back into your library.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 440)
+                    Button("Create Proof Gallery…") { showingNewGallery = true }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                HSplitView {
+                    gallerySidebar
+                        .frame(minWidth: 210, idealWidth: 230, maxWidth: 280)
+                    galleryBody
+                }
+            }
         }
         .background(StudioPalette.canvas)
         .task {

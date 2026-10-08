@@ -46,6 +46,7 @@ extension AppModel {
         cullTask?.cancel()
         cullTask = nil
         isCullAnalyzing = false
+        bestPicksPendingFolder = nil
         status = "Smart Cull canceled"
     }
 
@@ -78,7 +79,9 @@ extension AppModel {
                     for (id, url) in chunk {
                         group.addTask {
                             guard !Task.isCancelled else { return (id, nil) }
-                            if let cached = await analysisCache.analysis(url: url) {
+                            if let cached = await analysisCache.analysis(url: url),
+                               cached.aestheticScore != nil,
+                               cached.faceCount == 0 || cached.faceCaptureQuality != nil {
                                 return (id, cached)
                             }
                             guard let payload = try? await thumbnailer.thumbnail(url: url, maxPixel: 1280),
@@ -113,6 +116,7 @@ extension AppModel {
             }
 
             rebuildCullStacks()
+            finishPendingBestPicksIfNeeded()
             isCullAnalyzing = false
             cullAnalysisProgress = 1
             cullTask = nil
@@ -379,7 +383,21 @@ extension AppModel {
             guard let self else { return }
             let groups = await engine.group(items: items)
             guard !Task.isCancelled, generation == projectGeneration else { return }
-            project.peopleGroups = groups
+            // Keep manual names/IDs where rebuilt faces overlap the old identity.
+            var namedGroups = groups
+            var assignedOld = Set<UUID>()
+            let previous = project.peopleGroups
+            for index in namedGroups.indices {
+                let matches = previous.filter { !assignedOld.contains($0.id) }.map { old in
+                    (old, old.imageIDs.intersection(namedGroups[index].imageIDs).count)
+                }.sorted { $0.1 > $1.1 }
+                if let (old, overlap) = matches.first, overlap >= 2 {
+                    namedGroups[index].id = old.id
+                    namedGroups[index].name = old.name
+                    assignedOld.insert(old.id)
+                }
+            }
+            project.peopleGroups = namedGroups
             libraryPeopleGroupFilter = nil
             isGroupingPeople = false
             peopleGroupingTask = nil
@@ -400,6 +418,62 @@ extension AppModel {
         librarySmartCollectionFilter = nil
         librarySelection = group.imageIDs
         librarySelectionAnchor = group.imageIDs.first
+    }
+
+    /// Explicit user correction when automatic face embedding distances remain
+    /// uncertain. Rebuilds leave named groups intact when their photo overlap supports it.
+    func mergePeopleGroup(_ sourceID: UUID, into destinationID: UUID) {
+        guard sourceID != destinationID,
+              let a = project.peopleGroups.firstIndex(where: { $0.id == sourceID }),
+              let b = project.peopleGroups.firstIndex(where: { $0.id == destinationID }) else { return }
+        project.peopleGroups[b].imageIDs.formUnion(project.peopleGroups[a].imageIDs)
+        project.peopleGroups[b].detectedFaceCount += project.peopleGroups[a].detectedFaceCount
+        project.peopleGroups.remove(at: a)
+        libraryPeopleGroupFilter = destinationID
+        status = "People merged · group names remain editable"
+    }
+
+    func pickBestInFolder(_ folderPath: String, fraction: Double = 0.25) {
+        let candidates = project.images.filter {
+            folderPath == "__all__" || Self.cullFolderPath($0) == folderPath
+        }
+        guard !candidates.isEmpty else { status = "No photos in this folder"; return }
+        bestPicksPercent = min(1, max(0.05, fraction))
+        let missing = candidates.filter { photo in
+            guard let cull = photo.cullAnalysis else { return true }
+            return cull.aestheticScore == nil ||
+                (cull.faceCount > 0 && cull.faceCaptureQuality == nil)
+        }.map(\.id)
+        if !missing.isEmpty {
+            bestPicksPendingFolder = folderPath
+            status = "Analyzing missing photos before selecting best picks…"
+            startCullAnalysis(ids: missing)
+        } else {
+            bestPicksPendingFolder = folderPath
+            finishPendingBestPicksIfNeeded()
+        }
+    }
+
+    private func finishPendingBestPicksIfNeeded() {
+        guard let requested = bestPicksPendingFolder else { return }
+        bestPicksPendingFolder = nil
+        let folders = requested == "__all__"
+            ? Array(Set(project.images.map(Self.cullFolderPath))).sorted()
+            : [requested]
+        var winners = Set<UUID>()
+        for folder in folders {
+            let group = project.images.filter { Self.cullFolderPath($0) == folder }
+            winners.formUnion(CullBestPicksEngine.choose(group, fraction: bestPicksPercent))
+        }
+        guard !winners.isEmpty else { status = "No analyzed photos were eligible"; return }
+        for index in project.images.indices where winners.contains(project.images[index].id) {
+            if project.images[index].flag != .rejected { project.images[index].flag = .picked }
+        }
+        status = "Suggested \(winners.count) best picks across \(folders.count) folder(s) · no files deleted"
+    }
+
+    private nonisolated static func cullFolderPath(_ photo: ProjectImageRecord) -> String {
+        photo.logicalFolderPath ?? photo.url.deletingLastPathComponent().standardizedFileURL.path
     }
 
     func clearPeopleGroups() {

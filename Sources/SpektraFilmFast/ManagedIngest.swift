@@ -347,7 +347,11 @@ extension AppModel {
         backupPanel.prompt = "Choose Backup"
         backupPanel.message = "Choose a second drive/folder for the verified backup copy."
         guard backupPanel.runModal() == .OK, let backup = backupPanel.url else { return }
+        beginManagedIngest(source: source, primary: primary, backup: backup)
+    }
 
+    func beginManagedIngest(source: URL, primary: URL, backup: URL) {
+        guard !isIngesting else { return }
         managedIngestTask?.cancel()
         isIngesting = true
         ingestProgress = 0

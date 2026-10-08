@@ -21,21 +21,35 @@ struct LibraryWorkspaceView: View {
     @State private var newAlbumName = ""
     @State private var newSmartCollectionName = ""
     @State private var thumbnailSizeDraft: Double = 176
+    @State private var showingImportWizard = false
+    @State private var preferredImportSource: String?
+    @AppStorage("SpektraFilmStudio.designA.showLibraryInspector") private var showLibraryInspector = false
 
     var body: some View {
-        HSplitView {
-            sidebar.frame(minWidth: 170, idealWidth: 190, maxWidth: 240)
-            VStack(spacing: 0) {
-                toolbar
-                Divider()
-                gallery
+        Group {
+            if model.project.images.isEmpty && !model.isIngesting {
+                StudioImportWelcomeView(model: model, showingWizard: $showingImportWizard, preferredSource: $preferredImportSource)
+            } else {
+                HSplitView {
+                    sidebar.frame(minWidth: 170, idealWidth: 190, maxWidth: 235)
+                    VStack(spacing: 0) {
+                        toolbar
+                        Divider()
+                        gallery
+                    }
+                    if showLibraryInspector {
+                        inspector.frame(minWidth: 230, idealWidth: 270, maxWidth: 330)
+                    }
+                }
             }
-            inspector.frame(minWidth: 240, idealWidth: 280, maxWidth: 340)
         }
         .background(StudioPalette.canvas)
         .onAppear { thumbnailSizeDraft = model.libraryThumbnailSize }
         .onChange(of: model.libraryThumbnailSize) { _, value in
             if abs(thumbnailSizeDraft - value) > 0.5 { thumbnailSizeDraft = value }
+        }
+        .sheet(isPresented: $showingImportWizard) {
+            StudioImportWizard(model: model, preferredSource: preferredImportSource)
         }
         .sheet(isPresented: $showingNewAlbum) {
             namingSheet(title: "New Album", placeholder: "Album name", text: $newAlbumName) {
@@ -139,7 +153,16 @@ struct LibraryWorkspaceView: View {
                                 }
                                 .padding(.horizontal, 9).padding(.vertical, 5)
                                 .background(model.libraryPeopleGroupFilter == group.id ? Color.primary.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
-                            }.buttonStyle(.plain)
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Menu("Merge Into Person…") {
+                                    ForEach(model.project.peopleGroups.filter { $0.id != group.id }) { other in
+                                        Button(other.name) { model.mergePeopleGroup(group.id, into: other.id) }
+                                    }
+                                }
+                                .disabled(model.project.peopleGroups.count < 2)
+                            }
                         }
                     } else if !model.peopleGroupingStatus.isEmpty {
                         Text(model.peopleGroupingStatus)
@@ -173,33 +196,47 @@ struct LibraryWorkspaceView: View {
                     }
                 }
             }
-            Spacer()
-            VStack(spacing: 7) {
+            CloudLibraryPanel(model: model)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 4)
+
+            Spacer(minLength: 8)
+            VStack(spacing: 8) {
                 if model.isIngesting {
                     ProgressView(value: model.ingestProgress)
                     Text(model.ingestStatus)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
-                    Button("Stop Ingest", role: .destructive) { model.stopManagedIngest() }
+                    Button("Stop Import") { model.stopManagedIngest() }
                         .buttonStyle(.bordered)
                 } else {
-                    HStack(spacing: 8) {
-                        Button("Ingest + Backup…", systemImage: "externaldrive.badge.plus") { model.beginManagedIngest() }
-                            .help("Copies the card/folder to a primary destination and a second backup, verifies SHA-256 checksums, and can resume after a crash.")
+                    Button {
+                        preferredImportSource = nil
+                        showingImportWizard = true
+                    } label: {
+                        Label("Import Photos…", systemImage: "plus")
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
+                    Menu {
+                        Button("Add Files…") { model.importImages() }
+                        Button("Reference Folder…") { model.importFolder() }
+                        Divider()
+                        Button("Verified Card Ingest…") { model.beginManagedIngest() }
                         if model.hasRecoverableIngest {
-                            Button("Resume Ingest", systemImage: "arrow.clockwise") { model.resumeManagedIngest() }
+                            Button("Resume Ingest") { model.resumeManagedIngest() }
                         }
+                        Button("Import Lightroom…") { model.importLightroomCatalogToICloud() }
+                        Button("Open iCloud Library…") { model.openICloudLibrary() }
+                    } label: {
+                        Label("More import options", systemImage: "ellipsis")
+                            .frame(maxWidth: .infinity, alignment: .center)
                     }
-                    HStack(spacing: 8) {
-                        Button("Reference Folder…", systemImage: "folder.badge.plus") { model.importFolder() }
-                            .help("References photos in place without making managed primary/backup copies.")
-                        Button("Files…", systemImage: "photo.badge.plus") { model.importImages() }
-                            .help("Reference individual photos in place.")
-                    }
+                    .buttonStyle(.borderless)
                 }
             }
-            .buttonStyle(.bordered)
             .padding(10)
         }
         .background(StudioPalette.panel)
@@ -303,6 +340,13 @@ struct LibraryWorkspaceView: View {
                 .help("Batch actions apply to every highlighted photo.")
             }
             Spacer()
+            Button {
+                showLibraryInspector.toggle()
+            } label: {
+                Label("Info", systemImage: "sidebar.right")
+            }
+            .controlSize(.small)
+            .help(showLibraryInspector ? "Hide photo details" : "Show photo details")
             if model.isCullAnalyzing {
                 ProgressView(value: model.cullAnalysisProgress).frame(width: 110)
                 Text("\(Int(model.cullAnalysisProgress * 100))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
@@ -353,7 +397,7 @@ struct LibraryWorkspaceView: View {
             if let image = model.selectedImage {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        LocalThumbnail(url: image.url).aspectRatio(3/2, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 7))
+                        LocalThumbnail(url: model.thumbnailURL(for: image)).aspectRatio(3/2, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 7))
                         Text(image.fileName).font(.headline).lineLimit(2)
                         HStack {
                             Button("Cull") { model.page = .cull; model.workspaceDidChange(.cull) }
@@ -454,7 +498,7 @@ private struct LibraryPhotoCard: View {
         let active = model.project.selectedImageID == image.id
         return VStack(alignment: .leading, spacing: 5) {
             ZStack {
-                LocalThumbnail(url: image.url)
+                LocalThumbnail(url: model.thumbnailURL(for: image))
                     .aspectRatio(3/2, contentMode: .fit)
 
                 VStack {

@@ -17,10 +17,14 @@ struct CullWorkspaceView: View {
     @ObservedObject var model: AppModel
     @State private var displayMode: CullDisplayMode = .loupe
     @State private var navigationScope: CullNavigationScope = .visible
+    @State private var reviewFilter: CullReviewFilter = .all
+    @State private var bestPickFolder: String = ""
+    @State private var bestPickFraction: Double = 0.25
     @State private var compareCount = 2
     @State private var zoom: CGFloat = 1
     @AppStorage("cullFilmstripHeight") private var filmstripHeight = 138.0
     @State private var resizeStart: Double?
+    @AppStorage("SpektraFilmStudio.designA.showCullInspector") private var showCullInspector = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,8 +32,10 @@ struct CullWorkspaceView: View {
             Divider()
 
             HSplitView {
-                viewer.frame(minWidth: 680)
-                inspector.frame(minWidth: 270, idealWidth: 310, maxWidth: 380)
+                viewer.frame(minWidth: 500)
+                if showCullInspector {
+                    inspector.frame(minWidth: 270, idealWidth: 310, maxWidth: 380)
+                }
             }
 
             Divider()
@@ -48,14 +54,15 @@ struct CullWorkspaceView: View {
             .pickerStyle(.segmented)
             .frame(width: 260)
 
-            Picker("Navigate", selection: $navigationScope) {
-                ForEach(CullNavigationScope.allCases) {
-                    Text($0.rawValue).tag($0)
+            if model.librarySelection.count >= 2 {
+                Picker("Navigate", selection: $navigationScope) {
+                    ForEach(CullNavigationScope.allCases) {
+                        Text($0.rawValue).tag($0)
+                    }
                 }
+                .pickerStyle(.menu)
+                .frame(width: 125)
             }
-            .pickerStyle(.segmented)
-            .frame(width: 190)
-            .disabled(model.librarySelection.count < 2)
 
             Button { move(-1) } label: {
                 Image(systemName: "chevron.left")
@@ -75,19 +82,63 @@ struct CullWorkspaceView: View {
                 .frame(width: 90)
             }
 
-            HStack(spacing: 5) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                Slider(value: $zoom, in: 1...4)
-                    .frame(width: 110)
-                Text(String(format: "%.1f×", zoom))
-                    .font(.caption.monospacedDigit())
-                    .frame(width: 38)
+            Menu {
                 Button("Fit") { zoom = 1 }
-                    .controlSize(.small)
+                Button("2×") { zoom = 2 }
+                Button("4×") { zoom = 4 }
+                Divider()
+                Slider(value: $zoom, in: 1...4)
+            } label: {
+                Label(String(format: "%.1f×", zoom), systemImage: "magnifyingglass")
             }
+            .menuStyle(.borderlessButton)
+            .frame(width: 75)
 
-            Spacer()
+            Spacer(minLength: 6)
+
+            Menu {
+                Picker("Review", selection: $reviewFilter) {
+                    ForEach(CullReviewFilter.allCases) { f in Text(f.rawValue).tag(f) }
+                }
+            } label: {
+                Label(reviewFilter == .all ? "Filter" : reviewFilter.rawValue,
+                      systemImage: "line.3.horizontal.decrease.circle")
+            }
+            .help("Filter culling by face focus, blink likelihood, exposure, noise or burst membership.")
+
+            Menu {
+                Picker("Folder", selection: $bestPickFolder) {
+                    Text("Current Photo Folder").tag("")
+                    Text("All Folders").tag("__all__")
+                    ForEach(cullFolderPaths, id: \.self) { folder in
+                        Text(URL(fileURLWithPath: folder).lastPathComponent).tag(folder)
+                    }
+                }
+                Divider()
+                Picker("Keep", selection: $bestPickFraction) {
+                    Text("Best 10%").tag(0.10)
+                    Text("Best 25%").tag(0.25)
+                    Text("Best 40%").tag(0.40)
+                    Text("Best 60%").tag(0.60)
+                }
+                Divider()
+                Button("Pick Best in Folder") {
+                    let current = model.selectedImage.map(Self.folderPath)
+                    let folder = bestPickFolder.isEmpty ? (current ?? "__all__") : bestPickFolder
+                    model.pickBestInFolder(folder, fraction: bestPickFraction)
+                }
+                .disabled(model.isCullAnalyzing || model.project.images.isEmpty)
+                Text("Suggested picks only; existing rejects and files are preserved.")
+            } label: {
+                Label("Best Picks", systemImage: "wand.and.stars")
+            }
+            .help("Analyze and select strongest distinct frames per folder, without deleting anything.")
+
+            Button { showCullInspector.toggle() } label: {
+                Image(systemName: "sidebar.right")
+            }
+            .buttonStyle(.borderless)
+            .help(showCullInspector ? "Hide cull details" : "Show cull details")
 
             if model.isCullAnalyzing {
                 ProgressView(value: model.cullAnalysisProgress)
@@ -119,7 +170,7 @@ struct CullWorkspaceView: View {
         switch displayMode {
         case .loupe:
             if let image = model.selectedImage {
-                CullPreview(url: image.url, zoom: zoom)
+                CullPreview(url: model.thumbnailURL(for: image), zoom: zoom)
                     .overlay(alignment: .topLeading) {
                         viewerBadge(image)
                     }
@@ -134,7 +185,7 @@ struct CullWorkspaceView: View {
                 spacing: 8
             ) {
                 ForEach(Array(comparisonImages.prefix(compareCount))) { image in
-                    CullPreview(url: image.url, zoom: zoom)
+                    CullPreview(url: model.thumbnailURL(for: image), zoom: zoom)
                         .frame(minHeight: 280)
                         .overlay(alignment: .topLeading) {
                             viewerBadge(image)
@@ -151,7 +202,7 @@ struct CullWorkspaceView: View {
                                 )
                         }
                         .onTapGesture {
-                            model.selectImage(image.id, renderPreview: false)
+                            model.selectLibraryImage(image.id)
                         }
                 }
             }
@@ -164,7 +215,7 @@ struct CullWorkspaceView: View {
                     spacing: 8
                 ) {
                     ForEach(Array(cullPool.prefix(24))) { image in
-                        CullPreview(url: image.url, zoom: 1)
+                        CullPreview(url: model.thumbnailURL(for: image), zoom: 1)
                             .frame(minHeight: 190)
                             .overlay(alignment: .topLeading) {
                                 viewerBadge(image)
@@ -181,7 +232,7 @@ struct CullWorkspaceView: View {
                                     )
                             }
                             .onTapGesture {
-                                model.selectImage(image.id, renderPreview: false)
+                                model.selectLibraryImage(image.id)
                             }
                     }
                 }
@@ -361,8 +412,9 @@ struct CullWorkspaceView: View {
                             "Open in Edit",
                             systemImage: "slider.horizontal.3"
                         ) {
-                            model.page = .edit
-                            model.workspaceDidChange(.edit)
+                            if let id = model.selectedImage?.id {
+                                model.focusPhoto(id, destination: .edit)
+                            }
                         }
                         .buttonStyle(.borderedProminent)
                     }
@@ -433,7 +485,7 @@ struct CullWorkspaceView: View {
                         VStack(spacing: 3) {
                             ZStack(alignment: .topTrailing) {
                                 LocalThumbnail(
-                                    url: image.url,
+                                    url: model.thumbnailURL(for: image),
                                     contentMode: .fit
                                 )
                                 .frame(
@@ -499,10 +551,7 @@ struct CullWorkspaceView: View {
                                 )
                         }
                         .onTapGesture {
-                            model.selectImage(
-                                image.id,
-                                renderPreview: false
-                            )
+                            model.selectLibraryImage(image.id)
                         }
                     }
                 }
@@ -514,13 +563,21 @@ struct CullWorkspaceView: View {
         .frame(height: CGFloat(filmstripHeight))
     }
 
+    private static func folderPath(_ photo: ProjectImageRecord) -> String {
+        photo.logicalFolderPath ?? photo.url.deletingLastPathComponent().standardizedFileURL.path
+    }
+
+    private var cullFolderPaths: [String] {
+        Array(Set(model.project.images.map(Self.folderPath))).sorted()
+    }
+
     private var cullPool: [ProjectImageRecord] {
         if navigationScope == .highlighted,
            model.librarySelection.count > 1 {
             let ids = model.librarySelection
-            return model.visibleImages.filter { ids.contains($0.id) }
+            return model.visibleImages.filter { ids.contains($0.id) && reviewFilter.includes($0) }
         }
-        return model.visibleImages
+        return model.visibleImages.filter { reviewFilter.includes($0) }
     }
 
     private var comparisonImages: [ProjectImageRecord] {
@@ -544,7 +601,7 @@ struct CullWorkspaceView: View {
         let current = model.project.selectedImageID
         let index = pool.firstIndex(where: { $0.id == current }) ?? 0
         let next = min(pool.count - 1, max(0, index + delta))
-        model.selectImage(pool[next].id, renderPreview: false)
+        model.selectLibraryImage(pool[next].id)
     }
 
     private func viewerBadge(_ image: ProjectImageRecord) -> some View {

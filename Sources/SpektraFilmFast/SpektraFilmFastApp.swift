@@ -48,6 +48,22 @@ struct SpektraCommands: Commands {
             Button("Save Project") { model.saveProject() }.keyboardShortcut("s")
             Button("Save Project As…") { model.saveProject(asNew: true) }.keyboardShortcut("s", modifiers: [.command, .shift])
         }
+        CommandMenu("Cloud Library") {
+            Button("Import Lightroom Catalog to iCloud…") { model.importLightroomCatalogToICloud() }
+            Button("Move Current Library to iCloud…") { model.moveCurrentLibraryToICloud() }
+                .disabled(model.project.images.isEmpty || model.isCloudLibraryConnected)
+            Button("Open iCloud Library…") { model.openICloudLibrary() }
+            Divider()
+            Button("Sync Now") { Task { await model.synchronizeCloudNow() } }
+                .disabled(!model.isCloudLibraryConnected || model.isCloudSyncing)
+            Button("Keep Selected Downloaded") { model.keepSelectedCloudOriginalsDownloaded() }
+                .disabled(!model.isCloudLibraryConnected)
+            Button("Free Selected Local Copies") { model.freeSelectedCloudOriginals() }
+                .disabled(!model.isCloudLibraryConnected)
+            Divider()
+            Button("Disconnect iCloud Library") { model.disconnectCloudLibrary() }
+                .disabled(!model.isCloudLibraryConnected)
+        }
         CommandMenu("Media") {
             Button("Relink Missing Media…") { model.relinkMissingMedia() }
             Divider()

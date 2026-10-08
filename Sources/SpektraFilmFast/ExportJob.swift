@@ -120,7 +120,8 @@ struct ExportJob: Identifiable, Codable, Sendable, Equatable {
         return Double(processedCount) / Double(items.count)
     }
 
-    static let postProcessWorkerCount = 4
+    // Absolute ceiling. Large full-resolution frames are dynamically limited to one.
+    static let postProcessWorkerCount = 2
 
     var estimatedRemainingSeconds: Double? {
         let samples = items.compactMap(\.timings).filter { $0.wallMs > 0 }

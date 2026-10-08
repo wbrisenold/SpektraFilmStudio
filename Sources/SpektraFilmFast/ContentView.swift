@@ -1,8 +1,11 @@
 import SwiftUI
 
+/// Native Pro Studio shell: project actions live in a text-only menu, photography
+/// workflows stay in one predictable navigation row, and status is unobtrusive.
 struct ContentView: View {
     @ObservedObject var model: AppModel
     @ObservedObject private var frameState: PreviewFrameState
+    @State private var showingImportWizard = false
 
     init(model: AppModel) {
         self.model = model
@@ -13,14 +16,17 @@ struct ContentView: View {
         VStack(spacing: 0) {
             topToolbar
             if model.missingMediaCount > 0 { missingMediaBanner }
-            Divider().opacity(0.65)
+            Rectangle().fill(StudioPalette.divider).frame(height: 1)
             workspace
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            Divider().opacity(0.65)
+            Rectangle().fill(StudioPalette.divider).frame(height: 1)
             statusBar
         }
         .background(StudioPalette.canvas)
-        .frame(minWidth: 1180, minHeight: 760)
+        .frame(minWidth: 1024, minHeight: 650)
+        .sheet(isPresented: $showingImportWizard) {
+            StudioImportWizard(model: model)
+        }
         .onChange(of: model.page) { _, newPage in
             model.workspaceDidChange(newPage)
         }
@@ -49,94 +55,91 @@ struct ContentView: View {
     }
 
     private var topToolbar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Menu {
                 Button("New Project") { model.newProject() }
                 Button("Open Project…") { model.openProject() }
                 Divider()
+                Button("Import Photos…") { showingImportWizard = true }
                 Button("Standalone Photo Mode…") { model.standalonePhotoMode() }
             } label: {
-                HStack(spacing: 7) {
-                    SpektraApplicationIconView()
-                        .frame(width: 22, height: 22)
-                    VStack(alignment: .leading, spacing: 0) {
-                        HStack(spacing: 5) {
-                            Text("SpektraFilm Studio")
-                                .font(.system(size: 12, weight: .semibold))
-                            if model.isProjectDirty {
-                                Circle()
-                                    .fill(.secondary)
-                                    .frame(width: 5, height: 5)
-                                    .help("Unsaved changes")
-                            }
-                        }
-                        Text(model.project.name)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                HStack(spacing: 5) {
+                    Text(model.project.name == "Untitled Project" ? "SpektraFilm" : model.project.name)
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if model.isProjectDirty {
+                        Circle().fill(.secondary).frame(width: 5, height: 5)
+                            .help("Unsaved project changes")
                     }
                     Image(systemName: "chevron.down")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
                 }
-                .contentShape(Rectangle())
+                .frame(maxWidth: 190)
             }
             .menuStyle(.borderlessButton)
-            .fixedSize()
+            .help("Project and import actions")
 
-            Divider().frame(height: 24)
+            Spacer(minLength: 6)
 
             HStack(spacing: 2) {
                 ForEach(WorkspacePage.allCases) { page in
                     Button {
                         model.page = page
                     } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: page.systemImage)
-                            Text(page.title)
-                        }
-                        .font(.system(size: 11, weight: model.page == page ? .semibold : .regular))
-                        .foregroundStyle(model.page == page ? .primary : .secondary)
-                        .padding(.horizontal, 12)
-                        .frame(height: 30)
-                        .background(model.page == page ? StudioPalette.selected : Color.clear, in: RoundedRectangle(cornerRadius: 7))
+                        Text(page.title)
+                            .font(.system(size: 12, weight: model.page == page ? .semibold : .regular))
+                            .foregroundStyle(model.page == page ? .primary : .secondary)
+                            .padding(.horizontal, 13)
+                            .frame(height: 29)
+                            .background(
+                                model.page == page ? StudioPalette.selected : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 6)
+                            )
                     }
                     .buttonStyle(.plain)
+                    .accessibilityAddTraits(model.page == page ? [.isSelected] : [])
                 }
             }
-            .padding(2)
+            .padding(3)
             .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 9))
+            .accessibilityLabel("Workspace")
 
-            Spacer(minLength: 12)
+            Spacer(minLength: 6)
 
-            if let image = model.selectedImage {
-                HStack(spacing: 2) {
-                    ForEach(1...5, id: \.self) { n in
-                        StudioIconButton(
-                            systemImage: n <= image.rating ? "star.fill" : "star",
-                            help: "Rate \(n) star\(n == 1 ? "" : "s")"
-                        ) { model.setRating(n) }
-                    }
+            if model.isIngesting {
+                ProgressView(value: model.ingestProgress)
+                    .frame(width: 64)
+                    .help(model.ingestStatus)
+            }
+
+            if model.isExporting {
+                ProgressView()
+                    .controlSize(.mini)
+                    .help("Export in progress")
+            }
+
+            if model.page == .library && !model.project.images.isEmpty {
+                Button {
+                    showingImportWizard = true
+                } label: {
+                    Label("Import", systemImage: "plus")
                 }
-                .foregroundStyle(.secondary)
-
-                Divider().frame(height: 22)
-
-                StudioIconButton(
-                    systemImage: image.flag == .picked ? "flag.fill" : "flag",
-                    help: "Pick",
-                    isSelected: image.flag == .picked
-                ) { model.setFlag(.picked) }
-
-                StudioIconButton(
-                    systemImage: image.flag == .rejected ? "xmark.circle.fill" : "xmark.circle",
-                    help: "Reject",
-                    isSelected: image.flag == .rejected
-                ) { model.setFlag(.rejected) }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            } else if model.page == .edit, model.selectedImage != nil {
+                Button {
+                    model.page = .export
+                } label: {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
         }
-        .padding(.horizontal, 12)
-        .frame(height: StudioLayout.toolbarHeight)
+        .padding(.horizontal, 14)
+        .frame(height: 45)
         .background(StudioPalette.panel)
     }
 
@@ -156,39 +159,31 @@ struct ContentView: View {
     }
 
     private var statusBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Text(frameState.status)
                 .lineLimit(1)
                 .truncationMode(.middle)
-
             Spacer(minLength: 12)
-
             if model.isCullAnalyzing {
                 Text("Cull \(Int(model.cullAnalysisProgress * 100))%")
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
-
             if frameState.isRendering {
                 ProgressView().controlSize(.mini)
                 Text("Rendering").foregroundStyle(.secondary)
             }
-
-            if model.rendererAvailable {
-                Text(String(format: "GPU %.1f ms", frameState.diagnostics.commandBufferMs))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
-
             if let image = frameState.renderedPreview {
                 Text("\(max(image.width, image.height)) px")
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
+            // GPU timing stays available in the scopes/diagnostics inspector,
+            // rather than occupying permanent toolbar/status real estate.
         }
         .font(.caption2)
-        .padding(.horizontal, 10)
-        .frame(height: StudioLayout.statusHeight)
+        .padding(.horizontal, 12)
+        .frame(height: 22)
         .background(StudioPalette.panel)
     }
 }

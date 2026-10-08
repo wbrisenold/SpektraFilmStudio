@@ -334,6 +334,45 @@ require("SpektraFilmStudio-GPL-3.0.txt" in build_app, "root GPL license is not p
 require((ROOT / "THIRD_PARTY" / "ME_Desatch" / "NOTICE").exists(),
         "ME deSatch source attribution missing")
 
+# iCloud Lightroom migration + export UX/stability.
+cloud = text("SpektraCloudLibrary.swift")
+cloud_support = text("CloudLibrarySupport.swift")
+quick_export = text("QuickExportSheet.swift")
+edit_view = text("EditView.swift")
+export_view = text("ExportView.swift")
+cull_view = text("CullView.swift")
+export_job = text("ExportJob.swift")
+require("CloudLibraryOperation" in cloud and "CloudLibrarySnapshot" in cloud,
+        "immutable iCloud journal/snapshot architecture missing")
+require("importLightroomClassic" in cloud and "LightroomDevelopMapper" in text("LightroomDevelopMapper.swift"),
+        "Lightroom-to-iCloud migration missing")
+require("cloudRelativePath" in models and "cloudPreviewRelativePath" in models,
+        "portable cloud paths/smart previews missing")
+require("var originalByPath: [String: String]" in cloud and
+        "previewRelativePath(photoID: recordID)" in cloud and
+        "[String: (original: String, preview: String?)]" not in cloud,
+        "virtual copies can still share a mutable cloud preview")
+require("scheduleCloudPublish()" in app and "restoreCloudLibraryIfPossible" in app,
+        "project edits are not wired to cloud sync")
+require("materializeIfNeeded(url)" in app,
+        "full-resolution export does not materialize iCloud placeholders")
+require("postProcessWorkerCount = 2" in export_job and
+        "exportPostprocessWorkerLimit" in app and
+        "estimatedBytes >= 640 * mib" in app,
+        "full-resolution export lacks the large-frame one-worker memory gate")
+require("pixels <= 12_000_000" in app and "UInt64(pixels) * 80" in app,
+        "large-image decode-ahead can still overcommit memory")
+require("var working = MaskedLocalGradeEngine.apply" in app and "working = LensCharacterEngine.apply" in app,
+        "export keeps multiple full-resolution intermediates live")
+require("QuickExportSheet" in edit_view and 'Button("Export This Photo…")' in edit_view,
+        "compact single-photo export flow missing")
+require("Crop Photo" in export_view and "PreviewView(model: model)" in export_view,
+        "Export does not reuse Edit crop workflow")
+require("selectLibraryImage(image.id)" in export_view and "selectLibraryImage(image.id)" in cull_view,
+        "focused photo does not remain continuous across pages")
+require("CloudLibraryPanel(model: model)" in text("LibraryView.swift"),
+        "iCloud controls missing from Library")
+
 # Expanded scene-tone controls must be real model + UI + processing controls, not labels.
 tone_engine = text("ToneGradeEngine.swift")
 controls = text("ControlsView.swift")
@@ -412,7 +451,7 @@ require("projectGeneration += 1" in app and "peopleGroupingTask" in app and "pro
 require("Import time is never" in cull_support and "seconds <= 3.0 && hashDistance <= 18" in cull_support, "burst grouping can still use import time/hash-only chaining")
 require("syncActiveLookToHighlighted" in cull_support and 'Menu("Sync Active Look")' in library, "batch look sync missing")
 require("SHA256" in managed_ingest and "primary + backup verified" in managed_ingest and "active-ingest.json" in managed_ingest, "verified resumable ingest missing")
-require('Button("Ingest + Backup…"' in library and 'Button("Resume Ingest"' in library, "managed ingest UI missing")
+require('Button("Verified Card Ingest…"' in library and 'Button("Resume Ingest"' in library, "managed ingest UI missing")
 require("active-export.json" in export_job and "normalizeAfterInterruptedLaunch" in export_job, "crash-resumable export journal missing")
 require('expanded += "_\\(sequenceText)"' in export_job, "static export templates do not auto-number")
 require("replaceItemAt" not in text("ExportWriter.swift") and "destinationExists" in text("ExportWriter.swift"), "export writer can still overwrite existing files")
@@ -454,10 +493,12 @@ require(
     "Alcedo-style bounded post-render export pool is missing"
 )
 require(
-    "postProcessWorkerCount = 4" in export_job and
+    "postProcessWorkerCount = 2" in export_job and
+    "exportPostprocessWorkerLimit" in app and
+    "estimatedBytes >= 640 * mib" in app and
     "actor ExportEngine" not in export and
     "struct ExportEngine: Sendable" in export,
-    "export post-process concurrency is still serialized"
+    "export post-process concurrency is not memory-adaptive"
 )
 require(
     "Stage 1 boundary: the serialized render lane ENDS here." in app,

@@ -6,8 +6,8 @@ enum StudioLayout {
     static let statusHeight: CGFloat = 26
     static let librarySidebarWidth: CGFloat = 212
     static let libraryInspectorWidth: CGFloat = 286
-    static let presetSidebarWidth: CGFloat = 318
-    static let editorInspectorWidth: CGFloat = 360
+    static let presetSidebarWidth: CGFloat = 270
+    static let editorInspectorWidth: CGFloat = 336
     static let filmstripHeight: CGFloat = 112
     static let panelCornerRadius: CGFloat = 10
     static let compactCornerRadius: CGFloat = 7

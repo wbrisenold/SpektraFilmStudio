@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ControlsView: View {
     @ObservedObject var model: AppModel
+    var mode: StudioInspectorMode = .adjust
     // One accordion across all adjustment groups, including Film and Lens Character.
     @State private var openAdjustment: String? = "tone"
     @State private var inspectorSearch = ""
@@ -44,15 +45,19 @@ struct ControlsView: View {
 
             ScrollView {
             LazyVStack(spacing: 7) {
-                if panelVisible("raw") && sectionMatches("raw", terms: ["raw", "white balance", "wb", "as shot", "auto white balance", "temperature", "tint", "denoise", "camera", "lens correction"]) { rawSection }
-                if panelVisible("tone") && sectionMatches("tone", terms: ["raw develop", "raw exposure", "raw tone", "curve", "shadow boost", "highlight headroom", "edr"]) { toneSection }
-                if panelVisible("density") && sectionMatches("density", terms: ["color density", "density", "red", "yellow", "green", "cyan", "blue", "magenta", "luminance"]) { colorDensitySection }
-                if panelVisible("geometry") && sectionMatches("geometry", terms: ["crop", "geometry", "aspect", "rotation", "perspective", "flip", "straighten", "scale", "offset"]) { geometrySection }
-                if panelVisible("lens") && sectionMatches("lens", terms: ["lens character", "lens", "optical", "aberration", "vignette", "petzval", "swirl", "spherical", "distortion", "edge blur"]) {
+                if mode == .adjust && panelVisible("raw") && sectionMatches("raw", terms: ["raw", "white balance", "wb", "as shot", "auto white balance", "temperature", "tint", "denoise", "camera", "lens correction"]) { rawSection }
+                if mode != .film && panelVisible("tone") && sectionMatches("tone", terms: ["raw develop", "raw exposure", "raw tone", "curve", "shadow boost", "highlight headroom", "edr"]) { toneSection }
+                if mode == .film && panelVisible("density") && sectionMatches("density", terms: ["color density", "density", "red", "yellow", "green", "cyan", "blue", "magenta", "luminance"]) { colorDensitySection }
+                if mode == .adjust && panelVisible("geometry") && sectionMatches("geometry", terms: ["crop", "geometry", "aspect", "rotation", "perspective", "flip", "straighten", "scale", "offset"]) { geometrySection }
+                if mode == .adjust && panelVisible("lens") && sectionMatches("lens", terms: ["lens character", "lens", "optical", "aberration", "vignette", "petzval", "swirl", "spherical", "distortion", "edge blur"]) {
                     LensCharacterPanel(model: model, isExpanded: sectionBinding("lens"))
                 }
 
-                ForEach(catalog.groups.filter { $0.id != "raw" }) { group in
+                if mode == .masks {
+                    MaskPanelView(model: model)
+                }
+                if mode == .film {
+                    ForEach(catalog.groups.filter { $0.id != "raw" }) { group in
                     let descriptors = catalog.parameters(in: group.id, flavor: .pro)
                         .filter(bridgeControlVisible)
                     if !descriptors.isEmpty && panelVisible("film.\(group.id)") {
@@ -87,6 +92,7 @@ struct ControlsView: View {
                         }
                     }
                 }
+                }
             }
             .padding(9)
             .overlay {
@@ -98,8 +104,14 @@ struct ControlsView: View {
             }
         }
         .tint(Color.primary.opacity(0.78))
+        .onChange(of: mode) { _, newMode in
+            openAdjustment = newMode == .film
+                ? catalog.groups.first(where: { $0.id != "raw" }).map { "film.\($0.id)" }
+                : "tone"
+            if newMode != .adjust { model.setCropToolActive(false) }
+        }
         .onChange(of: openAdjustment) { _, section in
-            model.setCropToolActive(section == "geometry")
+            model.setCropToolActive(section == "geometry" && mode == .adjust)
         }
         .onChange(of: inspectorSearch) { _, value in
             if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
