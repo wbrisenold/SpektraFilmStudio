@@ -246,3 +246,10 @@ local Mac build remains the authoritative compile/link/runtime gate, because the
 pinned native core needs the macOS 26 SDK.
 
 There is no GitHub Actions release requirement in this package. Local Mac build is the authoritative compile/link/runtime gate.
+
+### 2026-10-08 11:20 — v0.6.8 Cloud UX Patch Applied
+- Commit: 9f238f5 — Cloud UX patch (RAW tabs + Film stage gating + in-app Oracle/rclone setup wizard)
+- Files: +3 new (CloudSetupWizard.swift, OracleRcloneSetup.swift, OracleHostKeyVerifier.swift); 3 modified (ControlsView.swift, NativeCloudTransferView.swift, SettingsView.swift)
+- Build: Intel x86_64 RELEASE, BUILD_EXIT=0, ~196s; zip: dist/SpektraFilmStudio-0.6.8-macOS-intel.zip (sha256 d61adbd2…)
+- Gates: verify_source.sh PASS, qa_10_passes.sh 10/10; only pre-existing warnings (PresetBrowserView.swift:89 var→let, LensCharacterPanel.swift:68 Sendable closure)
+- Upload: first RepairKit asset upload still in background (PID 42101, clobber; may take ~40–90min). Code is pushed and readable by ChatGPT at 9f238f5.
