@@ -65,7 +65,30 @@ enum RedlampMaskSmokeTest {
             print("FAIL: CGContext image readback vertically flipped the mask canvas")
             return 18
         }
-        print("PASS: Redlamp mask Metal parity, visible center, and top/bottom CGImage orientation")
+        // Asymmetric AI/raster mask: verify the *actual selected* upper half
+        // rather than relying solely on a symmetric radial mask smoke test.
+        var rasterGrade = LocalGradeRecord(name: "Raster parity")
+        var rasterSource = MaskSourceRecord(name: "Upper half", kind: .raster)
+        var alpha = [UInt8](repeating: 0, count: width * height)
+        for y in 0..<(height / 2) {
+            for x in 0..<width { alpha[y * width + x] = 255 }
+        }
+        rasterSource.raster = RasterMaskPayload(width: width, height: height, alpha: alpha)
+        rasterGrade.masks.sources = [rasterSource]
+        guard let localCoverage = MaskMetalEngine.shared?.renderCoverage(
+            grade: rasterGrade, width: width, height: height
+        ), localCoverage[width / 2 + (height / 4) * width] > 0.9,
+           localCoverage[width / 2 + ((height * 3) / 4) * width] < 0.1,
+           let overlayFrame = RedlampMaskDisplay.compose(
+               rgba: input, displayWidth: width, displayHeight: height,
+               grade: rasterGrade, preGeometryWidth: width, preGeometryHeight: height,
+               geometry: nil, style: .color
+           ), overlayFrame[upper] > input[upper] + 25,
+           overlayFrame[lower] == input[lower] else {
+            print("FAIL: Selected asymmetric raster mask does not match overlay")
+            return 19
+        }
+        print("PASS: Redlamp mask Metal parity, asymmetric raster, visible center, and image orientation")
         return 0
     }
 }

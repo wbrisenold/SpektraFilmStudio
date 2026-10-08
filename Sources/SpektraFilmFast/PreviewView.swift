@@ -78,7 +78,9 @@ struct PreviewView: View {
                             maskOverlayError = "Cannot read image pixels for mask overlay"
                             return
                         }
-                        let geometry = model.selectedLook.geometry
+                        let expectedPhotoID = model.project.selectedImageID
+                        let expectedGeometry = model.selectedLook.geometry
+                        let geometry = expectedGeometry
                         let chosenStyle = RedlampMaskDisplayStyle(rawValue: redlampStyle) ?? .color
                         let width = image.width, height = image.height
                         let task = Task.detached(priority: .userInitiated) {
@@ -94,7 +96,9 @@ struct PreviewView: View {
                         } onCancel: {
                             task.cancel()
                         }
-                        guard !Task.isCancelled, model.activeLocalGradeID == grade.id else { return }
+                        guard !Task.isCancelled, model.activeLocalGradeID == grade.id,
+                              model.project.selectedImageID == expectedPhotoID,
+                              model.selectedLook.geometry == expectedGeometry else { return }
                         guard let output else {
                             maskOverlayError = "Mask overlay Metal/geometry evaluation failed"
                             return

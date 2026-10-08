@@ -6,6 +6,7 @@ struct ContentView: View {
     @ObservedObject var model: AppModel
     @ObservedObject private var frameState: PreviewFrameState
     @State private var showingImportWizard = false
+    @State private var showingCloudTransfer = false
 
     init(model: AppModel) {
         self.model = model
@@ -26,6 +27,9 @@ struct ContentView: View {
         .frame(minWidth: 1024, minHeight: 650)
         .sheet(isPresented: $showingImportWizard) {
             StudioImportWizard(model: model)
+        }
+        .sheet(isPresented: $showingCloudTransfer) {
+            NativeCloudTransferView(model: model)
         }
         .onChange(of: model.page) { _, newPage in
             model.workspaceDidChange(newPage)
@@ -98,6 +102,15 @@ struct ContentView: View {
             .accessibilityLabel("Workspace")
 
             Spacer(minLength: 6)
+
+            Button {
+                showingCloudTransfer = true
+            } label: {
+                Label("Connections", systemImage: "icloud.and.arrow.up")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .help("Configure Lightroom, Oracle transfer and iCloud in SpektraFilm")
 
             if model.isIngesting {
                 ProgressView(value: model.ingestProgress)

@@ -49,10 +49,10 @@ struct ControlsView: View {
                         ? (openAdjustment ?? "tone") : "tone" },
                     set: { openAdjustment = $0 }
                 )) {
-                    Text("WB").tag("raw")
+                    Text("White Balance").tag("raw")
                     Text("Develop").tag("tone")
-                    Text("Crop").tag("geometry")
-                    Text("Optics").tag("lens")
+                    Text("Geometry").tag("geometry")
+                    Text("Lens / Optics").tag("lens")
                 }
                 .pickerStyle(.segmented)
                 .controlSize(.small)
@@ -62,11 +62,11 @@ struct ControlsView: View {
 
             ScrollView {
             LazyVStack(spacing: 7) {
-                if mode == .adjust && panelVisible("raw") && sectionMatches("raw", terms: ["raw", "white balance", "wb", "as shot", "auto white balance", "temperature", "tint", "denoise", "camera", "lens correction"]) { rawSection }
-                if mode == .adjust && panelVisible("tone") && sectionMatches("tone", terms: ["raw develop", "raw exposure", "raw tone", "curve", "shadow boost", "highlight headroom", "edr"]) { toneSection }
+                if mode == .adjust && openAdjustment == "raw" && panelVisible("raw") && sectionMatches("raw", terms: ["raw", "white balance", "wb", "as shot", "auto white balance", "temperature", "tint", "denoise", "camera", "lens correction"]) { rawSection }
+                if mode == .adjust && openAdjustment == "tone" && panelVisible("tone") && sectionMatches("tone", terms: ["raw develop", "raw exposure", "raw tone", "curve", "shadow boost", "highlight headroom", "edr"]) { toneSection }
                 if mode == .film && panelVisible("density") && sectionMatches("density", terms: ["color density", "density", "red", "yellow", "green", "cyan", "blue", "magenta", "luminance"]) { colorDensitySection }
-                if mode == .adjust && panelVisible("geometry") && sectionMatches("geometry", terms: ["crop", "geometry", "aspect", "rotation", "perspective", "flip", "straighten", "scale", "offset"]) { geometrySection }
-                if mode == .adjust && panelVisible("lens") && sectionMatches("lens", terms: ["lens character", "lens", "optical", "aberration", "vignette", "petzval", "swirl", "spherical", "distortion", "edge blur"]) {
+                if mode == .adjust && openAdjustment == "geometry" && panelVisible("geometry") && sectionMatches("geometry", terms: ["crop", "geometry", "aspect", "rotation", "perspective", "flip", "straighten", "scale", "offset"]) { geometrySection }
+                if mode == .adjust && openAdjustment == "lens" && panelVisible("lens") && sectionMatches("lens", terms: ["lens character", "lens", "optical", "aberration", "vignette", "petzval", "swirl", "spherical", "distortion", "edge blur"]) {
                     LensCharacterPanel(model: model, isExpanded: sectionBinding("lens"))
                 }
 

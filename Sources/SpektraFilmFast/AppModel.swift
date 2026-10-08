@@ -4061,6 +4061,7 @@ final class AppModel: ObservableObject {
             let data = try Self.encoder.encode(project)
             try data.write(to: target, options: .atomic)
             projectURL = target
+            RecentSpektraProjects.record(target)
             isProjectDirty = false
             autosaveTask?.cancel()
             ProjectRecoveryStore.clearSynchronously()
@@ -4077,12 +4078,15 @@ final class AppModel: ObservableObject {
     // Never parse/migrate them on the UI actor, and never replace the current
     // document unless the whole decode and validation succeeds.
     func openProject() {
-        guard confirmDestructiveTransitionIfNeeded() else { return }
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.spektrafilmProject]
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        openProject(at: url)
+    }
 
+    func openProject(at url: URL) {
+        guard confirmDestructiveTransitionIfNeeded() else { return }
         status = "Opening \(url.lastPathComponent)…"
         Task { [weak self] in
             guard let self else { return }
@@ -4111,6 +4115,7 @@ final class AppModel: ObservableObject {
                 suppressDirtyTracking = true
                 project = opened
                 projectURL = url
+                RecentSpektraProjects.record(url)
                 isProjectDirty = false
                 suppressDirtyTracking = false
                 undoStack.removeAll()
@@ -4767,10 +4772,11 @@ final class AppModel: ObservableObject {
                     let nextIsCloud = project.images.first(where: {
                         $0.id == job.items[nextIndex].sourceImageID
                     })?.cloudRelativePath != nil
-                    if !nextIsCloud && Self.shouldPrefetchExportDecode(nextURL) {
-                        decodeAheadIndex = nextIndex
-                        decodeAhead = startDecode(index: nextIndex)
-                    }
+                    // A 45+ MP RAW can retain several GB across the renderer and
+                    // post-processing. Prefetch is disabled until GPU-resident handoff
+                    // and measured byte-based admission are implemented.
+                    _ = nextIsCloud
+                    _ = nextURL
                 }
 
                 status = "Preparing host grade · \(item.sourceFileName)"
@@ -4891,9 +4897,10 @@ final class AppModel: ObservableObject {
                         task: postTask
                     )
                 )
-
-                status =
-                    "Rendering pipeline · \(pendingPostprocess.count) post-process worker\(pendingPostprocess.count == 1 ? "" : "s") active"
+                // Complete and release this full frame before decoding the next.
+                // This is deliberate back-pressure for crash containment, not a
+                // claim that the complete spectral/RAW pipeline is GPU-resident.
+                try await settlePostprocess(at: 0)
 
             } catch is CancellationError {
                 if !pendingPostprocess.contains(where: { $0.index == index }),

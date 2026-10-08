@@ -46,6 +46,33 @@ struct StudioImportWelcomeView: View {
                     }
                     .frame(maxWidth: 720)
 
+                    if !RecentSpektraProjects.urls.isEmpty {
+                        VStack(alignment: .leading, spacing: 9) {
+                            Text("RECENT PROJECTS")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            ForEach(RecentSpektraProjects.urls, id: \.path) { url in
+                                Button {
+                                    model.openProject(at: url)
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "folder")
+                                        Text(url.deletingPathExtension().lastPathComponent)
+                                            .lineLimit(1)
+                                        Spacer()
+                                        Text(url.deletingLastPathComponent().lastPathComponent)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .padding(9)
+                                }
+                                .buttonStyle(.plain)
+                                .background(StudioPalette.panel, in: RoundedRectangle(cornerRadius: 7))
+                            }
+                        }
+                        .frame(maxWidth: 640)
+                    }
+
                     if model.hasRecoverableIngest {
                         Button("Resume previous verified import") {
                             model.resumeManagedIngest()

@@ -54,9 +54,10 @@ struct RedlampMaskDisplay {
         let h = max(1, Int((Double(preGeometryHeight) * scale).rounded()))
         // Read the SAME Metal mask coverage path used by the local-grade renderer;
         // only use the matching Redlamp-derived CPU implementation if GPU is unavailable.
-        guard let coverage = MaskMetalEngine.shared?.renderCoverage(
-            grade: grade, width: w, height: h
-        ), coverage.count == w * h else {
+        // Reuse the exact coverage evaluator local grades use. Never silently
+        // select a different mask raster/evaluator for display.
+        let coverage = MaskedLocalGradeEngine.coverageForGrade(grade, width: w, height: h)
+        guard coverage.count == w * h else {
             GPUProcessingFailure.report("Mask overlay Metal evaluation failed. No CPU fallback is running.")
             return nil
         }

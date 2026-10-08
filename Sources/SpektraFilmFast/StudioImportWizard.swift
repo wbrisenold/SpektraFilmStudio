@@ -65,6 +65,16 @@ struct StudioImportWizard: View {
                 Text("Import into SpektraFilm")
                     .font(.system(size: 20, weight: .semibold))
                 Spacer()
+                if !RecentSpektraProjects.urls.isEmpty {
+                    Menu("Recent Projects") {
+                        ForEach(RecentSpektraProjects.urls, id: \.path) { url in
+                            Button(url.deletingPathExtension().lastPathComponent) {
+                                dismiss()
+                                model.openProject(at: url)
+                            }
+                        }
+                    }
+                }
                 Button("Cancel") { dismiss() }
                     .buttonStyle(.borderless)
                     .disabled(started)

@@ -181,12 +181,27 @@ actor StudioAnalysisEngine {
                     b: monitorPixels[diagnosticIndex + 2]
                 )
 
-                // False Color is the calibration reference. Percentages and overlay now use
-                // the exact same final-display luma bands.
-                let isHardHighlight = monitor.falseColorHighlightHard
-                let isHardShadow = monitor.falseColorShadowHard
-                let isHighlightRisk = monitor.falseColorHighlightRisk
-                let isShadowRisk = monitor.falseColorShadowRisk
+                // Analyze the exact settled display output. Clipping is governed by the
+                // selected clipping algorithm, not False Color's fixed exposure-zone bands.
+                // False Color intentionally retains its independent artistic zone scale.
+                let hard = Self.clippingFlags(
+                    r: monitor.r, g: monitor.g, b: monitor.b,
+                    mode: preferences.clippingPreviewMode,
+                    upper: Float(preferences.clippingHighlightThreshold),
+                    lower: Float(preferences.clippingShadowThreshold)
+                )
+                let risk = Self.clippingFlags(
+                    r: monitor.r, g: monitor.g, b: monitor.b,
+                    mode: preferences.clippingPreviewMode,
+                    upper: Float(min(preferences.clippingHighlightThreshold,
+                                     preferences.exposureHighlightRiskThreshold)),
+                    lower: Float(max(preferences.clippingShadowThreshold,
+                                     preferences.exposureShadowRiskThreshold))
+                )
+                let isHardHighlight = hard.highlight
+                let isHardShadow = hard.shadow
+                let isHighlightRisk = risk.highlight
+                let isShadowRisk = risk.shadow
                 if isHighlightRisk { highlightCount += 1 }
                 if isShadowRisk { shadowCount += 1 }
                 if isHardHighlight { hardHighlightCount += 1 }
@@ -216,7 +231,7 @@ actor StudioAnalysisEngine {
                     // darktable default look: solid blue = under-clipped.
                     setRGBA(&overlay, overlayIndex, 0, 0, 255, 255)
                 } else if preferences.clippingEnabled && isHighlightRisk {
-                    // Red hot-zone warning follows False Color's >= 0.88 band.
+                    // User-configurable near-clipping risk, on the final displayed image.
                     setRGBA(&overlay, overlayIndex, 255, 34, 22, 216)
                 } else if preferences.clippingEnabled && isShadowRisk {
                     setRGBA(&overlay, overlayIndex, 20, 75, 255, 175)
