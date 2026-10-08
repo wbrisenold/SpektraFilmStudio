@@ -231,7 +231,7 @@ cull = text("CullView.swift")
 cull_support = text("LibraryCullSupport.swift")
 cull_engine = text("CullEngine.swift")
 require("LazyVGrid" in library and "Smart Cull" in library and "AI Review" in library, "professional Library grid/filter surface missing")
-require("Loupe" in cull and "Compare" in cull and "Survey" in cull, "Cull loupe/compare/survey modes missing")
+require(all("case " + mode in cull for mode in ("loupe", "compare", "survey")), "Cull single/compare/overview modes missing")
 require("chunkSize = 3" in cull_support and "withTaskGroup" in cull_support, "Smart Cull work is not bounded")
 require("import Vision" in cull_engine and "VNDetectFaceRectanglesRequest" in cull_engine and "dHash" in cull_engine, "Vision face/perceptual cull analysis missing")
 require("YuNetFaceDetector" not in cull_engine, "removed YuNet Core ML detector returned")
@@ -424,7 +424,7 @@ require("minimumScaleToCoverCrop" in geometry and "effectiveSettings.scale = max
 require("minimumScaleToCoverCrop(" in app and "geometry.autoCrop = false" in app, "crop viewer does not preview the solved Auto Fill zoom")
 require('changedParameter == "crop" && isCropToolActive' in app and "objectWillChange.send()" in app, "crop overlay still forces an image resample on every drag event")
 require("skinMaskAlpha" in scope and "skinMaskAlpha[mi] > 64" in scope, "Skin Vector is not restricted to detected skin pixels")
-require("scopeEnabled = true" in models and "Always on in Edit" in settings, "scopes are not persistent in Edit")
+require("scopeEnabled = true" in models and "EditorScopePanelView(model: model)" in text("EditView.swift") and "Optional in Edit" in settings, "Edit scopes control or truthful settings description missing")
 
 print("v0.5 studio-workflow acceptance checks passed")
 
@@ -520,7 +520,7 @@ require(
 )
 require(
     "CullNavigationScope" in cull_view_v3 and
-    "Highlighted" in cull_view_v3,
+    "case highlighted" in cull_view_v3,
     "selection-aware Cull workflow is missing"
 )
 require(

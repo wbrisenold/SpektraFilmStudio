@@ -70,10 +70,12 @@ struct LibraryWorkspaceView: View {
     }
 
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        ScrollView {
+          VStack(alignment: .leading, spacing: 6) {
             Text("LIBRARY").font(.caption2.weight(.semibold)).foregroundStyle(.secondary).padding(.horizontal, 10).padding(.top, 10)
             ForEach(LibraryFilter.allCases) { filter in
                 Button {
+                    model.resetLibraryFilters()
                     model.libraryFilter = filter
                 } label: {
                     HStack {
@@ -214,8 +216,7 @@ struct LibraryWorkspaceView: View {
                         .buttonStyle(.bordered)
                 } else {
                     Button {
-                        preferredImportSource = nil
-                        showingImportWizard = true
+                        model.importImages()
                     } label: {
                         Label("Import Photos…", systemImage: "plus")
                             .frame(maxWidth: .infinity, alignment: .center)
@@ -241,22 +242,24 @@ struct LibraryWorkspaceView: View {
             }
             .padding(10)
         }
+          }
         .background(StudioPalette.panel)
     }
 
     private var toolbar: some View {
-        HStack(spacing: 10) {
+        VStack(spacing: 8) {
+          HStack(spacing: 10) {
             TextField("Search filename, camera metadata, notes…", text: $model.librarySearch)
                 .textFieldStyle(.roundedBorder)
-                .frame(minWidth: 260, maxWidth: 480)
+                .frame(minWidth: 180, maxWidth: .infinity)
             Picker("Sort", selection: $model.project.sortMode) { ForEach(ProjectSortMode.allCases) { Text($0.rawValue).tag($0) } }
-                .frame(width: 160)
+                .frame(width: 180)
+          }
+          HStack(spacing: 10) {
             if !model.librarySelection.isEmpty {
                 let exportCount = model.librarySelectedImages.filter(\.selectedForExport).count
                 HStack(spacing: 5) {
-                    Text("\(model.librarySelection.count) highlighted")
-                    Text("•")
-                    Label("\(exportCount) queued", systemImage: "square.and.arrow.up")
+                    Text("\(model.librarySelection.count) selected · \(exportCount) queued").lineLimit(1)
                 }
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
@@ -374,6 +377,7 @@ struct LibraryWorkspaceView: View {
                 .help("Reset Library thumbnail size.")
             }
         }
+        }
         .padding(.horizontal, 12).padding(.vertical, 9)
     }
 
@@ -389,7 +393,11 @@ struct LibraryWorkspaceView: View {
         .background(StudioPalette.recessed)
         .overlay {
             if model.visibleImages.isEmpty {
-                ContentUnavailableView("No Photos", systemImage: "photo.on.rectangle.angled", description: Text("Import a folder or clear the current filters."))
+                VStack(spacing: 12) {
+                    ContentUnavailableView("No matching photos", systemImage: "line.3.horizontal.decrease.circle",
+                                           description: Text("Your photos are still in the library. Reset filters to see them."))
+                    Button("Show All Photos") { model.resetLibraryFilters() }.buttonStyle(.borderedProminent)
+                }
             }
         }
     }

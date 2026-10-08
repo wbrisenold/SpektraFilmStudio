@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 struct ProductionSelfTest {
     static func run() async -> Int32 {
+        guard await AuditRegressionTests.run() else { return 19 }
         do {
             guard await runCacheRoundTrip() else {
                 fputs("SELFTEST FAIL: local cache round-trip did not produce verified hits\n", stderr)

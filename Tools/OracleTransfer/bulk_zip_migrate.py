@@ -95,16 +95,22 @@ def transfer_entry(zf, info, archive, remote, db):
         return "ignored"
     dest = remote_path(remote, relative)
     existing = stat_remote(dest)
-    if is_known_good(existing, info.file_size):
-        note_success(db,{"id": archive["id"]+":"+str(info.CRC)+":"+relative,"path":relative},info.file_size,"")
-        return "exists"
+    if existing is not None and existing.get("Size") == info.file_size:
+        # Read through EOF to validate the ZIP CRC; size alone cannot verify a retry.
+        digest = hashlib.sha256()
+        with zf.open(info, "r") as source:
+            while block := source.read(CHUNK):
+                digest.update(block)
+        if is_known_good(existing, info.file_size, digest.hexdigest(), dest):
+            note_success(db,{"id": archive["id"]+":"+str(info.CRC)+":"+relative,"path":relative},info.file_size,digest.hexdigest())
+            return "exists"
     if existing is not None:
         raise TransferError("Refusing to overwrite a nonmatching existing iCloud Drive file: " + relative)
     command = ["rclone","rcat",dest,"--size",str(info.file_size),"--retries","1","--low-level-retries","1"]
     hasher = hashlib.sha256()
     length = 0
     with zf.open(info,"r") as original:
-        proc = subprocess.Popen(command, stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+        proc = subprocess.Popen(command, stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         try:
             while True:
                 block=original.read(CHUNK)  # ZipExtFile validates CRC at end of stream.
@@ -113,7 +119,6 @@ def transfer_entry(zf, info, archive, remote, db):
                 assert proc.stdin is not None
                 proc.stdin.write(block)
             proc.stdin.close()
-            if proc.stderr: proc.stderr.read(3000)
             rc = proc.wait(timeout=300)
             if rc:
                 raise TransferError("rclone failed (exit "+str(rc)+") for "+relative)
@@ -127,7 +132,7 @@ def transfer_entry(zf, info, archive, remote, db):
     if length != info.file_size:
         raise TransferError("Uncompressed original byte count mismatch: "+relative)
     verification = stat_remote(dest)
-    if not verification or verification.get("Size") != length:
+    if not is_known_good(verification, length, hasher.hexdigest(), dest):
         raise TransferError("Remote size does not match extracted original: "+relative)
     note_success(db,{"id":archive["id"]+":"+str(info.CRC)+":"+relative,"path":relative},length,hasher.hexdigest())
     return "uploaded"

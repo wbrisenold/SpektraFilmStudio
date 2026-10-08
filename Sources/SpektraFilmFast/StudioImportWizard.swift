@@ -39,7 +39,6 @@ struct StudioImportWizard: View {
         var id: String { rawValue }
     }
 
-    @State private var step = 0
     @State private var source: Source = .folder
     @State private var storage: Storage = .reference
     @State private var pickedURLs: [URL] = []
@@ -47,7 +46,6 @@ struct StudioImportWizard: View {
     @State private var backupURL: URL?
     @State private var cloudParentURL: URL?
     @State private var problem: String?
-    @State private var started = false
 
     init(model: AppModel, preferredSource: String? = nil) {
         self.model = model
@@ -60,101 +58,37 @@ struct StudioImportWizard: View {
     private var isLightroom: Bool { source == .lightroom }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text("Import into SpektraFilm")
-                    .font(.system(size: 20, weight: .semibold))
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Import with Backup or Cloud").font(.title2.weight(.semibold))
+                    Text("Choose your photos and storage on this screen.").font(.caption).foregroundStyle(.secondary)
+                }
                 Spacer()
-                if !RecentSpektraProjects.urls.isEmpty {
-                    Menu("Recent Projects") {
-                        ForEach(RecentSpektraProjects.urls, id: \.path) { url in
-                            Button(url.deletingPathExtension().lastPathComponent) {
-                                dismiss()
-                                model.openProject(at: url)
-                            }
-                        }
-                    }
-                }
-                Button("Cancel") { dismiss() }
-                    .buttonStyle(.borderless)
-                    .disabled(started)
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+            }.padding(20)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    sourceStep
+                    if !isCloudOnly { Divider(); storageStep }
+                }.padding(20)
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 20)
-
-            HStack(spacing: 8) {
-                stepLabel(0, "Source")
-                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
-                stepLabel(1, "Storage")
-                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
-                stepLabel(2, "Review")
-                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
-                stepLabel(3, "Started")
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 16)
-
-            Rectangle().fill(StudioPalette.divider).frame(height: 1)
-
-            Group {
-                switch step {
-                case 0: sourceStep
-                case 1: storageStep
-                case 2: reviewStep
-                default: startedStep
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(24)
-
             if let problem {
                 Label(problem, systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
-                    .font(.caption)
-                    .padding(.horizontal, 24)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.bottom, 8)
+                    .font(.caption).foregroundStyle(.orange).padding(.horizontal, 20).padding(.bottom, 12)
             }
-
-            Rectangle().fill(StudioPalette.divider).frame(height: 1)
-
+            Divider()
             HStack {
-                if step > 0 && step < 3 {
-                    Button("Back") {
-                        problem = nil
-                        step = step == 2 && isCloudOnly ? 0 : step - 1
-                    }
-                }
+                Text("Your source files stay in place.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                if step == 3 {
-                    Button("Done") { dismiss() }
-                        .buttonStyle(.borderedProminent)
-                        .keyboardShortcut(.defaultAction)
-                } else {
-                    Button(step == 2 ? "Start Import" : "Continue") {
-                        advance()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                }
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 14)
+                Button(isCloudOnly ? "Open Library" : "Import Photos") { commitImport() }
+                    .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                    .disabled(pickedURLs.isEmpty || model.isIngesting || model.isCloudSyncing)
+            }.padding(20)
         }
-        .frame(width: 720, height: 495)
+        .frame(width: 700, height: 650)
         .background(StudioPalette.canvas)
-    }
-
-    private func stepLabel(_ index: Int, _ name: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: index < step ? "checkmark.circle.fill" : "\(index + 1).circle.fill")
-                .foregroundStyle(index <= step ? Color.accentColor : Color.secondary)
-            Text(name)
-                .foregroundStyle(index == step ? Color.primary : Color.secondary)
-                .fontWeight(index == step ? .semibold : .regular)
-        }
-        .font(.caption)
     }
 
     private var sourceStep: some View {
@@ -284,89 +218,18 @@ struct StudioImportWizard: View {
         }
     }
 
-    private var reviewStep: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Review import").font(.title3.weight(.semibold))
-            Text("Confirm the source and storage plan before starting.")
-                .font(.subheadline).foregroundStyle(.secondary)
-            summary("Source", pickedURLs.count == 1 ? pickedURLs[0].path : "\(pickedURLs.count) selected files")
-            summary("Storage", isCloudOnly ? "Open existing cloud library" : isLightroom ? "Lightroom migration to iCloud" : storage.rawValue)
-            if storage == .verified {
-                summary("Working", primaryURL?.path ?? "—")
-                summary("Backup", backupURL?.path ?? "—")
-            }
-            if storage == .cloud {
-                summary("Cloud", cloudParentURL?.path ?? "—")
-            }
-            Label("Original files remain untouched during reference imports. Managed copies and cloud migrations use separate destinations.",
-                  systemImage: "checkmark.shield")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-    }
-
-    private func summary(_ title: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                .frame(width: 88, alignment: .leading)
-            Text(value).font(.subheadline).lineLimit(2).truncationMode(.middle)
-            Spacer(minLength: 0)
-        }
-    }
-
-    private var startedStep: some View {
-        VStack(alignment: .leading, spacing: 15) {
-            Label("Import started", systemImage: "checkmark.circle.fill")
-                .font(.title2.weight(.semibold)).foregroundStyle(.green)
-            Text("You can continue working in SpektraFilm. Import, indexing, verification, and cloud transfer progress remain visible in the Library.")
-                .foregroundStyle(.secondary)
-            if model.isIngesting {
-                ProgressView(value: model.ingestProgress)
-                Text(model.ingestStatus).font(.caption).foregroundStyle(.secondary)
-            } else if model.isCloudSyncing {
-                ProgressView(value: model.cloudSyncProgress)
-                Text(model.cloudLibraryStatus).font(.caption).foregroundStyle(.secondary)
-            } else {
-                Text(model.status).font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
-    }
-
-    private func advance() {
-        problem = nil
-        switch step {
-        case 0:
-            guard !pickedURLs.isEmpty else {
-                problem = "Choose a source before continuing."
-                return
-            }
-            step = isCloudOnly ? 2 : 1
-        case 1:
-            if storage == .verified {
-                guard let primaryURL, let backupURL else {
-                    problem = "Choose both a working folder and a separate backup folder."
-                    return
-                }
-                guard primaryURL.standardizedFileURL != backupURL.standardizedFileURL else {
-                    problem = "Working and backup folders must be different."
-                    return
-                }
-            }
-            if storage == .cloud || isLightroom {
-                guard cloudParentURL != nil else {
-                    problem = "Choose an iCloud Drive destination."
-                    return
-                }
-            }
-            step = 2
-        case 2:
-            commitImport()
-        default: break
-        }
-    }
-
     private func commitImport() {
-        guard let first = pickedURLs.first else { return }
+        problem = nil
+        guard let first = pickedURLs.first else { problem = "Choose photos or a folder first."; return }
+        if storage == .verified && source == .folder {
+            guard let primaryURL, let backupURL,
+                  primaryURL.standardizedFileURL != backupURL.standardizedFileURL else {
+                problem = "Choose separate working and backup folders."; return
+            }
+        }
+        if !isCloudOnly && (storage == .cloud || isLightroom) && cloudParentURL == nil {
+            problem = "Choose an iCloud Drive destination."; return
+        }
         switch source {
         case .cloudLibrary:
             model.openICloudLibrary(at: first)
@@ -386,8 +249,7 @@ struct StudioImportWizard: View {
                 model.importFolder(at: first, cloudParent: storage == .cloud ? cloudParentURL : nil)
             }
         }
-        started = true
-        step = 3
+        dismiss()
     }
 
     private func chooseSource() {

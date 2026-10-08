@@ -47,6 +47,7 @@ pub unsafe extern "C" fn sf_core_lc_set_control_json(
     cap: usize
 ) -> i32 {
     if input_json.is_null() || control_id.is_null() { return -1; }
+    if !value.is_finite() { return -7; }
     let Ok(json) = (unsafe { CStr::from_ptr(input_json) }).to_str() else { return -2; };
     let Ok(id) = (unsafe { CStr::from_ptr(control_id) }).to_str() else { return -3; };
     let Ok(mut settings) = serde_json::from_str::<lightcraft_develop::DevelopSettings>(json) else { return -4; };
@@ -86,4 +87,44 @@ pub extern "C" fn sf_core_spektra_feature_manifest_json(out: *mut u8, cap: usize
         ]
     });
     write_json(&features.to_string(), out, cap)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::CString;
+
+    #[test]
+    fn json_capacity_and_null_contract() {
+        assert_eq!(write_json("{}", std::ptr::null_mut(), 10), -1);
+        let mut short = [0xAAu8; 2];
+        assert_eq!(write_json("{}", short.as_mut_ptr(), short.len()), 3);
+        assert_eq!(short, [0xAA; 2]);
+        let mut enough = [0u8; 3];
+        assert_eq!(write_json("{}", enough.as_mut_ptr(), enough.len()), 0);
+        assert_eq!(&enough, b"{}\0");
+    }
+
+    #[test]
+    fn descriptors_are_valid_json() {
+        for function in [sf_core_lc_controls_json, sf_core_lc_default_settings_json,
+                         sf_core_spektra_feature_manifest_json] {
+            let mut out = vec![0u8; 65536];
+            assert_eq!(function(out.as_mut_ptr(), out.len()), 0);
+            let end = out.iter().position(|b| *b == 0).unwrap();
+            assert!(serde_json::from_slice::<serde_json::Value>(&out[..end]).is_ok());
+        }
+        assert_eq!(sf_core_abi_version(), ABI_VERSION);
+    }
+
+    #[test]
+    fn rejects_invalid_json_and_nonfinite_controls() {
+        let bad = CString::new("not-json").unwrap();
+        let id = CString::new("exposure").unwrap();
+        let mut out = [0u8; 128];
+        unsafe {
+            assert_eq!(sf_core_lc_set_control_json(bad.as_ptr(), id.as_ptr(), 0.0, out.as_mut_ptr(), out.len()), -4);
+            assert_eq!(sf_core_lc_set_control_json(bad.as_ptr(), id.as_ptr(), f64::INFINITY, out.as_mut_ptr(), out.len()), -7);
+        }
+    }
 }

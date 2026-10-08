@@ -122,8 +122,18 @@ def stat_remote(destination: str):
         raise TransferError("Unparseable rclone remote metadata") from exc
     return output if isinstance(output, dict) and not output.get("IsDir") else None
 
-def is_known_good(remote_item, expected_size):
-    return remote_item is not None and expected_size is not None and remote_item.get("Size") == expected_size
+def remote_sha256(destination):
+    result = run_cmd(["rclone", "hashsum", "SHA256", destination, "--download"], timeout=3600)
+    lines = result.stdout.strip().splitlines()
+    digest = lines[0].split()[0] if len(lines) == 1 and lines[0].split() else ""
+    if result.returncode or not re.fullmatch(r"[a-fA-F0-9]{64}", digest):
+        raise TransferError("Remote SHA-256 verification failed")
+    return digest.lower()
+
+def is_known_good(remote_item, expected_size, expected_digest=None, destination=None):
+    return (remote_item is not None and expected_size is not None and
+            remote_item.get("Size") == expected_size and bool(expected_digest) and
+            remote_sha256(destination) == expected_digest)
 
 def open_original(url: str, hosts: tuple[str,...]):
     check_url(url, hosts)
@@ -152,8 +162,12 @@ def note_success(db, item, size, digest):
 def transfer_one(item, destination, hosts, db, dry_run=False):
     where = remote_path(destination, item["path"])
     known = stat_remote(where)
-    if is_known_good(known, item["size"]):
-        note_success(db, item, item["size"], item["sha256"])
+    prior = db.execute("SELECT bytes, sha256 FROM progress WHERE asset_id=? AND path=?",
+                       (item["id"], item["path"])).fetchone()
+    expected_digest = item["sha256"] or (prior[1] if prior else None)
+    expected_size = item["size"] if item["size"] is not None else (prior[0] if prior else None)
+    if is_known_good(known, expected_size, expected_digest, where):
+        note_success(db, item, expected_size, expected_digest)
         return "exists"
     if known is not None:
         raise TransferError(f"Refusing to overwrite existing remote object for {item['id']} (size mismatch or unverified)")
@@ -174,7 +188,7 @@ def transfer_one(item, destination, hosts, db, dry_run=False):
         cmd = ["rclone", "rcat", where, "--retries", "1", "--low-level-retries", "1"]
         if actual_length is not None:
             cmd.extend(["--size", str(actual_length)])
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             while True:
                 chunk = source.read(CHUNK)
@@ -184,7 +198,6 @@ def transfer_one(item, destination, hosts, db, dry_run=False):
                 proc.stdin.write(chunk)
             proc.stdin.close()
             # The command is local; no signed source URL or credentials appear in arguments.
-            err = proc.stderr.read(3000) if proc.stderr is not None else b""
             rc = proc.wait(timeout=300)
             if rc != 0:
                 raise TransferError(f"rclone upload failed for {item['id']} (exit {rc}); see server logs")
@@ -202,8 +215,8 @@ def transfer_one(item, destination, hosts, db, dry_run=False):
     if item["sha256"] is not None and item["sha256"] != sha:
         raise TransferError(f"Source SHA-256 mismatch for {item['id']}")
     verified = stat_remote(where)
-    if not verified or verified.get("Size") != length:
-        raise TransferError(f"iCloud remote size verification failed for {item['id']}")
+    if not is_known_good(verified, length, sha, where):
+        raise TransferError(f"iCloud remote size/SHA-256 verification failed for {item['id']}")
     note_success(db, item, length, sha)
     return "uploaded"
 
@@ -246,7 +259,7 @@ def main(argv=None):
                         print("Stopped at first unverified transfer. No next asset started.", file=sys.stderr)
                         return 1
                     time.sleep(min(30, 2 ** attempt))
-    print("Finished requested items; remote size checks passed. Verify pilot in iCloud Drive before a bulk run.")
+    print("Finished requested items; remote size and SHA-256 checks passed. Verify pilot in iCloud Drive before a bulk run.")
     return 0
 
 if __name__ == "__main__":

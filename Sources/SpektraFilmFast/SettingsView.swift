@@ -28,13 +28,16 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 Toggle("Paper background", isOn: $model.project.preferences.paperBackground)
-                Toggle("Bypass import transform", isOn: $model.project.preferences.bypassImportTransform)
+                DisclosureGroup("Advanced color handling") {
+                    Toggle("Bypass import color transform", isOn: $model.project.preferences.bypassImportTransform)
+                        .help("Use only when your source pixels already match the renderer input color space.")
+                }
                 Toggle("Auto-advance after rating/flag", isOn: $model.project.preferences.autoAdvanceRatings)
                 Toggle("Auto-analyze imported photos for Smart Cull", isOn: $model.project.preferences.autoAnalyzeCull)
                 Toggle("Write rating, flag, and color changes to XMP", isOn: $model.project.preferences.writeXMPAutomatically)
                 Toggle("Autosave and crash recovery", isOn: $model.project.preferences.autosaveEnabled)
 
-                Text("One cached 1080 px linear proxy drives Edit. Full Resolution Preview and Export reopen the original source.")
+                Text("Editing uses a fast preview. Full-resolution preview and export use your original photo.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -136,10 +139,10 @@ struct SettingsView: View {
             }
             Section("Editor Scopes") {
                 LabeledContent("Visibility") {
-                    Text("Always on in Edit")
+                    Text("Optional in Edit")
                         .foregroundStyle(.secondary)
                 }
-                Text("Scopes stay visible while you edit so you can judge exposure and color without opening another panel.")
+                Text("Show scopes from the Edit inspector when you want to judge exposure and color.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Picker("Default scope", selection: Binding(

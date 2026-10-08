@@ -785,7 +785,7 @@ struct ExportSettings: Codable, Equatable, Hashable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         format = try c.decodeIfPresent(ExportFormat.self, forKey: .format) ?? .jpeg
         colorMode = try c.decodeIfPresent(ExportColorMode.self, forKey: .colorMode) ?? .sRGB
-        jpegQuality = try c.decodeIfPresent(Double.self, forKey: .jpegQuality) ?? 0.92
+        jpegQuality = min(1, max(0.1, try c.decodeIfPresent(Double.self, forKey: .jpegQuality) ?? 0.92))
         tiff16Bit = try c.decodeIfPresent(Bool.self, forKey: .tiff16Bit) ?? true
         preserveMetadata = try c.decodeIfPresent(Bool.self, forKey: .preserveMetadata) ?? true
         stripGPS = try c.decodeIfPresent(Bool.self, forKey: .stripGPS) ?? false
@@ -970,6 +970,9 @@ struct SpektraProjectDocument: Codable, Equatable, Sendable {
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? "Untitled Project"
         workspaceMode = try c.decodeIfPresent(WorkspaceMode.self, forKey: .workspaceMode) ?? .project
         images = try c.decodeIfPresent([ProjectImageRecord].self, forKey: .images) ?? []
+        guard Set(images.map(\.id)).count == images.count else {
+            throw DecodingError.dataCorruptedError(forKey: .images, in: c, debugDescription: "Duplicate photo identities in project")
+        }
         selectedImageID = try c.decodeIfPresent(UUID.self, forKey: .selectedImageID)
         sortMode = try c.decodeIfPresent(ProjectSortMode.self, forKey: .sortMode) ?? .importDate
         filterRating = try c.decodeIfPresent(Int.self, forKey: .filterRating) ?? 0

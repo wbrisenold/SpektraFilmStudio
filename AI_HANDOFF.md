@@ -290,3 +290,14 @@ There is no GitHub Actions release requirement in this package. Local Mac build 
 - StudioFileBrowser.swift:94: throwing resource lookup on the right of `||` required `try` on the rethrowing expression. Replaced with explicit branching; introduced and fixed in this repair.
 - StudioFileBrowser.swift:70: weak `self` capture nested across concurrent closures warned under Swift 6. Kept publication in an inherited MainActor task and confined only I/O to Task.detached; introduced and fixed in this repair.
 - qa_production.py:283 required NSOpenPanel text for cache selection. Updated to verify the replacement chooser and cache callback; obsolete implementation-specific source assertion.
+
+### 2026-10-08 — Consolidated reliability and usability audit
+- Follow-up basis: f0d6c96d2f54f865b1d069cb0f2acb725362dcf1. User explicitly authorized app-wide fixes and usability changes. See AUDIT_FIXES.md and DESIGN.md for reviewed changes and integration limits.
+- Import Photos now opens the browser directly. Optional backup/cloud import uses one screen. Library, Cull, Edit, Export, Proofs and Settings received focused workflow simplifications.
+- Transfer integrity, credential-session isolation, proof HTTP framing/privacy, corrupt caches/projects, image/export dimensions, native mask inputs and Rust JSON/control boundaries were hardened with regression tests.
+- Validation and final commit/build hashes are recorded in the delivered validation report; the packaged Info.plist and dist/build-info.txt identify the exact clean commit. No release tag was rewritten and no remote service was deployed.
+
+#### Build issues encountered during the audit
+- An in-progress optimized build rejected OracleRcloneSetup.swift after it changed during compilation. Discarded that build and restarted with Swift sources frozen. This was a validation sequencing issue, not an accepted artifact.
+- LensCharacterPanel.swift:68: making the Binding setter Sendable exposed MainActor isolation warnings at its call sites. The setter now explicitly retains MainActor isolation and the Binding callback uses MainActor.assumeIsolated. Audit-introduced warning fixed; the original non-Sendable warning and PresetBrowserView immutable-variable warning were also addressed within the user-authorized audit.
+- qa_production.py had assertions tied to old Loupe/Survey, Highlighted and always-on-scope wording. Updated them to verify preserved enum cases and the actual optional scope implementation while allowing clearer UI labels.

@@ -52,7 +52,8 @@ final class MetalExportResizer: @unchecked Sendable {
         let ch = cropHeight ?? input.height
         guard width > 0, height > 0, cw > 0, ch > 0,
               cropX >= 0, cropY >= 0,
-              cropX + cw <= input.width, cropY + ch <= input.height,
+              cropX <= input.width, cropY <= input.height,
+              cw <= input.width - cropX, ch <= input.height - cropY,
               input.width > 0, input.height > 0,
               width <= 16384, height <= 16384,
               input.width <= 16384, input.height <= 16384,

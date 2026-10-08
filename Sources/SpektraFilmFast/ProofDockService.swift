@@ -144,6 +144,7 @@ private final class ProofHTTPServer: @unchecked Sendable {
 
     private func accept(_ connection: NWConnection) {
         connection.start(queue: queue)
+        queue.asyncAfter(deadline: .now() + 30) { connection.cancel() }
         receive(connection, data: Data())
     }
 
@@ -177,16 +178,20 @@ private final class ProofHTTPServer: @unchecked Sendable {
         guard parts.count >= 2 else { return nil }
         let method = String(parts[0]).uppercased()
         let rawTarget = String(parts[1])
+        guard rawTarget.hasPrefix("/"), !rawTarget.contains("\r"), !rawTarget.contains("\n") else { return nil }
         var headers: [String: String] = [:]
         for line in lines.dropFirst() {
             guard let colon = line.firstIndex(of: ":") else { continue }
             let key = line[..<colon].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard headers[key] == nil else { return nil }
             headers[key] = value
         }
-        let length = Int(headers["content-length"] ?? "0") ?? 0
+        guard headers["transfer-encoding"] == nil,
+              let length = Int(headers["content-length"] ?? "0"),
+              length >= 0, length <= 2_097_152 else { return nil }
         let bodyStart = headerRange.upperBound
-        guard data.count >= bodyStart + length else { return nil }
+        guard bodyStart <= 65_536, length <= data.count - bodyStart else { return nil }
         let body = length > 0 ? data.subdata(in: bodyStart..<(bodyStart + length)) : Data()
         let components = URLComponents(string: "http://localhost\(rawTarget)")
         var query: [String: String] = [:]
@@ -198,6 +203,19 @@ private final class ProofHTTPServer: @unchecked Sendable {
             headers: headers,
             body: body
         )
+    }
+
+    static func runAuditRegressionTest() -> Bool {
+        for length in ["-1", String(Int.max), "999999999999999999999999", "not-a-number"] {
+            let request = Data("POST /api/public/test/unlock HTTP/1.1\r\nContent-Length: \(length)\r\n\r\n".utf8)
+            if parseRequest(request) != nil { return false }
+        }
+        let duplicate = Data("POST / HTTP/1.1\r\nContent-Length: 0\r\nContent-Length: 1\r\n\r\n".utf8)
+        let chunked = Data("POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n".utf8)
+        let valid = Data("POST /test?q=yes HTTP/1.1\r\nContent-Length: 2\r\n\r\n{}".utf8)
+        guard parseRequest(duplicate) == nil, parseRequest(chunked) == nil,
+              let decoded = parseRequest(valid) else { return false }
+        return decoded.path == "/test" && decoded.query["q"] == "yes" && decoded.body == Data("{}".utf8)
     }
 
     private func send(_ response: ProofHTTPResponse, on connection: NWConnection) {
@@ -231,6 +249,8 @@ private actor ProofTunnelManager {
     private var process: Process?
     private var baseURL: String?
     private var lastError: String?
+    private var generation = UUID()
+    private var pendingOutput = ""
 
     func start(port: UInt16) throws {
         stop()
@@ -245,16 +265,17 @@ private actor ProofTunnelManager {
             "-o", "StrictHostKeyChecking=accept-new",
             "-R", "80:127.0.0.1:\(port)", "nokey@localhost.run"
         ]
+        let session = generation
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-            Task { await self?.consume(text) }
+            Task { await self?.consume(text, session: session) }
         }
         process.terminationHandler = { [weak self] task in
-            Task { await self?.terminated(status: task.terminationStatus) }
+            Task { await self?.terminated(status: task.terminationStatus, session: session) }
         }
         try process.run()
         self.process = process
@@ -263,7 +284,9 @@ private actor ProofTunnelManager {
     }
 
     func stop() {
-        process?.standardOutput = nil
+        generation = UUID()
+        pendingOutput = ""
+        (process?.standardOutput as? Pipe)?.fileHandleForReading.readabilityHandler = nil
         if let process, process.isRunning { process.terminate() }
         process = nil
         baseURL = nil
@@ -273,7 +296,10 @@ private actor ProofTunnelManager {
         (process?.isRunning == true, baseURL, lastError)
     }
 
-    private func consume(_ text: String) {
+    private func consume(_ fragment: String, session: UUID) {
+        guard generation == session else { return }
+        pendingOutput = String((pendingOutput + fragment).suffix(20_000))
+        let text = pendingOutput
         let pattern = #"https://[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.(?:lhr\.life|localhost\.run)"#
         guard text.localizedCaseInsensitiveContains("tunneled with tls termination"),
               let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
@@ -283,7 +309,8 @@ private actor ProofTunnelManager {
         if !candidate.localizedCaseInsensitiveContains("admin.localhost.run") { baseURL = candidate }
     }
 
-    private func terminated(status: Int32) {
+    private func terminated(status: Int32, session: UUID) {
+        guard generation == session else { return }
         if status != 0, baseURL == nil { lastError = "Share tunnel exited with status \(status)." }
         process = nil
     }
@@ -302,6 +329,8 @@ actor ProofDockService {
     init() {
         try? fm.createDirectory(at: ProofDockPaths.galleriesRoot, withIntermediateDirectories: true)
         try? fm.createDirectory(at: ProofDockPaths.clientPicksRoot, withIntermediateDirectories: true)
+        try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: ProofDockPaths.root.path)
+        try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: ProofDockPaths.stateURL.path)
         if let data = try? Data(contentsOf: ProofDockPaths.stateURL),
            let decoded = try? JSONDecoder().decode([ProofGalleryRecord].self, from: data) {
             galleries = decoded
@@ -436,11 +465,14 @@ actor ProofDockService {
     }
 
     private func persist() {
-        try? fm.createDirectory(at: ProofDockPaths.root, withIntermediateDirectories: true)
+        try? fm.createDirectory(at: ProofDockPaths.root, withIntermediateDirectories: true,
+                                attributes: [.posixPermissions: 0o700])
+        try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: ProofDockPaths.root.path)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         if let data = try? encoder.encode(galleries) {
             try? data.write(to: ProofDockPaths.stateURL, options: .atomic)
+            try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: ProofDockPaths.stateURL.path)
         }
     }
 
@@ -468,6 +500,7 @@ actor ProofDockService {
             return .text(clientHTML(gallery: gallery, host: request.headers["host"] ?? "127.0.0.1:\(Self.port)"), contentType: "text/html; charset=utf-8")
         }
         if request.method == "GET", parts.count == 3, parts[0] == "cover", let gallery = gallery(code: parts[1]) {
+            guard isAuthorized(gallery, request: request) else { return .text("Unauthorized", status: 401) }
             guard let cover = gallery.photos.first(where: \.isCover) ?? gallery.photos.first else { return .text("Not Found", status: 404) }
             return imageResponse(path: cover.proofPath)
         }
@@ -483,6 +516,10 @@ actor ProofDockService {
                 let supplied = (try? JSONDecoder().decode(PasswordBody.self, from: request.body).password) ?? ""
                 guard supplied == gallery.password else { return .json(["error": "Incorrect password"], status: 401) }
                 let token = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+                // Bound live tokens without invalidating every active client on each unlock.
+                if (accessTokens[code]?.count ?? 0) >= 256, let old = accessTokens[code]?.first {
+                    accessTokens[code]?.remove(old)
+                }
                 accessTokens[code, default: []].insert(token)
                 return .json(["access": token])
             }
@@ -543,7 +580,7 @@ actor ProofDockService {
 
     private func clientHTML(gallery: ProofGalleryRecord, host: String) -> String {
         let scheme = host.contains("localhost.run") || host.contains("lhr.life") ? "https" : "http"
-        let absoluteCover = "\(scheme)://\(host)/cover/\(gallery.shortCode)/image.jpg"
+        let absoluteCover = Self.escapeHTML("\(scheme)://\(host)/cover/\(gallery.shortCode)/image.jpg")
         let title = Self.escapeHTML(gallery.name)
         let code = Self.escapeJS(gallery.shortCode)
         let hasPassword = gallery.password.isEmpty ? "false" : "true"
@@ -607,4 +644,8 @@ actor ProofDockService {
         }
         return address
     }
+}
+
+enum ProofDockAudit {
+    static func run() -> Bool { ProofHTTPServer.runAuditRegressionTest() }
 }

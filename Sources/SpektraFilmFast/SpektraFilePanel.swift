@@ -189,6 +189,19 @@ extension SpektraFilePanel {
         controller?.browser.choose()
         guard await waitFor({ model.projectURL == projectURL }),
               report("project decoded into Library", model.project.name == document.name && !model.showProjectHome && model.page == .library) else { return false }
+        do {
+            let original = folder.appendingPathComponent("copy-source.bin")
+            let copy = folder.appendingPathComponent("copy-destination.bin")
+            try Data([1, 2, 3]).write(to: original)
+            try SpektraCloudLibrary.streamCopy(from: original, to: copy)
+            try SpektraCloudLibrary.streamCopy(from: original, to: copy)
+            try Data([4, 5, 6]).write(to: original)
+            do {
+                try SpektraCloudLibrary.streamCopy(from: original, to: copy)
+                return report("conflicting cloud copy rejected", false)
+            } catch SpektraCloudLibrary.CloudError.destinationConflict { }
+            guard report("cloud copy preserves conflicting existing bytes", try Data(contentsOf: copy) == Data([1, 2, 3])) else { return false }
+        } catch { return report("cloud copy regression", false) }
         let malformed = folder.appendingPathComponent("Broken.spektrafilm")
         do { try Data("not json".utf8).write(to: malformed) } catch { return false }
         model.openProject()

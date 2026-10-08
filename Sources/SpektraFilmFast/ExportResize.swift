@@ -2,6 +2,16 @@ import Foundation
 
 extension PixelBufferF32 {
     func resizedForExport(settings: ExportSettings) throws -> PixelBufferF32 {
+        guard width > 0, height > 0, width <= 16384, height <= 16384 else {
+            throw MetalExportResizer.ScaleError.oversized
+        }
+        if settings.resizeMode != .none {
+            guard (1...16384).contains(settings.resizeWidth),
+                  (1...16384).contains(settings.resizeHeight),
+                  (1...16384).contains(settings.resizeLongEdge) else {
+                throw MetalExportResizer.ScaleError.oversized
+            }
+        }
         let sourceW = max(1, width)
         let sourceH = max(1, height)
 

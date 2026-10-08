@@ -13,6 +13,7 @@ struct CanonicalSkinMaskPayload: Sendable {
     let alpha: [UInt8]
     func resampled(width w: Int, height h: Int) -> [UInt8] {
         guard width > 0, height > 0, w > 0, h > 0,
+              width <= 16384, height <= 16384, w <= 16384, h <= 16384,
               alpha.count == width * height else { return [] }
         if w == width && h == height { return alpha }
         var output = [UInt8](repeating: 0, count: w * h)

@@ -325,6 +325,13 @@ actor ImageDecoder {
         }
 
         let outExtent = scaled.extent.integral
+        guard outExtent.width.isFinite, outExtent.height.isFinite,
+              outExtent.width > 0, outExtent.height > 0,
+              outExtent.width <= 16384, outExtent.height <= 16384,
+              outExtent.width * outExtent.height * 16 <= Double(ProcessInfo.processInfo.physicalMemory) / 3 else {
+            throw NSError(domain: "SpektraFilm.Decode", code: 3,
+                          userInfo: [NSLocalizedDescriptionKey: "Photo dimensions exceed the safe decoding memory limit."])
+        }
         let width = max(1, Int(outExtent.width.rounded()))
         let height = max(1, Int(outExtent.height.rounded()))
         var floats = [Float](repeating: 0, count: width * height * 4)
@@ -502,7 +509,8 @@ actor ImageDecoder {
         guard let image = rawFilter.outputImage else { return nil }
 
         let extent = image.extent.integral
-        guard extent.width > 2, extent.height > 2 else { return nil }
+        guard extent.width.isFinite, extent.height.isFinite,
+              extent.width > 2, extent.height > 2 else { return nil }
         let target = 256.0
         let scale = min(1.0, target / max(extent.width, extent.height))
         let normalized = image

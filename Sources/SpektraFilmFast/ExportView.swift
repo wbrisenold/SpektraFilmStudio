@@ -16,7 +16,7 @@ struct ExportWorkspaceView: View {
     @State private var sourceFilter: ExportSourceFilter = .all
     @State private var search = ""
     @AppStorage("SpektraFilmStudio.designA.v2.showExportBrowser") private var showExportBrowser = false
-    @AppStorage("SpektraFilmStudio.designA.v2.showExportInspector") private var showExportInspector = false
+    @AppStorage("SpektraFilmStudio.ux.v3.showExportInspector") private var showExportInspector = true
 
     var body: some View {
         HSplitView {
@@ -147,7 +147,8 @@ struct ExportWorkspaceView: View {
 
     private var previewAndQueue: some View {
         VStack(spacing: 0) {
-            HStack {
+            VStack(spacing: 8) {
+              HStack {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("OUTPUT PREVIEW")
                         .font(.caption2.weight(.semibold))
@@ -157,6 +158,15 @@ struct ExportWorkspaceView: View {
                         .lineLimit(1)
                 }
                 Spacer()
+                Menu("Select Photos") {
+                    Button("All Photos") { model.setAllExportSelection(true) }
+                    Button("Picked Photos") { model.selectExportPicksOnly() }
+                    Button("Client Picks") { model.selectExportClientPicksOnly() }
+                    Button("4 Stars and Up") { model.selectExportRating(atLeast: 4) }
+                    Button("Highlighted in Library") { model.setAllExportSelection(false); model.batchSetExportSelection(true) }
+                    Divider()
+                    Button("Clear Export Selection") { model.setAllExportSelection(false) }
+                }.disabled(model.isExporting)
                 Button {
                     showExportBrowser.toggle()
                     if showExportBrowser { showExportInspector = false }
@@ -175,6 +185,8 @@ struct ExportWorkspaceView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .help("Show or hide detailed export settings")
+              }
+              HStack {
                 if model.isExporting {
                     ProgressView().controlSize(.mini)
                     Button("Stop") { model.stopExport() }
@@ -183,8 +195,7 @@ struct ExportWorkspaceView: View {
                 } else {
                     Button {
                         if model.project.exportSettings.destinationPath.isEmpty {
-                            showExportInspector = true
-                            showExportBrowser = false
+                            model.chooseExportDestination()
                         } else {
                             model.exportSelected()
                         }
@@ -220,9 +231,11 @@ struct ExportWorkspaceView: View {
                     }
                     .controlSize(.small)
                 }
+                Spacer(minLength: 0)
+              }
             }
             .padding(.horizontal, 13)
-            .frame(height: 48)
+            .padding(.vertical, 10)
             .background(StudioPalette.panel)
 
             Divider()
@@ -239,19 +252,7 @@ struct ExportWorkspaceView: View {
                             StudioExportPreview(model: model, image: image)
                                 .padding(12)
                         }
-                        VStack {
-                            HStack {
-                                badge(model.project.exportSettings.format.rawValue, "doc")
-                                badge(colorSummary, "paintpalette")
-                                Spacer()
-                            }
-                            Spacer()
-                            HStack {
-                                Spacer()
-                                badge(outputSizeSummary, "aspectratio")
-                            }
-                        }
-                        .padding(12)
+
                     } else {
                         ContentUnavailableView(
                             "No Export Preview",
@@ -333,7 +334,7 @@ struct ExportWorkspaceView: View {
             } else {
                 VStack(spacing: 5) {
                     Text("Queue is empty").font(.caption).foregroundStyle(.secondary)
-                    Text("Choose photos on the left, then export from the inspector.")
+                    Text("Use Select Photos above, choose a destination, then export.")
                         .font(.caption2).foregroundStyle(.tertiary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -347,12 +348,14 @@ struct ExportWorkspaceView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     inspectorHeader
-                    section("Delivery", "shippingbox") { deliveryControls }
+                    section("Destination", "folder") { destinationControls }
                     section("File", "doc.richtext") { fileControls }
                     section("Size", "aspectratio") { sizeControls }
-                    section("Naming", "textformat") { namingControls }
-                    section("Metadata", "info.circle") { metadataControls }
-                    section("Destination", "folder") { destinationControls }
+                    section("Color", "shippingbox") { deliveryControls }
+                    DisclosureGroup("File names and metadata") {
+                        section("Naming", "textformat") { namingControls }
+                        section("Metadata", "info.circle") { metadataControls }
+                    }.padding(12)
                 }
             }
             Divider()
@@ -587,7 +590,7 @@ struct ExportWorkspaceView: View {
             .textSelection(.enabled)
 
             HStack {
-                Button("Choose…") { model.chooseExportDestination() }
+                Button("Choose Folder…") { model.chooseExportDestination() }
                 if !model.project.exportSettings.destinationPath.isEmpty {
                     Button("Reveal") {
                         NSWorkspace.shared.activateFileViewerSelecting([
@@ -641,13 +644,15 @@ struct ExportWorkspaceView: View {
                     .disabled(model.isStoppingExport)
                 }
             } else {
-                Button { model.exportSelected() } label: {
+                Button {
+                    if model.project.exportSettings.destinationPath.isEmpty { model.chooseExportDestination() }
+                    else { model.exportSelected() }
+                } label: {
                     HStack {
                         Image(systemName: "square.and.arrow.up")
                         Text(
-                            model.selectedExportCount == 1
-                                ? "Export 1 Photo"
-                                : "Export \(model.selectedExportCount) Photos"
+                            model.project.exportSettings.destinationPath.isEmpty ? "Choose Export Folder…" :
+                            model.selectedExportCount == 1 ? "Export 1 Photo" : "Export \(model.selectedExportCount) Photos"
                         )
                         Spacer()
                         Text(model.project.exportSettings.format.rawValue)
@@ -658,8 +663,7 @@ struct ExportWorkspaceView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .disabled(
-                    model.selectedExportCount == 0 ||
-                    model.project.exportSettings.destinationPath.isEmpty
+                    model.selectedExportCount == 0
                 )
             }
         }

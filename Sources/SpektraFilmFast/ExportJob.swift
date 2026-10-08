@@ -162,8 +162,10 @@ struct ExportJob: Identifiable, Codable, Sendable, Equatable {
             return bytes
         }
         guard !samples.isEmpty else { return nil }
-        let mean = Double(samples.reduce(0, +)) / Double(samples.count)
-        return Int64((mean * Double(items.count)).rounded())
+        let mean = samples.reduce(0.0) { $0 + Double($1) } / Double(samples.count)
+        let estimate = (mean * Double(items.count)).rounded()
+        guard estimate.isFinite, estimate >= 0, estimate < Double(Int64.max) else { return nil }
+        return Int64(estimate)
     }
 
     mutating func normalizeAfterInterruptedLaunch() {
@@ -204,11 +206,13 @@ struct ExportJob: Identifiable, Codable, Sendable, Equatable {
 enum ExportPlanningError: LocalizedError {
     case noImages
     case noDestination
+    case invalidSequence
 
     var errorDescription: String? {
         switch self {
         case .noImages: "No photos are selected for export."
         case .noDestination: "Choose an export destination first."
+        case .invalidSequence: "Export sequence must be positive and fit all selected photos."
         }
     }
 }
@@ -222,6 +226,10 @@ enum ExportJobPlanner {
         guard !images.isEmpty else { throw ExportPlanningError.noImages }
         guard !settings.destinationPath.isEmpty else { throw ExportPlanningError.noDestination }
 
+        guard settings.sequenceStart >= 1,
+              !settings.sequenceStart.addingReportingOverflow(images.count - 1).overflow else {
+            throw ExportPlanningError.invalidSequence
+        }
         let directory = URL(fileURLWithPath: settings.destinationPath, isDirectory: true)
         let fm = FileManager.default
         var reserved = Set<String>()
@@ -273,7 +281,7 @@ enum ExportJobPlanner {
         batchCount: Int
     ) -> String {
         let base = image.url.deletingPathExtension().lastPathComponent
-        let sequenceText = String(format: "%04d", sequence)
+        let sequenceText = String(format: "%04lld", Int64(sequence))
         let template = settings.filenameTemplate.trimmingCharacters(in: .whitespacesAndNewlines)
         let effective = template.isEmpty ? "{name}" : template
 

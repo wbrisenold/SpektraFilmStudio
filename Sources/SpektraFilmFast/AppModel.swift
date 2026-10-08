@@ -124,8 +124,12 @@ final class PreviewFrameState: ObservableObject {
 
 @MainActor
 final class AppModel: ObservableObject {
-    @Published var page: WorkspacePage = .library
+    @Published var page: WorkspacePage = .library {
+        didSet { if page != .library { showProjectHome = false } }
+    }
     @Published var project = SpektraProjectDocument()
+    var workspaceGeneration = UUID()
+    private var projectOpenGeneration = UUID()
     @Published var projectURL: URL?
     let frameState = PreviewFrameState()
     var renderedPreview: CGImage? {
@@ -374,7 +378,7 @@ final class AppModel: ObservableObject {
         configureCaches()
         installCacheVolumeObservers()
 
-        if CommandLine.arguments.contains("--picker-smoke-test") {
+        if CommandLine.arguments.contains(where: { ["--picker-smoke-test", "--ux-smoke-test", "--self-test", "--studio-soak-test"].contains($0) }) {
             didStartProjectWorkflow = true
             return
         }
@@ -447,6 +451,17 @@ final class AppModel: ObservableObject {
     }
 
 
+    func resetLibraryFilters() {
+        librarySearch = ""
+        libraryFilter = .all
+        libraryFolderFilter = nil
+        libraryAlbumFilter = nil
+        librarySmartCollectionFilter = nil
+        libraryPeopleGroupFilter = nil
+        project.filterRating = 0
+        project.filterFlag = nil
+    }
+
     var visibleImages: [ProjectImageRecord] {
         let query = librarySearch.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let activeAlbumIDs = libraryAlbumFilter.flatMap { id in project.albums.first(where: { $0.id == id })?.imageIDs }
@@ -507,7 +522,8 @@ final class AppModel: ObservableObject {
         if image.metadata?.cameraDisplay.lowercased().contains(query) == true { return true }
         if image.metadata?.lensModel?.lowercased().contains(query) == true { return true }
         if let iso = image.metadata?.iso, "iso \(iso)".contains(query) || "\(iso)" == query { return true }
-        if let focal = image.metadata?.focalLengthMM, "\(Int(focal.rounded()))mm".contains(query) { return true }
+        if let focal = image.metadata?.focalLengthMM, focal.isFinite, focal >= 0, focal < 1_000_000,
+           "\(Int(focal.rounded()))mm".contains(query) { return true }
         return false
     }
 
@@ -543,6 +559,8 @@ final class AppModel: ObservableObject {
     }
 
     private func createNewProject() {
+        workspaceGeneration = UUID()
+        projectOpenGeneration = UUID()
         disconnectCloudLibrary()
         invalidateRendering()
         autosaveTask?.cancel()
@@ -587,6 +605,9 @@ final class AppModel: ObservableObject {
     }
 
     private func openStandalonePhoto(at url: URL) {
+        workspaceGeneration = UUID()
+        projectOpenGeneration = UUID()
+        disconnectCloudLibrary()
         invalidateRendering()
         project = SpektraProjectDocument()
         project.migrateForV2()
@@ -623,12 +644,13 @@ final class AppModel: ObservableObject {
     /// Source-aware import for the guided wizard. Uses the existing non-blocking scanner.
     func importFolder(at folder: URL, cloudParent: URL? = nil) {
         status = "Scanning \(folder.lastPathComponent)…"
+        let workspace = workspaceGeneration
         Task { [weak self] in
             guard let self else { return }
             let urls = await Task.detached(priority: .userInitiated) {
                 Self.photoURLs(in: folder)
             }.value
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, workspaceGeneration == workspace else { return }
             if urls.isEmpty {
                 status = "No supported photos found in \(folder.lastPathComponent)"
                 return
@@ -3685,6 +3707,9 @@ final class AppModel: ObservableObject {
         alert.addButton(withTitle: "Discard")
         let response = alert.runModal()
         if response == .alertFirstButtonReturn {
+            workspaceGeneration = UUID()
+            projectOpenGeneration = UUID()
+            disconnectCloudLibrary()
             invalidateRendering()
             suppressDirtyTracking = true
             project = recovery.project
@@ -4146,6 +4171,10 @@ final class AppModel: ObservableObject {
     }
 
     private func loadProject(at url: URL) {
+        let request = UUID()
+        projectOpenGeneration = request
+        let workspace = workspaceGeneration
+        let previousProject = project
         status = "Opening \(url.lastPathComponent)…"
         Task { [weak self] in
             guard let self else { return }
@@ -4165,6 +4194,12 @@ final class AppModel: ObservableObject {
                     try Task.checkCancellation()
                     return loaded
                 }.value
+                guard projectOpenGeneration == request, workspaceGeneration == workspace else { return }
+                guard project == previousProject else {
+                    status = "Open cancelled because the current project changed. Retry when ready."
+                    return
+                }
+                workspaceGeneration = UUID()
                 // Do not detach the existing cloud session until the replacement project
                 // has decoded successfully; a malformed file must leave the current session intact.
                 disconnectCloudLibrary()
@@ -4209,8 +4244,10 @@ final class AppModel: ObservableObject {
                     status = "Opened \(url.lastPathComponent) · select Edit when ready"
                 }
             } catch is CancellationError {
+                guard projectOpenGeneration == request, workspaceGeneration == workspace else { return }
                 status = "Project open cancelled"
             } catch {
+                guard projectOpenGeneration == request, workspaceGeneration == workspace else { return }
                 // The existing workspace remains untouched on a decoding error.
                 status = "Open failed: \(error.localizedDescription)"
             }

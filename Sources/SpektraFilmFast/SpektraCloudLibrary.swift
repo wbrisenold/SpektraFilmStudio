@@ -153,6 +153,7 @@ actor SpektraCloudLibrary {
         case sourceMissing(String)
         case streamOpenFailed(String)
         case readFailed(String)
+        case destinationConflict(String)
         case writeFailed(String)
         case downloadTimedOut(String)
 
@@ -165,6 +166,7 @@ actor SpektraCloudLibrary {
             case .sourceMissing(let path): return "Source file is missing: \(path)"
             case .streamOpenFailed(let path): return "Could not open cloud transfer stream: \(path)"
             case .readFailed(let path): return "Cloud read failed: \(path)"
+            case .destinationConflict(let path): return "Existing cloud file differs from the source; preserved without overwriting: \(path)"
             case .writeFailed(let path): return "Cloud write failed: \(path)"
             case .downloadTimedOut(let path): return "Timed out waiting for iCloud to download: \(path)"
             }
@@ -1014,8 +1016,9 @@ actor SpektraCloudLibrary {
         if FileManager.default.fileExists(atPath: destination.path) {
             let sourceSize = fileSize(source)
             let destinationSize = fileSize(destination)
-            if sourceSize != nil, sourceSize == destinationSize { return }
-            try FileManager.default.removeItem(at: destination)
+            if sourceSize != nil, sourceSize == destinationSize,
+               FileManager.default.contentsEqual(atPath: source.path, andPath: destination.path) { return }
+            throw CloudError.destinationConflict(destination.path)
         }
 
         let temp = destination.deletingLastPathComponent()
@@ -1038,12 +1041,14 @@ actor SpektraCloudLibrary {
         }
 
         var buffer = [UInt8](repeating: 0, count: max(64 * 1024, bufferSize))
+        var copied: Int64 = 0
         do {
             while true {
                 try Task.checkCancellation()
                 let read = input.read(&buffer, maxLength: buffer.count)
                 if read < 0 { throw input.streamError ?? CloudError.readFailed(source.path) }
                 if read == 0 { break }
+                copied += Int64(read)
 
                 var offset = 0
                 while offset < read {
@@ -1055,6 +1060,10 @@ actor SpektraCloudLibrary {
                     offset += written
                 }
             }
+            input.close()
+            output.close()
+            guard let expected = fileSize(source), expected == copied,
+                  fileSize(temp) == copied else { throw CloudError.writeFailed(destination.path) }
             try FileManager.default.moveItem(at: temp, to: destination)
         } catch {
             try? FileManager.default.removeItem(at: temp)

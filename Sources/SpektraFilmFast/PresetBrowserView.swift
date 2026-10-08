@@ -86,7 +86,7 @@ struct PresetBrowserView: View {
     }
 
     private var categories: [String] {
-        var values = ["All", "Favorites", "Recent"] + model.presetCategories.filter { $0 != "All" }
+        let values = ["All", "Favorites", "Recent"] + model.presetCategories.filter { $0 != "All" }
         var seen = Set<String>()
         return values.filter { seen.insert($0).inserted }
     }
@@ -97,7 +97,7 @@ struct PresetBrowserView: View {
         switch category {
         case "Favorites": base = model.presets.filter { favorites.contains($0.id.uuidString) }
         case "Recent":
-            let rank = Dictionary(uniqueKeysWithValues: recents.enumerated().map { ($0.element, $0.offset) })
+            let rank = Dictionary(recents.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: min)
             base = model.presets.filter { rank[$0.id.uuidString] != nil }
                 .sorted { (rank[$0.id.uuidString] ?? Int.max) < (rank[$1.id.uuidString] ?? Int.max) }
         case "All": base = model.presets

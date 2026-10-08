@@ -70,6 +70,7 @@ class TransferTests(unittest.TestCase):
         with sqlite3.connect(":memory:") as db:
             transfer.ensure_tables(db)
             with patch.object(transfer,"stat_remote",side_effect=[None,{"Size":len(data)}]), \
+                 patch.object(transfer,"remote_sha256",return_value=hashlib.sha256(data).hexdigest()), \
                  patch.object(transfer,"open_original",return_value=FakeResponse(data)), \
                  patch.object(transfer.subprocess,"Popen",side_effect=fake_popen):
                 actual=transfer.transfer_one(item,"icloud:Originals",HOSTS,db)
@@ -85,6 +86,22 @@ class TransferTests(unittest.TestCase):
             transfer.ensure_tables(db)
             with patch.object(transfer,"stat_remote",return_value={"Size":99}):
                 with self.assertRaises(transfer.TransferError):transfer.transfer_one(item,"icloud:Originals",HOSTS,db)
+
+    def test_equal_size_is_not_integrity(self):
+        with patch.object(transfer, "remote_sha256", return_value="b"*64):
+            self.assertFalse(transfer.is_known_good({"Size":100},100,"a"*64,"icloud:x"))
+            self.assertFalse(transfer.is_known_good({"Size":100},100))
+            self.assertTrue(transfer.is_known_good({"Size":100},100,"b"*64,"icloud:x"))
+
+    def test_failed_upload_cannot_be_resumed_by_size(self):
+        item={"id":"photo-1","path":"a.arw","url":"https://lr.adobe.io/x","size":100,"sha256":"a"*64}
+        with sqlite3.connect(":memory:") as db:
+            transfer.ensure_tables(db)
+            with patch.object(transfer,"stat_remote",return_value={"Size":100}), \
+                 patch.object(transfer,"remote_sha256",return_value="b"*64):
+                with self.assertRaises(transfer.TransferError):
+                    transfer.transfer_one(item,"icloud:Originals",HOSTS,db)
+            self.assertEqual(db.execute("SELECT count(*) FROM progress").fetchone()[0],0)
 
     def test_archive_manifest(self):
         with tempfile.TemporaryDirectory() as d:

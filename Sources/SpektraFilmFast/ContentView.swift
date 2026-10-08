@@ -6,7 +6,6 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @ObservedObject var model: AppModel
     @ObservedObject private var frameState: PreviewFrameState
-    @State private var showingImportWizard = false
     @State private var showingCloudTransfer = false
 
     init(model: AppModel) {
@@ -28,9 +27,6 @@ struct ContentView: View {
         .frame(minWidth: 1024, minHeight: 650)
         .sheet(isPresented: $model.showingLightroomImportWizard) {
             StudioImportWizard(model: model, preferredSource: "Lightroom Classic")
-        }
-        .sheet(isPresented: $showingImportWizard) {
-            StudioImportWizard(model: model)
         }
         .sheet(isPresented: $showingCloudTransfer) {
             NativeCloudTransferView(model: model)
@@ -77,7 +73,7 @@ struct ContentView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            .frame(maxWidth: 190, alignment: .leading)
+            .frame(maxWidth: 140, alignment: .leading)
             .help("Current project. Choose Home to browse recent projects")
 
             Button {
@@ -91,6 +87,7 @@ struct ContentView: View {
             .controlSize(.small)
             .help("Home · New, Open and Recent Projects")
             .accessibilityLabel("Home and recent projects")
+            .accessibilityAddTraits(model.showProjectHome && model.page == .library ? [.isSelected] : [])
 
             Spacer(minLength: 6)
 
@@ -98,21 +95,21 @@ struct ContentView: View {
                 ForEach(WorkspacePage.allCases) { page in
                     Button {
                         // Library is distinct from Home even when already selected.
-                        if page == .library { model.showProjectHome = false }
+                        model.showProjectHome = false
                         model.page = page
                     } label: {
                         Text(page.title)
-                            .font(.system(size: 12, weight: model.page == page ? .semibold : .regular))
-                            .foregroundStyle(model.page == page ? .primary : .secondary)
+                            .font(.system(size: 12, weight: model.page == page && !model.showProjectHome ? .semibold : .regular))
+                            .foregroundStyle(model.page == page && !model.showProjectHome ? .primary : .secondary)
                             .padding(.horizontal, 13)
                             .frame(height: 29)
                             .background(
-                                model.page == page ? StudioPalette.selected : Color.clear,
+                                model.page == page && !model.showProjectHome ? StudioPalette.selected : Color.clear,
                                 in: RoundedRectangle(cornerRadius: 6)
                             )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityAddTraits(model.page == page ? [.isSelected] : [])
+                    .accessibilityAddTraits(model.page == page && !model.showProjectHome ? [.isSelected] : [])
                 }
             }
             .padding(3)
@@ -124,7 +121,7 @@ struct ContentView: View {
             Button {
                 showingCloudTransfer = true
             } label: {
-                Label("Connections", systemImage: "icloud.and.arrow.up")
+                Label("Cloud Setup…", systemImage: "icloud.and.arrow.up")
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -144,9 +141,9 @@ struct ContentView: View {
 
             if model.page == .library && !model.project.images.isEmpty {
                 Button {
-                    showingImportWizard = true
+                    model.importImages()
                 } label: {
-                    Label("Import", systemImage: "plus")
+                    Label("Import Photos…", systemImage: "plus")
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)

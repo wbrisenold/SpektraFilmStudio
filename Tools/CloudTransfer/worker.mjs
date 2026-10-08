@@ -30,6 +30,10 @@ function adobeSource(urlText) {
     return url;
   } catch { return null; }
 }
+function verifiedObject(obj) {
+  const expected = Number(obj?.customMetadata?.expectedSize);
+  return Number.isSafeInteger(expected) && expected > 0 && expected <= MAX_BYTES && obj?.size === expected;
+}
 function assetKey(assetId) { return `lightroom-originals/${assetId.toLowerCase()}`; }
 
 export async function handleRequest(request, env, fetchImpl = fetch) {
@@ -46,11 +50,11 @@ export async function handleRequest(request, env, fetchImpl = fetch) {
     const key = assetKey(id);
     if (action === 'status') {
       const obj = await env.ORIGINALS.head(key);
-      return json({ exists: Boolean(obj), assetId: id.toLowerCase(),
+      return json({ exists: verifiedObject(obj), assetId: id.toLowerCase(),
         size: obj?.size ?? null, etag: obj?.httpEtag ?? null });
     }
     const obj = await env.ORIGINALS.get(key);
-    if (!obj?.body) return json({ error: 'not found' }, 404);
+    if (!obj?.body || !verifiedObject(obj)) return json({ error: 'not found' }, 404);
     return new Response(obj.body, {
       headers: {
         'content-type': 'application/octet-stream',
@@ -77,6 +81,8 @@ export async function handleRequest(request, env, fetchImpl = fetch) {
     return json({ error: 'Adobe OAuth access token required' }, 401);
   const key = assetKey(id);
   const existing = await env.ORIGINALS.head(key);
+  if (existing && !verifiedObject(existing))
+    return json({ error: 'Existing object is unverified; review it before retrying' }, 409);
   if (existing) return json({ state: 'already-transferred', assetId: id.toLowerCase(),
     bytes: existing.size, etag: existing.httpEtag });
 
@@ -101,10 +107,24 @@ export async function handleRequest(request, env, fetchImpl = fetch) {
     return json({ error: 'Original endpoint returned a document, not binary image data' }, 502);
 
   // The body is streamed directly from Adobe to R2, with no arrayBuffer() or temp files.
-  const saved = await env.ORIGINALS.put(key, upstream.body, {
+  let received = 0;
+  const checkedBody = upstream.body.pipeThrough(new TransformStream({
+    transform(chunk, controller) {
+      received += chunk.byteLength;
+      if (received > length) throw new Error('Original exceeds declared size');
+      controller.enqueue(chunk);
+    },
+    flush() {
+      if (received !== length) throw new Error('Original is truncated');
+    }
+  }));
+  let saved;
+  try {
+    saved = await env.ORIGINALS.put(key, checkedBody, {
     httpMetadata: { contentType: 'application/octet-stream' },
-    customMetadata: { adobeAssetId: id.toLowerCase(), importedFrom: 'Lightroom Cloud' }
+    customMetadata: { adobeAssetId: id.toLowerCase(), importedFrom: 'Lightroom Cloud', expectedSize: String(length) }
   });
+  } catch { return json({ error: 'Original stream or R2 write failed verification' }, 502); }
   if (!saved) return json({ error: 'R2 write rejected' }, 502);
   const head = await env.ORIGINALS.head(key);
   if (!head || head.size !== length) return json({

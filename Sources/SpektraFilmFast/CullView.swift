@@ -1,15 +1,15 @@
 import SwiftUI
 
 enum CullDisplayMode: String, CaseIterable, Identifiable {
-    case loupe = "Loupe"
+    case loupe = "Single Photo"
     case compare = "Compare"
-    case survey = "Survey"
+    case survey = "Overview"
     var id: String { rawValue }
 }
 
 private enum CullNavigationScope: String, CaseIterable, Identifiable {
-    case visible = "Visible"
-    case highlighted = "Highlighted"
+    case visible = "All Visible Photos"
+    case highlighted = "Selected Photos"
     var id: String { rawValue }
 }
 
@@ -45,13 +45,15 @@ struct CullWorkspaceView: View {
     }
 
     private var topBar: some View {
-        HStack(spacing: 10) {
+        VStack(spacing: 8) {
+          HStack(spacing: 10) {
             Picker("View", selection: $displayMode) {
                 ForEach(CullDisplayMode.allCases) {
                     Text($0.rawValue).tag($0)
                 }
             }
             .pickerStyle(.segmented)
+            .labelsHidden()
             .frame(width: 260)
 
             if model.librarySelection.count >= 2 {
@@ -61,18 +63,19 @@ struct CullWorkspaceView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .frame(width: 125)
+                .labelsHidden()
+                .frame(width: 165)
             }
 
             Button { move(-1) } label: {
                 Image(systemName: "chevron.left")
             }
-            .keyboardShortcut(.leftArrow, modifiers: [])
+            .keyboardShortcut(.leftArrow, modifiers: []).help("Previous photo · Left Arrow").accessibilityLabel("Previous photo")
 
             Button { move(1) } label: {
                 Image(systemName: "chevron.right")
             }
-            .keyboardShortcut(.rightArrow, modifiers: [])
+            .keyboardShortcut(.rightArrow, modifiers: []).help("Next photo · Right Arrow").accessibilityLabel("Next photo")
 
             if displayMode == .compare {
                 Picker("Frames", selection: $compareCount) {
@@ -95,7 +98,8 @@ struct CullWorkspaceView: View {
             .frame(width: 75)
 
             Spacer(minLength: 6)
-
+          }
+          HStack(spacing: 10) {
             Menu {
                 Picker("Review", selection: $reviewFilter) {
                     ForEach(CullReviewFilter.allCases) { f in Text(f.rawValue).tag(f) }
@@ -160,8 +164,9 @@ struct CullWorkspaceView: View {
 
             }
         }
+        }
         .padding(.horizontal, 10)
-        .frame(height: 44)
+        .padding(.vertical, 8)
         .background(StudioPalette.panel)
     }
 
@@ -176,7 +181,12 @@ struct CullWorkspaceView: View {
                     }
                     .padding(12)
             } else {
-                ContentUnavailableView("No Photo", systemImage: "photo")
+                VStack(spacing: 12) {
+                    ContentUnavailableView("Choose photos to review", systemImage: "photo.stack",
+                                           description: Text("Import photos, or select a photo in Library. Use P to pick, X to reject, and 1–5 to rate."))
+                    Button("Import Photos…") { model.importImages() }.buttonStyle(.borderedProminent)
+                    Button("Show Library") { model.resetLibraryFilters(); model.showProjectHome = false; model.page = .library }
+                }
             }
 
         case .compare:

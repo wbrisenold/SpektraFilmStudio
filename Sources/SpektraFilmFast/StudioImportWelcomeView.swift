@@ -75,24 +75,15 @@ struct StudioImportWelcomeView: View {
                         } else {
                             ForEach(recentProjects, id: \.path) { url in
                                 Button {
-                                    if FileManager.default.fileExists(atPath: url.path) {
-                                        model.openProject(at: url)
-                                    } else {
-                                        // Keep a visible history entry even when its drive is offline.
-                                        model.status = "Recent project missing; choose its new location"
-                                        model.openProject()
-                                    }
+                                    model.openProject(at: url)
                                 } label: {
                                     HStack(spacing: 10) {
-                                        Image(systemName: FileManager.default.fileExists(atPath: url.path)
-                                              ? "doc.text" : "externaldrive.badge.exclamationmark")
+                                        Image(systemName: "doc.text")
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(url.deletingPathExtension().lastPathComponent)
                                                 .font(.subheadline.weight(.medium))
                                                 .lineLimit(1)
-                                            Text(FileManager.default.fileExists(atPath: url.path)
-                                                 ? url.deletingLastPathComponent().path
-                                                 : "Unavailable · select its new location")
+                                            Text(url.deletingLastPathComponent().path)
                                                 .font(.caption2)
                                                 .foregroundStyle(.secondary)
                                                 .lineLimit(1)
@@ -115,13 +106,12 @@ struct StudioImportWelcomeView: View {
                     .frame(maxWidth: 600)
 
                     VStack(alignment: .leading, spacing: 11) {
-                        Text("IMPORT & CLOUD")
+                        Text("ADD PHOTOS")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                         HStack(spacing: 10) {
                             Button {
-                                preferredSource = "Folder or card"
-                                showingWizard = true
+                                model.importImages()
                             } label: {
                                 Label("Import Photos…", systemImage: "square.and.arrow.down")
                                     .frame(maxWidth: .infinity)
@@ -135,9 +125,13 @@ struct StudioImportWelcomeView: View {
                         }
                         .controlSize(.large)
                         HStack(spacing: 10) {
-                            quickOption("Shoot or card", icon: "externaldrive", source: "Folder or card")
+                            Button { model.importFolder() } label: { Label("Import Folder or Card…", systemImage: "externaldrive").frame(maxWidth: .infinity, minHeight: 26) }.buttonStyle(.bordered)
                             quickOption("Lightroom Classic", icon: "square.stack.3d.up", source: "Lightroom Classic")
                         }
+                        Button("Import with Backup or Cloud Setup…") {
+                            preferredSource = "Folder or card"
+                            showingWizard = true
+                        }.buttonStyle(.link)
                         if !model.cloudLibraryStatus.isEmpty && model.cloudLibraryStatus != "Not connected" {
                             Text(model.cloudLibraryStatus)
                                 .font(.caption)

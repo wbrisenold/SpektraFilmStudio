@@ -443,6 +443,7 @@ extension AppModel {
         } else if loaded.selectedImageID == nil {
             loaded.selectedImageID = loaded.images.first?.id
         }
+        workspaceGeneration = UUID()
         project = loaded
         projectURL = nil
         suppressDirtyTracking = false

@@ -76,8 +76,13 @@ struct EditWorkspaceView: View {
                 Label("Adjustments", systemImage: "sidebar.right")
             }
             .help("Show or hide adjustments")
+            if let image = model.selectedImage {
+                Button("Export Photo…", systemImage: "square.and.arrow.up") {
+                    quickExportRequest = QuickExportRequest(id: image.id)
+                }.disabled(model.isExporting)
+            }
         }
-        .labelStyle(.iconOnly)
+        .labelStyle(.titleAndIcon)
         .buttonStyle(.borderless)
         .controlSize(.small)
         .padding(.horizontal, 12)

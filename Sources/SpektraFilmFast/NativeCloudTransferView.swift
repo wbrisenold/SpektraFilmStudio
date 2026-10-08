@@ -73,7 +73,7 @@ final class NativeCloudTransferRunner: ObservableObject {
                 }.value
                 output = response.output
                 failed = response.status != 0
-                status = response.status == 0 ? "Finished · inspect transfer verification log" : "Failed (exit \\(response.status)) · see details"
+                status = response.status == 0 ? "Finished · inspect transfer verification log" : "Failed (exit \(response.status)) · see details"
             } catch {
                 failed = true
                 status = error.localizedDescription

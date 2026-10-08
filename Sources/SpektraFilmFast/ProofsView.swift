@@ -14,6 +14,7 @@ private enum ProofSourceMode: String, CaseIterable, Identifiable {
 struct ProofsWorkspaceView: View {
     @ObservedObject var model: AppModel
     @State private var showingNewGallery = false
+    @State private var confirmingDelete = false
     @State private var name = ""
     @State private var sourceMode: ProofSourceMode = .picks
     @State private var selectionLimit = 0
@@ -55,6 +56,16 @@ struct ProofsWorkspaceView: View {
             }
         }
         .sheet(isPresented: $showingNewGallery) { newGallerySheet }
+        .onChange(of: showingNewGallery) { _, showing in
+            guard showing else { return }
+            if model.project.images.contains(where: { $0.flag == .picked }) { sourceMode = .picks }
+            else if !model.librarySelection.isEmpty { sourceMode = .librarySelection }
+            else { sourceMode = .clientCandidates }
+            name = model.project.name == "Untitled Project" ? "Client Proofs" : model.project.name
+        }
+        .confirmationDialog("Delete this proof gallery?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete Gallery", role: .destructive) { model.deleteSelectedProofGallery() }
+        } message: { Text("The gallery and client link will be removed. Your original photos stay in the library.") }
     }
 
     private var gallerySidebar: some View {
@@ -173,7 +184,7 @@ struct ProofsWorkspaceView: View {
                 Button("Copy Pick Filenames") { model.copyProofClientPickFilenames() }
                 Button("Open Picked Originals in Finder") { model.openProofClientPicksInFinder() }
                 Divider()
-                Button("Delete Gallery", role: .destructive) { model.deleteSelectedProofGallery() }
+                Button("Delete Gallery", role: .destructive) { confirmingDelete = true }
             } label: { Image(systemName: "ellipsis.circle") }
                 .menuStyle(.borderlessButton)
         }
@@ -195,7 +206,7 @@ struct ProofsWorkspaceView: View {
                     .textSelection(.enabled)
 
                 Spacer()
-                Button("Copy Link") {
+                Button(gallery.publicLink == nil ? "Copy Local Link" : "Copy Internet Link") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(gallery.publicLink ?? gallery.lanLink, forType: .string)
                     model.proofStatus = "Client link copied"
@@ -208,7 +219,7 @@ struct ProofsWorkspaceView: View {
                 }
             }
             HStack {
-                Text("Short link: /g/\(gallery.shortCode)")
+                Text(gallery.publicLink != nil ? "Internet link ready to share" : gallery.shareRunning ? "Creating internet link…" : "Local link works on the same Wi-Fi. Start an internet link to share remotely.")
                 Spacer()
                 if let limit = gallery.maxSelections { Text("Selection limit: \(limit)") }
                 else { Text("No selection limit") }
@@ -321,7 +332,8 @@ struct ProofsWorkspaceView: View {
                 Stepper("Selection limit: \(selectionLimit == 0 ? "None" : String(selectionLimit))", value: $selectionLimit, in: 0...999)
                 SecureField("Optional client password", text: $password)
 
-                Section("Proof JPEG") {
+                Section {
+                  DisclosureGroup("Image size and quality") {
                     LabeledContent("Long edge") {
                         HStack {
                             Slider(value: $longEdge, in: 1200...3200, step: 100)
@@ -344,12 +356,17 @@ struct ProofsWorkspaceView: View {
                     }
                     Text("Proofs use the current WB, Exposure/Curve, SpektraFilm look, and Crop/Geometry. GPS/private metadata is not copied. Full-resolution originals are never served to the client.")
                         .font(.caption2).foregroundStyle(.secondary)
+                  }
+                }
+                if candidates.isEmpty {
+                    Text("No photos match this source. Choose another source or import photos in Library.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
             .formStyle(.grouped)
 
             HStack {
-                Button("Cancel") { showingNewGallery = false }
+                Button("Cancel") { showingNewGallery = false }.keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Create \(candidates.count) Proofs") {
                     let fallbackName = model.project.name == "Untitled Project" ? "Client Proofs" : model.project.name
@@ -363,7 +380,7 @@ struct ProofsWorkspaceView: View {
                     )
                     showingNewGallery = false
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
                 .disabled(candidates.isEmpty || model.isGeneratingProofs)
             }
         }

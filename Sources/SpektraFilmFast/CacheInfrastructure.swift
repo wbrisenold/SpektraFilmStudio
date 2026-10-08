@@ -60,8 +60,19 @@ private enum FloatImageDiskCodec {
     private static let magic = Array("SFFIMG01".utf8)
     private static let headerBytes = 24
 
+    static func runAuditRegressionTest() -> Bool {
+        var corrupt = Data("SFFIMG01".utf8)
+        for value: UInt32 in [UInt32.max, UInt32.max, 0, 0] {
+            var little = value.littleEndian
+            withUnsafeBytes(of: &little) { corrupt.append(contentsOf: $0) }
+        }
+        let valid = FloatImagePayload(width: 1, height: 1, data: Data(count: 16))
+        guard decode(corrupt) == nil, let encoded = encode(valid), let decoded = decode(encoded) else { return false }
+        return decoded.data == valid.data && decoded.width == 1 && decoded.height == 1
+    }
+
     static func encode(_ payload: FloatImagePayload) -> Data? {
-        guard payload.width > 0, payload.height > 0,
+        guard payload.width > 0, payload.height > 0, payload.width <= 16384, payload.height <= 16384,
               payload.data.count == payload.expectedByteCount else { return nil }
         var data = Data()
         data.reserveCapacity(headerBytes + payload.data.count)
@@ -88,7 +99,7 @@ private enum FloatImageDiskCodec {
         let width = Int(u32(8))
         let height = Int(u32(12))
         let byteCount = Int(u32(16))
-        guard width > 0, height > 0,
+        guard width > 0, height > 0, width <= 16384, height <= 16384,
               byteCount == width * height * 4 * MemoryLayout<Float>.size,
               data.count == headerBytes + byteCount else { return nil }
         return FloatImagePayload(width: width, height: height, data: data.subdata(in: headerBytes..<data.count))
@@ -256,8 +267,19 @@ actor DevelopedSourceDiskCache {
         for entry in variants.dropFirst(maxEntries) { try? FileManager.default.removeItem(at: entry.0) }
     }
 
+    nonisolated static func runAuditRegressionTest() -> Bool {
+        var corrupt = Data(magic)
+        for value: UInt32 in [UInt32.max, UInt32.max, 0, 0] {
+            var little = value.littleEndian
+            withUnsafeBytes(of: &little) { corrupt.append(contentsOf: $0) }
+        }
+        let valid = PixelBufferF32(width: 1, height: 1, pixels: [0.1, 0.2, 0.3, 1])
+        guard decode(corrupt) == nil, let encoded = encode(valid), let decoded = decode(encoded) else { return false }
+        return decoded.pixels == valid.pixels && decoded.width == 1 && decoded.height == 1
+    }
+
     private nonisolated static func encode(_ buffer: PixelBufferF32) -> Data? {
-        guard buffer.width > 0, buffer.height > 0,
+        guard buffer.width > 0, buffer.height > 0, buffer.width <= 16384, buffer.height <= 16384,
               buffer.pixels.count == buffer.width * buffer.height * 4 else { return nil }
         var data = Data()
         data.reserveCapacity(headerBytes + buffer.pixels.count * MemoryLayout<Float>.size)
@@ -285,7 +307,7 @@ actor DevelopedSourceDiskCache {
         let width = Int(u32(8))
         let height = Int(u32(12))
         let count = Int(u32(16))
-        guard width > 0, height > 0, count == width * height * 4,
+        guard width > 0, height > 0, width <= 16384, height <= 16384, count == width * height * 4,
               data.count == headerBytes + count * MemoryLayout<Float>.size else { return nil }
         let pixels: [Float] = data.withUnsafeBytes { raw in
             let start = raw.baseAddress!.advanced(by: headerBytes).assumingMemoryBound(to: Float.self)
@@ -547,5 +569,11 @@ actor CullAnalysisDiskCache {
             try? FileManager.default.removeItem(at: entry.0)
             total -= entry.1
         }
+    }
+}
+
+enum CacheCodecAudit {
+    static func run() -> Bool {
+        FloatImageDiskCodec.runAuditRegressionTest() && DevelopedSourceDiskCache.runAuditRegressionTest()
     }
 }

@@ -4,15 +4,16 @@ import { handleRequest } from '../worker.mjs';
 const id='0123456789abcdef0123456789abcdef';
 function mockBucket(){
   const map=new Map();
+  const metadata=new Map();
   return {
-    async head(key){const o=map.get(key);return o?{size:o.byteLength,httpEtag:'"example-etag"'}:null;},
-    async put(key,stream){
+    async head(key){const o=map.get(key);return o?{size:o.byteLength,httpEtag:'"example-etag"',customMetadata:metadata.get(key)}:null;},
+    async put(key,stream,options={}){
       const data=new Uint8Array(await new Response(stream).arrayBuffer());
-      map.set(key,data);
+      map.set(key,data);metadata.set(key,options.customMetadata);
       return {size:data.byteLength};
     },
     async get(key){const o=map.get(key);return o?{
-      size:o.byteLength,body:new ReadableStream({start(c){c.enqueue(o);c.close();}})}:null;}
+      size:o.byteLength,customMetadata:metadata.get(key),body:new ReadableStream({start(c){c.enqueue(o);c.close();}})}:null;}
   };
 }
 const env=()=>({TRANSFER_TOKEN:'abc'.repeat(12),ADOBE_CLIENT_ID:'adobe-app-id',ORIGINALS:mockBucket()});
@@ -51,4 +52,20 @@ test('cloud stream transfers once, verifies object and serves authorized on-dema
 test('reject large originals before put',async()=>{
   const a=await handleRequest(req('/v1/transfer',{assetId:id,originalUrl:'https://lr.adobe.io/v2/x'}),env(),async()=>new Response('a',{headers:{'content-length':String(150*1024*1024)}}));
   assert.equal(a.status,413);
+});
+
+test('reject truncated and oversized streams without marking them complete', async()=>{
+  for (const bytes of [new Uint8Array([1,2]),new Uint8Array([1,2,3,4,5])]) {
+    const e=env();
+    const result=await handleRequest(req('/v1/transfer',{assetId:id,originalUrl:'https://lr.adobe.io/x'}),e,
+      async()=>new Response(bytes,{headers:{'content-length':'4'}}));
+    assert.equal(result.status,502);
+    assert.equal(await e.ORIGINALS.head('lightroom-originals/'+id),null);
+  }
+});
+test('refuse legacy unverified objects instead of claiming successful transfer',async()=>{
+  const e=env();await e.ORIGINALS.put('lightroom-originals/'+id,new Uint8Array([1,2,3,4]));
+  const result=await handleRequest(req('/v1/transfer',{assetId:id,originalUrl:'https://lr.adobe.io/x'}),e,
+    ()=>{throw Error('must not overwrite');});
+  assert.equal(result.status,409);
 });

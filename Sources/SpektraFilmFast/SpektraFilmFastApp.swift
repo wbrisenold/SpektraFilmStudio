@@ -11,7 +11,13 @@ struct SpektraFilmFastApp: App {
         WindowGroup {
             ContentView(model: model)
                 .onAppear {
-                    if CommandLine.arguments.contains("--picker-smoke-test") {
+                    if CommandLine.arguments.contains("--ux-smoke-test") {
+                        Task { @MainActor in
+                            let passed = await StudioUXSmokeTest.run(model: model)
+                            fflush(stdout)
+                            exit(passed ? 0 : 23)
+                        }
+                    } else if CommandLine.arguments.contains("--picker-smoke-test") {
                         Task { @MainActor in
                             let passed = await SpektraFilePanel.runSmokeTest(model: model)
                             print(passed ? "PICKER_SMOKE_PASS" : "PICKER_SMOKE_FAIL")
@@ -142,7 +148,7 @@ final class ShortcutMonitor {
             // Return Bool (not NSEvent) so the non-Sendable event never crosses the
             // isolation boundary; the outer closure maps it back to nil/event.
             let handled: Bool = MainActor.assumeIsolated {
-                guard let model else { return false }
+                guard let model, !SpektraFilePanel.isPickerVisible, NSApp.keyWindow?.attachedSheet == nil, !(NSApp.keyWindow is NSPanel) else { return false }
                 // Never intercept native text editing / search / numeric fields.
                 if NSApp.keyWindow?.firstResponder is NSTextView || NSApp.keyWindow?.firstResponder is NSTextField { return false }
                 let key = Self.keyName(event)

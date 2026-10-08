@@ -12,10 +12,10 @@ struct StudioOutputGeometry: Equatable, Sendable {
         targetWidth: Int,
         targetHeight: Int
     ) -> CGRect {
-        let sw = max(1, sourceWidth)
-        let sh = max(1, sourceHeight)
-        let tw = max(1, targetWidth)
-        let th = max(1, targetHeight)
+        let sw = min(16384, max(1, sourceWidth))
+        let sh = min(16384, max(1, sourceHeight))
+        let tw = min(16384, max(1, targetWidth))
+        let th = min(16384, max(1, targetHeight))
         let targetRatio = Double(tw) / Double(th)
 
         let cropW: Int
@@ -45,11 +45,11 @@ struct StudioOutputGeometry: Equatable, Sendable {
         longEdge: Int,
         dontEnlarge: Bool
     ) -> Self {
-        let sw = max(1, sourceWidth)
-        let sh = max(1, sourceHeight)
-        let w = max(1, width)
-        let h = max(1, height)
-        let edge = max(1, longEdge)
+        let sw = min(16384, max(1, sourceWidth))
+        let sh = min(16384, max(1, sourceHeight))
+        let w = min(16384, max(1, width))
+        let h = min(16384, max(1, height))
+        let edge = min(16384, max(1, longEdge))
 
         if mode == .none {
             return .init(width: sw, height: sh)

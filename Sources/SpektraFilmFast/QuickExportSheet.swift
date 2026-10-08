@@ -78,6 +78,8 @@ struct QuickExportSheet: View {
                 Picker("Size", selection: $settings.resizeMode) {
                     Text("Full Size").tag(ExportResizeMode.none)
                     Text("Long Edge").tag(ExportResizeMode.longEdge)
+                    Text("Width").tag(ExportResizeMode.width)
+                    Text("Height").tag(ExportResizeMode.height)
                     Text("Fit Box").tag(ExportResizeMode.fitBox)
                     Text("Fill / Crop").tag(ExportResizeMode.cropToFill)
                 }
@@ -108,7 +110,7 @@ struct QuickExportSheet: View {
             }
 
             HStack {
-                Button("Cancel") { dismiss() }
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Spacer()
                 if model.isExporting {
                     ProgressView().controlSize(.small)
@@ -118,7 +120,7 @@ struct QuickExportSheet: View {
                     model.exportImage(imageID, settings: settings)
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
                 .disabled(settings.destinationPath.isEmpty || model.isExporting || image == nil)
             }
         }

@@ -62,10 +62,10 @@ struct LensCharacterPanel: View {
     private func update(_ body:@escaping(inout LensEffectsSettings)->Void) {
         model.setLensEffectsSettings { s in s.bakePresetForEditing(); body(&s) }
     }
-    @ViewBuilder private func scalar(_ label:String,_ value:Double,_ range:ClosedRange<Double>,set:@escaping(Double)->Void)->some View {
+    @ViewBuilder private func scalar(_ label:String,_ value:Double,_ range:ClosedRange<Double>,set:@escaping @MainActor @Sendable (Double)->Void)->some View {
         VStack(alignment:.leading,spacing:3){
             HStack{Text(label).font(.caption2);Spacer();Text(value,format:.number.precision(.fractionLength(2))).font(.caption2.monospacedDigit())}
-            Slider(value:Binding(get:{value},set:set),in:range)
+            Slider(value:Binding(get:{value},set:{ newValue in MainActor.assumeIsolated { set(newValue) } }),in:range)
         }
     }
 }

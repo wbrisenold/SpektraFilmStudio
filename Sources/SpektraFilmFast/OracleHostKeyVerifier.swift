@@ -49,8 +49,8 @@ final class OracleHostKeyVerifier: ObservableObject {
             let lookup = Process()
             lookup.executableURL = URL(fileURLWithPath: "/usr/bin/ssh-keygen")
             lookup.arguments = ["-F", currentHost, "-f", known.path]
-            lookup.standardOutput = Pipe()
-            lookup.standardError = Pipe()
+            lookup.standardOutput = FileHandle.nullDevice
+            lookup.standardError = FileHandle.nullDevice
             try lookup.run()
             lookup.waitUntilExit()
             if lookup.terminationStatus == 0 {
@@ -87,7 +87,7 @@ final class OracleHostKeyVerifier: ObservableObject {
         process.arguments = ["-T", "10", "-t", "ed25519", host]
         let result = Pipe()
         process.standardOutput = result
-        process.standardError = Pipe()
+        process.standardError = FileHandle.nullDevice
         do { try process.run() } catch { return nil }
         let bytes = result.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()

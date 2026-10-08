@@ -18,3 +18,8 @@ Return: applied_commit, gates (verify/qa), build_elapsed_sec, dist_zip_sha256, w
 
 ## Release artifacts
 Dist zips are gitignored. Regenerate per commit. Large uploads detached with `gh release upload --clobber`; poll digest before considering done.
+
+
+## 2026-10-08 consolidated audit and usability follow-up
+
+After the picker repair push, the user authorized an application-wide code audit, fixes, and UX simplification before one final validation pass. See AUDIT_FIXES.md and DESIGN.md for the complete boundaries, changes and limitations. The follow-up includes crash-boundary regression tests in ProductionSelfTest, offline Rust bridge unit tests, mocked Oracle/R2 integrity tests, and --ux-smoke-test for native view snapshots. Test modes isolate recovery/history data. The original checkout backup remains in the Codex task work/original-checkout. Do not confuse earlier f0d6c96 builds with the final audit build; check Info.plist and dist/build-info.txt against actual Git HEAD.
