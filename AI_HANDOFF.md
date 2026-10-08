@@ -260,3 +260,10 @@ There is no GitHub Actions release requirement in this package. Local Mac build 
 - Build: Intel x86_64, app exists, build-info ok; zip: dist/SpektraFilmStudio-0.6.8-macOS-intel.zip (sha256 d61adbd2… same artifact hash in current dist snapshot)
 - Gates: verify_source.sh PASS, qa_10_passes.sh 10/10
 - Patch base: HEAD-locked at 87d95c4 for first kit; this kit applied clean with `--check` anchors OK (3 changed + 2 new files from kit context). No new warnings introduced.
+
+### 2026-10-08 13:45 — v0.6.8 Import/Home + iCloud + Crash Repair (update)
+- Commit: 93523b6 — Import/Home + iCloud/crash repair (tighten Open button, Recent Projects, CloudLibrary robustness)
+- Patch: SpektraFilmStudio_v068_Import_Home_Repair_HEAD435a38e_2026-10-08.zip (target HEAD 435a38e)
+- Files: 7 modified (AppModel, CloudLibrarySupport, CloudSetupWizard, ContentView, LibraryView, StudioImportWizard, SOURCE_MANIFEST)
+- Build: Intel x86_64, zip sha256 d61adbd2… (dist artifact current)
+- Gates: verify_source.sh PASS, qa_10_passes.sh 10/10; no new warnings
