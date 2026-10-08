@@ -267,3 +267,10 @@ There is no GitHub Actions release requirement in this package. Local Mac build 
 - Files: 7 modified (AppModel, CloudLibrarySupport, CloudSetupWizard, ContentView, LibraryView, StudioImportWizard, SOURCE_MANIFEST)
 - Build: Intel x86_64, zip sha256 d61adbd2… (dist artifact current)
 - Gates: verify_source.sh PASS, qa_10_passes.sh 10/10; no new warnings
+
+### 2026-10-08 14:50 — v0.6.8 FilePicker/Finder Fix (NSBeep -> NSSound.beep)
+- Commit: b8c37b8 — fix: NSBeep -> NSSound.beep in SpektraFilePanel + manifest
+- Patch: SpektraFilmStudio_v068_FilePicker_Finder_FIX_HEADab80e62_2026-10-08.zip (target HEAD ab80e62)
+- Files: +SpektraFilePanel.swift (NSBeep build fix), SOURCE_MANIFEST regenerated
+- Build: Intel x86_64, dist zip present (sha256 d61adbd2…)
+- Gates: verify_source.sh PASS, qa_10_passes.sh 10/10; no new warnings
