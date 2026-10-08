@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 
 extension UTType {
     static var spektrafilmProject: UTType {
-        UTType(exportedAs: "com.spektrafilm.project")
+        UTType(exportedAs: "org.spektrafilm.project", conformingTo: .data)
     }
     static var spektrafilmPreset: UTType {
         UTType(exportedAs: "com.spektrafilm.preset")

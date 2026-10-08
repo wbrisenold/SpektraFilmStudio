@@ -200,6 +200,12 @@ final class AppModel: ObservableObject {
 
     // Library / Cull workspace state lives outside the project document so browsing
     // filters do not dirty a project merely because the photographer changes views.
+    // Project launchers are always available, even with a populated photo library.
+    @Published var showProjectHome = false
+    // Prevent delayed startup iCloud autorestore from replacing a user-selected project.
+    var didStartProjectWorkflow = false
+    @Published var showingProjectOpenPicker = false
+    @Published var showingICloudFolderPicker = false
     @Published var libraryFilter: LibraryFilter = .all
     @Published var libraryFolderFilter: String? = nil
     @Published var librarySearch = ""
@@ -374,7 +380,8 @@ final class AppModel: ObservableObject {
         }
         Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(900))
-            guard let self, self.project.images.isEmpty, !self.isProjectDirty else { return }
+            guard let self, self.project.images.isEmpty, !self.isProjectDirty,
+                  !self.didStartProjectWorkflow else { return }
             await self.restoreCloudLibraryIfPossible()
         }
 
@@ -550,6 +557,8 @@ final class AppModel: ObservableObject {
         page = .library
         isProjectDirty = false
         Task { [recoveryStore] in await recoveryStore.clear() }
+        showProjectHome = false
+        didStartProjectWorkflow = true
         status = "New project"
     }
 
@@ -4041,6 +4050,36 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // A cloud library replaces the complete photo document. An old preview/mask render
+    // must never outlive that replacement or publish a frame for a no-longer-selected image.
+    func prepareForCloudProjectReplacement() {
+        invalidateRendering()
+        autosaveTask?.cancel()
+        editorWarmupTask?.cancel()
+        selectionPresentationTask?.cancel()
+        importHydrationTask?.cancel()
+        renderedPreview = nil
+        sourcePreview = nil
+        latestSourceBuffer = nil
+        latestSourceRaw = nil
+        latestRenderedBuffer = nil
+        latestRenderedLook = nil
+        latestFilmRenderedBuffer = nil
+        latestWorkingFilmRenderedBuffer = nil
+        latestWorkingRenderedBuffer = nil
+        latestWorkingRenderedLook = nil
+        latestInteractiveBaseBuffer = nil
+        latestInteractiveBaseLook = nil
+        renderedFrameCache.removeAll()
+        renderedFrameCacheOrder.removeAll()
+        renderedFrameCacheBytes = 0
+        clearStudioAnalysis()
+    }
+
+    func confirmCloudLibraryTransition() -> Bool {
+        confirmDestructiveTransitionIfNeeded()
+    }
+
     // MARK: - Project and presets
 
     @discardableResult
@@ -4048,7 +4087,7 @@ final class AppModel: ObservableObject {
         var target = projectURL
         if asNew || target == nil {
             let panel = NSSavePanel()
-            panel.allowedContentTypes = [UTType(exportedAs: "org.spektrafilm.project", conformingTo: .data)]
+            panel.allowedContentTypes = [.spektrafilmProject]
             panel.nameFieldStringValue = "\(project.name).\(UTTypeNames.projectExtension)"
             guard panel.runModal() == .OK else { return false }
             target = panel.url
@@ -4078,14 +4117,18 @@ final class AppModel: ObservableObject {
     // Never parse/migrate them on the UI actor, and never replace the current
     // document unless the whole decode and validation succeeds.
     func openProject() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.spektrafilmProject]
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        openProject(at: url)
+        didStartProjectWorkflow = true
+        // Present the system document importer in SwiftUI. Do not nest AppKit runModal
+        // inside a sheet or live view update: it can terminate the presentation stack.
+        showingProjectOpenPicker = true
     }
 
     func openProject(at url: URL) {
+        didStartProjectWorkflow = true
+        guard url.isFileURL, url.pathExtension.lowercased() == UTTypeNames.projectExtension else {
+            status = "Choose a .spektrafilm project file"
+            return
+        }
         guard confirmDestructiveTransitionIfNeeded() else { return }
         status = "Opening \(url.lastPathComponent)…"
         Task { [weak self] in
@@ -4128,6 +4171,7 @@ final class AppModel: ObservableObject {
 
                 // Opening a project replaces a large amount of observable state. Land in
                 // Library first and keep the renderer asleep until Edit is explicitly entered.
+                showProjectHome = false
                 page = .library
                 renderedPreview = nil
                 sourcePreview = nil

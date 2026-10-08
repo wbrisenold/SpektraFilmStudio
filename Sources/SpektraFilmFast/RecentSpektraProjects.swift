@@ -1,13 +1,15 @@
 import Foundation
 
-/// File-menu projects and cloud catalogs retain their original documents.
-/// Only file URLs are tracked, never RAW data or credentials.
+/// File URLs only, never RAW data, cloud credentials, or document contents.
+/// Changes notify the Home view, so an empty Recent section updates after saving.
 enum RecentSpektraProjects {
     private static let key = "SpektraFilmStudio.recentProjectURLs.v1"
+    static let changed = Notification.Name("SpektraFilmStudio.recentProjectsChanged")
+
     static var urls: [URL] {
         (UserDefaults.standard.stringArray(forKey: key) ?? [])
             .compactMap(URL.init(string:))
-            .filter { $0.isFileURL && FileManager.default.fileExists(atPath: $0.path) }
+            .filter(\.isFileURL)
             .prefix(12)
             .map { $0 }
     }
@@ -15,8 +17,9 @@ enum RecentSpektraProjects {
     static func record(_ url: URL) {
         let target = url.standardizedFileURL
         guard target.isFileURL else { return }
-        var items = urls.filter { $0.standardizedFileURL != target }
-        items.insert(target, at: 0)
-        UserDefaults.standard.set(Array(items.prefix(12)).map(\.absoluteString), forKey: key)
+        var entries = urls.filter { $0.standardizedFileURL != target }
+        entries.insert(target, at: 0)
+        UserDefaults.standard.set(Array(entries.prefix(12)).map(\.absoluteString), forKey: key)
+        NotificationCenter.default.post(name: changed, object: nil)
     }
 }

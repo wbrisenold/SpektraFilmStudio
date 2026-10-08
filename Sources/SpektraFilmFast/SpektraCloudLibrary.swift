@@ -276,6 +276,13 @@ actor SpektraCloudLibrary {
         )
     }
 
+    // open(at:) already loaded and merged this snapshot in finishOpening().
+    // Reading every cloud snapshot and operation again doubles peak work at launch.
+    func initialProject() async throws -> SpektraProjectDocument {
+        if let lastPublishedProject { return lastPublishedProject }
+        return try await currentProject()
+    }
+
     func currentProject() async throws -> SpektraProjectDocument {
         let loaded = try await loadMergedProject()
         lastPublishedProject = loaded.project

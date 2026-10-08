@@ -391,6 +391,15 @@ struct StudioImportWizard: View {
     }
 
     private func chooseSource() {
+        if source == .cloudLibrary {
+            // Return to the main window before presenting its SwiftUI folder importer.
+            dismiss()
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(350))
+                model.openICloudLibrary()
+            }
+            return
+        }
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = source == .files
         panel.canChooseFiles = source == .files || source == .lightroom

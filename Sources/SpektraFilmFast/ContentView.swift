@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Native Pro Studio shell: project actions live in a text-only menu, photography
 /// workflows stay in one predictable navigation row, and status is unobtrusive.
@@ -25,6 +26,24 @@ struct ContentView: View {
         }
         .background(StudioPalette.canvas)
         .frame(minWidth: 1024, minHeight: 650)
+        .fileImporter(isPresented: $model.showingProjectOpenPicker,
+                      allowedContentTypes: [.spektrafilmProject]) { result in
+            Task { @MainActor in
+                switch result {
+                case .success(let url): model.openProject(at: url)
+                case .failure(let error): model.status = "Project file picker failed: \(error.localizedDescription)"
+                }
+            }
+        }
+        .fileImporter(isPresented: $model.showingICloudFolderPicker,
+                      allowedContentTypes: [.folder]) { result in
+            Task { @MainActor in
+                switch result {
+                case .success(let url): model.openICloudLibrary(at: url)
+                case .failure(let error): model.cloudLibraryStatus = "iCloud folder picker failed: \(error.localizedDescription)"
+                }
+            }
+        }
         .sheet(isPresented: $showingImportWizard) {
             StudioImportWizard(model: model)
         }
@@ -74,7 +93,17 @@ struct ContentView: View {
                     .truncationMode(.middle)
             }
             .frame(maxWidth: 190, alignment: .leading)
-            .help("Project commands are in the native File menu")
+            .help("Current project. Choose Home to browse recent projects")
+
+            Button {
+                model.page = .library
+                model.showProjectHome = true
+            } label: {
+                Image(systemName: "house")
+            }
+            .buttonStyle(.borderless)
+            .help("Home · New, Open and Recent Projects")
+            .accessibilityLabel("Home and recent projects")
 
             Spacer(minLength: 6)
 

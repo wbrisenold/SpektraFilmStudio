@@ -27,7 +27,7 @@ struct LibraryWorkspaceView: View {
 
     var body: some View {
         Group {
-            if model.project.images.isEmpty && !model.isIngesting {
+            if (model.project.images.isEmpty && !model.isIngesting) || model.showProjectHome {
                 StudioImportWelcomeView(model: model, showingWizard: $showingImportWizard, preferredSource: $preferredImportSource)
             } else {
                 HSplitView {
@@ -45,6 +45,9 @@ struct LibraryWorkspaceView: View {
         }
         .background(StudioPalette.canvas)
         .onAppear { thumbnailSizeDraft = model.libraryThumbnailSize }
+        .onChange(of: model.project.images.count) { _, count in
+            if count > 0 { model.showProjectHome = false }
+        }
         .onChange(of: model.libraryThumbnailSize) { _, value in
             if abs(thumbnailSizeDraft - value) > 0.5 { thumbnailSizeDraft = value }
         }

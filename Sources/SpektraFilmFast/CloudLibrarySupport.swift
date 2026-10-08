@@ -39,7 +39,7 @@ extension AppModel {
                 at: root,
                 deviceID: SpektraCloudDeviceIdentity.current
             )
-            let loaded = try await library.currentProject()
+            let loaded = try await library.initialProject()
             cloudLibrary = library
             replaceProjectFromCloud(loaded, resetWorkspace: true)
             cloudLibraryStatus = "iCloud Library ready"
@@ -207,38 +207,46 @@ extension AppModel {
 
     func openICloudLibrary() {
         guard !isCloudSyncing else { return }
-        if isProjectDirty && cloudLibrary == nil {
-            let alert = NSAlert()
-            alert.messageText = "Open another library?"
-            alert.informativeText = "The current local project has unsaved changes."
-            alert.addButton(withTitle: "Open Anyway")
-            alert.addButton(withTitle: "Cancel")
-            guard alert.runModal() == .alertFirstButtonReturn else { return }
-        }
-
-        let panel = NSOpenPanel()
-        panel.title = "Open SpektraFilm iCloud Library"
-        panel.prompt = "Open Library"
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.directoryURL = SpektraCloudLibrary.defaultICloudDriveURL()
-        guard panel.runModal() == .OK, let root = panel.url else { return }
-        openICloudLibrary(at: root)
+        didStartProjectWorkflow = true
+        // SwiftUI presents the folder chooser; AppKit's nested runModal was unsafe.
+        showingICloudFolderPicker = true
     }
 
     func openICloudLibrary(at root: URL) {
         guard !isCloudSyncing else { return }
+        didStartProjectWorkflow = true
+        guard root.isFileURL else {
+            cloudLibraryStatus = "Choose a local or iCloud Drive library folder"
+            return
+        }
+        // Validate before changing the current project or disconnecting anything.
+        let accessed = root.startAccessingSecurityScopedResource()
+        let manifestExists = FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("manifest.json").path
+        )
+        if accessed { root.stopAccessingSecurityScopedResource() }
+        guard manifestExists else {
+            cloudLibraryStatus = "Not a SpektraFilm library: select the folder containing manifest.json"
+            return
+        }
+        guard confirmCloudLibraryTransition() else { return }
         isCloudSyncing = true
         cloudLibraryStatus = "Opening iCloud Library…"
         Task { [weak self] in
             guard let self else { return }
             do {
-                let library = try await SpektraCloudLibrary.open(
-                    at: root,
-                    deviceID: SpektraCloudDeviceIdentity.current
-                )
-                let loaded = try await library.currentProject()
+                // Load/merge away from the UI actor. Retain security access through I/O.
+                let opened = try await Task.detached(priority: .userInitiated) {
+                    let accessed = root.startAccessingSecurityScopedResource()
+                    defer { if accessed { root.stopAccessingSecurityScopedResource() } }
+                    let library = try await SpektraCloudLibrary.open(
+                        at: root,
+                        deviceID: SpektraCloudDeviceIdentity.current
+                    )
+                    let loaded = try await library.initialProject()
+                    return (library, loaded)
+                }.value
+                let (library, loaded) = opened
                 cloudLibrary = library
                 cloudLibraryRootPath = root.path
                 UserDefaults.standard.set(root.path, forKey: "SpektraFilmStudio.cloudLibraryRootPath")
@@ -436,6 +444,7 @@ extension AppModel {
         let previousSelected = project.selectedImageID
         let previousLook = selectedImage?.look
 
+        if resetWorkspace { prepareForCloudProjectReplacement() }
         suppressDirtyTracking = true
         var loaded = incoming
         loaded.migrateForV2()
@@ -457,6 +466,7 @@ extension AppModel {
         librarySelection.formIntersection(validIDs)
 
         if resetWorkspace {
+            showProjectHome = false
             page = .library
             renderedPreview = nil
             sourcePreview = nil

@@ -123,9 +123,19 @@ cat > "$CONTENTS/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key><string>org.spektrafilm.project</string>
+      <key>UTTypeDescription</key><string>SpektraFilm Project</string>
+      <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+      <key>UTTypeTagSpecification</key>
+      <dict><key>public.filename-extension</key><array><string>spektrafilm</string></array></dict>
+    </dict>
+  </array>
   <key>CFBundleDocumentTypes</key>
   <array>
-    <dict><key>CFBundleTypeName</key><string>SpektraFilm Project</string><key>CFBundleTypeRole</key><string>Editor</string><key>CFBundleTypeExtensions</key><array><string>spektrafilm</string></array></dict>
+    <dict><key>CFBundleTypeName</key><string>SpektraFilm Project</string><key>CFBundleTypeRole</key><string>Editor</string><key>LSItemContentTypes</key><array><string>org.spektrafilm.project</string></array><key>CFBundleTypeExtensions</key><array><string>spektrafilm</string></array></dict>
     <dict><key>CFBundleTypeName</key><string>SpektraFilm Preset</string><key>CFBundleTypeRole</key><string>Editor</string><key>CFBundleTypeExtensions</key><array><string>sfpreset</string></array></dict>
   </array>
 </dict></plist>
