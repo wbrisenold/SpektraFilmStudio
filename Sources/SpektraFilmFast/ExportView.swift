@@ -287,14 +287,22 @@ struct ExportWorkspaceView: View {
                 Spacer()
                 if let job = model.activeExportJob, !model.isExporting, job.remainingCount > 0 {
                     Button("Resume") { model.resumeExport() }.controlSize(.small)
+                        .disabled(model.exportQueueSettingsDiffer)
                     if job.failedCount > 0 {
                         Button("Retry Failed") { model.retryFailedExports() }.controlSize(.small)
+                            .disabled(model.exportQueueSettingsDiffer)
                     }
                 }
             }
             .padding(.horizontal, 12)
             .frame(height: 36)
             .background(StudioPalette.panel)
+
+            if model.exportQueueSettingsDiffer, let job = model.activeExportJob, job.remainingCount > 0 {
+                Text("This queue uses saved settings. Use Export… to start a new queue with the settings shown now.")
+                    .font(.caption).foregroundStyle(.orange)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+            }
 
             Divider()
 

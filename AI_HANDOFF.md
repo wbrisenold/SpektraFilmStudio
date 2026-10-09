@@ -354,3 +354,14 @@ scannerUnsharpSigmaPx before the final build. No remaining compiler errors.
 A native-only relink dependency omission was found and fixed in build_app.sh.
 
 Final follow-up: source/production QA 10/10 PASS; picker GUI smoke PASS; UX screenshot smoke PASS. LUT matrix 25/25 PASS. Original diffusion and scanner retained after alternative quality/performance checks. Film inspector screenshot: docs/screenshots/film-performance.png.
+
+## 2026-10-08 original CR3 TIFF regression
+
+Basis d8f296a4f2954eb358e882389ab240748faeff85. Adds a real export-queue smoke
+entry point, isolated recovery journal, and a one-pixel output sizing correction.
+Real R6 CR3 full-size TIFF decoded at 3648 x 5472, 16-bit, 159,709,998 bytes;
+8-bit retained the same dimensions at 79,857,102 bytes. The 2048 test initially
+failed at 2047 because Don't enlarge scaled a rounded target again; fixed at the
+shared export resize boundary. Final rerun results recorded after verification.
+Build Issues Encountered: test-journal directory getter needed an explicit return
+after adding the test branch (introduced here, corrected before final build).

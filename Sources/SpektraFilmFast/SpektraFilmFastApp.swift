@@ -55,6 +55,13 @@ private enum SpektraStartup {
                 fflush(stdout)
                 exit(result)
             }
+        } else if CommandLine.arguments.contains("--export-smoke-test") {
+            Task { @MainActor in
+                let passed = await ProductionSelfTest.runOriginalExport(model: model)
+                fflush(stdout)
+                fflush(stderr)
+                exit(passed ? 0 : 24)
+            }
         } else if CommandLine.arguments.contains("--ux-smoke-test") {
             Task { @MainActor in
                 let passed = await StudioUXSmokeTest.run(model: model)

@@ -64,13 +64,10 @@ extension PixelBufferF32 {
                       max(1, Int((Double(sourceH) * scale).rounded())))
         }
 
-        guard var (targetW, targetH) = target else { return self }
+        guard let (targetW, targetH) = target else { return self }
         if settings.dontEnlarge && targetW >= sourceW && targetH >= sourceH { return self }
-        if settings.dontEnlarge {
-            let scale = min(1.0, min(Double(targetW) / Double(sourceW), Double(targetH) / Double(sourceH)))
-            targetW = max(1, Int((Double(sourceW) * scale).rounded()))
-            targetH = max(1, Int((Double(sourceH) * scale).rounded()))
-        }
+        // Targets already preserve aspect ratio and are rounded once above.
+        // Recomputing scale from the rounded short edge shrinks the requested long edge.
         guard targetW != sourceW || targetH != sourceH else { return self }
 
         return try MetalExportResizer.shared.resized(self, width: targetW, height: targetH)

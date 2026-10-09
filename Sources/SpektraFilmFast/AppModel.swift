@@ -378,7 +378,7 @@ final class AppModel: ObservableObject {
         configureCaches()
         installCacheVolumeObservers()
 
-        if CommandLine.arguments.contains(where: { ["--picker-smoke-test", "--ux-smoke-test", "--self-test", "--studio-soak-test"].contains($0) }) {
+        if CommandLine.arguments.contains(where: { ["--picker-smoke-test", "--ux-smoke-test", "--export-smoke-test", "--self-test", "--studio-soak-test"].contains($0) }) {
             didStartProjectWorkflow = true
             return
         }
@@ -4860,8 +4860,21 @@ final class AppModel: ObservableObject {
         exportTask?.cancel()
     }
 
+    var exportQueueSettingsDiffer: Bool {
+        guard let job = activeExportJob else { return false }
+        return job.settings != project.exportSettings
+    }
+
+    private func requireQueuedExportSettings() -> Bool {
+        guard !exportQueueSettingsDiffer else {
+            status = "Export settings changed · start a new export to use the current settings. The saved queue was kept."
+            return false
+        }
+        return true
+    }
+
     func resumeExport() {
-        guard !isExporting, var job = activeExportJob, job.remainingCount > 0 else { return }
+        guard !isExporting, var job = activeExportJob, job.remainingCount > 0, requireQueuedExportSettings() else { return }
         for index in job.items.indices where job.items[index].state == .rendering || job.items[index].state == .writing {
             job.items[index].state = .pending
             job.items[index].errorMessage = nil
@@ -4871,7 +4884,7 @@ final class AppModel: ObservableObject {
     }
 
     func retryFailedExports() {
-        guard !isExporting, var job = activeExportJob else { return }
+        guard !isExporting, var job = activeExportJob, requireQueuedExportSettings() else { return }
         var changed = false
         for index in job.items.indices where job.items[index].state == .failed {
             job.items[index].state = .pending

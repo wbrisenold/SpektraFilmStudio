@@ -318,7 +318,13 @@ actor ExportJobJournal {
     static let shared = ExportJobJournal()
 
     private var directory: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        // A real-queue smoke test must never replace the user's recovery journal.
+        let args = CommandLine.arguments
+        if args.contains("--export-smoke-test"), let index = args.firstIndex(of: "--export-output"), index + 1 < args.count {
+            return URL(fileURLWithPath: args[index + 1], isDirectory: true)
+                .appendingPathComponent(".export-smoke-journal", isDirectory: true)
+        }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("SpektraFilm/ExportJobs", isDirectory: true)
     }
 

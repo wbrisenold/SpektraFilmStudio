@@ -80,3 +80,19 @@ experimental and disabled in application exports because they were slower.
 Build provenance: build_app.sh fingerprints both native archives and forces a
 fresh product link when they change. A native-only update produced an explicit
 Linking step (2.40 s), avoiding stale SwiftPM products linked via external flags.
+
+## Real-original TIFF queue regression
+
+The application accepts `--export-smoke-test --export-fixture <original> --export-output <directory>`.
+It calls the same AppModel export queue as the Export button, with full-size 16-bit,
+full-size 8-bit, and 2048-long-edge 16-bit TIFF variants. It verifies decoded dimensions,
+depth, and queue timing dimensions, and writes JSON results beside the TIFFs in a new
+UUID directory. Startup recovery is skipped and the test journal is isolated from the
+user's recovery journal. Source photos and existing output files are never replaced.
+
+A real Canon R6 CR3 (5472 x 3648 before orientation) produced a 3648 x 5472 16-bit
+TIFF of 159,709,998 bytes through this queue. The 8-bit file was 79,857,102 bytes at
+the same dimensions. The resized regression caught an unrelated one-pixel error:
+Don't enlarge recomputed scale from an already-rounded short edge, turning a requested
+2048 long edge into 2047. Remove that redundant second scaling; retain the existing
+no-enlargement guard. Full Size already returns the input buffer without resizing.

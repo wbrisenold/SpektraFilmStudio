@@ -4,6 +4,108 @@ import ImageIO
 import UniformTypeIdentifiers
 
 struct ProductionSelfTest {
+    /// Exercises the same queue as the Export button, without substituting preview pixels.
+    @MainActor
+    static func runOriginalExport(model: AppModel) async -> Bool {
+        struct Failure: LocalizedError { let errorDescription: String? }
+        func argument(_ name: String) throws -> String {
+            let args = CommandLine.arguments
+            guard let index = args.firstIndex(of: name), index + 1 < args.count else {
+                throw Failure(errorDescription: "Missing \(name)")
+            }
+            return args[index + 1]
+        }
+        do {
+            let source = URL(fileURLWithPath: try argument("--export-fixture"))
+            let parent = URL(fileURLWithPath: try argument("--export-output"), isDirectory: true)
+            guard FileManager.default.fileExists(atPath: source.path), model.rendererAvailable else {
+                throw Failure(errorDescription: "Original or renderer unavailable")
+            }
+            // Unique output directory: never replace an existing user export.
+            let root = parent.appendingPathComponent("CR3-export-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            var image = ProjectImageRecord(sourcePath: source.path, captureDate: nil)
+            image.selectedForExport = true
+            model.project.images = [image]
+            model.project.selectedImageID = nil
+            model.project.preferences.autosaveEnabled = false
+            model.isProjectDirty = false
+            // A stale social-size queue cannot resume under a Full Size UI selection.
+            var queuedSettings = ExportSettings()
+            queuedSettings.resizeMode = .fitBox
+            queuedSettings.resizeWidth = 1080
+            queuedSettings.resizeHeight = 1350
+            queuedSettings.destinationPath = root.path
+            var queued = ExportJob(settings: queuedSettings, bypassImportTransform: false,
+                items: [ExportQueueItem(image: image, destination: root.appendingPathComponent("stale.tif"))])
+            queued.state = .stopped
+            model.activeExportJob = queued
+            model.project.exportSettings = queuedSettings
+            model.project.exportSettings.resizeMode = .none
+            model.resumeExport()
+            guard model.exportQueueSettingsDiffer, !model.isExporting, model.exportTask == nil,
+                  model.activeExportJob?.settings.resizeMode == .fitBox else {
+                throw Failure(errorDescription: "Resume silently reused stale resize settings")
+            }
+            queued.items[0].state = .failed
+            model.activeExportJob = queued
+            model.retryFailedExports()
+            guard !model.isExporting, model.exportTask == nil else {
+                throw Failure(errorDescription: "Retry silently reused stale resize settings")
+            }
+            print("QUEUED_SETTINGS_MISMATCH_PASS: Full Size cannot resume/retry a stale social-size queue")
+            var results: [[String: Any]] = []
+            for (label, sixteen, resize) in [("full-16", true, false), ("full-8", false, false), ("2048-16", true, true)] {
+                var settings = ExportSettings()
+                settings.format = .tiff
+                settings.tiff16Bit = sixteen
+                settings.preserveMetadata = true
+                settings.resizeMode = resize ? .longEdge : .none
+                settings.resizeLongEdge = 2048
+                settings.destinationPath = root.path
+                settings.filenameTemplate = "{name}-" + label
+                model.project.exportSettings = settings
+                print("ORIGINAL_EXPORT_START \(label) original=\(source.path)")
+                fflush(stdout)
+                model.exportSelected()
+                guard let task = model.exportTask else { throw Failure(errorDescription: "Queue did not start: \(model.status)") }
+                await task.value
+                guard let item = model.activeExportJob?.items.first, item.state == .completed,
+                      let timing = item.timings else {
+                    throw Failure(errorDescription: "Export failed: \(model.exportFailures) \(model.status)")
+                }
+                let url = URL(fileURLWithPath: item.destinationPath)
+                guard let encoded = CGImageSourceCreateWithURL(url as CFURL, nil),
+                      let props = CGImageSourceCopyPropertiesAtIndex(encoded, 0, nil) as? [CFString: Any],
+                      let decoded = CGImageSourceCreateImageAtIndex(encoded, 0, nil),
+                      decoded.bitsPerComponent == (sixteen ? 16 : 8),
+                      decoded.width == timing.outputWidth, decoded.height == timing.outputHeight,
+                      resize ? max(decoded.width, decoded.height) == 2048
+                             : (decoded.width == timing.sourceWidth && decoded.height == timing.sourceHeight) else {
+                    throw Failure(errorDescription: "Encoded dimensions/depth do not match the original export request")
+                }
+                let tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any]
+                let row: [String: Any] = ["variant": label, "destination": url.path,
+                    "sourceWidth": timing.sourceWidth, "sourceHeight": timing.sourceHeight,
+                    "outputWidth": decoded.width, "outputHeight": decoded.height,
+                    "bitsPerComponent": decoded.bitsPerComponent, "bitsPerPixel": decoded.bitsPerPixel,
+                    "bytes": timing.outputBytes, "compression": tiff?[kCGImagePropertyTIFFCompression] ?? -1,
+                    "profile": props[kCGImagePropertyProfileName] ?? "unknown",
+                    "decodeMs": timing.decodeMs, "renderMs": timing.renderMs, "wallMs": timing.wallMs]
+                results.append(row)
+                print("ORIGINAL_EXPORT_RESULT \(row)")
+                fflush(stdout)
+            }
+            let data = try JSONSerialization.data(withJSONObject: results, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: root.appendingPathComponent("results.json"))
+            print("ORIGINAL_EXPORT_PASS results=\(root.path)")
+            return true
+        } catch {
+            print("ORIGINAL_EXPORT_FAIL \(error.localizedDescription)")
+            return false
+        }
+    }
+
     static func run() async -> Int32 {
         guard await AuditRegressionTests.run() else { return 19 }
         do {
