@@ -196,6 +196,28 @@ struct EditorScopePanelView: View {
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
             }
 
+            HStack(spacing: 8) {
+                Text(model.project.preferences.scopeMode.rawValue)
+                    .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
+                if model.isScopeAnalyzing { ProgressView().controlSize(.mini) }
+                Toggle(isOn: Binding(
+                    get: { model.project.preferences.clippingEnabled },
+                    set: { model.setClippingEnabled($0) })) {
+                    Label("Clipping", systemImage: "arrowtriangle.up.fill")
+                }
+                .toggleStyle(.button).controlSize(.mini)
+                .help("Warn when final output approaches white or black")
+
+                Toggle(isOn: Binding(
+                    get: { model.project.preferences.skinCheckEnabled },
+                    set: { model.setSkinCheckEnabled($0) })) {
+                    Label("Skin", systemImage: "hand.raised.fill")
+                }
+                .toggleStyle(.button).controlSize(.mini)
+                .help("Show a skin diagnostic on the rendered image")
+            }
+
             scopeModeNav
 
             if model.project.preferences.scopeMode == .skinVectorscope {

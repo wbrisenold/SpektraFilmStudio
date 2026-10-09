@@ -247,7 +247,7 @@ require("scopeTargetFPS" in models and "startEditorScopeLoop" in scope_support, 
 require("scopeTask == nil" in scope_support and "scopeGeneration" in scope_support, "scope latest-frame/backpressure guard missing")
 require("Histogram" in models and "Waveform" in models and "RGB Parade" in models and "Vectorscope" in models and "Skin Vector" in models, "scope modes missing")
 edit_view = text("EditView.swift")
-require("EditorScopePanelView(model: model)" in edit_view and "clippingToggle" in edit_view and "skinToggle" in edit_view and "editorScopeImage" in scope_panel,
+require("EditorScopePanelView(model: model)" in edit_view and "clippingEnabled" in scope_panel and "skinCheckEnabled" in scope_panel and "editorScopeImage" in scope_panel,
         "scopes and their clipping/skin toggles must live in the adjustment rail, as Redlamp does")
 require("editorBottomInset" in text("EditView.swift"), "canvas does not reserve room for the docked scope/filmstrip strips")
 require("skinVectorscope" in scope_engine and "drawSkinReference" in scope_engine, "dedicated skin vectorscope missing")

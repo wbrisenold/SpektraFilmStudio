@@ -32,15 +32,6 @@ struct EditWorkspaceView: View {
             VStack(spacing: 0) {
                 editorToolbar
                 Spacer(minLength: 0)
-                if showScopes {
-                    // Scopes live INSIDE the adjustment rail, at the top, exactly as
-                    // Redlamp does it (InspectorView: HistogramView + ToolStrip, then
-                    // the scrolling panels below). Two earlier attempts docked them
-                    // under the canvas — the first ate the adjustment height, the
-                    // second took the whole bottom row. Neither matched Redlamp.
-                    EditorScopePanelView(model: model)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
                 if showFilmstrip && !model.project.images.isEmpty {
                     filmstrip
                         .studioGlassPane()
@@ -401,19 +392,14 @@ private struct EditorInspectorView: View {
 
                 // Redlamp keys the scrolling panels off `activeTool`
                 // (ReferencePanels.swift: InspectorView), so a tool shows only its
-                // own panels. The scopes readout rides at the top of the rail, the
-                // same slot Redlamp gives HistogramView + ToolStrip.
+                // Redlamp's InspectorView order: HistogramView + ToolStrip, divider,
+                // then the scrolling panels. The scope readout owns the well; the
+                // toggles sit in its header row, so nothing extra is stacked above.
                 if showScopes {
-                    Rectangle().fill(StudioPalette.divider).frame(height: 1)
-                    HStack(spacing: 8) {
-                        Text(model.project.preferences.scopeMode.rawValue)
-                            .font(StudioType.section).foregroundStyle(.secondary)
-                        Spacer()
-                        clippingToggle
-                        skinToggle
-                    }
-                    .padding(.horizontal, 10)
-                    .frame(height: RedlampMetrics.panelHeaderHeight)
+                    EditorScopePanelView(model: model)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 8)
+                        .padding(.top, 8)
                     Rectangle().fill(StudioPalette.divider).frame(height: 1)
                 }
 
@@ -423,26 +409,6 @@ private struct EditorInspectorView: View {
                     .frame(maxHeight: .infinity)
             }
         }
-    }
-
-    private var clippingToggle: some View {
-        Toggle(isOn: Binding(
-            get: { model.project.preferences.clippingEnabled },
-            set: { model.setClippingEnabled($0) })) {
-            Label("Clipping", systemImage: "arrowtriangle.up.fill")
-        }
-        .toggleStyle(.button).controlSize(.mini)
-        .help("Warn when final output approaches white or black. Bright warning is not always irreversible clipping.")
-    }
-
-    private var skinToggle: some View {
-        Toggle(isOn: Binding(
-            get: { model.project.preferences.skinCheckEnabled },
-            set: { model.setSkinCheckEnabled($0) })) {
-            Label("Skin", systemImage: "hand.raised.fill")
-        }
-        .toggleStyle(.button).controlSize(.mini)
-        .help("Show a skin diagnostic on the rendered image")
     }
 
 }
