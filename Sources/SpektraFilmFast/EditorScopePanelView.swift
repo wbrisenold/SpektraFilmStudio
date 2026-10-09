@@ -1,5 +1,25 @@
 import SwiftUI
 
+/// Docked scopes strip shown beneath the canvas.
+///
+/// It is deliberately *not* part of the adjustment rail: scopes are a large,
+/// occasionally-used readout, and stacking them above the sliders left the Edit
+/// inspector too short to work in. Height is fixed and reserved by the caller so
+/// the preview is never drawn underneath it.
+struct EditorScopeStrip: View {
+    static let preferredHeight: CGFloat = 208
+
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        EditorScopePanelView(model: model)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(height: Self.preferredHeight, alignment: .top)
+            .clipped()
+            .studioGlassPane()
+    }
+}
+
 struct EditorScopePanelView: View {
     @ObservedObject var model: AppModel
     @State private var histogramZone: Int?

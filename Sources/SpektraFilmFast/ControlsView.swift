@@ -6,6 +6,8 @@ struct ControlsView: View {
     // Each workflow tab keeps its own focused adjustment groups.
     @State private var openAdjustment: String? = "tone"
     @State private var filmStage = "stock"
+    // Film stage sections keep their own collapsed set so several film groups can be
+    // closed (or open) independently, unlike the single-select RAW tabs above.
     @AppStorage("SpektraFilmStudio.ui.collapsedFilmSections") private var collapsedFilmSections = ""
     @State private var inspectorSearch = ""
     @State private var showModifiedOnly = false
@@ -40,6 +42,8 @@ struct ControlsView: View {
             .padding(.horizontal, 9)
             .padding(.top, 9)
 
+            // One section at a time, chosen by a segmented tab. This is what keeps the
+            // rail short: only the selected workflow's controls are in the stack.
             if mode == .adjust {
                 Picker("RAW workflow", selection: Binding(
                     get: { openAdjustment ?? "tone" }, set: { openAdjustment = $0 }
@@ -167,15 +171,22 @@ struct ControlsView: View {
 
     private func sectionExpanded(_ id: String) -> Bool {
         if !searchTerm.isEmpty { return true }
-        if mode == .film { return !Set(collapsedFilmSections.split(separator: ",").map(String.init)).contains(id) }
+        // RAW/Light/Crop/Optics and the Film stages are tabs, not accordions: the
+        // rail shows one workflow at a time so it stays short enough to scroll.
+        if mode == .film {
+            return !collapsedSections.contains(id)
+        }
         return openAdjustment == id
+    }
+
+    private var collapsedSections: Set<String> {
+        get { Set(collapsedFilmSections.split(separator: ",").map(String.init)) }
+        nonmutating set { collapsedFilmSections = newValue.sorted().joined(separator: ",") }
     }
 
     private func toggleInspectorSection(_ id: String) {
         if mode == .film {
-            var closed = Set(collapsedFilmSections.split(separator: ",").map(String.init))
-            if !closed.insert(id).inserted { closed.remove(id) }
-            collapsedFilmSections = closed.sorted().joined(separator: ",")
+            if collapsedSections.insert(id).inserted == false { collapsedSections.remove(id) }
         } else {
             openAdjustment = openAdjustment == id ? nil : id
         }
@@ -228,10 +239,6 @@ struct ControlsView: View {
     }
 
     private var searchTerm: String { inspectorSearch.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-    private func sectionBinding(_ section: String) -> Binding<Bool> {
-        Binding(get: { !searchTerm.isEmpty || openAdjustment == section }, set: { openAdjustment = $0 ? section : nil })
-    }
 
     private func sectionMatches(_ section: String, terms: [String]) -> Bool {
         if showModifiedOnly {

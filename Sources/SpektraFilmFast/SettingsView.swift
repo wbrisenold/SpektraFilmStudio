@@ -159,7 +159,6 @@ struct SettingsView: View {
             Section("Workspace Visibility") {
                 Toggle("Editor adjustment inspector", isOn: $editorInspectorVisible)
                 Toggle("Editor filmstrip", isOn: $editorFilmstripVisible)
-                Toggle("Editor scopes", isOn: $editorScopesVisible)
                 Toggle("Library inspector", isOn: $libraryInspectorVisible)
                 Toggle("Cull inspector", isOn: $cullInspectorVisible)
                 Toggle("Export source browser", isOn: $exportBrowserVisible)
@@ -202,11 +201,12 @@ struct SettingsView: View {
     private var studioTab: some View {
         Form {
             Section("Editor Scopes") {
-                LabeledContent("Visibility") {
-                    Text("Optional in Edit")
-                        .foregroundStyle(.secondary)
+                Picker("Scopes appear", selection: $editorScopesVisible) {
+                    Text("Hidden").tag(false)
+                    Text("Below canvas").tag(true)
                 }
-                Text("Show scopes from the Edit inspector when you want to judge exposure and color.")
+                .pickerStyle(.segmented)
+                Text("Scopes dock below the canvas so they never shrink the adjustment rail. Choosing Hidden removes them from the Edit workspace entirely; the toolbar Scopes button still toggles them.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Picker("Default scope", selection: Binding(

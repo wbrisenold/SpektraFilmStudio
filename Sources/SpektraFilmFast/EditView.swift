@@ -27,13 +27,18 @@ struct EditWorkspaceView: View {
                 .padding(.trailing, showEditorInspector
                     ? StudioLayout.editorInspectorWidth + 2 * StudioLayout.paneInset
                     : StudioLayout.paneInset)
-                .padding(.bottom, showFilmstrip && !model.project.images.isEmpty
-                    ? clampedFilmstripHeight + StudioLayout.paneInset * 2
-                    : StudioLayout.paneInset)
+                .padding(.bottom, editorBottomInset)
 
             VStack(spacing: 0) {
                 editorToolbar
                 Spacer(minLength: 0)
+                if showScopes {
+                    // Scopes sit under the canvas, not in the adjustment rail, so
+                    // turning them on never shrinks the sliders.
+                    EditorScopeStrip(model: model)
+                        .padding(.horizontal, StudioLayout.paneInset)
+                        .padding(.bottom, StudioLayout.paneInset)
+                }
                 if showFilmstrip && !model.project.images.isEmpty {
                     filmstrip
                         .studioGlassPane()
@@ -51,7 +56,7 @@ struct EditWorkspaceView: View {
                 }
                 Spacer(minLength: 0)
                 if showEditorInspector {
-                    EditorInspectorView(model: model, mode: $inspectorMode, scopesVisible: $showScopes)
+                    EditorInspectorView(model: model, mode: $inspectorMode)
                         .frame(width: StudioLayout.editorInspectorWidth)
                         .frame(maxHeight: .infinity)
                         .studioGlassPane()
@@ -108,6 +113,36 @@ struct EditWorkspaceView: View {
                 Label("Adjustments", systemImage: "sidebar.right")
             }
             .help("Show or hide adjustments")
+            // Look edits (undo/redo/copy/paste/reset) and the scope toggle live with
+            // the other workspace controls rather than eating inspector height.
+            Button {
+                showScopes.toggle()
+            } label: {
+                Label("Scopes", systemImage: "waveform.path")
+            }
+            .help(showScopes ? "Hide scopes" : "Show scopes")
+            Menu {
+                Button("Undo") { model.undo() }
+                Button("Redo") { model.redo() }
+                Divider()
+                Button("Copy Look") { model.copyLook() }
+                Button("Paste Look") { model.pasteLook() }
+                Section("Copy / Paste Categories") {
+                    ForEach(LookCopyCategory.allCases) { category in
+                        Toggle(category.rawValue, isOn: Binding(
+                            get: { model.lookCopyCategoryEnabled(category) },
+                            set: { model.setLookCopyCategory(category, enabled: $0) }
+                        ))
+                    }
+                }
+                Divider()
+                Button(role: .destructive) { model.resetLook() } label: {
+                    Label("Reset All", systemImage: "arrow.counterclockwise")
+                }
+            } label: {
+                Label("Look", systemImage: "slider.horizontal.3")
+            }
+            .help("Undo, redo, copy/paste categories and reset the look")
             if let image = model.selectedImage {
                 Button("Export Photo…", systemImage: "square.and.arrow.up") {
                     quickExportRequest = QuickExportRequest(id: image.id)
@@ -124,6 +159,17 @@ struct EditWorkspaceView: View {
 
     private var clampedFilmstripHeight: CGFloat {
         CGFloat(min(320.0, max(128.0, filmstripHeight)))
+    }
+
+    /// Height reserved at the bottom of the canvas for the docked strips, so the
+    /// preview is never drawn underneath them.
+    private var editorBottomInset: CGFloat {
+        var inset = StudioLayout.paneInset
+        if showScopes { inset += EditorScopeStrip.preferredHeight + StudioLayout.paneInset }
+        if showFilmstrip && !model.project.images.isEmpty {
+            inset += clampedFilmstripHeight + StudioLayout.paneInset
+        }
+        return inset
     }
 
     private var filmstripThumbnailHeight: CGFloat {
@@ -326,112 +372,33 @@ struct EditWorkspaceView: View {
 private struct EditorInspectorView: View {
     @ObservedObject var model: AppModel
     @Binding var mode: StudioInspectorMode
-    @Binding var scopesVisible: Bool
     @AppStorage(EditorPanelVisibilityStore.key) private var hiddenEditorPanels = ""
 
+    // The inspector column is for controls only. Scopes live under the canvas so
+    // they never steal height from the sliders (Redlamp keeps them out of the rail).
     var body: some View {
         StudioPanel {
             VStack(spacing: 0) {
-                HStack(spacing: 8) {
-                    Picker("Edit tools", selection: $mode) {
-                        ForEach(StudioInspectorMode.allCases) { item in
-                            Text(item.rawValue).tag(item)
-                        }
+                // Only the workflow switch lives here. Look actions and the scope
+                // toggle moved to the editor toolbar so this header costs a single
+                // row and the adjustments below get the rest of the rail.
+                Picker("Edit tools", selection: $mode) {
+                    ForEach(StudioInspectorMode.allCases) { item in
+                        Text(item.rawValue).tag(item)
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    Button {
-                        scopesVisible.toggle()
-                    } label: {
-                        Image(systemName: "waveform.path")
-                    }
-                    .buttonStyle(.borderless)
-                    .help(scopesVisible ? "Hide scopes and monitor" : "Show scopes and monitor")
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 9)
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.small)
+                .padding(.horizontal, 8)
+                .frame(height: RedlampMetrics.panelHeaderHeight)
 
-                if scopesVisible {
-                    EditorScopePanelView(model: model)
-                        .fixedSize(horizontal: false, vertical: true)
-                    monitorControls
-                }
-
-                editActionStrip
                 Rectangle().fill(StudioPalette.divider).frame(height: 1)
 
                 ControlsView(model: model, mode: mode)
                     .frame(maxHeight: .infinity)
             }
         }
-    }
-
-    private var monitorControls: some View {
-        VStack(spacing: 7) {
-            HStack(spacing: 8) {
-                Label("MONITOR", systemImage: "waveform.path")
-                    .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                Spacer()
-                Toggle("Clipping", isOn: Binding(
-                    get: { model.project.preferences.clippingEnabled },
-                    set: { model.setClippingEnabled($0) }))
-                    .toggleStyle(.button).controlSize(.small)
-                    .help("Warn when final output approaches white/red or black/blue. Bright warning is not always irreversible clipping.")
-                Toggle("Skin", isOn: Binding(
-                    get: { model.project.preferences.skinCheckEnabled },
-                    set: { model.setSkinCheckEnabled($0) }))
-                    .toggleStyle(.button).controlSize(.small)
-                    .help("Show skin diagnostic on the rendered image")
-            }
-            if model.project.preferences.clippingEnabled {
-                HStack(spacing: 8) {
-                    Label(String(format:"Highlights %.1f%%", model.analysisMetrics.highlightPercent), systemImage:"circle.fill")
-                        .foregroundStyle(.red)
-                    Label(String(format:"Shadows %.1f%%", model.analysisMetrics.shadowPercent), systemImage:"circle.fill")
-                        .foregroundStyle(.blue)
-                    Spacer()
-                    Text("Final render").foregroundStyle(.secondary)
-                }
-                .font(.caption2.monospacedDigit())
-            }
-        }
-        .padding(.horizontal, 10).padding(.vertical, 7)
-        .background(StudioPalette.panel)
-    }
-
-    // Actions moved into one menu; native Edit Look commands retain shortcuts.
-    private var editActionStrip: some View {
-        HStack {
-            Text("EDIT ACTIONS")
-                .font(StudioType.section)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Menu {
-                Button("Undo") { model.undo() }
-                Button("Redo") { model.redo() }
-                Divider()
-                Button("Copy Look") { model.copyLook() }
-                Button("Paste Look") { model.pasteLook() }
-                Section("Copy / Paste Categories") {
-                    ForEach(LookCopyCategory.allCases) { category in
-                        Toggle(category.rawValue, isOn: Binding(
-                            get: { model.lookCopyCategoryEnabled(category) },
-                            set: { model.setLookCopyCategory(category, enabled: $0) }
-                        ))
-                    }
-                }
-                Divider()
-                Button(role: .destructive) { model.resetLook() } label: { Label("Reset All", systemImage: "arrow.counterclockwise") }
-            } label: {
-                Label("Edit Actions", systemImage: "ellipsis.circle")
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("Undo, redo, copy/paste categories and reset")
-        }
-        .padding(.horizontal, 10)
-        .frame(height: 30)
-        .background(StudioPalette.panel.opacity(0.12))
     }
 
 }
