@@ -97,6 +97,25 @@ struct CullWorkspaceView: View {
         .controlSize(.small)
         .padding(.horizontal, 12).frame(height: 44)
         .background(StudioPalette.panel)
+        // Analysis progress and the "best N%" outcome used to surface only in the
+        // global status bar, far from the button that started them. A silent run
+        // looked identical to a broken one.
+        .overlay(alignment: .bottom) { cullAssistFeedback }
+    }
+
+    @ViewBuilder
+    private var cullAssistFeedback: some View {
+        if model.isCullAnalyzing {
+            HStack(spacing: 8) {
+                Text("Analyzing \(Int(model.cullAnalysisProgress * 100))%")
+                    .font(.caption2.monospacedDigit())
+                ProgressView(value: model.cullAnalysisProgress).frame(width: 140)
+                Button("Cancel") { model.cancelCullAnalysis() }
+                    .controlSize(.mini)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
+        }
     }
 
     private var reviewFilters: some View {

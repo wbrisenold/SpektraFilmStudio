@@ -31,12 +31,20 @@ struct StudioSceneAssistantView: View {
             .padding(15)
             Divider()
             HStack(spacing: 14) {
-                Text("Grouping strength")
-                Slider(value: $similarity, in: 0.45...1.10)
-                    .frame(width: 180)
-                    .help("Lower values require closer Vision similarity. Calibrate against your own images.")
-                Text(similarity < 0.65 ? "Strict" : similarity < 0.90 ? "Balanced" : "Broad")
-                    .frame(width: 62, alignment: .leading).foregroundStyle(.secondary)
+                // Name the *effect*, not an abstract strength. Higher tolerance merges more
+                // dissimilar photos, which felt backwards when the control was
+                // labelled "Grouping strength" and slid the wrong way.
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("How different two photos can be and still group together")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        Text("Separate").font(.caption2).foregroundStyle(.secondary)
+                        Slider(value: $similarity, in: 0.45...1.10)
+                            .frame(width: 150)
+                        Text("Merge").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                .help("Left separates aggressively into small groups. Right merges visually different frames. Groups also require close capture time (within 20 minutes) and the same session folder.")
                 Spacer()
                 if working { ProgressView().controlSize(.small) }
                 Button("Analyze Thumbnails") { Task { await analyze() } }

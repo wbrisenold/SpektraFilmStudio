@@ -370,6 +370,9 @@ require("var working = MaskedLocalGradeEngine.apply" in app and "working = LensC
         "export keeps multiple full-resolution intermediates live")
 require("QuickExportSheet" in edit_view and 'Button("Export This Photo…")' in edit_view,
         "compact single-photo export flow missing")
+require("private var exportActions" in export_view and "actionFooter" in export_view and
+        "model.isExporting || model.activeExportJob != nil" in export_view,
+        "export action must live in the header and the footer must collapse when idle")
 require("Crop Photo" in export_view and "PreviewView(model: model)" in export_view,
         "Export does not reuse Edit crop workflow")
 require("selectLibraryImage(image.id)" in export_view and "selectLibraryImage(image.id)" in cull_view,

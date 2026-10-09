@@ -150,6 +150,15 @@ struct EditWorkspaceView: View {
                 Label("Look", systemImage: "slider.horizontal.3")
             }
             .help("Undo, redo, copy/paste categories and reset the look")
+            // Scene Intelligence was reachable only from ⌘K and the macOS menu, so
+            // it read as a hidden feature. One explicit control in the workspace it
+            // reasons about is discoverable and costs a single button.
+            Button {
+                NotificationCenter.default.post(name: StudioOmniEvents.openSceneAssistant, object: nil)
+            } label: {
+                Label("Scene Intelligence", systemImage: "sparkles.rectangle.stack")
+            }
+            .help("Group photos from the same session and compare film/print starting points")
             if let image = model.selectedImage {
                 Button("Export Photo…", systemImage: "square.and.arrow.up") {
                     quickExportRequest = QuickExportRequest(id: image.id)
@@ -231,36 +240,31 @@ struct EditWorkspaceView: View {
 
                 Spacer()
 
-                Image(systemName: "rectangle.bottomthird.inset.filled")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                // One menu, not two. The filmstrip previously carried both a bare
+                // "rectangle.bottomthird" glyph and an ellipsis menu doing the same
+                // show/hide job, which read as two different controls.
                 Menu {
+                    Button("Hide Filmstrip") { showFilmstrip = false }
+                    Divider()
                     Button("Small") { filmstripHeight = 128 }
                     Button("Medium") { filmstripHeight = 156 }
                     Button("Large") { filmstripHeight = 232 }
-                    Divider()
-                    Button("Hide Filmstrip") { showFilmstrip = false }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Label("Filmstrip", systemImage: "rectangle.bottomthird.inset.filled")
                 }
                 .menuStyle(.borderlessButton)
+                .controlSize(.small)
                 .help("Filmstrip size and visibility")
 
+                // Filename only: Export already lives in the editor toolbar directly
+                // above this strip, so the second copy here was redundant.
                 if let image = model.selectedImage {
-                    Button {
-                        quickExportRequest = QuickExportRequest(id: image.id)
-                    } label: {
-                        Label("Export", systemImage: "square.and.arrow.up")
-                    }
-                    .buttonStyle(.borderless)
-                    .controlSize(.small)
-                    .disabled(model.isExporting)
-
                     Text(image.fileName)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                        .frame(maxWidth: 170, alignment: .trailing)
+                        .frame(maxWidth: 200, alignment: .trailing)
+                        .help(image.fileName)
                 }
             }
             .padding(.horizontal, 10)

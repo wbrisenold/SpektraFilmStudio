@@ -191,47 +191,82 @@ actor StudioSceneIntelligence {
         let night = title.contains("Night")
         let outdoor = title.contains("Outdoor")
         let city = title.contains("City")
-        func filmScore(_ name: String) -> Int {
+        // Returns the score *and* the evidence for it. A bare rank tells the
+        // photographer nothing about why a film was chosen, which is the whole
+        // point of asking the app.
+        func filmScore(_ name: String) -> (score: Int, reasons: [String]) {
             let value = name.lowercased()
             var s = 0
+            var reasons: [String] = []
             if studio {
-                if value.contains("portra") || value.contains("portrait") { s += 12 }
-                if value.contains("400h") || value.contains("pro 400") { s += 9 }
-                if value.contains("ektar") { s -= 3 }
+                if value.contains("portra") || value.contains("portrait") {
+                    s += 12; reasons.append("portrait emulsion suits a studio subject")
+                }
+                if value.contains("400h") || value.contains("pro 400") {
+                    s += 9; reasons.append("neutral 400 for controlled white balance")
+                }
+                if value.contains("ektar") { s -= 3; reasons.append("Ektar is a landscape stock — weaker here") }
             }
             if outdoor {
-                if value.contains("ektar") || value.contains("velvia") { s += 11 }
-                if value.contains("provia") || value.contains("100") { s += 4 }
+                if value.contains("ektar") || value.contains("velvia") {
+                    s += 11; reasons.append("saturated outdoor stock")
+                }
+                if value.contains("provia") || value.contains("100") {
+                    s += 4; reasons.append("reversal-film character outdoors")
+                }
             }
             if night {
-                if value.contains("500t") || value.contains("tungsten") || value.contains("800") { s += 12 }
-                if value.contains("400") { s += 3 }
+                if value.contains("500t") || value.contains("tungsten") || value.contains("800") {
+                    s += 12; reasons.append("tungsten-balanced for low light")
+                }
+                if value.contains("400") { s += 3; reasons.append("400 base suits dim scenes") }
             }
             if city {
-                if value.contains("vision") || value.contains("400") { s += 7 }
+                if value.contains("vision") || value.contains("400") {
+                    s += 7; reasons.append("clean contrast for built subjects")
+                }
             }
             if !studio && !night && !outdoor && !city {
                 if value.contains("portra") || value.contains("400") { s += 3 }
             }
             if value.contains("color") { s += 1 }
-            return s
+            return (s, reasons)
         }
-        func paperScore(_ name: String) -> Int {
+        func paperScore(_ name: String) -> (score: Int, reason: String?) {
             let value = name.lowercased()
             var s = 0
-            if value.contains("endura") || value.contains("crystal") || value.contains("ra4") { s += 5 }
-            if studio && (value.contains("portrait") || value.contains("lustre")) { s += 4 }
+            var reason: String?
+            if value.contains("endura") || value.contains("crystal") || value.contains("ra4") {
+                s += 5; reason = "fiber/semi-fibre base holds highlights"
+            }
+            if studio && (value.contains("portrait") || value.contains("lustre")) {
+                s += 4; reason = "smooth lustre surface for skin tones"
+            }
             if outdoor && (value.contains("gloss") || value.contains("vivid")) { s += 3 }
-            return s
+            return (s, reason)
         }
-        let filmOrder = films.indices.sorted { filmScore(films[$0]) == filmScore(films[$1]) ? $0 < $1 : filmScore(films[$0]) > filmScore(films[$1]) }
-        let paperOrder = papers.indices.sorted { paperScore(papers[$0]) == paperScore(papers[$1]) ? $0 < $1 : paperScore(papers[$0]) > paperScore(papers[$1]) }
-        let why = studio ? "Portrait-oriented starting point; compare skin tones under your actual studio lighting." :
-                  night ? "Low-light starting point; check highlight color and shadow density." :
-                  outdoor ? "Landscape-oriented starting point; compare foliage and saturated highlights." :
-                  "General starting point; compare contrast, skin tone and highlight handling."
+        let sceneReason = studio ? "scene reads as a studio portrait (\(Int((faceRatio * 100).rounded()))% with faces)"
+                  : night ? "scene reads as low light (mean luma \(String(format: "%.2f", luma)))"
+                  : outdoor ? "scene reads as outdoor daylight"
+                  : city ? "scene reads as an urban/subject environment"
+                  : "no dominant scene cues; ranked neutrally"
+        let filmOrder = films.indices.sorted { a, b in
+            let lhs = filmScore(films[a]).score, rhs = filmScore(films[b]).score
+            return lhs == rhs ? a < b : lhs > rhs
+        }
+        let paperOrder = papers.indices.sorted { a, b in
+            let lhs = paperScore(papers[a]).score, rhs = paperScore(papers[b]).score
+            return lhs == rhs ? a < b : lhs > rhs
+        }
         return filmOrder.prefix(3).enumerated().map { position, filmIndex in
             let paperIndex = paperOrder[min(position, paperOrder.count - 1)]
+            let evidence = filmScore(films[filmIndex]).reasons
+            let paperWhy = paperScore(papers[paperIndex]).reason
+            // Say what actually drove this pick. "General starting point" told the
+            // user nothing they could not have guessed.
+            let why = "\(sceneReason). " + (evidence.isEmpty
+                ? "No strong match — this is catalog order, not a match."
+                : evidence.joined(separator: "; ")) + ". " + (paperWhy ?? "paired paper by catalog order")
             return StudioSceneSuggestion(filmIndex: filmIndex, paperIndex: paperIndex,
                                          filmName: films[filmIndex], paperName: papers[paperIndex], why: why)
         }

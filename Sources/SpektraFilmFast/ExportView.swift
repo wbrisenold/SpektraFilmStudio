@@ -45,7 +45,12 @@ struct ExportWorkspaceView: View {
                 }
             }
             Divider()
-            actionFooter
+            // Progress only. The footer used to restate the photo count, format and
+            // size that the preview already showed, then repeat the same two buttons
+            // — a whole bar of duplication. When idle it collapses to nothing.
+            if model.isExporting || model.activeExportJob != nil {
+                actionFooter
+            }
         }
         .background(StudioPalette.canvas)
         .alert("Save Export Preset", isPresented: $showingSavePreset) {
@@ -107,10 +112,42 @@ struct ExportWorkspaceView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .help(showExportInspector ? "Hide export settings" : "Show export settings")
+            exportActions
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(StudioPalette.panel)
+    }
+
+    /// The deliver action lives in the header. It used to sit in a full-width
+    /// footer bar under a three-pane workspace, which permanently stole vertical
+    /// room from the preview for controls that are also reachable elsewhere.
+    @ViewBuilder
+    private var exportActions: some View {
+        if model.isExporting {
+            Button(role: .destructive) { model.stopExport() } label: {
+                Label(model.isStoppingExport ? "Stopping…" : "Stop Export", systemImage: "stop.fill")
+            }
+            .disabled(model.isStoppingExport)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        } else {
+            if model.project.exportSettings.destinationPath.isEmpty {
+                Button("Choose Folder…") { requestExportFolder() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+            Button {
+                model.exportSelected()
+            } label: {
+                Label("Export \(model.selectedExportCount) Photos", systemImage: "square.and.arrow.up")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .keyboardShortcut(.defaultAction)
+            .disabled(exportBlockingReason != nil)
+            .help(exportBlockingReason ?? "Deliver the selected photos using the current settings")
+        }
     }
 
     private var sourceBrowser: some View {
@@ -709,26 +746,6 @@ struct ExportWorkspaceView: View {
                     }
                 }
                 Spacer(minLength: 8)
-                if model.isExporting {
-                    Button(role: .destructive) { model.stopExport() } label: {
-                        Label(model.isStoppingExport ? "Stopping…" : "Stop Export", systemImage: "stop.fill")
-                    }
-                    .disabled(model.isStoppingExport)
-                    .buttonStyle(.borderedProminent)
-                } else {
-                    if model.project.exportSettings.destinationPath.isEmpty {
-                        Button("Choose Folder…") { requestExportFolder() }
-                            .buttonStyle(.bordered)
-                    }
-                    Button {
-                        model.exportSelected()
-                    } label: {
-                        Label("Export \(model.selectedExportCount) Photos", systemImage: "square.and.arrow.up")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(exportBlockingReason != nil)
-                }
             }
             if !model.exportPerformanceSummary.isEmpty {
                 Text(model.exportPerformanceSummary)
