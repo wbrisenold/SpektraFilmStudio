@@ -566,6 +566,23 @@ _require = {
     "filmstripResizeHandle" not in edit_view,
 }
 require(all(_require), "filmstrip must float with hover auto-hide at Redlamp's fixed 110pt/14pt metrics")
+# Redlamp visual parity: the neutral white-alpha palette, the Typography specs
+# (including 0.6pt section tracking), the Metrics row sizes, and Redlamp's own
+# slider track. System label colours and system sliders are what made our rail
+# read as a different product even after the structure matched.
+_ui = text("StudioUI.swift")
+require("static let section = Font.system(size: 10, weight: .semibold).tracking(0.6)" in _ui,
+        "StudioType.section must carry Redlamp's 0.6pt tracking")
+require("labelWidth: CGFloat = 76" in _ui and "rowHeight: CGFloat = 20" in _ui
+        and "panelSymbolSlot: CGFloat = 16" in _ui and "thumbSize: CGFloat = 11" in _ui,
+        "StudioType metrics must match Redlamp Metrics.swift")
+require("static let secondaryLabel = white(0.45)" in _ui and "static let well" not in _ui
+        and "static let tertiaryLabel = white(0.28)" in _ui,
+        "StudioPalette must use Redlamp's explicit white-alpha ramp, not system label colours")
+require("Color.primary.opacity" not in _ui and "Color.secondary\n" not in _ui,
+        "StudioPalette still uses system colours; Redlamp editing surfaces are neutral")
+require("struct StudioSliderTrack" in _ui and "StudioSliderTrack(" in controls,
+        "adjustment rows must use Redlamp's own slider track, not the system Slider")
 
 print("PRODUCTION STATIC QA PASS")
 

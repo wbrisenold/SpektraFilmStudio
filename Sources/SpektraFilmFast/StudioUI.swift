@@ -19,37 +19,78 @@ enum StudioLayout {
     static let filmstripTrigger: CGFloat = 14
 }
 
+/// Redlamp Typography.swift + Metrics.swift, verbatim. `section` carries the
+/// 0.6pt tracking and the row metrics are Redlamp's (76pt labels, 20pt rows),
+/// which is why our rows were visibly wider and looser than Redlamp's.
 enum StudioType {
+    // MARK: Typography
     static let label = Font.system(size: 11)
     static let value = Font.system(size: 11).monospacedDigit()
     static let panelTitle = Font.system(size: 11.5, weight: .semibold)
-    static let section = Font.system(size: 10, weight: .semibold)
+    static let section = Font.system(size: 10, weight: .semibold).tracking(0.6)
     static let caption = Font.system(size: 10)
-    static let title = Font.system(size: 13, weight: .semibold)
-    static let controlRowHeight: CGFloat = 21
-    static let labelWidth: CGFloat = 85
+    static let badge = Font.system(size: 9, weight: .medium)
+
+    // MARK: Metrics
+    static let labelWidth: CGFloat = 76
     static let valueWidth: CGFloat = 44
+    static let rowHeight: CGFloat = 20
+    static let rowSpacing: CGFloat = 6
+    static let panelRowSpacing: CGFloat = 3
+    static let panelSymbolSlot: CGFloat = 16
+    static let controlRowMinHeight: CGFloat = 24
+    static let thumbSize: CGFloat = 11
+    static let trackHeight: CGFloat = 16
+    static let subsectionTopPadding: CGFloat = 10
+    static let subsectionBottomPadding: CGFloat = 2
+    static let groupGap: CGFloat = 4
+    static let cardRadius: CGFloat = 8
+    static let cardPadding: CGFloat = 8
 }
 
 // These neutral greys adapt to the user's macOS appearance. Photo pixels remain
 // wholly isolated from UI tint, even when a different system accent is selected.
+/// Redlamp's Palette.swift `standard` tokens, verbatim.
+///
+/// The previous values used `Color.primary` / `Color.secondary`, which are the
+/// *system* label colors — blue-tinted on macOS. Redlamp's editing surfaces are
+/// deliberately neutral: an explicit white-alpha ramp over near-black, so nothing
+/// tints the photographer's judgement of colour. That difference is most of why our
+/// rail did not read as Redlamp's.
 enum StudioPalette {
-    private static func surface(dark: CGFloat, light: CGFloat) -> Color {
-        Color(nsColor: NSColor(name: nil) { appearance in
-            let darkMode = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            return NSColor(calibratedWhite: darkMode ? dark : light, alpha: 1)
-        })
-    }
-    static let canvas = surface(dark: 0.075, light: 0.970)
-    static let panel = surface(dark: 0.115, light: 0.935)
-    static let recessed = surface(dark: 0.060, light: 0.900)
-    static let raised = surface(dark: 0.160, light: 0.990)
-    static let divider = Color.primary.opacity(0.075)
-    static let hover = Color.primary.opacity(0.055)
-    static let selected = Color.primary.opacity(0.095)
-    static let selectedBorder = Color.primary.opacity(0.38)
-    static let subtleBorder = Color.primary.opacity(0.095)
-    static let muted = Color.secondary
+    private static func white(_ alpha: CGFloat) -> Color { Color.white.opacity(alpha) }
+    private static func black(_ alpha: CGFloat) -> Color { Color.black.opacity(alpha) }
+
+    // MARK: Text ramp
+    static let label = white(0.72)
+    static let labelHover = white(0.95)
+    static let secondaryLabel = white(0.45)
+    static let tertiaryLabel = white(0.28)
+    static let value = white(0.90)
+
+    // MARK: Surfaces
+    /// The canvas the photo sits on: black 0.28 behind everything.
+    static let canvas = black(0.28)
+    /// Floating pane fill.
+    static let panel = white(0.115)
+    /// Wells (histogram, tool strip, pickers).
+    static let recessed = black(0.28)
+    static let raised = white(0.16)
+
+    // MARK: Lines and states
+    static let divider = white(0.07)
+    static let hover = white(0.055)
+    static let selected = white(0.10)
+    static let selectedBorder = white(0.38)
+    static let subtleBorder = white(0.07)
+
+    // MARK: Slider
+    static let track = white(0.16)
+    static let trackFill = white(0.55)
+    static let thumb = white(0.92)
+    static let editedDot = white(0.55)
+
+    static let muted = secondaryLabel
 }
 
 // Blur belongs to the interface, never to the photo or an image stage. This also
@@ -196,5 +237,64 @@ struct SpektraApplicationIconView: View {
             .resizable()
             .interpolation(.high)
             .scaledToFit()
+    }
+}
+
+/// Redlamp draws its own slider (SliderTrackView): a 16pt rounded track at
+/// white 0.16 with a white 0.55 fill and an 11pt white 0.92 thumb. The system
+/// `Slider` is a different height, a different thumb and a blue fill, which is
+/// the most obvious remaining difference in the rail.
+struct StudioSliderTrack: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    var enabled: Bool = true
+    var onEditingChanged: (Bool) -> Void = { _ in }
+
+    @State private var dragging = false
+
+    private func clamp(_ raw: Double) -> Double {
+        min(range.upperBound, max(range.lowerBound, raw))
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = max(1, proxy.size.width)
+            let span = range.upperBound - range.lowerBound
+            let fraction = span > 0 ? min(1, max(0, (value - range.lowerBound) / span)) : 0
+            let thumbX = min(max(StudioType.thumbSize / 2, width * fraction),
+                             width - StudioType.thumbSize / 2)
+
+            ZStack(alignment: .leading) {
+                Capsule().fill(StudioPalette.track)
+                Capsule()
+                    .fill(StudioPalette.trackFill)
+                    .frame(width: thumbX)
+                Circle()
+                    .fill(StudioPalette.thumb)
+                    .frame(width: StudioType.thumbSize, height: StudioType.thumbSize)
+                    .position(x: thumbX, y: proxy.size.height / 2)
+            }
+            .frame(height: StudioType.trackHeight)
+            .frame(maxHeight: .infinity, alignment: .center)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { drag in
+                        guard enabled, span > 0 else { return }
+                        if !dragging { dragging = true; onEditingChanged(true) }
+                        let usable = max(1, width - StudioType.thumbSize)
+                        let t = min(1, max(0, (drag.location.x - StudioType.thumbSize / 2) / usable))
+                        value = clamp(range.lowerBound + t * span)
+                    }
+                    .onEnded { _ in
+                        guard dragging else { return }
+                        dragging = false
+                        onEditingChanged(false)
+                    }
+            )
+        }
+        .frame(height: StudioType.controlRowMinHeight)
+        .opacity(enabled ? 1 : 0.4)
+        .accessibilityValue(Text(format: "%.0f", value))
     }
 }

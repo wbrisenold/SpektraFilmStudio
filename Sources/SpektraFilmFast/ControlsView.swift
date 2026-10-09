@@ -999,18 +999,23 @@ struct DraftScalarSlider: View {
                 .lineLimit(1).truncationMode(.tail)
                 .frame(width: RedlampMetrics.labelWidth, alignment: .leading)
                 .help(label)
-            Slider(value: Binding(
-                get: { draft },
-                set: { value in
-                    let adjusted = NSEvent.modifierFlags.contains(.shift) ? draft + (value - draft) * 0.10 : value
-                    draft = min(range.upperBound, max(range.lowerBound, adjusted))
-                    onChange(draft)
+            // Redlamp's own track, not the system slider: shift fine-trims 10%
+            // of the motion, matching its SliderRowView.
+            StudioSliderTrack(
+                value: Binding(
+                    get: { draft },
+                    set: { value in
+                        let adjusted = NSEvent.modifierFlags.contains(.shift) ? draft + (value - draft) * 0.10 : value
+                        draft = min(range.upperBound, max(range.lowerBound, adjusted))
+                        onChange(draft)
+                    }
+                ),
+                range: range,
+                onEditingChanged: { isEditing in
+                    editing = isEditing
+                    if isEditing { onBegin() } else { onEnd() }
                 }
-            ), in: range, onEditingChanged: { isEditing in
-                editing = isEditing
-                if isEditing { onBegin() } else { onEnd() }
-            })
-            .controlSize(.small)
+            )
             .accessibilityLabel(label)
             TextField(label, value: Binding(
                 get: { draft },
