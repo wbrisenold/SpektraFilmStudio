@@ -46,8 +46,8 @@ struct EditorScopeStrip: View {
         }
         .background(
             GeometryReader { proxy in
-                Color.clear.onChange(of: proxy.size.height) { _, height in
-                    Self.report(height, to: onHeightChange)
+                Color.clear.onChange(of: proxy.size.height) { previous, height in
+                    Self.report(previous: previous, height, to: onHeightChange)
                 }
             }
         )
