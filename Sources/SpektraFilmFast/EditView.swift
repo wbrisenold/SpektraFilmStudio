@@ -399,18 +399,19 @@ private struct EditorInspectorView: View {
         .background(StudioPalette.panel)
     }
 
+    // Actions moved into one menu; native Edit Look commands retain shortcuts.
     private var editActionStrip: some View {
-        HStack(spacing: 6) {
-            Button { model.undo() } label: { Label("Undo", systemImage:"arrow.uturn.backward") }
-                .help("Undo edit")
-            Button { model.redo() } label: { Label("Redo", systemImage:"arrow.uturn.forward") }
-                .help("Redo edit")
-            Spacer(minLength: 3)
-            Button { model.copyLook() } label: { Label("Copy", systemImage:"doc.on.doc") }
-                .help("Copy this photo's enabled edit categories (⌘C)")
-            Button { model.pasteLook() } label: { Label("Paste", systemImage:"doc.on.clipboard") }
-                .help("Paste edits to the filmstrip selection (⌘V)")
+        HStack {
+            Text("EDIT ACTIONS")
+                .font(StudioType.section)
+                .foregroundStyle(.secondary)
+            Spacer()
             Menu {
+                Button("Undo") { model.undo() }
+                Button("Redo") { model.redo() }
+                Divider()
+                Button("Copy Look") { model.copyLook() }
+                Button("Paste Look") { model.pasteLook() }
                 Section("Copy / Paste Categories") {
                     ForEach(LookCopyCategory.allCases) { category in
                         Toggle(category.rawValue, isOn: Binding(
@@ -421,14 +422,16 @@ private struct EditorInspectorView: View {
                 }
                 Divider()
                 Button(role: .destructive) { model.resetLook() } label: { Label("Reset All", systemImage: "arrow.counterclockwise") }
-            } label: { Image(systemName:"ellipsis.circle") }
-                .help("Edit category selection and reset")
+            } label: {
+                Label("Edit Actions", systemImage: "ellipsis.circle")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Undo, redo, copy/paste categories and reset")
         }
-        .font(.caption)
-        .buttonStyle(.borderless)
-        .controlSize(.small)
-        .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(StudioPalette.panel)
+        .padding(.horizontal, 10)
+        .frame(height: 30)
+        .background(StudioPalette.panel.opacity(0.12))
     }
 
 }

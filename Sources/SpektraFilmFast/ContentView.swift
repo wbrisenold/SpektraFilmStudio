@@ -9,6 +9,7 @@ struct ContentView: View {
     @State private var showingCloudTransfer = false
     @State private var showingOmni = false
     @State private var showingSceneAssistant = false
+    @AppStorage("SpektraFilmStudio.ui.appearance") private var appAppearance = "system"
 
     init(model: AppModel) {
         self.model = model
@@ -26,6 +27,7 @@ struct ContentView: View {
             statusBar
         }
         .background(StudioPalette.canvas)
+        .preferredColorScheme(appAppearance == "dark" ? .dark : (appAppearance == "light" ? .light : nil))
         .overlay(alignment: .top) {
             if showingOmni {
                 StudioOmniSearch(model: model, isPresented: $showingOmni)
@@ -47,6 +49,9 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: StudioOmniEvents.open)) { _ in
             showingOmni.toggle()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("SpektraFilmStudio.UI.CloudSetup"))) { _ in
+            showingCloudTransfer = true
         }
         .onChange(of: model.page) { _, newPage in
             model.workspaceDidChange(newPage)
@@ -146,15 +151,6 @@ struct ContentView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .help("Omni Search · ⌘K")
-
-            Button {
-                showingCloudTransfer = true
-            } label: {
-                Image(systemName: "icloud")
-            }
-            .buttonStyle(.borderless)
-            .help("Cloud library, Lightroom and transfer settings")
-            .accessibilityLabel("Cloud Setup")
 
             if model.isIngesting {
                 ProgressView(value: model.ingestProgress)

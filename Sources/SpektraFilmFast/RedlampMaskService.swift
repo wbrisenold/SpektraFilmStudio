@@ -176,17 +176,45 @@ actor RedlampMaskService {
             provided = [ProvidedMask(kind: .sky, provider: "Redlamp sky / SAM2 / optional DA3", revision: 14,
                                      mask: SkyMatte.refine(mask, image: full))]
         case .depthRange:
+            // SFS-UI-SETTINGS-20261009-R2: Settings › Models controls the
+            // *actual* provider, not just which weights are downloaded.
+            let preference = UserDefaults.standard.string(forKey: "SpektraFilmStudio.ai.depthProvider") ?? "automatic"
             let mask: GrayMask
-            if let embedded = try embeddedDepth(url) { mask = embedded }
-            else if let result = try? da3(image) { mask = result.depth }
-            else {
+            let provider: String
+            switch preference {
+            case "embedded":
+                guard let embedded = try embeddedDepth(url) else {
+                    throw ModelStoreError.download("This photo has no embedded depth. Choose another provider in Settings › Models.")
+                }
+                mask = embedded
+                provider = "apple.embedded.depth"
+            case "da3":
+                mask = try da3(image).depth
+                provider = "redlamp.depth-anything-3"
+            case "da2":
                 if depth2 == nil {
                     let (manifest, directory) = try installed("depth-anything-v2-small")
                     depth2 = try DepthEstimator(manifest: manifest, directory: directory)
                 }
                 mask = try depth2!.depth(of: image)
+                provider = "redlamp.depth-anything-v2"
+            default:
+                if let embedded = try embeddedDepth(url) {
+                    mask = embedded
+                    provider = "apple.embedded.depth"
+                } else if let result = try? da3(image) {
+                    mask = result.depth
+                    provider = "redlamp.depth-anything-3"
+                } else {
+                    if depth2 == nil {
+                        let (manifest, directory) = try installed("depth-anything-v2-small")
+                        depth2 = try DepthEstimator(manifest: manifest, directory: directory)
+                    }
+                    mask = try depth2!.depth(of: image)
+                    provider = "redlamp.depth-anything-v2"
+                }
             }
-            provided = [ProvidedMask(kind: .depthRange, provider: "Embedded depth / Redlamp Depth Anything", revision: 14, mask: mask)]
+            provided = [ProvidedMask(kind: .depthRange, provider: provider, revision: 14, mask: mask)]
         case .landscape:
             if concepts == nil {
                 let (manifest, directory) = try installed("sam3")

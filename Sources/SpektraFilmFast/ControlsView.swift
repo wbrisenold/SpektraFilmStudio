@@ -6,6 +6,7 @@ struct ControlsView: View {
     // Each workflow tab keeps its own focused adjustment groups.
     @State private var openAdjustment: String? = "tone"
     @State private var filmStage = "stock"
+    @AppStorage("SpektraFilmStudio.ui.collapsedFilmSections") private var collapsedFilmSections = ""
     @State private var inspectorSearch = ""
     @State private var showModifiedOnly = false
     @AppStorage(EditorPanelVisibilityStore.key) private var hiddenEditorPanels = ""
@@ -164,22 +165,62 @@ struct ControlsView: View {
         }
     }
 
+    private func sectionExpanded(_ id: String) -> Bool {
+        if !searchTerm.isEmpty { return true }
+        if mode == .film { return !Set(collapsedFilmSections.split(separator: ",").map(String.init)).contains(id) }
+        return openAdjustment == id
+    }
+
+    private func toggleInspectorSection(_ id: String) {
+        if mode == .film {
+            var closed = Set(collapsedFilmSections.split(separator: ",").map(String.init))
+            if !closed.insert(id).inserted { closed.remove(id) }
+            collapsedFilmSections = closed.sorted().joined(separator: ",")
+        } else {
+            openAdjustment = openAdjustment == id ? nil : id
+        }
+    }
+
+    private func sectionEdited(_ id: String) -> Bool {
+        let look = model.selectedLook
+        switch id {
+        case "raw": return look.raw != RawSettings()
+        case "tone": return (look.tone ?? ToneSettings()) != ToneSettings()
+        case "density": return (look.colorDensity ?? ColorDensitySettings()) != ColorDensitySettings()
+        case "geometry": return (look.geometry ?? GeometrySettings()) != GeometrySettings()
+        case "lens": return (look.lensEffects ?? LensEffectsSettings()) != LensEffectsSettings()
+        default:
+            guard id.hasPrefix("film.") else { return false }
+            let group = String(id.dropFirst("film.".count))
+            return catalog.parameters(in: group, flavor: .pro).contains { descriptor in
+                (look.values[descriptor.name] ?? descriptor.defaultValue) != descriptor.defaultValue
+            }
+        }
+    }
+
     @ViewBuilder
     private func inspectorSection<Content: View>(_ title: String, id: String,
                                                 @ViewBuilder content: @escaping () -> Content) -> some View {
-        if mode == .film || !searchTerm.isEmpty || openAdjustment == id {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(title.uppercased())
-                    .font(StudioType.section)
-                    .tracking(0.6)
-                    .foregroundStyle(.secondary)
-                content()
+        let expanded = sectionExpanded(id)
+        VStack(spacing: 0) {
+            StudioDevelopSectionHeader(title: title, expanded: expanded, edited: sectionEdited(id)) {
+                toggleInspectorSection(id)
             }
-            .padding(.horizontal, StudioLayout.panelPadding)
-            .padding(.vertical, 13)
-            .background(StudioPalette.panel.opacity(0.12))
-            Divider().opacity(0.45)
+            .contextMenu {
+                if id.hasPrefix("film.") {
+                    Button("Reset Section") { model.resetParameterGroup(String(id.dropFirst("film.".count))) }
+                }
+            }
+            if expanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    content()
+                }
+                .padding(.horizontal, StudioLayout.panelPadding)
+                .padding(.bottom, 12)
+            }
+            Divider().opacity(0.42)
         }
+        .background(StudioPalette.panel.opacity(0.05))
     }
 
     private func panelVisible(_ id: String) -> Bool {

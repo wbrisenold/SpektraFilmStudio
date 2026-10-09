@@ -115,6 +115,10 @@ struct SpektraCommands: Commands {
             }.keyboardShortcut("k", modifiers: [.command])
         }
         CommandMenu("Cloud Library") {
+            Button("Cloud Setup…") {
+                NotificationCenter.default.post(name: Notification.Name("SpektraFilmStudio.UI.CloudSetup"), object: nil)
+            }
+            Divider()
             Button("Import Lightroom Catalog to iCloud…") { model.importLightroomCatalogToICloud() }
             Button("Move Current Library to iCloud…") { model.moveCurrentLibraryToICloud() }
                 .disabled(model.project.images.isEmpty || model.isCloudLibraryConnected)

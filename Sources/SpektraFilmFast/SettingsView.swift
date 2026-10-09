@@ -7,36 +7,37 @@ struct SettingsView: View {
     @AppStorage("SpektraFilmStudio.ui.glassEnabled") private var glassEnabled = true
     @AppStorage("SpektraFilmStudio.ui.glassTransparency") private var glassTransparency = 0.60
     private let editorCatalog = BridgeCatalog.shared
+    // SFS-UI-SETTINGS-20261009-R2: values are shared with the views they control.
+    @AppStorage("SpektraFilmStudio.ui.appearance") private var appAppearance = "system"
+    @AppStorage("SpektraFilmStudio.designA.showEditorInspector") private var editorInspectorVisible = true
+    @AppStorage("SpektraFilmStudio.designA.showFilmstrip") private var editorFilmstripVisible = true
+    @AppStorage("SpektraFilmStudio.designA.showScopes") private var editorScopesVisible = false
+    @AppStorage("SpektraFilmStudio.designA.showCullInspector") private var cullInspectorVisible = false
+    @AppStorage("SpektraFilmStudio.designA.showLibraryInspector") private var libraryInspectorVisible = false
+    @AppStorage("SpektraFilmStudio.designA.v3.showExportBrowser") private var exportBrowserVisible = true
+    @AppStorage("SpektraFilmStudio.ui.collapsedFilmSections") private var collapsedFilmSections = ""
+    @AppStorage("SpektraFilmStudio.ai.depthProvider") private var depthProvider = "automatic"
 
     var body: some View {
         TabView {
             generalTab
                 .tabItem { Label("General", systemImage: "gear") }
+            uiTab
+                .tabItem { Label("UI", systemImage: "rectangle.3.group") }
             studioTab
-                .tabItem { Label("Studio", systemImage: "waveform.path.ecg") }
+                .tabItem { Label("Color & Scopes", systemImage: "waveform.path.ecg") }
             MaskModelsSettingsView()
                 .tabItem { Label("Models", systemImage: "cpu") }
             shortcutsTab
                 .tabItem { Label("Shortcuts", systemImage: "keyboard") }
         }
-        .frame(width: 660, height: 540)
+        .frame(width: 760, height: 610)
+        .preferredColorScheme(appAppearance == "dark" ? .dark : (appAppearance == "light" ? .light : nil))
         .onAppear { model.refreshCacheStatus() }
     }
 
     private var generalTab: some View {
         Form {
-            Section("Appearance") {
-                Toggle("Transparent glass panels", isOn: $glassEnabled)
-                HStack {
-                    Text("Glass transparency")
-                    Slider(value: $glassTransparency, in: 0...0.90)
-                        .disabled(!glassEnabled)
-                    Text("\(Int((glassTransparency * 100).rounded()))%")
-                        .monospacedDigit().foregroundStyle(.secondary).frame(width: 44)
-                }
-                Text("Uses native Liquid Glass on macOS 26 and material panels on older systems. Accessibility Reduce Transparency always takes precedence. The photo canvas stays color-neutral.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
             Section("Preview") {
                 LabeledContent("Edit proxy") {
                     Text("1080 px · live + idle")
@@ -134,11 +135,38 @@ struct SettingsView: View {
         .padding(14)
     }
 
-    private var studioTab: some View {
+    // Settings › UI changes exactly the AppStorage properties consumed by each workspace.
+    private var uiTab: some View {
         Form {
-            Section("Editor layout") {
-                Text("Choose which panels are available in RAW and Film. These layout controls live here instead of crowding the inspector.")
+            Section("Window Appearance") {
+                Picker("Appearance", selection: $appAppearance) {
+                    Text("Follow macOS").tag("system")
+                    Text("Dark").tag("dark")
+                    Text("Light").tag("light")
+                }
+                .pickerStyle(.segmented)
+                Toggle("Transparent glass panels", isOn: $glassEnabled)
+                HStack {
+                    Text("Panel transparency")
+                    Slider(value: $glassTransparency, in: 0...0.90)
+                        .disabled(!glassEnabled)
+                    Text("\(Int((glassTransparency * 100).rounded()))%")
+                        .monospacedDigit().frame(width: 46)
+                }
+                Text("The photo itself is never blurred or tinted. Accessibility Reduce Transparency overrides glass.")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Workspace Visibility") {
+                Toggle("Editor adjustment inspector", isOn: $editorInspectorVisible)
+                Toggle("Editor filmstrip", isOn: $editorFilmstripVisible)
+                Toggle("Editor scopes", isOn: $editorScopesVisible)
+                Toggle("Library inspector", isOn: $libraryInspectorVisible)
+                Toggle("Cull inspector", isOn: $cullInspectorVisible)
+                Toggle("Export source browser", isOn: $exportBrowserVisible)
+                Text("These toggles update the workspaces immediately. Essential photo tools remain in their workspaces.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Adjustment Panel Organization") {
                 EditorPanelVisibilityMenu(
                     serializedHidden: $hiddenEditorPanels,
                     panels: [
@@ -151,8 +179,28 @@ struct SettingsView: View {
                         (id: "film.\($0.id)", title: $0.label)
                     }
                 )
-                Button("Show All Editor Panels") { hiddenEditorPanels = "" }
+                Button("Expand All Film Sections") { collapsedFilmSections = "" }
             }
+            Section("Restore Layout") {
+                Button("Restore Default Workspace Layout") {
+                    editorInspectorVisible = true
+                    editorFilmstripVisible = true
+                    editorScopesVisible = false
+                    libraryInspectorVisible = false
+                    cullInspectorVisible = false
+                    exportBrowserVisible = true
+                    hiddenEditorPanels = ""
+                    collapsedFilmSections = ""
+                }
+                .help("Only resets UI visibility; does not alter photo edits or masks.")
+            }
+        }
+        .formStyle(.grouped)
+        .padding(14)
+    }
+
+    private var studioTab: some View {
+        Form {
             Section("Editor Scopes") {
                 LabeledContent("Visibility") {
                     Text("Optional in Edit")

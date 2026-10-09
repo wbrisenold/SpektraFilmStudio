@@ -9,8 +9,8 @@ enum StudioLayout {
     static let statusHeight: CGFloat = 26
     static let librarySidebarWidth: CGFloat = 240
     static let libraryInspectorWidth: CGFloat = 286
-    static let presetSidebarWidth: CGFloat = 252
-    static let editorInspectorWidth: CGFloat = 336
+    static let presetSidebarWidth: CGFloat = 250
+    static let editorInspectorWidth: CGFloat = 316
     static let filmstripHeight: CGFloat = 112
     static let panelCornerRadius: CGFloat = 16
     static let compactCornerRadius: CGFloat = 8
@@ -99,6 +99,40 @@ struct StudioPanel<Content: View>: View {
     var body: some View {
         content
             .background(StudioPalette.panel.opacity(0.16))
+    }
+}
+
+// SFS-UI-SETTINGS-20261009-R2: Redlamp-style collapsible panel header.
+// Edited state is derived from real RenderLook values, not UI-only state.
+struct StudioDevelopSectionHeader: View {
+    let title: String
+    let expanded: Bool
+    let edited: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: 8) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
+                    .frame(width: 12)
+                Text(title)
+                    .font(StudioType.panelTitle)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                if edited {
+                    Circle().fill(Color.accentColor).frame(width: 5, height: 5)
+                        .accessibilityLabel("Edited")
+                }
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, StudioLayout.panelPadding)
+            .frame(height: RedlampMetrics.panelHeaderHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title), \(expanded ? "expanded" : "collapsed")")
     }
 }
 
