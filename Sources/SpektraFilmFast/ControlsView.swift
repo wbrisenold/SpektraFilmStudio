@@ -1017,6 +1017,25 @@ struct DraftScalarSlider: View {
                 }
             )
             .accessibilityLabel(label)
+            .onTapGesture(count: 2) {
+                // Redlamp: double-click resets the parameter to its default.
+                if let resetValue {
+                    draft = resetValue
+                    onChange(resetValue)
+                    onEnd()
+                }
+            }
+            .focusable()
+            .onKeyPress(.leftArrow) {
+                guard let v = try? $draft.wrappedValue else { return .ignored }
+                let next = min(range.upperBound, max(range.lowerBound, v - step))
+                draft = next; onChange(next); onEnd(); return .handled
+            }
+            .onKeyPress(.rightArrow) {
+                guard let v = try? $draft.wrappedValue else { return .ignored }
+                let next = min(range.upperBound, max(range.lowerBound, v + step))
+                draft = next; onChange(next); onEnd(); return .handled
+            }
             TextField(label, value: Binding(
                 get: { draft },
                 set: { value in

@@ -253,9 +253,39 @@ struct StudioSliderTrack: View {
     var onEditingChanged: (Bool) -> Void = { _ in }
 
     @State private var dragging = false
+    /// Redlamp accumulates precise scroll deltas so a trackpad nudge moves one step
+    /// rather than a hair (SliderRowView.scrollWheel).
+    @State private var scrollRemainder: Double = 0
+
+    private var step: Double {
+        let span = range.upperBound - range.lowerBound
+        return span > 0 ? span / 100 : 0
+    }
 
     private func clamp(_ raw: Double) -> Double {
         min(range.upperBound, max(range.lowerBound, raw))
+    }
+
+    /// ⌘-scroll adjusts the slider (Shift x10, Option x0.1), as Redlamp does.
+    private func adjust(by steps: Double, flags: NSEvent.ModifierFlags, onEdit: @escaping (Double) -> Void) {
+        let multiplier = flags.contains(.shift) ? 10.0 : flags.contains(.option) ? 0.1 : 1.0
+        onEdit(clamp(value + steps * step * multiplier))
+    }
+
+    /// `,` `.` select the slider; `-` `=` nudge it, as Redlamp's FocusMarker does.
+    func handleKey(_ key: KeyEquivalent, flags: NSEvent.ModifierFlags, onEdit: @escaping (Double) -> Void) {
+        let nudge: Double? = switch key {
+        case .minus: -1
+        case .equal: 1
+        default: nil
+        }
+        if let nudge {
+            adjust(by: nudge, flags: flags, onEdit: onEdit)
+            return
+        }
+        if key == .comma || key == .period {
+            adjust(by: flags.contains(.shift) ? 10 : 1, flags: flags, onEdit: onEdit)
+        }
     }
 
     var body: some View {
@@ -279,6 +309,19 @@ struct StudioSliderTrack: View {
             .frame(height: StudioType.trackHeight)
             .frame(maxHeight: .infinity, alignment: .center)
             .contentShape(Rectangle())
+            .onScrollWheel { delta, flags in
+                guard flags.contains(.command), enabled else { return false }
+                var d = delta
+                scrollRemainder += d
+                let steps = scrollRemainder.rounded(.towardZero)
+                guard steps != 0 else { return true }
+                scrollRemainder -= steps
+                let flagsNow = NSEvent.modifierFlags
+                let multiplier = flagsNow.contains(.shift) ? 10.0 : flagsNow.contains(.option) ? 0.1 : 1.0
+                if !dragging { dragging = true; onEditingChanged(true) }
+                value = clamp(value + steps * step * multiplier)
+                return true
+            }
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
