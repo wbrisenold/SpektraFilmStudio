@@ -20,7 +20,7 @@ struct EditorScopeStrip: View {
     @ObservedObject var model: AppModel
     @Binding var isExpanded: Bool
     /// Reports the strip's real height so the canvas reserves exactly that much.
-    let onHeightChange: (CGFloat) -> Void
+    let onHeightChange: @MainActor (CGFloat) -> Void
 
     /// Feed a *changed* measured height back on the next main-actor turn.
     ///
@@ -29,7 +29,7 @@ struct EditorScopeStrip: View {
     /// layout -> state -> layout cycle, so it is deferred by one turn. The
     /// `previous == nil` guard drops the initial `onChange` callback, since the
     /// caller already seeds a sane collapsed-height fallback.
-    private static func report(previous: CGFloat?, _ height: CGFloat, to handler: (CGFloat) -> Void) {
+    private static func report(previous: CGFloat?, _ height: CGFloat, to handler: @escaping @MainActor (CGFloat) -> Void) {
         guard let previous, previous != height, height.isFinite, height > 0 else { return }
         Task { @MainActor in
             handler(height)
