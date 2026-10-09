@@ -113,7 +113,7 @@ struct ContentView: View {
                 }
             }
             .padding(3)
-            .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 9))
+            .background(Color.clear)
             .accessibilityLabel("Workspace")
 
             Spacer(minLength: 6)

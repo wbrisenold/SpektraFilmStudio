@@ -298,5 +298,5 @@ do_verify
 
 echo
 echo "Notarized and stapled: $APP"
-echo "Next: publish dist/$ZIP_NAME and dist/SHA256SUMS.txt per RELEASING.md,"
+echo "Next: publish dist/$ZIP_NAME and dist/SHA256SUMS.txt per docs/RELEASING.md,"
 echo "and drop the Gatekeeper workaround from the release notes."

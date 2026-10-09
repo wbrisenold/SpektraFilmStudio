@@ -2,6 +2,9 @@ import SwiftUI
 
 struct EditorScopePanelView: View {
     @ObservedObject var model: AppModel
+    @State private var histogramZone: Int?
+    @State private var histogramStart: Double = 0
+    @State private var histogramPhoto: UUID?
 
     var body: some View {
         VStack(spacing: 6) {
@@ -48,12 +51,57 @@ struct EditorScopePanelView: View {
                 }
             }
             .frame(height: 188)
+            .overlay {
+                if model.project.preferences.scopeMode == .histogram {
+                    GeometryReader { geometry in
+                        Color.clear.contentShape(Rectangle())
+                            .gesture(DragGesture(minimumDistance: 2).onChanged { drag in
+                                guard model.selectedImage != nil else { return }
+                                if histogramZone == nil {
+                                    let zone = min(4, max(0, Int(drag.startLocation.x / max(1, geometry.size.width) * 5)))
+                                    histogramZone = zone
+                                    histogramPhoto = model.project.selectedImageID
+                                    let tone = model.selectedLook.tone ?? ToneSettings()
+                                    histogramStart = [tone.blacks, tone.shadows, tone.exposureEV, tone.highlights, tone.whites][zone]
+                                    model.beginEditGesture()
+                                }
+                                guard histogramPhoto == model.project.selectedImageID, let zone = histogramZone else { return }
+                                let delta = Double(drag.translation.width / max(1, geometry.size.width))
+                                let value = histogramStart + delta * (zone == 2 ? 10 : 200)
+                                switch zone {
+                                case 0: model.setToneBlacks(value, interactive: true)
+                                case 1: model.setToneShadows(value, interactive: true)
+                                case 2: model.setExposureEV(value, interactive: true)
+                                case 3: model.setToneHighlights(value, interactive: true)
+                                default: model.setToneWhites(value, interactive: true)
+                                }
+                            }.onEnded { _ in finishHistogramDrag() })
+                    }
+                }
+            }
             .clipped()
             .overlay(alignment: .top) {
                 Rectangle().fill(StudioPalette.subtleBorder).frame(height: 1)
             }
             .overlay(alignment: .bottom) {
                 Rectangle().fill(StudioPalette.subtleBorder).frame(height: 1)
+            }
+
+            if model.project.preferences.scopeMode == .histogram {
+                HStack {
+                    Button { model.setClippingEnabled(!model.project.preferences.clippingEnabled) } label: {
+                        Label(String(format: "%.2f%%", model.analysisMetrics.hardShadowPercent), systemImage: "triangle.fill")
+                            .foregroundStyle(model.analysisMetrics.hardShadowPercent > 0 ? Color.blue : Color.secondary)
+                    }.buttonStyle(.plain).help("Shadow clipping · toggle clipping overlay")
+                    Spacer()
+                    Text(histogramZone.map { ["Blacks", "Shadows", "Exposure", "Highlights", "Whites"][$0] } ?? "Drag histogram to adjust light")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    Spacer()
+                    Button { model.setClippingEnabled(!model.project.preferences.clippingEnabled) } label: {
+                        Label(String(format: "%.2f%%", model.analysisMetrics.hardHighlightPercent), systemImage: "triangle.fill")
+                            .foregroundStyle(model.analysisMetrics.hardHighlightPercent > 0 ? Color.red : Color.secondary)
+                    }.buttonStyle(.plain).help("Highlight clipping · toggle clipping overlay")
+                }.font(.caption2)
             }
 
             if model.project.preferences.scopeMode == .skinVectorscope {
@@ -75,6 +123,8 @@ struct EditorScopePanelView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 7)
         .background(StudioPalette.panel)
+        .onDisappear { finishHistogramDrag() }
+        .onChange(of: model.project.selectedImageID) { _, _ in finishHistogramDrag() }
         .onAppear {
             // Scopes are a persistent editor monitor in v0.4. Existing projects may
             // contain the old off preference, so normalize it when the editor appears.
@@ -84,6 +134,11 @@ struct EditorScopePanelView: View {
                 model.requestEditorScopeUpdate()
             }
         }
+    }
+
+    private func finishHistogramDrag() {
+        if histogramZone != nil { model.endEditGesture() }
+        histogramZone = nil; histogramPhoto = nil
     }
 
     private var scopeModeNav: some View {

@@ -94,7 +94,7 @@ grep -q 'XMPService.shared' Sources/SpektraFilmFast/LibraryCullSupport.swift
 ! grep -q '\[xmpService\]' Sources/SpektraFilmFast/LibraryCullSupport.swift
 grep -q 'String(cString: base)' Sources/SpektraFilmFast/ProofDockService.swift
 
-# --- Swift 6 concurrency traps (each broke a release build; see AI_PITFALLS.md) ---
+# --- Swift 6 concurrency traps (each broke a release build; see docs/BUILD_PITFALLS.md) ---
 # 1. An `async func` does NOT inherit @MainActor inside a Task{}. It is nonisolated
 #    by default, so it must be annotated explicitly or it leaves the main actor.
 grep -q '@MainActor func sample(mired: Double, tint: Double)' Sources/SpektraFilmFast/AppModel.swift
@@ -115,7 +115,7 @@ grep -q 'let exportSettings = job.settings' Sources/SpektraFilmFast/AppModel.swi
 #    filled from output.pixels. Later refactors route it through
 #    clippingFlags()/monitorPixels; that is fine as long as the origin
 #    is the final output. Pinning the exact expression broke on such a
-#    refactor even though behaviour was preserved (AI_PITFALLS.md 16).
+#    refactor even though behaviour was preserved (docs/BUILD_PITFALLS.md 16).
 ! grep -q 'sourcePeak' Sources/SpektraFilmFast/StudioAnalysis.swift
 grep -q 'monitorPixels\[p\] = monitor.0' Sources/SpektraFilmFast/StudioAnalysis.swift
 grep -q 'output.pixels\[sourceIndex\]' Sources/SpektraFilmFast/StudioAnalysis.swift

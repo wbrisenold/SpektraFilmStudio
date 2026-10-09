@@ -3464,7 +3464,11 @@ struct MetalRenderer::Impl {
         threadgroupMode = "auto";
       }
 
-      device = MTLCreateSystemDefaultDevice();
+      // Prefer the discrete GPU on dual-GPU Macs; keep every stage on one device.
+      for (id<MTLDevice> candidate in MTLCopyAllDevices()) {
+        if (![candidate isLowPower] && ![candidate isRemovable]) { device = candidate; break; }
+      }
+      if (!device) device = MTLCreateSystemDefaultDevice();
       if (!device) {
         lastError = "Metal is not available on this system.";
         return;

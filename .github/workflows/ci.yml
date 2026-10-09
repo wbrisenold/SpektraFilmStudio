@@ -1,7 +1,7 @@
 name: ci
 
 # The source gate only. It runs the real `swiftc -typecheck` over every Swift file,
-# so Swift 6 isolation/access regressions (AI_PITFALLS.md 10-18) fail here instead of
+# so Swift 6 isolation/access regressions (docs/BUILD_PITFALLS.md 10-18) fail here instead of
 # on someone's machine. It does NOT produce a release artifact: the pinned native core
 # needs the macOS 26 SDK, so the local `BUILD_ON_MAC.command` build stays the
 # authoritative compile/link/runtime gate.

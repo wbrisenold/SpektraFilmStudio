@@ -9,7 +9,10 @@ links into its app executable.
 - upstream commit: `8f6651858f439a99b7202b4b8dea59e344dadf5d`
 - license: GNU GPL v3 (`Native/LICENSE.txt`)
 
-These files are vendored **unmodified**, copied byte-for-byte from that commit.
+These files are based on that pinned commit. A local host adaptation in
+`SpektraMetalRenderer.mm` selects a discrete Metal GPU where available; the
+spectral shader equations and generated profile curves are unchanged. Other
+bridge hardening changes are recorded in the repository history.
 This project is GPLv3 (see the root `LICENSE`), and the native core is GPLv3, so
 vendoring it is license-compatible.
 

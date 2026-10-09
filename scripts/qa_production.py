@@ -380,7 +380,7 @@ for field in ("brightness", "midtones", "highlightRecovery", "shadowRecovery", "
     require(f"var {field}: Double" in models, f"ToneSettings missing {field}")
 for setter in ("setToneBrightness", "setToneMidtones", "setHighlightRecovery", "setShadowRecovery", "setWhitePoint", "setBlackPoint"):
     require(f"func {setter}" in app, f"AppModel missing {setter}")
-for label in ("RAW Exposure EV", "RAW Global Tone", "RAW Shadow Boost", "Highlight Headroom (EDR)",
+for label in ("Exposure", "Global Tone", "Shadow Boost", "Highlight Headroom",
               "Contrast", "Midtones", "Highlights", "Highlight Recovery",
               "Shadows", "Shadow Recovery", "Whites", "Blacks"):
     require(f'"{label}"' in controls, f"RAW Develop UI missing {label}")
@@ -461,7 +461,7 @@ require("ExportJobPlanner.previewNames" in app and "Preflight" in export_view, "
 scope_panel_v3 = text("EditorScopePanelView.swift")
 export_view_v3 = text("ExportView.swift")
 cull_view_v3 = text("CullView.swift")
-audit_v3 = (ROOT / "OPEN_SOURCE_PIPELINE_AUDIT.md").read_text()
+audit_v3 = (ROOT / "docs/DEVELOPMENT_HISTORY.md").read_text()
 
 require(
     "cameraSpaceWhiteBalanceApplied" in decoder,
@@ -534,3 +534,22 @@ require(
 )
 
 print("PRODUCTION STATIC QA PASS")
+
+# User-facing workflow regressions from the Redlamp design audit.
+require(export_view.count("model.chooseExportDestination()") == 1, "Export must have one destination chooser")
+require('Picker("RAW workflow"' in controls and 'Picker("Film workflow"' in controls and "DisclosureGroup" not in controls, "RAW and Film controls must preserve tabs, without accordions")
+require("requestedInitialSource = true\n            chooseSource()" in text("StudioImportWizard.swift"), "guided source chooser must open immediately")
+require('Button("Back")' not in text("CloudSetupWizard.swift"), "cloud setup returned to sequential pages")
+
+require("SAM2TinySegmenter()" in text("SemanticMaskEngine.swift"), "SAM 2.1 object selection missing")
+require("sf_semantic_point_run(" not in text("SemanticMaskEngine.swift"), "legacy MobileSAM selection returned")
+require("VNGenerateForegroundInstanceMaskRequest()" in text("RedlampVisionMasks.swift"), "native foreground selection missing")
+
+require('case adjust = "RAW"' in text("StudioInspectorMode.swift"), "RAW workflow tab renamed")
+require('case film = "FILM"' in text("StudioInspectorMode.swift"), "FILM workflow tab renamed")
+require('case masks = "MASK"' in text("StudioInspectorMode.swift"), "MASK workflow tab renamed")
+require('SAMSegmenter(manifest:' in text("RedlampMaskService.swift"), "Redlamp SAM prompt provider missing")
+require('mask_fused' in text("MaskMetalEngine.swift"), "fused mask evaluator missing")
+require('previewObjectMask(at:' in text("MaskPanelView.swift"), "object hover preview missing")
+require('Refine Edges' in text("MaskPanelView.swift"), "edge refinement control missing")
+print("REDLAMP WORKFLOW AND MASK SOURCE GATES PASS")

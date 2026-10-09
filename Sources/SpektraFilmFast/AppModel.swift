@@ -1357,6 +1357,7 @@ final class AppModel: ObservableObject {
         let profile = OutputColorProfile.forLook(look)
         interactiveProxyTask = Task { [weak self] in
             guard let self else { return }
+            let checkpoint = GPUProcessingFailure.checkpoint()
             let worker = Task.detached(priority: .userInitiated) { () -> (PixelBufferF32, FloatImagePayload?) in
                 let local = MaskedLocalGradeEngine.apply(film, grades: look.localGrades)
                 let lens = LensCharacterEngine.apply(local, settings: look.lensEffects)
@@ -1369,7 +1370,8 @@ final class AppModel: ObservableObject {
             } onCancel: {
                 worker.cancel()
             }
-            guard !Task.isCancelled, generation == interactiveProxyGeneration,
+            guard (try? GPUProcessingFailure.requireSuccess(after: checkpoint)) != nil,
+                  !Task.isCancelled, generation == interactiveProxyGeneration,
                   project.selectedImageID == imageID, gestureWorkingLook == look,
                   let image = payload?.makeCGImage(colorSpace: profile.cgColorSpace) else { return }
             renderedPreview = image
@@ -1532,11 +1534,14 @@ final class AppModel: ObservableObject {
         semanticAnalysisDeferred = false
         let imageID = image.id
         // This CGImage uses the same PRE-geometry coordinates as local grade and export.
-        semanticMaskStatus = "Analyzing subject / skin / clothing…"
+        semanticMaskStatus = "Analyzing skin / requested selection…"
+        var requested: Set<SemanticMaskKind> = [.skin]
+        if let kind = pendingNewSemanticKind { requested.insert(kind) }
+        if let component = pendingSemanticComponent { requested.insert(component.kind) }
         semanticMaskTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let result = try await semanticMaskEngine.analyze(imageURL: image.url, cgImage: cg)
+                let result = try await semanticMaskEngine.analyze(imageURL: image.url, cgImage: cg, requested: requested)
                 guard !Task.isCancelled, project.selectedImageID == imageID else { return }
                 semanticMasks = result
                 if let skin = result.alpha(.skin) {
@@ -1585,6 +1590,61 @@ final class AppModel: ObservableObject {
         }
     }
 
+    @Published var maskBrushSize = 0.025
+    private var maskBrushTask: Task<Void, Never>?
+
+    func beginMaskBrush(gradeID: UUID? = nil, blend: MaskBlendMode = .add, newGrade: Bool = false) {
+        let id = gradeID ?? (newGrade ? nil : activeLocalGradeID) ?? addLocalGrade()
+        selectLocalGrade(id)
+        beginObjectMaskPick(gradeID: id, blendMode: blend)
+        objectSelectionTool = "Paint"
+        UserDefaults.standard.set(true, forKey: "SpektraFilmFast.maskOverlayEnabled")
+        semanticMaskStatus = "Paint to add coverage · Option to subtract · Done to finish"
+    }
+
+    private func paintMaskStroke(_ points: [ImagePoint], gradeID: UUID, subtract: Bool) {
+        guard let input = latestSourceBuffer else { return }
+        let blend: MaskBlendMode = subtract ? .subtract : objectMaskPickBlendMode
+        let name = blend == .subtract ? "Brush Subtract" : "Brush Add"
+        let imageID = project.selectedImageID
+        let radius = maskBrushSize
+        let previous = maskBrushTask
+        maskBrushTask = Task { [weak self] in
+            await previous?.value
+            guard let self, project.selectedImageID == imageID,
+                  let grade = selectedLook.localGrades?.first(where: { $0.id == gradeID }) else { return }
+            let existing = grade.masks.sources.last(where: { $0.name == name && $0.aiRecipe == nil && $0.kind == .raster })
+            let oppositeName = blend == .subtract ? "Brush Add" : "Brush Subtract"
+            let opposite = grade.masks.sources.last(where: { $0.name == oppositeName && $0.aiRecipe == nil && $0.kind == .raster })
+            let scale = min(1, 2048.0 / Double(max(input.width, input.height)))
+            let width = existing?.raster?.width ?? max(1, Int(Double(input.width) * scale))
+            let height = existing?.raster?.height ?? max(1, Int(Double(input.height) * scale))
+            do {
+                let (raster, clearedOpposite) = try await Task.detached(priority: .userInitiated) {
+                    let raster = try MaskBrushEngine.shared.paint(existing?.raster, width: width, height: height, points: points, radius: radius)
+                    let cleared = try opposite?.raster.map { prior in
+                        try MaskBrushEngine.shared.paint(prior, width: prior.width, height: prior.height, points: points, radius: radius, erase: true)
+                    }
+                    return (raster, cleared)
+                }.value
+                guard project.selectedImageID == imageID else { return }
+                mutateGrade(gradeID) { grade in
+                    if let id = opposite?.id, let clearedOpposite, let index = grade.masks.sources.firstIndex(where: { $0.id == id }) {
+                        grade.masks.sources[index].raster = clearedOpposite
+                    }
+                    if let id = existing?.id, let index = grade.masks.sources.firstIndex(where: { $0.id == id }) {
+                        grade.masks.sources[index].raster = raster
+                    } else {
+                        var source = MaskSourceRecord(name: name, kind: .raster)
+                        source.feather = 0; source.blendMode = blend; source.raster = raster
+                        grade.masks.sources.append(source)
+                    }
+                }
+                semanticMaskStatus = "Brush saved · paint again or choose Done"
+            } catch { semanticMaskStatus = error.localizedDescription }
+        }
+    }
+
     func beginObjectMaskPick(gradeID: UUID, blendMode: MaskBlendMode) {
         guard frameState.renderedPreview != nil else {
             semanticMaskStatus = "Render a preview before selecting an object"
@@ -1592,59 +1652,241 @@ final class AppModel: ObservableObject {
         }
         objectMaskPickGradeID = gradeID
         objectMaskPickBlendMode = blendMode
-        semanticMaskStatus = blendMode == .subtract ? "Click an object to subtract it" : "Click an object to select it"
+        semanticMaskStatus = "Hover to preview · Click, box or brush to add · Option removes · Done to finish"
     }
 
     func cancelObjectMaskPick() {
         objectMaskPickGradeID = nil
-        semanticMaskStatus = "Object selection cancelled"
+        previewObjectMask(at: nil)
+        semanticMaskStatus = "Object selection finished"
+    }
+
+    @Published var objectSelectionTool = "Click"
+    @Published var objectHoverMask: RasterMaskPayload?
+    private var objectHoverTask: Task<Void, Never>?
+    private var objectHoverGeneration = 0
+
+    private func maskSourcePoint(_ point: CGPoint) -> ImagePoint? {
+        guard let source = latestSourceBuffer,
+              let converted = GeometryEngine.sourceNormalizedPoint(fromDisplay: point,
+                sourceWidth: source.width, sourceHeight: source.height, settings: selectedLook.geometry) else { return nil }
+        return ImagePoint(x: converted.x, y: converted.y)
+    }
+
+    func previewObjectMask(at point: CGPoint?) {
+        objectHoverTask?.cancel()
+        objectHoverGeneration &+= 1
+        let generation = objectHoverGeneration
+        guard let point, let source = maskSourcePoint(point), let image = selectedImage else {
+            objectHoverMask = nil; return
+        }
+        objectHoverTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await Task.sleep(for: .milliseconds(160))
+                let mask = try await RedlampMaskService.shared.previewObject(AIMaskRecipe(kind: .objects, prompts: [source]), url: image.url)
+                guard !Task.isCancelled, generation == objectHoverGeneration, project.selectedImageID == image.id else { return }
+                objectHoverMask = RasterMaskPayload(width: mask.width, height: mask.height, alpha: mask.pixels)
+            } catch { /* Hover is provisional; clicking reports actionable errors. */ }
+        }
     }
 
     func completeObjectMaskPick(normalizedPoint: CGPoint) {
-        guard let gradeID = objectMaskPickGradeID,
-              let image = selectedImage else { return }
-        // Object picking happens on the displayed, cropped photo. Convert that click
-        // back to source coordinates and run the model on PRE-geometry pixels; otherwise
-        // the mask is transformed twice when local adjustments are composited.
-        guard let source = latestSourceBuffer,
-              let cg = source.makeCGImage8(colorSpace: OutputColorProfile.inputLinearRec2020) else {
-            semanticMaskStatus = "Waiting for original source; retry object selection"
-            requestPreviewRefresh()
+        completeObjectMaskGesture(points: [normalizedPoint], box: false, subtract: false)
+    }
+
+    func completeObjectMaskGesture(points: [CGPoint], box: Bool, subtract: Bool) {
+        guard let gradeID = objectMaskPickGradeID else { return }
+        let converted = points.compactMap(maskSourcePoint)
+        guard !converted.isEmpty else { return }
+        previewObjectMask(at: nil)
+        if objectSelectionTool == "Paint" {
+            paintMaskStroke(converted, gradeID: gradeID, subtract: subtract)
             return
         }
-        guard let sourcePoint = GeometryEngine.sourceNormalizedPoint(
-            fromDisplay: normalizedPoint,
-            sourceWidth: source.width, sourceHeight: source.height,
-            settings: selectedLook.geometry
-        ) else {
-            semanticMaskStatus = "Object click is outside the uncropped photo"
+        if objectSelectionTool == "Refine Edge" {
+            guard let source = activeLocalGrade?.masks.sources.last(where: { $0.aiRecipe != nil }) else { return }
+            refineAIMask(gradeID: gradeID, sourceID: source.id,
+                         stroke: BrushStroke(points: converted, size: 0.025))
             return
         }
-        let blend = objectMaskPickBlendMode
-        let imageID = image.id
-        objectMaskPickGradeID = nil
-        semanticMaskStatus = "Selecting foreground object…"
+        if !box, let existing = activeLocalGrade?.masks.sources.last(where: { $0.aiRecipe?.kind == .objects }),
+           var recipe = existing.aiRecipe {
+            let count = min(8, converted.count)
+            let samples = (0..<count).map { converted[$0 * max(1, converted.count - 1) / max(1, count - 1)] }
+            if subtract { recipe.excluded.append(contentsOf: samples) }
+            else { recipe.prompts.append(contentsOf: samples) }
+            let reserved = recipe.box == nil ? 0 : 2
+            recipe.excluded = Array(recipe.excluded.suffix(7))
+            let room = max(1, 16 - reserved - recipe.excluded.count)
+            if recipe.prompts.count > room { recipe.prompts = [recipe.prompts[0]] + recipe.prompts.suffix(room - 1) }
+            createAIMask(recipe, gradeID: gradeID, sourceID: existing.id)
+            return
+        }
+        var recipe = AIMaskRecipe(kind: .objects)
+        if box, converted.count >= 2 {
+            let xs = converted.map(\.x), ys = converted.map(\.y)
+            recipe.box = ImageRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+        } else {
+            // SAM accepts at most 16 prompts. Spread brush samples over the stroke.
+            let count = min(16, converted.count)
+            recipe.prompts = (0..<count).map { converted[$0 * max(1, converted.count - 1) / max(1, count - 1)] }
+        }
+        createAIMask(recipe, gradeID: gradeID, blend: subtract ? .subtract : objectMaskPickBlendMode)
+    }
+
+    func createAIMask(_ recipe: AIMaskRecipe, gradeID: UUID? = nil, blend: MaskBlendMode = .add, presetTone: ToneSettings? = nil, sourceID: UUID? = nil) {
+        guard let image = selectedImage else { semanticMaskStatus = "Select a photo first"; return }
         semanticMaskTask?.cancel()
+        semanticMaskStatus = "Computing \(recipe.kind.name)…"
         semanticMaskTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let alpha = try await semanticMaskEngine.objectMask(cgImage: cg, normalizedPoint: sourcePoint)
-                guard !Task.isCancelled, project.selectedImageID == imageID else { return }
-                // Preserve the instance/SAM silhouette; the generic post-filter may
-                // erase edge detail or bridge nearby independent objects.
-                let refined = alpha
-                mutateGrade(gradeID) { grade in
-                    var source = MaskSourceRecord(name: "Object", kind: .raster)
-                    source.blendMode = blend
-                    source.raster = RasterMaskPayload(width: cg.width, height: cg.height, alpha: refined)
-                    grade.masks.sources.append(source)
+                let results = try await RedlampMaskService.shared.compute(recipe, url: image.url)
+                guard !Task.isCancelled, project.selectedImageID == image.id else { return }
+                for result in results {
+                    let target = gradeID ?? addLocalGrade()
+                    selectLocalGrade(target)
+                    mutateGrade(target) { grade in
+                        if gradeID == nil { grade.name = recipe.kind == .people ? (recipe.part.name + (result.instance.map { " \($0)" } ?? "")) : recipe.kind.name }
+                        if let presetTone { grade.tone = presetTone }
+                        var source = MaskSourceRecord(name: recipe.kind.name, kind: .raster)
+                        var stored = recipe
+                        stored.instance = result.instance; stored.provider = result.provider
+                        source.aiRecipe = stored; source.feather = 0; source.blendMode = blend
+                        source.raster = RasterMaskPayload(width: result.mask.width, height: result.mask.height, alpha: result.mask.pixels)
+                        if let sourceID, let index = grade.masks.sources.firstIndex(where: { $0.id == sourceID }) {
+                            source.id = sourceID
+                            source.opacity = grade.masks.sources[index].opacity
+                            source.inverted = grade.masks.sources[index].inverted
+                            source.blendMode = grade.masks.sources[index].blendMode
+                            grade.masks.sources[index] = source
+                        } else { grade.masks.sources.append(source) }
+                    }
                 }
-                semanticMaskStatus = blend == .subtract ? "Object subtracted" : "Object mask added"
-            } catch {
-                semanticMaskStatus = "Object selection unavailable · \(error.localizedDescription)"
-            }
+                semanticMaskStatus = "\(recipe.kind.name) ready · saved with the photo"
+            } catch { if !Task.isCancelled { semanticMaskStatus = String(describing: error) } }
         }
     }
+
+    func updateAIMasks() {
+        guard let image = selectedImage else { return }
+        let grades = image.look.localGrades ?? []
+        semanticMaskTask?.cancel()
+        semanticMaskStatus = "Updating AI masks…"
+        semanticMaskTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                await RedlampMaskService.shared.invalidateComputedMasks()
+                var replacements: [(UUID, UUID, RasterMaskPayload)] = []
+                for grade in grades { for source in grade.masks.sources {
+                    guard let recipe = source.aiRecipe else { continue }
+                    let masks = try await RedlampMaskService.shared.compute(recipe, url: image.url)
+                    guard let mask = masks.first(where: { $0.instance == recipe.instance })?.mask ?? masks.first?.mask else { continue }
+                    replacements.append((grade.id, source.id, RasterMaskPayload(width: mask.width, height: mask.height, alpha: mask.pixels)))
+                    try Task.checkCancellation()
+                } }
+                guard project.selectedImageID == image.id else { return }
+                // Commit the complete update atomically, with one undo step.
+                mutateMaskLook { look in
+                    for (gradeID, sourceID, payload) in replacements {
+                        guard let g = look.localGrades?.firstIndex(where: { $0.id == gradeID }),
+                              let m = look.localGrades?[g].masks.sources.firstIndex(where: { $0.id == sourceID }) else { continue }
+                        look.localGrades![g].masks.sources[m].raster = payload
+                    }
+                }
+                semanticMaskStatus = "Updated \(replacements.count) AI masks"
+            } catch { if !Task.isCancelled { semanticMaskStatus = "Masks kept · \(error)" } }
+        }
+    }
+
+    func applyMaskPreset(_ preset: StudioMaskPreset) {
+        guard let image = selectedImage else { return }
+        semanticMaskTask?.cancel()
+        semanticMaskStatus = "Computing \(preset.name)…"
+        semanticMaskTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                var grade = preset.grade
+                grade.id = UUID(); grade.name = preset.name
+                for index in grade.masks.sources.indices {
+                    grade.masks.sources[index].id = UUID()
+                    guard let recipe = grade.masks.sources[index].aiRecipe else { continue }
+                    let masks = try await RedlampMaskService.shared.compute(recipe, url: image.url)
+                    guard let first = masks.first?.mask else { throw MaskComputationError.nothingFound(recipe.kind) }
+                    let combined = masks.dropFirst().reduce(first) { $0.union($1.mask) }
+                    grade.masks.sources[index].raster = RasterMaskPayload(width: combined.width, height: combined.height, alpha: combined.pixels)
+                }
+                try Task.checkCancellation()
+                guard project.selectedImageID == image.id else { return }
+                let completed = grade
+                mutateMaskLook { look in
+                    if look.localGrades == nil { look.localGrades = [] }
+                    look.localGrades!.append(completed)
+                }
+                selectLocalGrade(grade.id)
+                semanticMaskStatus = "\(preset.name) applied"
+            } catch { if !Task.isCancelled { semanticMaskStatus = "Preset unavailable · \(error)" } }
+        }
+    }
+
+    func setLocalMaskColor(_ gradeID: UUID, key: String, value: Double) {
+        mutateGrade(gradeID) { grade in
+            var colour = grade.localColor ?? LocalMaskColorSettings()
+            let value = min(100, max(-100, value))
+            switch key {
+            case "Saturation": colour.saturation = value
+            case "Temperature": colour.temperature = value
+            case "Texture": colour.texture = value
+            default: colour.clarity = value
+            }
+            grade.localColor = colour
+        }
+    }
+
+    func setDepthMaskRange(gradeID: UUID, sourceID: UUID, lower: Double? = nil, upper: Double? = nil) {
+        mutateGrade(gradeID) { grade in
+            guard let index = grade.masks.sources.firstIndex(where: { $0.id == sourceID }),
+                  var recipe = grade.masks.sources[index].aiRecipe else { return }
+            if let lower { recipe.depthLower = min(recipe.depthUpper, max(0, lower)) }
+            if let upper { recipe.depthUpper = max(recipe.depthLower, min(1, upper)) }
+            grade.masks.sources[index].aiRecipe = recipe
+        }
+    }
+
+    func setAIMaskShape(gradeID: UUID, sourceID: UUID, feather: Double? = nil, edge: Double? = nil) {
+        mutateGrade(gradeID) { grade in
+            guard let m = grade.masks.sources.firstIndex(where: { $0.id == sourceID }),
+                  var recipe = grade.masks.sources[m].aiRecipe else { return }
+            if let feather { recipe.feather = min(100, max(0, feather)) }
+            if let edge { recipe.edge = min(100, max(-100, edge)) }
+            grade.masks.sources[m].aiRecipe = recipe
+        }
+    }
+
+    func refineAIMask(gradeID: UUID, sourceID: UUID, stroke: BrushStroke? = nil) {
+        guard let image = selectedImage,
+              let source = image.look.localGrades?.first(where: { $0.id == gradeID })?.masks.sources.first(where: { $0.id == sourceID }),
+              let raster = source.raster, var recipe = source.aiRecipe else { return }
+        if let stroke { recipe.refineStrokes.append(stroke) }
+        semanticMaskTask?.cancel()
+        semanticMaskStatus = "Refining edges…"
+        let savedRecipe = recipe
+        semanticMaskTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let refined = try await RedlampMaskService.shared.refine(raster, recipe: savedRecipe, url: image.url, onlyStrokes: stroke != nil)
+                guard !Task.isCancelled, project.selectedImageID == image.id else { return }
+                mutateGrade(gradeID) { grade in
+                    guard let index = grade.masks.sources.firstIndex(where: { $0.id == sourceID }) else { return }
+                    grade.masks.sources[index].raster = RasterMaskPayload(width: refined.width, height: refined.height, alpha: refined.pixels)
+                    grade.masks.sources[index].aiRecipe = savedRecipe
+                }
+                semanticMaskStatus = "Edges refined"
+            } catch { if !Task.isCancelled { semanticMaskStatus = "Edges kept · \(error)" } }
+        }
+    }
+
     @Published var rawDenoiseStatus = ""
     @Published var isPreparingRawDenoise = false
     @Published var cacheHealthStatus = ""
@@ -1709,6 +1951,25 @@ final class AppModel: ObservableObject {
         let imageURL = project.images[i].url
         Task { await semanticMaskEngine.invalidate(imageURL: imageURL) }
         scheduleIdleRefinement(changedParameter: "lensEffects")
+    }
+
+    func setFilmEffectsSettings(interactive: Bool = false, _ body: (inout FilmEffectsSettings) -> Void) {
+        guard let i = selectedIndex else { return }
+        if interactive {
+            if gestureWorkingLook == nil { beginEditGesture() }
+            if gestureWorkingLook?.filmEffects == nil { gestureWorkingLook?.filmEffects = FilmEffectsSettings() }
+            body(&gestureWorkingLook!.filmEffects!)
+            activeEditChangedParameter = "filmEffects"
+            if let look = gestureWorkingLook { publishLocalGradePreview(look: look) }
+            return
+        }
+        undoStack.append(project.images[i].look); redoStack.removeAll()
+        if project.images[i].look.filmEffects == nil { project.images[i].look.filmEffects = FilmEffectsSettings() }
+        body(&project.images[i].look.filmEffects!)
+        semanticMasks = nil
+        let imageURL = project.images[i].url
+        Task { await semanticMaskEngine.invalidate(imageURL: imageURL) }
+        scheduleIdleRefinement(changedParameter: "filmEffects")
     }
 
     func validateCacheHealth() {
@@ -2030,10 +2291,9 @@ final class AppModel: ObservableObject {
                         cacheMode: .conservative
                     )
                     let prepared = await Task.detached(priority: .userInitiated) {
-                        exactLinear.applyingHostGrade(
+                        exactLinear.applyingHostAndFilmGrade(
                             tone: look.tone,
-                            density: look.colorDensity
-                        ).applyingFilmExposureShape(look.filmTone)
+                            density: look.colorDensity, film: look.filmTone)
                     }.value
                     try Task.checkCancellation()
                     let (filmOutput, _) = try await exactRenderer.render(prepared, look: look)
@@ -2888,11 +3148,18 @@ final class AppModel: ObservableObject {
             }
         }
 
-        if lookCopyOptions.film { target.filmTone = source.filmTone }
+        if lookCopyOptions.film { target.filmTone = source.filmTone; target.filmEffects = source.filmEffects }
         if lookCopyOptions.colorDensity { target.colorDensity = source.colorDensity }
         if lookCopyOptions.geometry { target.geometry = source.geometry }
         if lookCopyOptions.film { target.lensEffects = source.lensEffects }
-        if lookCopyOptions.tone { target.localGrades = source.localGrades }
+        if lookCopyOptions.tone {
+            target.localGrades = source.localGrades
+            for g in target.localGrades?.indices ?? 0..<0 {
+                for m in target.localGrades![g].masks.sources.indices where target.localGrades![g].masks.sources[m].aiRecipe != nil {
+                    target.localGrades![g].masks.sources[m].raster = nil
+                }
+            }
+        }
 
         target.normalizeForProOnly()
         return target
@@ -2953,6 +3220,18 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             for url in autoURLs { await decoder.invalidateAutoWhiteBalance(url: url) }
             for image in affected {
+                for grade in image.look.localGrades ?? [] { for source in grade.masks.sources {
+                    guard let recipe = source.aiRecipe else { continue }
+                    do {
+                        let results = try await RedlampMaskService.shared.compute(recipe, url: image.url)
+                        guard let mask = results.first?.mask,
+                              let p = project.images.firstIndex(where: { $0.id == image.id }),
+                              let g = project.images[p].look.localGrades?.firstIndex(where: { $0.id == grade.id }),
+                              let m = project.images[p].look.localGrades?[g].masks.sources.firstIndex(where: { $0.id == source.id }),
+                              project.images[p].look.localGrades?[g].masks.sources[m].aiRecipe == recipe else { continue }
+                        project.images[p].look.localGrades![g].masks.sources[m].raster = RasterMaskPayload(width: mask.width, height: mask.height, alpha: mask.pixels)
+                    } catch { semanticMaskStatus = "Some pasted masks need a model: \(error)" }
+                } }
                 await renderedDiskCache.invalidate(url: image.url)
                 removeRenderedFrames(for: image.id)
             }
@@ -3050,6 +3329,7 @@ final class AppModel: ObservableObject {
 
         interactiveProxyTask = Task { [weak self] in
             guard let self else { return }
+            let checkpoint = GPUProcessingFailure.checkpoint()
             let worker = Task.detached(priority: .userInitiated) { () -> (PixelBufferF32, FloatImagePayload?) in
                 let result = InteractivePreviewProxy.render(
                     baseline: baseline,
@@ -3066,7 +3346,8 @@ final class AppModel: ObservableObject {
             } onCancel: {
                 worker.cancel()
             }
-            guard !Task.isCancelled, generation == interactiveProxyGeneration,
+            guard (try? GPUProcessingFailure.requireSuccess(after: checkpoint)) != nil,
+                  !Task.isCancelled, generation == interactiveProxyGeneration,
                   project.selectedImageID == imageID, gestureWorkingLook == targetLook else { return }
             guard let image = payload?.makeCGImage(colorSpace: profile.cgColorSpace) else { return }
 
@@ -3255,19 +3536,28 @@ final class AppModel: ObservableObject {
                 // Exposure + tone curve are a sourced host grade before the SpektraFilm engine.
                 // Before/source preview remains the developed source, while preview/export share
                 // the same host-grade -> native-render ordering.
-                let renderInput = input.applyingHostGrade(tone: request.look.tone, density: request.look.colorDensity)
-                    .applyingFilmExposureShape(request.look.filmTone)
+                let hostCheckpoint = GPUProcessingFailure.checkpoint()
+                let renderInput = try await Task.detached(priority: .userInitiated) {
+                    let checkpoint = GPUProcessingFailure.checkpoint()
+                    let graded = input.applyingHostAndFilmGrade(tone: request.look.tone, density: request.look.colorDensity, film: request.look.filmTone)
+                    try GPUProcessingFailure.requireSuccess(after: checkpoint)
+                    return graded
+                }.value
+                try GPUProcessingFailure.requireSuccess(after: hostCheckpoint)
                 let (filmOutput, d) = try await activeRenderer.render(renderInput, look: renderLook)
                 if Task.isCancelled { break }
                 // Geometry is deliberately post-render and color-neutral. Crop/straighten/keystone
                 // therefore never changes SpektraFilm's spectral processing and can be previewed
                 // independently from expensive film renders.
-                let gpuCheckpoint = GPUProcessingFailure.checkpoint()
-                let localOutput = MaskedLocalGradeEngine.apply(filmOutput, grades: request.look.localGrades)
-                let lensOutput = LensCharacterEngine.apply(localOutput, settings: request.look.lensEffects)
-                let geometryOutput = GeometryEngine.transformed(lensOutput, settings: request.look.geometry)
-                let output = ExposureBoundaryEngine.apply(geometryOutput, look: request.look, preferences: request.preferences)
-                try GPUProcessingFailure.requireSuccess(after: gpuCheckpoint)
+                let output = try await Task.detached(priority: .userInitiated) {
+                    let gpuCheckpoint = GPUProcessingFailure.checkpoint()
+                    let localOutput = MaskedLocalGradeEngine.apply(filmOutput, grades: request.look.localGrades)
+                    let lensOutput = LensCharacterEngine.apply(localOutput, settings: request.look.lensEffects)
+                    let geometryOutput = GeometryEngine.transformed(lensOutput, settings: request.look.geometry)
+                    let result = ExposureBoundaryEngine.apply(geometryOutput, look: request.look, preferences: request.preferences)
+                    try GPUProcessingFailure.requireSuccess(after: gpuCheckpoint)
+                    return result
+                }.value
                 if Task.isCancelled { break }
 
                 guard request.generation == renderGeneration,
@@ -3517,7 +3807,7 @@ final class AppModel: ObservableObject {
             refreshCanonicalSemanticMasks()
         }
 
-        guard prefs.clippingEnabled || prefs.skinCheckEnabled || prefs.scopeMode == .skinVectorscope,
+        guard prefs.clippingEnabled || prefs.skinCheckEnabled || prefs.scopeMode == .skinVectorscope || prefs.scopeMode == .histogram,
               let buffer = latestRenderedBuffer else {
             clearStudioAnalysis()
             return
@@ -3528,9 +3818,13 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             do {
                 let analysisLook = latestRenderedLook ?? selectedLook
-                let canonicalSkin = semanticMasks.flatMap { set in
+                let sourceSkin = semanticMasks.flatMap { set in
                     set.alpha(.skin).map { CanonicalSkinMaskPayload(width: set.width, height: set.height, alpha: $0) }
                 }
+                let canonicalSkin = await Task.detached(priority: .userInitiated) {
+                    sourceSkin?.transformed(settings: analysisLook.geometry)
+                }.value
+                guard !Task.isCancelled, generation == analysisGeneration else { return }
                 let payload = try await analysisEngine.analyze(
                     output: buffer,
                     look: analysisLook,
@@ -4283,11 +4577,13 @@ final class AppModel: ObservableObject {
                 cacheMode: cacheMemoryMode
             )
 
-            let renderInput = await Task.detached(priority: .utility) {
-                input.applyingHostGrade(
+            let renderInput = try await Task.detached(priority: .utility) {
+                let checkpoint = GPUProcessingFailure.checkpoint()
+                let graded = input.applyingHostAndFilmGrade(
                     tone: look.tone,
-                    density: look.colorDensity
-                ).applyingFilmExposureShape(look.filmTone)
+                    density: look.colorDensity, film: look.filmTone)
+                try GPUProcessingFailure.requireSuccess(after: checkpoint)
+                return graded
             }.value
 
             let (filmOutput, _) = try await activeRenderer.render(
@@ -4881,11 +5177,13 @@ final class AppModel: ObservableObject {
 
                 status = "Preparing host grade · \(item.sourceFileName)"
                 let gradeStarted = ProcessInfo.processInfo.systemUptime
-                let renderInput = await Task.detached(priority: .userInitiated) {
-                    decoded.buffer.applyingHostGrade(
+                let renderInput = try await Task.detached(priority: .userInitiated) {
+                    let checkpoint = GPUProcessingFailure.checkpoint()
+                    let graded = decoded.buffer.applyingHostAndFilmGrade(
                         tone: item.look.tone,
-                        density: item.look.colorDensity
-                    ).applyingFilmExposureShape(item.look.filmTone)
+                        density: item.look.colorDensity, film: item.look.filmTone)
+                    try GPUProcessingFailure.requireSuccess(after: checkpoint)
+                    return graded
                 }.value
                 timings.gradeMs = Self.msSince(gradeStarted)
                 try Task.checkCancellation()

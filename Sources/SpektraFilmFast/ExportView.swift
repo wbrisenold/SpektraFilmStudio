@@ -15,25 +15,27 @@ struct ExportWorkspaceView: View {
     @ObservedObject var model: AppModel
     @State private var sourceFilter: ExportSourceFilter = .all
     @State private var search = ""
-    @AppStorage("SpektraFilmStudio.designA.v2.showExportBrowser") private var showExportBrowser = false
-    @AppStorage("SpektraFilmStudio.ux.v3.showExportInspector") private var showExportInspector = true
+    @AppStorage("SpektraFilmStudio.designA.v3.showExportBrowser") private var showExportBrowser = true
+    @State private var showExportInspector = false
 
     var body: some View {
-        HSplitView {
-            if showExportBrowser {
-                sourceBrowser
-                    .frame(minWidth: 250, idealWidth: 290, maxWidth: 360)
-            }
-
+        VStack(spacing: 0) {
             HSplitView {
-                previewAndQueue.frame(minWidth: 500)
-                if showExportInspector {
-                    inspector.frame(minWidth: 290, idealWidth: 320, maxWidth: 390)
+                if showExportBrowser {
+                    sourceBrowser.frame(minWidth: 250, idealWidth: 290, maxWidth: 360)
                 }
+                previewAndQueue.frame(minWidth: 500)
             }
+            Divider()
+            actionFooter
         }
         .background(StudioPalette.canvas)
+        .sheet(isPresented: $showExportInspector) {
+            inspector.frame(width: 540, height: 720)
+        }
     }
+
+    var documentationSettings: some View { inspector.frame(width: 540, height: 720) }
 
     private var sourceBrowser: some View {
         VStack(spacing: 0) {
@@ -166,7 +168,7 @@ struct ExportWorkspaceView: View {
                     Button("Highlighted in Library") { model.setAllExportSelection(false); model.batchSetExportSelection(true) }
                     Divider()
                     Button("Clear Export Selection") { model.setAllExportSelection(false) }
-                }.disabled(model.isExporting)
+                }.fixedSize(horizontal: true, vertical: false).disabled(model.isExporting)
                 Button {
                     showExportBrowser.toggle()
                     if showExportBrowser { showExportInspector = false }
@@ -178,36 +180,15 @@ struct ExportWorkspaceView: View {
                 .help(showExportBrowser ? "Hide photo browser" : "Show photo browser")
                 Button {
                     showExportInspector.toggle()
-                    if showExportInspector { showExportBrowser = false }
+
                 } label: {
-                    Label("Settings", systemImage: "slider.horizontal.3")
+                    Label("Export Settings…", systemImage: "slider.horizontal.3")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .help("Show or hide detailed export settings")
               }
               HStack {
-                if model.isExporting {
-                    ProgressView().controlSize(.mini)
-                    Button("Stop") { model.stopExport() }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                } else {
-                    Button {
-                        if model.project.exportSettings.destinationPath.isEmpty {
-                            model.chooseExportDestination()
-                        } else {
-                            model.exportSelected()
-                        }
-                    } label: {
-                        Label(model.project.exportSettings.destinationPath.isEmpty
-                              ? "Set Destination" : "Export \(model.selectedExportCount)",
-                              systemImage: "square.and.arrow.up")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .disabled(model.selectedExportCount == 0)
-                }
                 if let image = previewImage {
                     Button {
                         if model.isCropToolActive {
@@ -345,19 +326,17 @@ struct ExportWorkspaceView: View {
 
     private var inspector: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 0) {
-                    inspectorHeader
-                    section("Destination", "folder") { destinationControls }
-                    section("File", "doc.richtext") { fileControls }
-                    section("Size", "aspectratio") { sizeControls }
-                    section("Color", "shippingbox") { deliveryControls }
-                    DisclosureGroup("File names and metadata") {
-                        section("Naming", "textformat") { namingControls }
-                        section("Metadata", "info.circle") { metadataControls }
-                    }.padding(12)
-                }
+            inspectorHeader
+            Form {
+                Section("Location") { destinationControls }
+                Section("File") { fileControls }
+                Section("Image Size") { sizeControls }
+                Section("Color") { deliveryControls }
+                Section("Naming") { namingControls }
+                Section("Metadata") { metadataControls }
             }
+            .formStyle(.grouped)
+            .disabled(model.isExporting)
             Divider()
             actionFooter
         }
@@ -385,6 +364,7 @@ struct ExportWorkspaceView: View {
                 } label: {
                     Label("Preset", systemImage: "wand.and.stars")
                 }
+                .fixedSize(horizontal: true, vertical: false)
                 .controlSize(.small)
                 .disabled(model.isExporting)
             }
@@ -644,27 +624,32 @@ struct ExportWorkspaceView: View {
                     .disabled(model.isStoppingExport)
                 }
             } else {
-                Button {
-                    if model.project.exportSettings.destinationPath.isEmpty { model.chooseExportDestination() }
-                    else { model.exportSelected() }
-                } label: {
-                    HStack {
-                        Image(systemName: "square.and.arrow.up")
-                        Text(
-                            model.project.exportSettings.destinationPath.isEmpty ? "Choose Export Folder…" :
-                            model.selectedExportCount == 1 ? "Export 1 Photo" : "Export \(model.selectedExportCount) Photos"
-                        )
-                        Spacer()
-                        Text(model.project.exportSettings.format.rawValue)
-                            .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    if showExportInspector {
+                        Button("Cancel", role: .cancel) { showExportInspector = false }
+                            .keyboardShortcut(.cancelAction)
+                    } else {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(model.selectedExportCount) photos · \(formatSummary) · \(outputSizeSummary)")
+                                .font(.caption.weight(.medium))
+                            Text(model.project.exportSettings.destinationPath.isEmpty ? "Choose output settings and destination" : model.project.exportSettings.destinationPath)
+                                .font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        }
                     }
-                    .frame(maxWidth: .infinity)
+                    Spacer()
+                    Button {
+                        if showExportInspector {
+                            model.exportSelected()
+                            showExportInspector = false
+                        } else { showExportInspector = true }
+                    } label: {
+                        Label(showExportInspector ? "Export \(model.selectedExportCount) Photos" : "Export…", systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .fixedSize()
+                    .disabled(model.selectedExportCount == 0 || (showExportInspector && model.project.exportSettings.destinationPath.isEmpty))
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(
-                    model.selectedExportCount == 0
-                )
             }
         }
         .padding(12)

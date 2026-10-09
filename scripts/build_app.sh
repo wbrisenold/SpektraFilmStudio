@@ -98,7 +98,19 @@ CONTENTS="$APP/Contents"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources" "$CONTENTS/Frameworks" "$CONTENTS/Resources/AIModels"
 cp "$BIN" "$CONTENTS/MacOS/SpektraFilmStudio"
 cp "$ROOT/Vendor/onnxruntime/lib/"libonnxruntime*.dylib "$CONTENTS/Frameworks/"
-cp "$ROOT/Resources/AIModels/"*.onnx "$CONTENTS/Resources/AIModels/"
+# Keep specialized part parsers; replace legacy object and foreground networks.
+# AI masks use the same Core ML models and Apple Vision providers as Redlamp.
+# Legacy ONNX weights remain in the checkout but are no longer bundled.
+
+python3 "$ROOT/scripts/prepare_sam2.py"
+SAM2_REVISION="39ae0a8a83e5e6cd196e804bf7cccc5f8171f306"
+mkdir -p "$CONTENTS/Resources/AIModels/SAM2Tiny"
+cp -R "$ROOT/.build/sam2-tiny/$SAM2_REVISION/"*.mlmodelc "$CONTENTS/Resources/AIModels/SAM2Tiny/"
+cp "$ROOT/Resources/SAM2-LICENSE.txt" "$CONTENTS/Resources/AIModels/SAM2Tiny/LICENSE.txt"
+cp -R "$ROOT/Resources/MaskModels" "$CONTENTS/Resources/"
+cp -R "$ROOT/Resources/SAM3" "$CONTENTS/Resources/"
+cp "$ROOT/Resources/Redlamp-MPL-2.0.txt" "$CONTENTS/Resources/"
+cp "$ROOT/Resources/SAM2TinyManifest.json" "$CONTENTS/Resources/AIModels/SAM2Tiny/manifest.json"
 install_name_tool -add_rpath '@executable_path/../Frameworks' "$CONTENTS/MacOS/SpektraFilmStudio" 2>/dev/null || true
 strip -S "$CONTENTS/MacOS/SpektraFilmStudio" 2>/dev/null || true
 

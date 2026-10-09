@@ -589,6 +589,7 @@ struct RenderLook: Codable, Equatable, Hashable, Sendable {
     // so crop/straighten/perspective edits never change spectral/color behavior.
     var geometry: GeometrySettings? = nil
     var lensEffects: LensEffectsSettings? = nil
+    var filmEffects: FilmEffectsSettings? = nil
     // Stage 2: local grades own ordered mask stacks. Optional preserves backward decoding.
     var localGrades: [LocalGradeRecord]? = nil
     // Film-feed tonal shaping is independent of the scene host grade.

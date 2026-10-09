@@ -302,6 +302,9 @@ struct LibraryWorkspaceView: View {
                         }
                     }
 
+                    if model.libraryAlbumFilter != nil {
+                        Button("Remove from Album") { model.removeSelectionFromCurrentAlbum() }
+                    }
                     Button("Write XMP Sidecars") { model.writeSelectionXMP() }
                     Button("Read XMP Sidecars") { model.readSelectionXMP() }
 
@@ -658,6 +661,12 @@ private struct LibraryPhotoCard: View {
 
             Divider()
 
+            if model.libraryAlbumFilter != nil {
+                Button("Remove from Album") {
+                    prepareContextSelection()
+                    model.removeSelectionFromCurrentAlbum()
+                }
+            }
             Button("Write XMP Sidecars") {
                 prepareContextSelection()
                 model.writeSelectionXMP()

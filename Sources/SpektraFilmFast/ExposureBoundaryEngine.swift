@@ -7,6 +7,11 @@ import Foundation
 /// Unsupported output spaces and non-display roles are left untouched.
 enum ExposureBoundaryEngine {
     static func apply(_ input: PixelBufferF32, look: RenderLook, preferences: AppPreferences) -> PixelBufferF32 {
+        let adjusted = applyBoundary(input, look: look, preferences: preferences)
+        return RedlampFilmEffectsEngine.shared.apply(adjusted, look: look)
+    }
+
+    private static func applyBoundary(_ input: PixelBufferF32, look: RenderLook, preferences: AppPreferences) -> PixelBufferF32 {
         guard (look.tone?.autoContrast ?? false) || (look.filmTone?.autoContrast ?? false),
               input.width > 0, input.height > 0, input.pixels.count >= 4,
               SkinToneReference.outputRoleIndex(look) == 0 else { return input }

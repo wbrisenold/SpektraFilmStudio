@@ -1,1 +1,0 @@
-A native macOS photo workflow built for spektrafilm's physical film & print looks. RAW develop, AI culling, people, masks, proofs and export—not a generic LUT grader.

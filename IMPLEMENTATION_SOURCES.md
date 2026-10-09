@@ -7,7 +7,7 @@ SpektraFilmFast is an original Swift/AppKit host around the pinned Spektrafilm n
 - Repository: https://github.com/chaert-s/spektrafilm-ofx
 - Pinned native commit: `8f6651858f439a99b7202b4b8dea59e344dadf5d`
 - Use: film / print / scan / grain / halation / diffusion / color-management renderer and the native app bridge.
-- Vendored: yes, unmodified, under `Native/` (source + generated curves). GPLv3 into a GPLv3 project; see `Native/NOTICE.md`.
+- Vendored: yes, under `Native/` (source + generated curves). GPLv3 into a GPLv3 project; see `Native/NOTICE.md`.
 - Funding link discovered: none in the repository at audit time.
 
 The renderer pin is part of the parity contract. Do not unpin without performance, visual-parity, and release validation. Because the sources are vendored at that commit, the pin is enforced by the source gate rather than by a network fetch: the build cannot silently move to a newer upstream revision.
@@ -153,7 +153,7 @@ The following are intentionally original product recipes/implementations rather 
 If future work copies source rather than studying/reimplementing behavior, update `NOTICE.md`, this document, and the project license obligations before redistribution.
 ## 2026 workflow / performance audit
 
-See `OPEN_SOURCE_PIPELINE_AUDIT.md`.
+See `docs/DEVELOPMENT_HISTORY.md`.
 
 Additional implementation references used by this revision:
 
@@ -232,13 +232,11 @@ SpektraFilmFast keeps its own exact film renderer. Stage 2 adds a generic Metal
 coverage/compositor beside it rather than rewriting the film math.
 
 
-## Stage 3 semantic masks
-- MODNet: https://github.com/ZHKKKe/MODNet (Apache-2.0)
-- SCHP LIP-20 packaged ONNX: https://huggingface.co/pirocheto/schp-lip-20 (MIT model repo)
-- BiSeNet face parsing: https://github.com/yakhyo/face-parsing and https://huggingface.co/PayamFard123/dermaintel-face-parsing (MIT)
-- ONNX Runtime: https://github.com/microsoft/onnxruntime (MIT)
-- Object click selection currently uses Apple Vision foreground-instance masks on macOS 15; MobileSAM research: https://huggingface.co/Acly/MobileSAM (MIT) is retained as the open-source replacement candidate.
+## Current AI masks: Redlamp port
 
+Redlamp source revision `0ed3a59211e4128111f2c8ba11bc5d249b0cb8dd`, https://github.com/pdcgomes/redlamp, MPL-2.0. Selected masking, matting, model inference and supporting math files are adapted as `Redlamp*.swift`; upstream headers remain, and `Resources/Redlamp-MPL-2.0.txt` contains the license. Adaptations include Spektra's persisted grade API, Intel binary16 handling and Core ML execution, model storage, and full-resolution bitmap integration. UI and fused coverage integration are local Swift/Metal implementations.
+
+Exact upstream model catalogs are in `Resources/MaskModels`: SAM 2.1 Tiny, SAM 3, Depth Anything 3 Mono Large, Depth Anything V2 Small and ViTMatte Base. Preserve their per-model licenses and notices. SAM 3 snow prompts and Meta license are in `Resources/SAM3`. Apple Vision and embedded iPhone mattes need no downloaded weights. Legacy MODNet, SCHP and BiSeNet parsers are no longer used or packaged by the current masking flow; existing local model files are retained.
 
 ## Stage 4 RAW quality / monitoring
 - RawForge 0.2.4: https://github.com/rymuelle/RawForge and https://pypi.org/project/rawforge/0.2.4/ (MIT).
@@ -255,3 +253,10 @@ coverage/compositor beside it rather than rewriting the film math.
 - SpektraFilm Studio adapts its cone-coordinate radius/hue/polar behavior into Swift for Color Density; the implementation is modified for the host-grade pipeline and project model.
 - Upstream credits and provenance are preserved in `THIRD_PARTY/ME_Desatch/NOTICE`.
 
+
+### SAM 2.1 Tiny object selection
+Apple conversion: https://huggingface.co/apple/coreml-sam2.1-tiny at revision `39ae0a8a83e5e6cd196e804bf7cccc5f8171f306`. Meta SAM 2.1 Hiera Tiny, Apache-2.0; license bundled at Resources/SAM2-LICENSE.txt. The editor uses the adapted Redlamp tensor contract and provider. An independent adapter remains for compatibility tests. All files are byte-count and SHA-256 pinned.
+
+### Redlamp film finish
+
+Light leaks, dust, scratches, hash/noise helpers and four frame styles are directly ported from `packages/RedlampKernels/Sources/Shaders/Develop.metal` at Redlamp commit `0ed3a59211e4128111f2c8ba11bc5d249b0cb8dd`, under MPL-2.0. `RedlampFilmEffectsEngine.swift` retains those shader functions; the local adapter adds GPU dispatch, native-output transfer handling, saved settings and a Film Finish panel. These effects do not replace the spectral film renderer. Source: https://github.com/pdcgomes/redlamp/blob/0ed3a59211e4128111f2c8ba11bc5d249b0cb8dd/packages/RedlampKernels/Sources/Shaders/Develop.metal

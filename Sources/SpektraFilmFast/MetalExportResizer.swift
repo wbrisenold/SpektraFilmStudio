@@ -14,7 +14,7 @@ final class MetalExportResizer: @unchecked Sendable {
     private let verticalPSO: MTLComputePipelineState?
 
     private init() {
-        let d = MTLCreateSystemDefaultDevice()
+        let d = StudioGPUDevice.shared
         device = d
         queue = d?.makeCommandQueue()
         if let d, let library = try? d.makeLibrary(source: Self.kernel, options: nil),

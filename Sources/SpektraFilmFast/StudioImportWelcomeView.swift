@@ -114,12 +114,12 @@ struct StudioImportWelcomeView: View {
                                 model.importImages()
                             } label: {
                                 Label("Import Photos…", systemImage: "square.and.arrow.down")
-                                    .frame(maxWidth: .infinity)
+                                    .frame(maxWidth: .infinity, minHeight: 30, alignment: .center)
                             }
                             .buttonStyle(.bordered)
                             Button { model.openICloudLibrary() } label: {
                                 Label("Open iCloud Library…", systemImage: "icloud")
-                                    .frame(maxWidth: .infinity)
+                                    .frame(maxWidth: .infinity, minHeight: 30, alignment: .center)
                             }
                             .buttonStyle(.bordered)
                         }

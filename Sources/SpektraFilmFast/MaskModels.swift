@@ -143,6 +143,7 @@ struct MaskSourceRecord: Codable, Equatable, Hashable, Identifiable, Sendable {
     var radial: RadialMaskGeometry? = RadialMaskGeometry()
     var linearGradient: LinearGradientMaskGeometry? = nil
     var raster: RasterMaskPayload? = nil
+    var aiRecipe: AIMaskRecipe? = nil
 
     mutating func normalize() {
         opacity = min(1, max(0, opacity))
@@ -168,10 +169,41 @@ struct LocalGradeRecord: Codable, Equatable, Hashable, Identifiable, Sendable {
     var values: [String: ParameterValue] = [:]
     var tone: ToneSettings? = nil
     var colorDensity: ColorDensitySettings? = nil
+    var localColor: LocalMaskColorSettings? = nil
     var masks = MaskStackRecord()
 
     mutating func normalize() {
         opacity = min(1, max(0, opacity))
         for index in masks.sources.indices { masks.sources[index].normalize() }
     }
+}
+
+/// Persist both the canonical bitmap and its replayable selection, independent of edits.
+struct AIMaskRecipe: Codable, Hashable, Sendable {
+    var kind: MaskKind
+    var part: PersonPart = .entirePerson
+    var landscape: LandscapeClass = .vegetation
+    var instance: Int?
+    var prompts: [ImagePoint] = []
+    var excluded: [ImagePoint] = []
+    var box: ImageRect?
+    var refineStrokes: [BrushStroke] = []
+    var edge: Double = 0
+    var feather: Double = 0
+    var provider: String = ""
+    var revision: Int = 14
+    var depthLower: Double = 0
+    var depthUpper: Double = 1
+    var depthSoftness: Double = 0.1
+    var request: MaskRequest {
+        MaskRequest(kind: kind, part: part, prompts: prompts, excluded: excluded,
+                    landscape: landscape, box: box, people: instance.map { [$0] })
+    }
+}
+
+struct LocalMaskColorSettings: Codable, Hashable, Sendable {
+    var saturation: Double = 0
+    var temperature: Double = 0
+    var texture: Double = 0
+    var clarity: Double = 0
 }

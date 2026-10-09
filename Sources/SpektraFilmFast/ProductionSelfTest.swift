@@ -7,6 +7,7 @@ struct ProductionSelfTest {
     static func run() async -> Int32 {
         guard await AuditRegressionTests.run() else { return 19 }
         do {
+            try GPUGradeRegressionTests.run()
             guard await runCacheRoundTrip() else {
                 fputs("SELFTEST FAIL: local cache round-trip did not produce verified hits\n", stderr)
                 return 18
@@ -53,6 +54,7 @@ struct ProductionSelfTest {
                 fputs("SELFTEST FAIL: renderer produced invalid or trivial output\n", stderr)
                 return 22
             }
+            try runExportRoundTrip(output, look: look)
             print(String(format: "SELFTEST PASS: Metal %.2f ms, %u passes", diagnostics.commandBufferMs, diagnostics.passCount))
             return 0
         } catch {
@@ -60,6 +62,26 @@ struct ProductionSelfTest {
             return 20
         }
     }
+    private static func runExportRoundTrip(_ output: PixelBufferF32, look: RenderLook) throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpektraExportTest-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        for (format, sixteen) in [(ExportFormat.jpeg, false), (.heic, false), (.tiff, false), (.tiff, true)] {
+            var settings = ExportSettings()
+            settings.format = format; settings.tiff16Bit = sixteen; settings.preserveMetadata = false
+            let destination = root.appendingPathComponent("\(format.rawValue)-\(sixteen).img")
+            try ExportWriter.write(output: output, look: look, sourceURL: root.appendingPathComponent("unused"), destination: destination, settings: settings)
+            guard let source = CGImageSourceCreateWithURL(destination as CFURL, nil),
+                  let decoded = CGImageSourceCreateImageAtIndex(source, 0, nil),
+                  decoded.width == output.width, decoded.height == output.height,
+                  !sixteen || decoded.bitsPerComponent == 16 else { throw RendererError.renderFailed("Export file round trip failed") }
+            do {
+                try ExportWriter.write(output: output, look: look, sourceURL: root, destination: destination, settings: settings)
+                throw RendererError.renderFailed("Export overwrote an existing file")
+            } catch ExportWriterError.destinationExists { }
+        }
+        print("EXPORT SELFTEST PASS: JPEG, HEIC, TIFF 8/16-bit decode and overwrite protection")
+    }
+
     private static func runAutoWhiteBalanceSelfTest() -> Bool {
         let width = 96
         let height = 64

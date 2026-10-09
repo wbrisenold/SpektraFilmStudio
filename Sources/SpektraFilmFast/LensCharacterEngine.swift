@@ -2,7 +2,7 @@ import Foundation
 import Metal
 
 /// Spatial optical character. Applied after the exact film engine and before geometry.
-/// The CPU implementation mirrors the Metal equations and is used only if Metal fails.
+/// A Metal failure aborts rendering; there is no CPU fallback.
 /// Inspired by the RapidGrade lens study (protected center, elliptical arc blur,
 /// independently shaped vignette, per-channel CA); not copied from a proprietary shader.
 enum LensCharacterEngine {
@@ -32,7 +32,7 @@ private final class LensOpticalMetal: @unchecked Sendable {
     private let queue: MTLCommandQueue?
     private let pipeline: MTLComputePipelineState?
     private init() {
-        guard let device = MTLCreateSystemDefaultDevice(),
+        guard let device = StudioGPUDevice.shared,
               let library = try? device.makeLibrary(source: Self.source, options: nil),
               let function = library.makeFunction(name: "lens_optical_kernel"),
               let queue = device.makeCommandQueue(),

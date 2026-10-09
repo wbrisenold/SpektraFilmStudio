@@ -1,9 +1,9 @@
 import Foundation
 
 enum StudioInspectorMode: String, CaseIterable, Identifiable {
-    case adjust = "Adjust"
-    case film = "Film"
-    case masks = "Masks"
+    case adjust = "RAW"
+    case film = "FILM"
+    case masks = "MASK"
     var id: String { rawValue }
     var symbol: String {
         switch self {

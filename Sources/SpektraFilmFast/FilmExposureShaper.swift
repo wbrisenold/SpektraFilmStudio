@@ -6,7 +6,7 @@ import Foundation
 ///
 /// The original native `filmExposureEv` remains the only global Film Stock Exposure EV control.
 extension PixelBufferF32 {
-    func applyingFilmExposureShape(_ settings: ToneSettings?) -> PixelBufferF32 {
+    func referenceFilmExposureShape(_ settings: ToneSettings?) -> PixelBufferF32 {
         guard let settings else { return self }
         let hasManual = abs(settings.highlights) > 1e-9 || abs(settings.shadows) > 1e-9 ||
             abs(settings.whites) > 1e-9 || abs(settings.blacks) > 1e-9 ||

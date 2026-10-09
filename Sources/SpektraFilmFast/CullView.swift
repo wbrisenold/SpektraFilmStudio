@@ -18,6 +18,7 @@ struct CullWorkspaceView: View {
     @State private var displayMode: CullDisplayMode = .loupe
     @State private var navigationScope: CullNavigationScope = .visible
     @State private var reviewFilter: CullReviewFilter = .all
+    @State private var showFilters = false
     @State private var bestPickFolder: String = ""
     @State private var bestPickFraction: Double = 0.25
     @State private var compareCount = 2
@@ -26,9 +27,15 @@ struct CullWorkspaceView: View {
     @State private var resizeStart: Double?
     @AppStorage("SpektraFilmStudio.designA.showCullInspector") private var showCullInspector = false
 
+    init(model: AppModel, initialFiltersVisible: Bool = false) {
+        self.model = model
+        _showFilters = State(initialValue: initialFiltersVisible)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             topBar
+            if showFilters { reviewFilters }
             Divider()
 
             HSplitView {
@@ -39,134 +46,102 @@ struct CullWorkspaceView: View {
             }
 
             Divider()
+            decisionBar
             filmstrip
         }
         .background(StudioPalette.canvas)
     }
 
     private var topBar: some View {
-        VStack(spacing: 8) {
-          HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Picker("View", selection: $displayMode) {
-                ForEach(CullDisplayMode.allCases) {
-                    Text($0.rawValue).tag($0)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 260)
-
-            if model.librarySelection.count >= 2 {
-                Picker("Navigate", selection: $navigationScope) {
-                    ForEach(CullNavigationScope.allCases) {
-                        Text($0.rawValue).tag($0)
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .frame(width: 165)
-            }
-
-            Button { move(-1) } label: {
-                Image(systemName: "chevron.left")
-            }
-            .keyboardShortcut(.leftArrow, modifiers: []).help("Previous photo · Left Arrow").accessibilityLabel("Previous photo")
-
-            Button { move(1) } label: {
-                Image(systemName: "chevron.right")
-            }
-            .keyboardShortcut(.rightArrow, modifiers: []).help("Next photo · Right Arrow").accessibilityLabel("Next photo")
-
+                Text("Loupe").tag(CullDisplayMode.loupe)
+                Text("Compare").tag(CullDisplayMode.compare)
+                Text("Survey").tag(CullDisplayMode.survey)
+            }.pickerStyle(.segmented).labelsHidden().frame(width: 220)
+            Button { move(-1) } label: { Image(systemName: "chevron.left") }
+                .keyboardShortcut(.leftArrow, modifiers: []).help("Previous photo")
+            Button { move(1) } label: { Image(systemName: "chevron.right") }
+                .keyboardShortcut(.rightArrow, modifiers: []).help("Next photo")
             if displayMode == .compare {
-                Picker("Frames", selection: $compareCount) {
-                    Text("2-up").tag(2)
-                    Text("4-up").tag(4)
-                }
-                .frame(width: 90)
+                Picker("Frames", selection: $compareCount) { Text("2-up").tag(2); Text("4-up").tag(4) }
+                    .frame(width: 80)
             }
-
-            Menu {
+            Menu(zoom == 1 ? "Fit" : "\(Int(zoom * 100))%") {
                 Button("Fit") { zoom = 1 }
-                Button("2×") { zoom = 2 }
-                Button("4×") { zoom = 4 }
-                Divider()
-                Slider(value: $zoom, in: 1...4)
-            } label: {
-                Label(String(format: "%.1f×", zoom), systemImage: "magnifyingglass")
-            }
-            .menuStyle(.borderlessButton)
-            .frame(width: 75)
-
-            Spacer(minLength: 6)
-          }
-          HStack(spacing: 10) {
+                Button("200%") { zoom = 2 }
+                Button("400%") { zoom = 4 }
+            }.fixedSize(horizontal: true, vertical: false).frame(width: 70)
+            Spacer()
+            Button { showFilters.toggle() } label: {
+                Label("Filter", systemImage: "line.3.horizontal.decrease")
+            }.buttonStyle(.borderless).fixedSize()
             Menu {
-                Picker("Review", selection: $reviewFilter) {
-                    ForEach(CullReviewFilter.allCases) { f in Text(f.rawValue).tag(f) }
+                Button("Analyze Photos") { model.analyzeVisibleForCull() }
+                Button("Suggest Best 25% in Current Folder") {
+                    model.pickBestInFolder(model.selectedImage.map(Self.folderPath) ?? "__all__", fraction: 0.25)
                 }
-            } label: {
-                Label(reviewFilter == .all ? "Filter" : reviewFilter.rawValue,
-                      systemImage: "line.3.horizontal.decrease.circle")
-            }
-            .help("Filter culling by face focus, blink likelihood, exposure, noise or burst membership.")
-
-            Menu {
-                Picker("Folder", selection: $bestPickFolder) {
-                    Text("Current Photo Folder").tag("")
-                    Text("All Folders").tag("__all__")
-                    ForEach(cullFolderPaths, id: \.self) { folder in
-                        Text(URL(fileURLWithPath: folder).lastPathComponent).tag(folder)
-                    }
-                }
-                Divider()
-                Picker("Keep", selection: $bestPickFraction) {
-                    Text("Best 10%").tag(0.10)
-                    Text("Best 25%").tag(0.25)
-                    Text("Best 40%").tag(0.40)
-                    Text("Best 60%").tag(0.60)
-                }
-                Divider()
-                Button("Pick Best in Folder") {
-                    let current = model.selectedImage.map(Self.folderPath)
-                    let folder = bestPickFolder.isEmpty ? (current ?? "__all__") : bestPickFolder
-                    model.pickBestInFolder(folder, fraction: bestPickFraction)
-                }
+            } label: { Label("Assist", systemImage: "sparkles") }
+                .fixedSize(horizontal: true, vertical: false)
                 .disabled(model.isCullAnalyzing || model.project.images.isEmpty)
-                Text("Suggested picks only; existing rejects and files are preserved.")
-            } label: {
-                Label("Best Picks", systemImage: "wand.and.stars")
-            }
-            .help("Analyze and select strongest distinct frames per folder, without deleting anything.")
-
-            Button { showCullInspector.toggle() } label: {
-                Image(systemName: "sidebar.right")
-            }
-            .buttonStyle(.borderless)
-            .help(showCullInspector ? "Hide cull details" : "Show cull details")
-
             if model.isCullAnalyzing {
-                ProgressView(value: model.cullAnalysisProgress)
-                    .frame(width: 110)
-                Text("\(Int(model.cullAnalysisProgress * 100))%")
-                    .font(.caption.monospacedDigit())
+                ProgressView(value: model.cullAnalysisProgress).frame(width: 80)
                 Button("Cancel") { model.cancelCullAnalysis() }
-            } else {
-                Button("Analyze", systemImage: "sparkles") {
-                    if model.librarySelection.count > 1 {
-                        model.analyzeForCull(ids: Array(model.librarySelection))
-                    } else {
-                        model.analyzeVisibleForCull()
+            }
+            Button { showCullInspector.toggle() } label: { Image(systemName: "sidebar.right") }
+                .help("Photo details")
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 12).frame(height: 44)
+        .background(StudioPalette.panel)
+    }
+
+    private var reviewFilters: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Show").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Toggle("Selected only", isOn: Binding(get: { navigationScope == .highlighted }, set: { navigationScope = $0 ? .highlighted : .visible }))
+                    .toggleStyle(.checkbox).font(.caption)
+            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 125), spacing: 6)], alignment: .leading, spacing: 6) {
+                ForEach(CullReviewFilter.allCases) { filter in
+                    Button(filter.rawValue) { reviewFilter = filter }
+                        .buttonStyle(.plain)
+                        .font(.caption.weight(reviewFilter == filter ? .semibold : .regular))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 9).padding(.vertical, 6)
+                        .background(reviewFilter == filter ? StudioPalette.selected : Color.clear, in: RoundedRectangle(cornerRadius: 5))
+                }
+            }
+        }.padding(.horizontal, 14).padding(.vertical, 8).background(StudioPalette.panel)
+    }
+
+    private var decisionBar: some View {
+        HStack(spacing: 16) {
+            if let image = model.selectedImage {
+                Text(image.fileName).font(.caption).lineLimit(1)
+                Spacer()
+                Button { model.setFlag(image.flag == .picked ? .unflagged : .picked) } label: {
+                    Label("Pick", systemImage: image.flag == .picked ? "flag.fill" : "flag")
+                }.help("P · Pick")
+                Button { model.setFlag(image.flag == .rejected ? .unflagged : .rejected) } label: {
+                    Label("Reject", systemImage: image.flag == .rejected ? "xmark.circle.fill" : "xmark.circle")
+                }.help("X · Reject")
+                Divider().frame(height: 18)
+                HStack(spacing: 6) {
+                    ForEach(1...5, id: \.self) { rating in
+                        Button { model.setRating(image.rating == rating ? 0 : rating) } label: {
+                            Image(systemName: image.rating >= rating ? "star.fill" : "star")
+                        }.buttonStyle(.plain).help("\(rating) · Rate \(rating) stars")
                     }
                 }
-                .help(model.librarySelection.count > 1
-                    ? "Analyze highlighted photos."
-                    : "Analyze the visible cull set.")
-
-            }
+                Toggle("Auto advance", isOn: $model.project.preferences.autoAdvanceRatings)
+                    .toggleStyle(.checkbox).font(.caption)
+            } else { Text("P Pick · X Reject · 1–5 Rate · Arrows Navigate").foregroundStyle(.secondary) }
         }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .controlSize(.small)
+        .padding(.horizontal, 14).frame(height: 42)
         .background(StudioPalette.panel)
     }
 
@@ -670,6 +645,8 @@ private struct CullPreview: View {
     let url: URL
     let zoom: CGFloat
     @State private var image: CGImage?
+    @State private var pan = CGSize.zero
+    @State private var panStart = CGSize.zero
 
     var body: some View {
         GeometryReader { proxy in
@@ -680,6 +657,7 @@ private struct CullPreview: View {
                         .resizable()
                         .scaledToFit()
                         .scaleEffect(zoom)
+                        .offset(pan)
                         .frame(
                             width: proxy.size.width,
                             height: proxy.size.height
@@ -689,9 +667,20 @@ private struct CullPreview: View {
                     ProgressView().controlSize(.large)
                 }
             }
+            .clipped()
+            .contentShape(Rectangle())
+            .gesture(DragGesture().onChanged { value in
+                guard zoom > 1 else { return }
+                let maxX = proxy.size.width * (zoom - 1) / 2
+                let maxY = proxy.size.height * (zoom - 1) / 2
+                pan = CGSize(width: min(maxX, max(-maxX, panStart.width + value.translation.width)),
+                             height: min(maxY, max(-maxY, panStart.height + value.translation.height)))
+            }.onEnded { _ in panStart = pan })
         }
+        .onChange(of: zoom) { _, _ in pan = .zero; panStart = .zero }
         .task(id: url.path) {
             image = nil
+            pan = .zero; panStart = .zero
             guard let payload = try? await ThumbnailPipeline.shared.thumbnail(
                 url: url,
                 maxPixel: 1800

@@ -327,6 +327,8 @@ extension AppModel {
               let albumIndex = project.albums.firstIndex(where: { $0.id == id }) else { return }
         let ids = Set(librarySelectedImages.map(\.id))
         project.albums[albumIndex].imageIDs.subtract(ids)
+        librarySelection.subtract(ids)
+        status = "Removed \(ids.count) photos from album; originals remain in Library"
     }
 
     func deleteAlbum(_ id: UUID) {

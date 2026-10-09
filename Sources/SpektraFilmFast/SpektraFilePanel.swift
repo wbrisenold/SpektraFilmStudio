@@ -91,6 +91,19 @@ enum SpektraFilePanel {
 }
 
 extension SpektraFilePanel {
+    static func captureDocumentationBrowser(directory: URL, destination: URL) async -> Bool {
+        guard let current = controller else { return false }
+        current.browser.navigate(directory)
+        try? await Task.sleep(for: .milliseconds(900))
+        guard let view = current.window?.contentView,
+              let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return false }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        guard let data = bitmap.representation(using: .png, properties: [:]) else { return false }
+        do { try data.write(to: destination) } catch { return false }
+        current.browser.cancel()
+        return true
+    }
+
     static func runSmokeTest(model: AppModel) async -> Bool {
         model.didStartProjectWorkflow = true
         func report(_ name: String, _ passed: Bool) -> Bool {
@@ -130,6 +143,10 @@ extension SpektraFilePanel {
         model.showingLightroomImportWizard = true
         guard await waitFor({ NSApp.windows.contains { $0.attachedSheet != nil || $0.sheetParent != nil } })
         else { return report("wizard sheet", false) }
+        // Guided imports now request their source immediately on presentation.
+        guard await waitFor({ isPickerVisible }) else { return report("wizard opens source immediately", false) }
+        controller?.browser.cancel()
+        guard await waitFor({ controller == nil }) else { return false }
         var selected: URL?
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("SpektraPicker-" + UUID().uuidString)
         do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }

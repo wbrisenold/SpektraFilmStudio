@@ -20,20 +20,11 @@ struct CloudSetupWizard: View {
     @AppStorage("SpektraFilmStudio.oracle.transferMode") private var transferMode = "bulk"
     @AppStorage("SpektraFilmStudio.oracle.allowedHost") private var allowedHost = ""
 
-    @State private var step = 0
     @State private var manifestPath = ""
     @State private var rcloneConfigPath = ""
     @State private var publicResponse = ""
     @State private var secretResponse = ""
     @State private var confirmedRemoteCredentialStorage = false
-
-    private let steps: [(name: String, symbol: String)] = [
-        ("Mac iCloud", "icloud"),
-        ("Oracle", "server.rack"),
-        ("Oracle iCloud", "lock.icloud"),
-        ("Lightroom", "photo.on.rectangle"),
-        ("Transfer", "arrow.left.arrow.right")
-    ]
 
     private var config: NativeCloudTransferRunner.Configuration {
         .init(host: host, username: username, sshKey: sshKeyPath,
@@ -47,42 +38,28 @@ struct CloudSetupWizard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Connect your cloud library")
                         .font(.title2.weight(.semibold))
-                    Text("Set up one step at a time. You can come back without losing your settings.")
+                    Text("Open a library or configure optional cloud transfer.")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 16)
                 Button("Close") { terminal.stop(); dismiss() }
             }
-            ScrollView(.horizontal) {
-                HStack(spacing: 6) {
-                    ForEach(steps.indices, id: \.self) { index in
-                        Button { step = index } label: {
-                            Label(steps[index].name, systemImage: steps[index].symbol)
-                                .font(.caption.weight(index == step ? .semibold : .regular))
-                                .padding(.horizontal, 9).padding(.vertical, 9)
-                                .frame(minWidth: 104)
-                                .background(index == step ? StudioPalette.selected : StudioPalette.recessed,
-                                            in: RoundedRectangle(cornerRadius: 9))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(index == step ? .isSelected : [])
-                    }
-                }
-            }
-            .scrollIndicators(.hidden)
-
             ScrollView {
-                VStack(alignment: .leading, spacing: 15) {
-                    switch step {
-                    case 0: localICloudStep
-                    case 1: oracleStep
-                    case 2: remoteICloudStep
-                    case 3: lightroomStep
-                    default: transferStep
+                VStack(alignment: .leading, spacing: 18) {
+                    localICloudStep
+                    Divider()
+                    DisclosureGroup("Advanced server transfer") {
+                        VStack(alignment: .leading, spacing: 24) {
+                            oracleStep
+                            Divider()
+                            remoteICloudStep
+                            Divider()
+                            lightroomStep
+                            Divider()
+                            transferStep
+                        }.padding(.top, 16)
                     }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 4)
+                }.padding(.vertical, 8)
             }
             HStack(spacing: 10) {
                 if runner.running { ProgressView().controlSize(.small) }
@@ -91,11 +68,7 @@ struct CloudSetupWizard: View {
                     .foregroundStyle(runner.failed ? .red : .secondary)
                     .lineLimit(2)
                 Spacer()
-                Button("Back") { step = max(0, step - 1) }.disabled(step == 0)
-                Button(step == steps.count - 1 ? "Done" : "Next") {
-                    if step < steps.count - 1 { step += 1 } else { dismiss() }
-                }
-                .buttonStyle(.borderedProminent)
+
             }
         }
         .padding(18)

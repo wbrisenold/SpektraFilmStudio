@@ -12,6 +12,8 @@ struct SettingsView: View {
                 .tabItem { Label("General", systemImage: "gear") }
             studioTab
                 .tabItem { Label("Studio", systemImage: "waveform.path.ecg") }
+            MaskModelsSettingsView()
+                .tabItem { Label("Models", systemImage: "cpu") }
             shortcutsTab
                 .tabItem { Label("Shortcuts", systemImage: "keyboard") }
         }
@@ -279,6 +281,12 @@ struct SettingsView: View {
 
     private var shortcutsTab: some View {
         Form {
+            Section("On-device AI") {
+                LabeledContent("Object selection", value: "SAM 2.1 Tiny · 80 MB")
+                Text("Subject and people use Apple Vision. Face parts use Vision landmarks. Hair, body skin and clothes use embedded mattes or optional SAM 3. Photos stay on this Mac.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section("Shortcut Keys") {
                 shortcut("Previous image", text: $model.project.preferences.shortcutPrevious)
                 shortcut("Next image", text: $model.project.preferences.shortcutNext)

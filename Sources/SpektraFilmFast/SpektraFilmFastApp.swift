@@ -5,46 +5,85 @@ import Darwin
 @main
 struct SpektraFilmFastApp: App {
     @NSApplicationDelegateAdaptor(SpektraApplicationDelegate.self) private var appDelegate
-    @StateObject private var model = AppModel()
+    @StateObject private var model: AppModel
+
+    init() {
+        let instance = AppModel()
+        _model = StateObject(wrappedValue: instance)
+        let delegate = appDelegate
+        delegate.model = instance
+        // A second launch or restored Settings-only session may never present the
+        // WindowGroup. Startup must not depend exclusively on a view's appearance.
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(600))
+            if !NSApp.windows.contains(where: { $0.canBecomeMain && $0.contentView != nil && $0.frame.width >= 1024 }) {
+                delegate.presentWorkspace(model: instance)
+            }
+            SpektraStartup.start(model: instance, delegate: delegate)
+        }
+    }
 
     var body: some Scene {
         WindowGroup {
             ContentView(model: model)
                 .onAppear {
-                    if CommandLine.arguments.contains("--ux-smoke-test") {
-                        Task { @MainActor in
-                            let passed = await StudioUXSmokeTest.run(model: model)
-                            fflush(stdout)
-                            exit(passed ? 0 : 23)
-                        }
-                    } else if CommandLine.arguments.contains("--picker-smoke-test") {
-                        Task { @MainActor in
-                            let passed = await SpektraFilePanel.runSmokeTest(model: model)
-                            print(passed ? "PICKER_SMOKE_PASS" : "PICKER_SMOKE_FAIL")
-                            fflush(stdout)
-                            exit(passed ? 0 : 22)
-                        }
-                    } else if CommandLine.arguments.contains("--mask-overlay-self-test") {
-                        exit(Int32(RedlampMaskSmokeTest.run()))
-                    } else if CommandLine.arguments.contains("--self-test") || CommandLine.arguments.contains("--studio-soak-test") {
-                        Task {
-                            let result = CommandLine.arguments.contains("--studio-soak-test")
-                                ? await ProductionSelfTest.runSoak()
-                                : await ProductionSelfTest.run()
-                            fflush(stdout)
-                            fflush(stderr)
-                            exit(result)
-                        }
-                    } else {
-                        ShortcutMonitor.shared.install(model: model)
-                        appDelegate.model = model
-                        Task { await model.promptForRecoveryIfAvailable() }
-                    }
+                    SpektraStartup.start(model: model, delegate: appDelegate)
                 }
         }
         .commands { SpektraCommands(model: model) }
 
         Settings { SettingsView(model: model) }
+    }
+}
+
+@MainActor
+private enum SpektraStartup {
+    private static var started = false
+    static func start(model: AppModel, delegate appDelegate: SpektraApplicationDelegate) {
+        guard !started else { return }
+        started = true
+        if CommandLine.arguments.contains("--mask-integration-test") {
+            Task.detached {
+                let result = await IntegratedMaskSmokeTest.run()
+                _ = Inference.shared.stop(waitingAtMost: 10)
+                fflush(stdout)
+                exit(result)
+            }
+        } else if CommandLine.arguments.contains("--sam2-smoke-test") {
+            Task.detached {
+                let result = SAM2SmokeTest.run()
+                fflush(stdout)
+                exit(result)
+            }
+        } else if CommandLine.arguments.contains("--ux-smoke-test") {
+            Task { @MainActor in
+                let passed = await StudioUXSmokeTest.run(model: model)
+                fflush(stdout)
+                exit(passed ? 0 : 23)
+            }
+        } else if CommandLine.arguments.contains("--picker-smoke-test") {
+            Task { @MainActor in
+                let passed = await SpektraFilePanel.runSmokeTest(model: model)
+                print(passed ? "PICKER_SMOKE_PASS" : "PICKER_SMOKE_FAIL")
+                fflush(stdout)
+                exit(passed ? 0 : 22)
+            }
+        } else if CommandLine.arguments.contains("--mask-overlay-self-test") {
+            exit(Int32(RedlampMaskSmokeTest.run()))
+        } else if CommandLine.arguments.contains("--self-test") || CommandLine.arguments.contains("--studio-soak-test") {
+            Task {
+                let result = CommandLine.arguments.contains("--studio-soak-test")
+                    ? await ProductionSelfTest.runSoak()
+                    : await ProductionSelfTest.run()
+                fflush(stdout)
+                fflush(stderr)
+                exit(result)
+            }
+        } else {
+            ShortcutMonitor.shared.install(model: model)
+            appDelegate.model = model
+            Task { await model.promptForRecoveryIfAvailable() }
+        }
     }
 }
 
@@ -114,6 +153,31 @@ struct SpektraCommands: Commands {
 @MainActor
 final class SpektraApplicationDelegate: NSObject, NSApplicationDelegate {
     weak var model: AppModel?
+    private var fallbackWindow: NSWindow?
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag, let model { presentWorkspace(model: model) }
+        return true
+    }
+
+    func presentWorkspace(model: AppModel) {
+        if let window = fallbackWindow {
+            window.deminiaturize(nil)
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.title = "SpektraFilm Studio"
+        window.contentView = NSHostingView(rootView: ContentView(model: model))
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        fallbackWindow = window
+    }
+
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // SwiftPM is packaged into a hand-built .app bundle. Set the Dock/app-switcher
@@ -128,7 +192,15 @@ final class SpektraApplicationDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let model else { return .terminateNow }
         Task { @MainActor in
-            model.prepareForTermination { allowed in sender.reply(toApplicationShouldTerminate: allowed) }
+            model.prepareForTermination { allowed in
+                guard allowed else { sender.reply(toApplicationShouldTerminate: false); return }
+                Task {
+                    await Task.detached {
+                        while !Inference.shared.stop(waitingAtMost: 0.25) { }
+                    }.value
+                    sender.reply(toApplicationShouldTerminate: true)
+                }
+            }
         }
         return .terminateLater
     }

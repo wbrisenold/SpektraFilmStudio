@@ -47,3 +47,20 @@ enum SemanticLabels {
     static let legs:Set<UInt8>=[16,17]
     static let shoes:Set<UInt8>=[18,19]
 }
+
+extension CanonicalSkinMaskPayload {
+    /// Diagnostics see the post-crop frame, whereas saved masks stay in source coordinates.
+    func transformed(settings: GeometrySettings?) -> CanonicalSkinMaskPayload {
+        guard let settings, settings != GeometrySettings() else { return self }
+        var rgba = [Float](repeating: 0, count: width * height * 4)
+        for i in alpha.indices {
+            let value = Float(alpha[i]) / 255
+            rgba[i * 4] = value; rgba[i * 4 + 1] = value; rgba[i * 4 + 2] = value; rgba[i * 4 + 3] = 1
+        }
+        let result = GeometryEngine.transformed(PixelBufferF32(width: width, height: height, pixels: rgba), settings: settings)
+        let coverage = stride(from: 0, to: result.pixels.count, by: 4).map {
+            UInt8(clamping: Int((max(0, min(1, result.pixels[$0])) * 255).rounded()))
+        }
+        return CanonicalSkinMaskPayload(width: result.width, height: result.height, alpha: coverage)
+    }
+}

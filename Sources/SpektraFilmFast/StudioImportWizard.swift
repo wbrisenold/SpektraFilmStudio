@@ -46,6 +46,7 @@ struct StudioImportWizard: View {
     @State private var backupURL: URL?
     @State private var cloudParentURL: URL?
     @State private var problem: String?
+    @State private var requestedInitialSource = false
 
     init(model: AppModel, preferredSource: String? = nil) {
         self.model = model
@@ -87,63 +88,35 @@ struct StudioImportWizard: View {
                     .disabled(pickedURLs.isEmpty || model.isIngesting || model.isCloudSyncing)
             }.padding(20)
         }
-        .frame(width: 700, height: 650)
+        .frame(width: 700, height: 520)
         .background(StudioPalette.canvas)
+        .onAppear {
+            guard !requestedInitialSource else { return }
+            requestedInitialSource = true
+            chooseSource()
+        }
     }
 
     private var sourceStep: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Where are your photos?").font(.title3.weight(.semibold))
-            Text("Choose a source. SpektraFilm will preserve your existing originals and Lightroom catalog.")
-                .font(.subheadline).foregroundStyle(.secondary)
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                ForEach(Source.allCases) { option in
-                    Button {
-                        source = option
-                        pickedURLs = []
-                        problem = nil
-                        if option == .lightroom { storage = .cloud }
-                        else { storage = .reference }
-                    } label: {
-                        HStack(alignment: .center, spacing: 12) {
-                            Image(systemName: option.symbol)
-                                .font(.system(size: 22, weight: .light))
-                                .frame(width: 35)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(option.rawValue).font(.subheadline.weight(.semibold))
-                                Text(option.subtitle)
-                                    .font(.caption).foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            Spacer(minLength: 0)
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 55, alignment: .leading)
-                        .padding(12)
-                        .background(source == option ? Color.accentColor.opacity(0.10) : StudioPalette.panel,
-                                    in: RoundedRectangle(cornerRadius: 10))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(source == option ? Color.accentColor : StudioPalette.subtleBorder, lineWidth: 1)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            Picker("Source", selection: $source) {
+                ForEach(Source.allCases) { Text($0.rawValue).tag($0) }
             }
-            HStack(spacing: 12) {
-                Button(pickedURLs.isEmpty ? "Choose \(source == .files ? "Photos" : source == .lightroom ? "Catalog" : "Folder")…" : "Change Source…") {
-                    chooseSource()
-                }
-                .buttonStyle(.bordered)
-                if !pickedURLs.isEmpty {
-                    Text(pickedURLs.count == 1 ? pickedURLs[0].lastPathComponent : "\(pickedURLs.count) photos selected")
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .foregroundStyle(.secondary)
-                        .font(.caption)
-                }
+            .pickerStyle(.menu)
+            .onChange(of: source) { _, selected in
+                pickedURLs = []
+                problem = nil
+                storage = selected == .lightroom ? .cloud : .reference
+                chooseSource()
+            }
+            HStack {
+                Text(pickedURLs.isEmpty ? "No source selected" : pickedURLs.count == 1 ? pickedURLs[0].path : "\(pickedURLs.count) photos selected")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle)
+                Spacer()
+                Button(pickedURLs.isEmpty ? "Choose…" : "Change…") { chooseSource() }
             }
             if isLightroom {
-                Text("Supports Lightroom Classic .lrcat. Original RAW files must be accessible from this Mac or a connected drive.")
+                Text("Lightroom Classic .lrcat; originals must be accessible on this Mac or a connected drive.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -199,8 +172,7 @@ struct StudioImportWizard: View {
                 Spacer()
             }
             .padding(10)
-            .background(storage == option ? Color.accentColor.opacity(0.07) : StudioPalette.panel,
-                        in: RoundedRectangle(cornerRadius: 8))
+
         }
         .buttonStyle(.plain)
     }

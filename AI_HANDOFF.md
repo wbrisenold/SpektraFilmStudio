@@ -208,7 +208,7 @@ Treat a green `verify_source.sh` on macOS as the minimum bar, not a formality.
 **v0.6.0 as originally tagged does not compile on Swift 6.2 / Xcode 26.** Five
 defects were fixed in this repo and are now **machine-checked by
 `scripts/verify_source.sh`**, so reintroducing any of them fails the gate rather
-than the release. Full symptom/cause/fix write-ups are in `AI_PITFALLS.md`
+than the release. Full symptom/cause/fix write-ups are in `docs/BUILD_PITFALLS.md`
 (pitfalls 10–18).
 
 | Trap | Rule |
@@ -222,7 +222,7 @@ than the release. Full symptom/cause/fix write-ups are in `AI_PITFALLS.md`
 Two rules about the build tooling itself:
 
 - **Any edit to a source file requires regenerating `SOURCE_MANIFEST.sha256`**
-  (command in `AI_PITFALLS.md` §15). A manifest failure is often a *symptom* of a
+  (command in `docs/BUILD_PITFALLS.md` §15). A manifest failure is often a *symptom* of a
   real source bug — read the underlying error before regenerating.
 - **`SOURCE_MANIFEST.sha256` must never pin a gitignored artifact.** It used to
   hash `.DS_Store`, which Finder rewrites at will; `verify_source.sh` now excludes
@@ -292,7 +292,7 @@ There is no GitHub Actions release requirement in this package. Local Mac build 
 - qa_production.py:283 required NSOpenPanel text for cache selection. Updated to verify the replacement chooser and cache callback; obsolete implementation-specific source assertion.
 
 ### 2026-10-08 — Consolidated reliability and usability audit
-- Follow-up basis: f0d6c96d2f54f865b1d069cb0f2acb725362dcf1. User explicitly authorized app-wide fixes and usability changes. See AUDIT_FIXES.md and DESIGN.md for reviewed changes and integration limits.
+- Follow-up basis: f0d6c96d2f54f865b1d069cb0f2acb725362dcf1. User explicitly authorized app-wide fixes and usability changes. See docs/AUDIT.md and docs/DESIGN.md for reviewed changes and integration limits.
 - Import Photos now opens the browser directly. Optional backup/cloud import uses one screen. Library, Cull, Edit, Export, Proofs and Settings received focused workflow simplifications.
 - Transfer integrity, credential-session isolation, proof HTTP framing/privacy, corrupt caches/projects, image/export dimensions, native mask inputs and Rust JSON/control boundaries were hardened with regression tests.
 - Validation and final commit/build hashes are recorded in the delivered validation report; the packaged Info.plist and dist/build-info.txt identify the exact clean commit. No release tag was rewritten and no remote service was deployed.
@@ -301,3 +301,16 @@ There is no GitHub Actions release requirement in this package. Local Mac build 
 - An in-progress optimized build rejected OracleRcloneSetup.swift after it changed during compilation. Discarded that build and restarted with Swift sources frozen. This was a validation sequencing issue, not an accepted artifact.
 - LensCharacterPanel.swift:68: making the Binding setter Sendable exposed MainActor isolation warnings at its call sites. The setter now explicitly retains MainActor isolation and the Binding callback uses MainActor.assumeIsolated. Audit-introduced warning fixed; the original non-Sendable warning and PresetBrowserView immutable-variable warning were also addressed within the user-authorized audit.
 - qa_production.py had assertions tied to old Loupe/Survey, Highlighted and always-on-scope wording. Updated them to verify preserved enum cases and the actual optional scope implementation while allowing clearer UI labels.
+
+### 2026-10-08 — Redlamp hierarchy, small object model and documentation cleanup
+- Preserve RAW/FILM/MASK tabs AND nested RAW WB/Light/Crop/Optics and Film Stock/Negative/Print/Output tabs. The user explicitly rejected replacing these with collapsible controls. Compact inline slider rows preserve bindings. Export has one destination chooser. Advanced import immediately requests its source; optional cloud transfer is a disclosure.
+- Replace MobileSAM objects with Apple’s SAM 2.1 Tiny Core ML conversion, revision 39ae0a8a83e5e6cd196e804bf7cccc5f8171f306, nine SHA/size-verified files. Real testing found non-finite Intel GPU output; Intel uses CPU. Real truck-door/changed-prompt tests and native Vision foreground/people inference passed. Apple Vision now supplies face parts; optional exact Redlamp SAM 3 supplies landscape and additional people parts, DA3/V2 supply depth, and ViTMatte refines strands. Selected Redlamp masking source is adapted under MPL-2.0. Original local model files are preserved.
+- Consolidate root reports into focused docs and one verbatim historical reference; preserve required root handoff/protocol and licensing documents. Keep dist, source, assets and prepared dependencies. Move disposable caches outside the checkout. README screenshots are real native views with credited public-domain imagery.
+- Closure build error: optimized Swift compilation required an escaping ViewBuilder parameter for DisclosureGroup; fixed with @escaping. Source and runtime checks are rerun after the final edits. Exact final HEAD, tests and ZIP hashes are in the delivered validation report and clean-commit build metadata. No notarization, service deployment, tag rewrite or release overwrite is implied.
+
+### 2026-10-08 — GPU rendering and direct Redlamp film effects follow-up (validation in progress)
+- Latest user correction is GPU processing, superseding the earlier CPU request. Core ML uses CPU+GPU scheduling with no CPU-only retry. SAM2 selects the Intel UHD GPU on Radeon Pro 555X dual-GPU Macs: exact weights passed actual object smoke tests there, while the Radeon produced non-finite embeddings. Photo stages select the discrete Radeon.
+- GPU analytical host tone/density and film-input shaping retain CPU reference math for tests. Standalone parity passed at maximum relative error 0.0000036013. Full GPU residency is not complete: array transfers and some existing analysis/spatial work remain. See docs/RENDERING_RESEARCH.md; do not claim Lightroom parity.
+- Direct MPL-2.0 Redlamp light-leak, dust, scratch and frame shader functions are in RedlampFilmEffectsEngine.swift; Film → Finish exposes saved controls. Standalone Radeon execution passed four frames, leak/dust/scratch presence and repeatability. Full application tests remain required before pushing.
+- Cull filter controls use an expandable adaptive grid; mask creation/maintenance controls have separate rows; per-person face choices, GPU additive/subtractive paint and 22 built-in presets are provided. Skin diagnostics follow crop/geometry. Album removal preserves originals/library membership.
+- Final source gates, optimized Intel build, GUI smoke tests, optional-model matrix and reconciled application bundle must be rerun after the last edits. Dirty work has not been pushed; ed3fa659850d5f4db66b713aa4079d743eb484a3 is the last verified remote HEAD.

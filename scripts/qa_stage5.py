@@ -25,7 +25,7 @@ req('func invalidate(imageURL:' in sem,'semantic cache invalidation missing')
 req('semanticMasks = nil' in app and 'semanticMaskEngine.invalidate' in app,'lens/denoise changes must invalidate canonical semantic masks')
 req('PRODUCTION STATIC QA PASS' in qa,'base production QA missing')
 req('--arch x86_64' in build and '--arch arm64' not in build,'Intel-only build contract changed')
-req((ROOT/'STAGE_5_PRODUCTION_HARDENING.md').is_file(),'Stage 5 handoff doc missing')
+req((ROOT/'docs/DEVELOPMENT_HISTORY.md').is_file(),'Stage 5 handoff doc missing')
 if errors:
     for e in errors: print('FAIL:',e)
     sys.exit(1)

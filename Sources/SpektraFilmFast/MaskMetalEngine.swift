@@ -15,10 +15,13 @@ final class MaskMetalEngine: @unchecked Sendable {
     private let gradientPSO: MTLComputePipelineState
     private let rasterPSO: MTLComputePipelineState
     private let combinePSO: MTLComputePipelineState
+    private let fusedPSO: MTLComputePipelineState
+    private let textureLock = NSLock()
+    private var rasterTextures: [UUID: (RasterMaskPayload, MTLTexture)] = [:]
     private let compositePSO: MTLComputePipelineState
 
     init?() {
-        guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { return nil }
+        guard let device = StudioGPUDevice.shared, let queue = device.makeCommandQueue() else { return nil }
         self.device = device
         self.queue = queue
         do {
@@ -27,11 +30,13 @@ final class MaskMetalEngine: @unchecked Sendable {
                   let gradient = lib.makeFunction(name: "mask_linear_gradient"),
                   let raster = lib.makeFunction(name: "mask_raster"),
                   let combine = lib.makeFunction(name: "mask_combine"),
+                  let fused = lib.makeFunction(name: "mask_fused"),
                   let composite = lib.makeFunction(name: "mask_composite_rgba") else { return nil }
             radialPSO = try device.makeComputePipelineState(function: radial)
             gradientPSO = try device.makeComputePipelineState(function: gradient)
             rasterPSO = try device.makeComputePipelineState(function: raster)
             combinePSO = try device.makeComputePipelineState(function: combine)
+            fusedPSO = try device.makeComputePipelineState(function: fused)
             compositePSO = try device.makeComputePipelineState(function: composite)
         } catch { return nil }
     }
@@ -52,14 +57,16 @@ final class MaskMetalEngine: @unchecked Sendable {
         guard width > 0, height > 0, width <= 16384,
               height <= 16384, width <= Int.max / height else { return nil }
         let count = width * height
-        let sources = grade.masks.sources.filter(\.enabled)
+        let sources = grade.masks.sources.filter(\.enabled).map(MaskRasterProcessing.prepared)
         if grade.masks.sources.isEmpty { return [Float](repeating: 1, count: count) }
         if sources.isEmpty { return [Float](repeating: 0, count: count) }
+        if sources.count <= 16, let fused = renderFused(sources, width: width, height: height) { return fused }
         guard let commands = queue.makeCommandBuffer(),
               var current = makeCoverageBuffer(pixelCount: count) else { return nil }
         memset(current.contents(), 0, count * MemoryLayout<Float>.stride)
         do {
-            for (index, source) in sources.enumerated() {
+            for (index, unprepared) in sources.enumerated() {
+                let source = MaskRasterProcessing.depthPrepared(unprepared)
                 guard let next = makeCoverageBuffer(pixelCount: count) else { return nil }
                 if source.kind == .raster {
                     try encodeRasterSource(commandBuffer: commands, source: source,
@@ -83,6 +90,78 @@ final class MaskMetalEngine: @unchecked Sendable {
             let ptr = current.contents().assumingMemoryBound(to: Float.self)
             return Array(UnsafeBufferPointer(start: ptr, count: count))
         } catch { return nil }
+    }
+
+    private struct FusedSource {
+        var geometry: GeometryUniforms
+        var kind: UInt32
+        var mode: UInt32
+        var padding0: UInt32 = 0
+        var padding1: UInt32 = 0
+    }
+
+    /// One dispatch evaluates and combines up to 16 masks. Raster selections stay in textures.
+    private func renderFused(_ sources: [MaskSourceRecord], width: Int, height: Int) -> [Float]? {
+        let count = width * height
+        guard let commands = queue.makeCommandBuffer(), let output = makeCoverageBuffer(pixelCount: count),
+              let encoder = commands.makeComputeCommandEncoder() else { return nil }
+        var uniforms: [FusedSource] = []
+        var textures: [MTLTexture] = []
+        textureLock.lock()
+        defer { textureLock.unlock() }
+        for source in sources {
+            let radial = source.radial ?? RadialMaskGeometry()
+            let linear = source.linearGradient ?? LinearGradientMaskGeometry()
+            var g = GeometryUniforms(
+                p0x: Float(source.kind == .radial ? radial.center.x : linear.start.x),
+                p0y: Float(source.kind == .radial ? radial.center.y : linear.start.y),
+                p1x: Float(source.kind == .radial ? radial.radiusX : linear.end.x),
+                p1y: Float(source.kind == .radial ? radial.radiusY : linear.end.y),
+                rotation: Float(radial.rotationDegrees * .pi / 180), feather: Float(source.feather),
+                opacity: Float(source.opacity), inverted: source.inverted ? 1 : 0)
+            let isDepth = source.aiRecipe?.kind == .depthRange
+            if isDepth, let recipe = source.aiRecipe {
+                g.p0x = Float(recipe.depthLower); g.p0y = Float(recipe.depthUpper)
+                g.feather = Float(max(0.001, recipe.depthSoftness))
+            }
+            uniforms.append(FusedSource(geometry: g, kind: isDepth ? 3 : (source.kind == .radial ? 0 : (source.kind == .linearGradient ? 1 : 2)),
+                                        mode: source.blendMode == .add ? 0 : (source.blendMode == .subtract ? 1 : 2)))
+            let payload = source.raster ?? RasterMaskPayload(width: 1, height: 1, alpha: [0])
+            if let cached = rasterTextures[source.id], cached.0 == payload { textures.append(cached.1); continue }
+            let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .r8Unorm, width: payload.width,
+                                                                height: payload.height, mipmapped: false)
+            desc.storageMode = .managed; desc.usage = .shaderRead
+            guard let texture = device.makeTexture(descriptor: desc) else { encoder.endEncoding(); return nil }
+            let alpha = payload.decodedAlpha()
+            alpha.withUnsafeBytes { bytes in
+                if let base = bytes.baseAddress {
+                    texture.replace(region: MTLRegionMake2D(0, 0, payload.width, payload.height), mipmapLevel: 0,
+                                    withBytes: base, bytesPerRow: payload.width)
+                }
+            }
+            rasterTextures[source.id] = (payload, texture)
+            textures.append(texture)
+        }
+        // Bound the cache independently of document length.
+        let retainedBytes = rasterTextures.values.reduce(0) { $0 + $1.0.rle.count + $1.1.allocatedSize }
+        if rasterTextures.count > 64 || retainedBytes > 256 * 1024 * 1024 {
+            // Local `textures` retain this dispatch's inputs; older photos need no residency.
+            rasterTextures.removeAll(keepingCapacity: true)
+        }
+        guard let fallback = textures.first else { encoder.endEncoding(); return nil }
+        while textures.count < 16 { textures.append(fallback) }
+        var dims = SIMD2<UInt32>(UInt32(width), UInt32(height))
+        var sourceCount = UInt32(sources.count)
+        encoder.setComputePipelineState(fusedPSO)
+        encoder.setBuffer(output, offset: 0, index: 0)
+        uniforms.withUnsafeBytes { encoder.setBytes($0.baseAddress!, length: $0.count, index: 1) }
+        encoder.setBytes(&dims, length: MemoryLayout<SIMD2<UInt32>>.stride, index: 2)
+        encoder.setBytes(&sourceCount, length: MemoryLayout<UInt32>.stride, index: 3)
+        for (index, texture) in textures.enumerated() { encoder.setTexture(texture, index: index) }
+        dispatch(encoder, pso: fusedPSO, count: count)
+        encoder.endEncoding(); commands.commit(); commands.waitUntilCompleted()
+        guard commands.status == .completed else { return nil }
+        return Array(UnsafeBufferPointer(start: output.contents().assumingMemoryBound(to: Float.self), count: count))
     }
 
     private func encodeRasterSource(
@@ -189,6 +268,45 @@ final class MaskMetalEngine: @unchecked Sendable {
 #include <metal_stdlib>
 using namespace metal;
 struct G { float2 p0; float2 p1; float rotation; float feather; float opacity; uint inverted; };
+struct F { G g; uint kind; uint mode; uint padding0; uint padding1; };
+kernel void mask_fused(device float* out [[buffer(0)]], constant F* sources [[buffer(1)]],
+                       constant uint2& dims [[buffer(2)]], constant uint& sourceCount [[buffer(3)]],
+                       array<texture2d<float>, 16> masks [[texture(0)]], uint id [[thread_position_in_grid]]) {
+    if (id >= dims.x * dims.y) return;
+    float2 uv = (float2(id % dims.x, id / dims.x) + 0.5f) / float2(dims);
+    constexpr sampler linearSampler(coord::normalized, address::clamp_to_edge, filter::linear);
+    float result = 0;
+    for (uint i = 0; i < sourceCount; ++i) {
+        constant F& source = sources[i]; constant G& g = source.g;
+        float v = 0;
+        if (source.kind == 0) {
+            float2 d = uv - g.p0;
+            float c = cos(-g.rotation), s = sin(-g.rotation);
+            d = float2(c*d.x-s*d.y, s*d.x+c*d.y);
+            float q = length(d/max(g.p1,float2(1e-4f)));
+            float inner = min(0.999f,1.0f-clamp(g.feather,1e-5f,1.0f));
+            v = 1.0f-smoothstep(inner,1.0f,q);
+        } else if (source.kind == 1) {
+            float2 axis = g.p1-g.p0;
+            float t = dot(uv-g.p0,axis)/max(dot(axis,axis),1e-8f);
+            float feather = max(g.feather,1e-5f);
+            v = smoothstep(0.5f-feather,0.5f+feather,t);
+        } else {
+            v = masks[i].sample(linearSampler,uv).r;
+            if (source.kind == 3) {
+                float softness = max(g.feather, 0.001f);
+                v = smoothstep(g.p0.x-softness,g.p0.x,v) * (1-smoothstep(g.p0.y,g.p0.y+softness,v));
+            }
+        }
+        if (g.inverted) v = 1-v;
+        v *= clamp(g.opacity,0.0f,1.0f);
+        if (i == 0) result = source.mode == 1 ? 0 : v;
+        else if (source.mode == 0) result = max(result,v);
+        else if (source.mode == 1) result *= 1-v;
+        else result *= v;
+    }
+    out[id] = result;
+}
 struct C { uint mode; };
 struct O { float opacity; };
 inline float apply_common(float v, constant G& g) { v = clamp(v, 0.0f, 1.0f); if (g.inverted) v = 1.0f - v; return v * clamp(g.opacity,0.0f,1.0f); }

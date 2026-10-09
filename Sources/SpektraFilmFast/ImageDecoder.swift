@@ -25,10 +25,11 @@ private struct SourceImageResult {
 }
 
 private final class CIContextBox: @unchecked Sendable {
-    let context = CIContext(options: [
-        .cacheIntermediates: true,
-        .useSoftwareRenderer: false
-    ])
+    let context: CIContext = {
+        let options: [CIContextOption: Any] = [.cacheIntermediates: true, .useSoftwareRenderer: false]
+        if let device = StudioGPUDevice.shared { return CIContext(mtlDevice: device, options: options) }
+        return CIContext(options: options)
+    }()
 }
 
 struct AutoWhiteBalanceResolution: Sendable {

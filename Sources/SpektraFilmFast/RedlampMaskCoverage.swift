@@ -17,7 +17,7 @@ enum RedlampMaskCoverage {
               width <= Int.max / height else { return [] }
         let count = width * height
         if grade.masks.sources.isEmpty { return [Float](repeating: 1, count: count) }
-        let sources = grade.masks.sources.filter(\.enabled)
+        let sources = grade.masks.sources.filter(\.enabled).map(MaskRasterProcessing.prepared).map(MaskRasterProcessing.depthPrepared)
         guard !sources.isEmpty else { return [Float](repeating: 0, count: count) }
 
         var coverage = [Float](repeating: 0, count: count)

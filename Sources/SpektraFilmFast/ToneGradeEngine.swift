@@ -757,7 +757,7 @@ extension PixelBufferF32 {
     }
 }
 
-private enum AutoContrastMath {
+enum AutoContrastMath {
     private static let bins = 16_384
 
     static func bounds(_ pixels: [Float]) -> (black: Double, white: Double)? {
@@ -804,7 +804,7 @@ private enum AutoContrastMath {
 }
 
 extension PixelBufferF32 {
-    func applyingHostGrade(tone: ToneSettings?, density: ColorDensitySettings?) -> PixelBufferF32 {
+    func referenceHostGrade(tone: ToneSettings?, density: ColorDensitySettings?) -> PixelBufferF32 {
         let tone = tone ?? ToneSettings()
         let points = ToneCurveMath.normalize(tone.curvePoints)
         let cache = ToneCurveMath.buildCache(points)

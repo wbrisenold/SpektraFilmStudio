@@ -3,13 +3,19 @@ import SwiftUI
 struct ControlsView: View {
     @ObservedObject var model: AppModel
     var mode: StudioInspectorMode = .adjust
-    // One accordion across all adjustment groups, including Film and Lens Character.
+    // Each workflow tab keeps its own focused adjustment groups.
     @State private var openAdjustment: String? = "tone"
+    @State private var filmStage = "stock"
     @State private var inspectorSearch = ""
     @State private var showModifiedOnly = false
-    @State private var filmStage = "stock"
     @AppStorage(EditorPanelVisibilityStore.key) private var hiddenEditorPanels = ""
     private let catalog = BridgeCatalog.shared
+
+    init(model: AppModel, mode: StudioInspectorMode = .adjust, initialSection: String? = nil) {
+        self.model = model
+        self.mode = mode
+        _openAdjustment = State(initialValue: initialSection ?? (mode == .film ? "film.film" : "tone"))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,7 +31,7 @@ struct ControlsView: View {
                     }
                 }
                 .padding(.horizontal, 9).frame(height: 30)
-                .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 8))
+                .background(Color.clear)
                 Toggle("Modified", isOn: $showModifiedOnly)
                     .toggleStyle(.button)
                     .controlSize(.small)
@@ -35,20 +41,14 @@ struct ControlsView: View {
 
             if mode == .adjust {
                 Picker("RAW workflow", selection: Binding(
-                    get: { ["raw", "tone", "geometry", "lens"].contains(openAdjustment ?? "")
-                        ? (openAdjustment ?? "tone") : "tone" },
-                    set: { openAdjustment = $0 }
+                    get: { openAdjustment ?? "tone" }, set: { openAdjustment = $0 }
                 )) {
                     Text("WB").tag("raw")
                     Text("Light").tag("tone")
                     Text("Crop").tag("geometry")
                     Text("Optics").tag("lens")
                 }
-                .pickerStyle(.segmented)
-                .controlSize(.small)
-                .padding(.horizontal, 9)
-                .padding(.top, 7)
-                .help("WB: white balance · Light: RAW exposure and tone · Crop: geometry · Optics: lens")
+                .pickerStyle(.segmented).padding(.horizontal, 9).padding(.top, 8)
             }
             if mode == .film {
                 Picker("Film workflow", selection: $filmStage) {
@@ -56,116 +56,101 @@ struct ControlsView: View {
                     Text("Negative").tag("negative")
                     Text("Print").tag("print")
                     Text("Output").tag("output")
+                    Text("Finish").tag("finish")
                 }
-                .pickerStyle(.segmented)
-                .controlSize(.small)
-                .padding(.horizontal, 9)
-                .padding(.top, 7)
+                .pickerStyle(.segmented).padding(.horizontal, 9).padding(.top, 8)
             }
 
             ScrollView {
-            LazyVStack(spacing: 7) {
-                if mode == .adjust && openAdjustment == "raw" && panelVisible("raw") && sectionMatches("raw", terms: ["raw", "white balance", "wb", "as shot", "auto white balance", "temperature", "tint", "denoise", "camera", "lens correction"]) { rawSection }
-                if mode == .adjust && openAdjustment == "tone" && panelVisible("tone") && sectionMatches("tone", terms: ["raw develop", "raw exposure", "raw tone", "curve", "shadow boost", "highlight headroom", "edr"]) { toneSection }
-                if mode == .film && filmStage == "print" && panelVisible("density") && sectionMatches("density", terms: ["color density", "density", "red", "yellow", "green", "cyan", "blue", "magenta", "luminance"]) { colorDensitySection }
-                if mode == .adjust && openAdjustment == "geometry" && panelVisible("geometry") && sectionMatches("geometry", terms: ["crop", "geometry", "aspect", "rotation", "perspective", "flip", "straighten", "scale", "offset"]) { geometrySection }
-                if mode == .adjust && openAdjustment == "lens" && panelVisible("lens") && sectionMatches("lens", terms: ["lens character", "lens", "optical", "aberration", "vignette", "petzval", "swirl", "spherical", "distortion", "edge blur"]) {
-                    LensCharacterPanel(model: model, isExpanded: sectionBinding("lens"))
-                }
-
-                if mode == .masks {
-                    MaskPanelView(model: model)
-                }
-                if mode == .film {
-                    ForEach(catalog.groups.filter { filmGroups.contains($0.id) }) { group in
-                        let descriptors = catalog.parameters(in: group.id, flavor: .pro)
-                            .filter(bridgeControlVisible)
-                        if !descriptors.isEmpty && panelVisible("film.\(group.id)") &&
-                            sectionMatches("film.\(group.id)", terms: [group.label, group.id]) {
-                            VStack(alignment: .leading, spacing: 11) {
-                                HStack(alignment: .top) {
-                                    Text(group.label)
-                                        .font(.subheadline.weight(.semibold))
-                                        .fixedSize(horizontal: false, vertical: true)
-                                    Spacer(minLength: 6)
-                                    Button { model.resetParameterGroup(group.id) } label: {
-                                        Image(systemName: "arrow.counterclockwise")
+                LazyVStack(spacing: 0) {
+                    if mode == .masks {
+                        MaskPanelView(model: model).padding(10)
+                    } else if mode == .adjust {
+                        if panelVisible("raw") && sectionMatches("raw", terms: ["raw", "white balance", "wb", "temperature", "tint", "denoise", "camera"]) {
+                            inspectorSection("White Balance & Camera", id: "raw") { rawSection }
+                        }
+                        if panelVisible("tone") && sectionMatches("tone", terms: ["light", "exposure", "tone", "curve", "contrast", "shadows", "highlights", "whites", "blacks", "edr"]) {
+                            inspectorSection("Light & Tone", id: "tone") { toneSection }
+                        }
+                        if panelVisible("geometry") && sectionMatches("geometry", terms: ["crop", "geometry", "aspect", "rotation", "perspective", "flip", "straighten"]) {
+                            inspectorSection("Crop & Geometry", id: "geometry") { geometrySection }
+                        }
+                        if panelVisible("lens") && sectionMatches("lens", terms: ["lens", "optical", "aberration", "vignette", "swirl", "distortion"]) {
+                            inspectorSection("Optical Character", id: "lens") {
+                                LensCharacterPanel(model: model, isExpanded: .constant(true))
+                            }
+                        }
+                    } else if mode == .film {
+                        if filmStage == "finish" { FilmEffectsPanel(model: model) }
+                        Text("FILM PROCESS")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12).padding(.top, 18).padding(.bottom, 6)
+                        ForEach(catalog.groups.filter { filmGroups.contains($0.id) }) { group in
+                            let descriptors = catalog.parameters(in: group.id, flavor: .pro).filter(bridgeControlVisible)
+                            if !descriptors.isEmpty && panelVisible("film.\(group.id)") {
+                                inspectorSection(group.label, id: "film.\(group.id)") {
+                                    VStack(spacing: 8) {
+                                        HStack {
+                                            Spacer()
+                                            Button("Reset Section") { model.resetParameterGroup(group.id) }
+                                                .buttonStyle(.borderless).font(.caption2)
+                                        }
+                                        ForEach(descriptors) { descriptor in
+                                            ParameterControlRow(model: model, descriptor: descriptor,
+                                                options: catalog.options(for: descriptor))
+                                        }
                                     }
-                                    .buttonStyle(.plain)
-                                    .help("Reset \(group.label) controls")
-                                }
-                                Divider().opacity(0.5)
-                                ForEach(descriptors) { descriptor in
-                                    ParameterControlRow(model: model, descriptor: descriptor,
-                                                        options: catalog.options(for: descriptor))
                                 }
                             }
-                            .padding(11)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 8))
-                            .overlay(RoundedRectangle(cornerRadius: 8)
-                                .stroke(StudioPalette.subtleBorder, lineWidth: 0.5))
+                        }
+                        if filmStage == "print" && panelVisible("density") && sectionMatches("density", terms: ["color density", "red", "yellow", "green", "cyan", "blue", "magenta"]) {
+                            inspectorSection("Color Density", id: "density") { colorDensitySection }
                         }
                     }
                 }
             }
-            .padding(9)
-            .overlay {
-                if !searchTerm.isEmpty && preferredSearchSection == nil {
-                    ContentUnavailableView.search(text: searchTerm)
-                        .background(StudioPalette.panel)
-                }
-            }
-            }
         }
+        .font(.system(size: 11))
+        .controlSize(.small)
         .tint(Color.primary.opacity(0.78))
         .onChange(of: mode) { _, newMode in
-            if newMode == .masks { model.setCropToolActive(false) }
-            // Mask edits are contextual. Leaving Masks returns to global adjustments.
+            model.setCropToolActive(false)
+            openAdjustment = newMode == .film ? "film.film" : "tone"
             if newMode != .masks { model.selectLocalGrade(nil) }
-            if newMode == .film { filmStage = "stock" }
-            if newMode == .adjust { openAdjustment = "tone" }
-            if newMode != .adjust { model.setCropToolActive(false) }
         }
         .onChange(of: openAdjustment) { _, section in
             model.setCropToolActive(section == "geometry" && mode == .adjust)
         }
         .onChange(of: inspectorSearch) { _, value in
             if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                if mode == .film {
-                    if let group = preferredSearchSection?.replacingOccurrences(of: "film.", with: "") {
-                        filmStage = stageForGroup(group)
-                    }
-                } else {
-                    openAdjustment = preferredSearchSection
-                }
-            }
-        }
-        .onChange(of: showModifiedOnly) { _, _ in
-            if !inspectorSearch.isEmpty {
-                if mode == .film {
-                    if let group = preferredSearchSection?.replacingOccurrences(of: "film.", with: "") {
-                        filmStage = stageForGroup(group)
-                    }
-                } else { openAdjustment = preferredSearchSection }
+                openAdjustment = preferredSearchSection
             }
         }
     }
 
     private var filmGroups: [String] {
         switch filmStage {
-        case "stock": return ["film", "filtering", "filmPlane"]
-        case "negative": return ["dir", "halation", "grain", "grainSynthesis"]
+        case "stock": return ["film", "filtering"]
+        case "negative": return ["filmPlane", "dir", "halation", "grain", "grainSynthesis"]
         case "print": return ["print", "diffusion"]
+        case "finish": return []
         default: return ["scanner", "color", "manage"]
         }
     }
 
-    private func stageForGroup(_ id: String) -> String {
-        if ["film", "filtering", "filmPlane"].contains(id) { return "stock" }
-        if ["dir", "halation", "grain", "grainSynthesis"].contains(id) { return "negative" }
-        if ["print", "diffusion", "density"].contains(id) { return "print" }
-        return "output"
+    @ViewBuilder
+    private func inspectorSection<Content: View>(_ title: String, id: String,
+                                                @ViewBuilder content: @escaping () -> Content) -> some View {
+        if mode == .film || !searchTerm.isEmpty || openAdjustment == id {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title).font(.system(size: 11, weight: .semibold))
+                content()
+            }
+            .padding(12)
+            Divider()
+        }
     }
 
     private func panelVisible(_ id: String) -> Bool {
@@ -175,7 +160,7 @@ struct ControlsView: View {
     private var searchTerm: String { inspectorSearch.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     private func sectionBinding(_ section: String) -> Binding<Bool> {
-        Binding(get: { openAdjustment == section }, set: { openAdjustment = $0 ? section : nil })
+        Binding(get: { !searchTerm.isEmpty || openAdjustment == section }, set: { openAdjustment = $0 ? section : nil })
     }
 
     private func sectionMatches(_ section: String, terms: [String]) -> Bool {
@@ -229,14 +214,14 @@ struct ControlsView: View {
     private var rawSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("RAW")
+                Text("Camera Settings")
                     .font(.caption.weight(.semibold))
                 Spacer()
                 Button { model.resetRawSection() } label: { Image(systemName: "arrow.counterclockwise") }
                     .buttonStyle(.plain)
                     .help("Reset the RAW section, including white balance and lens correction.")
             }
-        
+
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text("Camera development")
@@ -246,7 +231,7 @@ struct ControlsView: View {
                         .controlSize(.mini)
                         .help("Open original Apple RAW Exposure and Global Tone controls")
                 }
-                Text("Start from the camera neutral, correct white balance, then develop light before selecting a SpektraFilm stock.")
+                Text("White balance applies before the film process.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -413,13 +398,12 @@ struct ControlsView: View {
                 ))
             }
             .padding(.top, 8)
-        
+
         }
         .padding(10)
-        .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 8))
+        .background(Color.clear)
         .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(StudioPalette.subtleBorder, lineWidth: 0.5)
+            Rectangle().stroke(Color.clear, lineWidth: 0)
         }
     }
 
@@ -429,7 +413,7 @@ struct ControlsView: View {
         let tone = active?.tone ?? (model.selectedLook.tone ?? ToneSettings())
         return VStack(alignment: .leading, spacing: 10) {
             HStack{
-                Text("RAW Develop").font(.caption.weight(.semibold))
+                Text("Tone Controls").font(.caption.weight(.semibold))
                 if let grade=active { Text("· \(grade.name)").font(.caption2).foregroundStyle(.cyan) }
                 Spacer()
                 if active == nil {
@@ -437,7 +421,7 @@ struct ControlsView: View {
                         .buttonStyle(.plain)
                 }
             }
-        
+
             VStack(alignment: .leading, spacing: 10) {
                 if let grade = active {
                     HStack {
@@ -454,23 +438,23 @@ struct ControlsView: View {
                         onChange:{model.setLocalTone(grade.id,"exposure",$0,interactive:true)},
                         onEnd:{model.endEditGesture()})
                 } else {
-                    Text("RAW → Light → Film → Display")
+                    Text("Original photo development")
                         .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text("RAW Exposure and RAW Global Tone keep the exact Apple CIRAWFilter behavior.")
+                    Text("Exposure and tone shape the image before film is applied.")
                         .font(.caption2).foregroundStyle(.secondary)
-                    DraftScalarSlider(label:"RAW Exposure EV",committedValue:raw.developExposureEV,range:-5...5,precision:2,
+                    DraftScalarSlider(label:"Exposure",committedValue:raw.developExposureEV,range:-5...5,precision:2,
                         helpText:"CIRAWFilter exposure. Locked behavior.",resetValue:0,
                         onReset:{model.setRawDevelopExposure(0,interactive:false)},onBegin:{model.beginEditGesture()},
                         onChange:{model.setRawDevelopExposure($0,interactive:true)},onEnd:{model.endEditGesture()})
-                    DraftScalarSlider(label:"RAW Global Tone",committedValue:raw.developGlobalTone*100,range:0...100,precision:0,
+                    DraftScalarSlider(label:"Global Tone",committedValue:raw.developGlobalTone*100,range:0...100,precision:0,
                         helpText:"Apple CIRAWFilter global tone. Locked behavior.",resetValue:100,
                         onReset:{model.setRawDevelopGlobalTone(1,interactive:false)},onBegin:{model.beginEditGesture()},
                         onChange:{model.setRawDevelopGlobalTone($0/100,interactive:true)},onEnd:{model.endEditGesture()})
-                    DraftScalarSlider(label:"RAW Shadow Boost",committedValue:raw.developShadowBoost*100,range:0...200,precision:0,resetValue:100,
+                    DraftScalarSlider(label:"Shadow Boost",committedValue:raw.developShadowBoost*100,range:0...200,precision:0,resetValue:100,
                         onReset:{model.setRawDevelopShadowBoost(1,interactive:false)},onBegin:{model.beginEditGesture()},
                         onChange:{model.setRawDevelopShadowBoost($0/100,interactive:true)},onEnd:{model.endEditGesture()})
-                    DraftScalarSlider(label:"Highlight Headroom (EDR)",committedValue:raw.developHighlightHeadroom*100,range:0...200,precision:0,resetValue:0,
+                    DraftScalarSlider(label:"Highlight Headroom",committedValue:raw.developHighlightHeadroom*100,range:0...200,precision:0,resetValue:0,
                         onReset:{model.setRawDevelopHighlightHeadroom(0,interactive:false)},onBegin:{model.beginEditGesture()},
                         onChange:{model.setRawDevelopHighlightHeadroom($0/100,interactive:true)},onEnd:{model.endEditGesture()})
                 }
@@ -489,7 +473,7 @@ struct ControlsView: View {
                 if active == nil {
                     Divider().opacity(0.5)
                     HStack {
-                        Text("Creative RAW Tone Curve").font(.caption.weight(.semibold))
+                        Text("Tone Curve").font(.caption.weight(.semibold))
                         Spacer()
                         Menu("Presets") {
                             ForEach(ToneCurvePresetGroup.allCases){g in Section(g.rawValue){
@@ -503,10 +487,10 @@ struct ControlsView: View {
                     ToneCurveEditorView(model:model).frame(height:230)
                 }
             }.padding(.top,8)
-        
+
         }
-        .padding(10).background(StudioPalette.recessed,in:RoundedRectangle(cornerRadius:8))
-        .overlay{RoundedRectangle(cornerRadius:8).stroke(active == nil ? StudioPalette.subtleBorder : Color.cyan.opacity(0.32),lineWidth:0.5)}
+        .padding(10).background(Color.clear)
+
     }
 
     @ViewBuilder
@@ -536,7 +520,7 @@ struct ControlsView: View {
                     .buttonStyle(.plain)
                     .help("Reset all ME deSatch density controls.")
             }
-        
+
             VStack(alignment: .leading, spacing: 10) {
                 Text("ME deSatch density uses the cone-coordinate behavior from Moaz Elgabry's GPL-3.0 ME_Desatch DCTL. Zero is untouched; move left toward −1 to progressively deSatch/darken density globally or around one hue family. This is intentionally not a normal Saturation control.")
                     .font(.caption2)
@@ -563,13 +547,12 @@ struct ControlsView: View {
                     .foregroundStyle(.tertiary)
             }
             .padding(.top, 8)
-        
+
         }
         .padding(10)
-        .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 8))
+        .background(Color.clear)
         .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(StudioPalette.subtleBorder, lineWidth: 0.5)
+            Rectangle().stroke(Color.clear, lineWidth: 0)
         }
     }
 
@@ -589,7 +572,7 @@ struct ControlsView: View {
                     .buttonStyle(.plain)
                     .help("Reset crop, rotation, perspective, scale, flips, and geometry guides.")
             }
-        
+
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     Text("Crop handles are live in the viewer while this section is open.")
@@ -750,14 +733,13 @@ struct ControlsView: View {
                 .buttonStyle(.borderless)
             }
             .padding(.top, 8)
-        
+
         }
         // Crop state follows the parent accordion selection (including search).
         .padding(10)
-        .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 8))
+        .background(Color.clear)
         .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(StudioPalette.subtleBorder, lineWidth: 0.5)
+            Rectangle().stroke(Color.clear, lineWidth: 0)
         }
     }
 }
@@ -924,78 +906,55 @@ struct DraftScalarSlider: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(alignment: .top, spacing: 6) {
-                Text(label)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .layoutPriority(1)
-                Spacer(minLength: 4)
-                if let onReset {
-                    Button {
-                        if let resetValue { draft = resetValue }
-                        onReset()
-                    } label: {
-                        Image(systemName: "arrow.counterclockwise")
-                            .font(.system(size: 11, weight: .medium))
-                            .frame(width: 24, height: 24)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Reset \(label)")
+        HStack(spacing: 6) {
+            Text(label).lineLimit(1).truncationMode(.tail)
+                .frame(width: 104, alignment: .leading)
+                .help(label)
+            Slider(value: Binding(
+                get: { draft },
+                set: { value in
+                    let adjusted = NSEvent.modifierFlags.contains(.shift) ? draft + (value - draft) * 0.10 : value
+                    draft = min(range.upperBound, max(range.lowerBound, adjusted))
+                    onChange(draft)
                 }
-                TextField(
-                    "",
-                    value: Binding(
-                        get: { draft },
-                        set: { value in
-                            let clamped = min(range.upperBound, max(range.lowerBound, value))
-                            draft = clamped
-                            onChange(clamped)
-                            onEnd()
-                        }
-                    ),
-                    format: .number.precision(.fractionLength(0...precision))
-                )
-                .textFieldStyle(.plain)
-                .multilineTextAlignment(.trailing)
-                .monospacedDigit()
-                .frame(width: 62)
-            }
-            .contentShape(Rectangle())
-            .onTapGesture(count: 2) {
-                guard let onReset else { return }
-                if let resetValue { draft = resetValue }
-                onReset()
-            }
-
-            GeometryReader { proxy in
-                let span = range.upperBound - range.lowerBound
-                let zeroFraction = span > 0 ? (0 - range.lowerBound) / span : 0.5
-                ZStack(alignment: .leading) {
-                    Slider(value: Binding(
-                        get: { draft },
-                        set: { newValue in
-                            let fine = NSEvent.modifierFlags.contains(.shift)
-                            let adjusted = fine ? draft + (newValue - draft) * 0.10 : newValue
-                            draft = min(range.upperBound, max(range.lowerBound, adjusted))
-                            onChange(draft)
-                        }
-                    ), in: range, onEditingChanged: { isEditing in
-                        editing = isEditing
-                        if isEditing { onBegin() } else { onEnd() }
-                    })
-                    if range.contains(0), span > 0 {
-                        Rectangle()
-                            .fill(Color.secondary.opacity(0.55))
-                            .frame(width: 1, height: 9)
-                            .offset(x: max(0, min(proxy.size.width - 1, proxy.size.width * zeroFraction)))
-                            .allowsHitTesting(false)
-                    }
+            ), in: range, onEditingChanged: { isEditing in
+                editing = isEditing
+                if isEditing { onBegin() } else { onEnd() }
+            })
+            .controlSize(.mini)
+            .accessibilityLabel(label)
+            TextField(label, value: Binding(
+                get: { draft },
+                set: { value in
+                    let clamped = min(range.upperBound, max(range.lowerBound, value))
+                    draft = clamped
+                    onChange(clamped)
+                    onEnd()
                 }
+            ), format: .number.precision(.fractionLength(0...precision)))
+            .textFieldStyle(.plain).multilineTextAlignment(.trailing)
+            .monospacedDigit().frame(width: 44)
+            if let onReset {
+                Button {
+                    if let resetValue { draft = resetValue }
+                    onReset()
+                } label: {
+                    Image(systemName: "arrow.counterclockwise").font(.system(size: 9))
+                }
+                .buttonStyle(.plain).frame(width: 14)
+                .help("Reset \(label)")
             }
-            .frame(height: 22)
-            .disabled(disabled)
-            .help((helpText.isEmpty ? "Move left to reduce \(label.lowercased()) and right to increase it." : helpText) + " Hold Shift for fine adjustment. Double-click the row to reset.")
         }
+        .font(.system(size: 11))
+        .frame(minHeight: 24)
+        .disabled(disabled)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            guard let onReset else { return }
+            if let resetValue { draft = resetValue }
+            onReset()
+        }
+        .help((helpText.isEmpty ? label : helpText) + " Hold Shift for fine adjustment. Double-click to reset.")
         .onChange(of: committedValue) { _, newValue in
             if !editing { draft = newValue }
         }

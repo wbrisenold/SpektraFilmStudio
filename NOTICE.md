@@ -8,7 +8,7 @@ SpektraFilmFast is a macOS application host around the Spektrafilm native core a
 - Pinned revision: `8f6651858f439a99b7202b4b8dea59e344dadf5d`
 - Upstream license: GNU GPL v3.0 (`Native/LICENSE.txt`)
 
-The native core's source files are **vendored in-tree** under `Native/`, unmodified, at the
+The native core's source files are **vendored in-tree** under `Native/`, based on the
 pinned revision. It is GPLv3 and this project is GPLv3, so this is license-compatible, and
 the full upstream terms and copyright notices are preserved. Vendoring makes a fresh clone
 build with no network access, no external repository and no Python; see `Native/NOTICE.md`.
@@ -33,3 +33,9 @@ https://www.buymeacoffee.com/kbvisualz
 ## Code signing
 
 Local builds are ad-hoc signed by default. Public distribution requires Developer ID Application hardened-runtime signing, Apple notarization, stapling, and Gatekeeper verification. Credentials are local-only and must never be committed.
+
+## Redlamp masking source and models
+
+Selected masking, matting, inference and math files are adapted from pdcgomes/redlamp at `0ed3a59211e4128111f2c8ba11bc5d249b0cb8dd`, under MPL-2.0. Their upstream copyright headers and source availability are preserved. See `Resources/Redlamp-MPL-2.0.txt` and IMPLEMENTATION_SOURCES.md. The model catalog in Resources/MaskModels records separate model licenses and exact weights; SAM 3's Meta SAM License and snow-prompt notice ship in Resources/SAM3. Apple Vision is a platform dependency.
+
+Local native host adaptation: choose the discrete Metal device when available. Spectral shader equations and generated curves are unchanged.
