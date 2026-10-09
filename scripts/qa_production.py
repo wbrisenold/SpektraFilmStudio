@@ -247,8 +247,8 @@ require("scopeTargetFPS" in models and "startEditorScopeLoop" in scope_support, 
 require("scopeTask == nil" in scope_support and "scopeGeneration" in scope_support, "scope latest-frame/backpressure guard missing")
 require("Histogram" in models and "Waveform" in models and "RGB Parade" in models and "Vectorscope" in models and "Skin Vector" in models, "scope modes missing")
 edit_view = text("EditView.swift")
-require("EditorScopeStrip(model: model, isExpanded:" in edit_view and "EditorScopePanelView(model: model)" in scope_panel and "editorScopeImage" in scope_panel, "docked scope UI not integrated into the editor canvas")
-require("collapsedHeight" in scope_panel and "isExpanded" in scope_panel, "scope strip must ship collapsed by default, not expand over the workspace")
+require("EditorScopePanelView(model: model)" in edit_view and "clippingToggle" in edit_view and "skinToggle" in edit_view and "editorScopeImage" in scope_panel,
+        "scopes and their clipping/skin toggles must live in the adjustment rail, as Redlamp does")
 require("editorBottomInset" in text("EditView.swift"), "canvas does not reserve room for the docked scope/filmstrip strips")
 require("skinVectorscope" in scope_engine and "drawSkinReference" in scope_engine, "dedicated skin vectorscope missing")
 require(scope_engine.count("SkinToneReference.referenceAngleDegrees") >= 1, "skin vectorscope does not use the shared derived reference angle")
@@ -431,7 +431,7 @@ require("minimumScaleToCoverCrop" in geometry and "effectiveSettings.scale = max
 require("minimumScaleToCoverCrop(" in app and "geometry.autoCrop = false" in app, "crop viewer does not preview the solved Auto Fill zoom")
 require('changedParameter == "crop" && isCropToolActive' in app and "objectWillChange.send()" in app, "crop overlay still forces an image resample on every drag event")
 require("skinMaskAlpha" in scope and "skinMaskAlpha[mi] > 64" in scope, "Skin Vector is not restricted to detected skin pixels")
-require("scopeEnabled = true" in models and "EditorScopeStrip(model: model, isExpanded:" in edit_view and "Below canvas" in settings, "Edit scopes placement control or truthful settings description missing")
+require("scopeEnabled = true" in models and "EditorScopePanelView(model: model)" in edit_view and "Below canvas" in settings, "Edit scopes placement control or truthful settings description missing")
 
 print("v0.5 studio-workflow acceptance checks passed")
 
@@ -545,6 +545,10 @@ print("PRODUCTION STATIC QA PASS")
 # User-facing workflow regressions from the Redlamp design audit.
 require(export_view.count("model.chooseExportDestination()") == 1, "Export must have one destination chooser")
 require('Picker("RAW workflow"' in controls and 'Picker("Film workflow"' in controls and "DisclosureGroup" not in controls, "RAW and Film controls must preserve tabs, without accordions")
+# Regression guard: each RAW tab must render exactly one section. Rendering all four
+# on every tab and expanding a different one is what "all sections in every tab" means.
+require('switch openAdjustment ?? "tone"' in controls, "RAW tabs must filter sections instead of rendering all of them")
+require(controls.count('inspectorSection("') >= 5, "expected the per-section helpers to still exist")
 require("requestedInitialSource = true\n            chooseSource()" in text("StudioImportWizard.swift"), "guided source chooser must open immediately")
 require('Button("Back")' not in text("CloudSetupWizard.swift"), "cloud setup returned to sequential pages")
 

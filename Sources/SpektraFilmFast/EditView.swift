@@ -9,12 +9,6 @@ struct EditWorkspaceView: View {
     @AppStorage("SpektraFilmStudio.designA.showEditorInspector") private var showEditorInspector = true
     @AppStorage("SpektraFilmStudio.designA.showFilmstrip") private var showFilmstrip = true
     @AppStorage("SpektraFilmStudio.designA.showScopes") private var showScopes = false
-    // Scopes start collapsed to a slim readout bar. Expanding is opt-in, because a
-    // permanently expanded panel took over the whole bottom row of the workspace.
-    @AppStorage("SpektraFilmStudio.ui.scopesExpanded") private var scopeStripExpanded = false
-    // Measured height of the docked scope strip; seeded from its collapsed height so
-    // the canvas is reserved correctly on the very first layout pass.
-    @State private var scopeStripHeight = EditorScopeStrip.collapsedHeight
     @State private var quickExportRequest: QuickExportRequest?
 
     var body: some View {
@@ -39,12 +33,13 @@ struct EditWorkspaceView: View {
                 editorToolbar
                 Spacer(minLength: 0)
                 if showScopes {
-                    // Scopes sit under the canvas, not in the adjustment rail, so
-                    // turning them on never shrinks the sliders. The strip reports
-                    // its measured height so the reservation below is exact.
-                    EditorScopeStrip(model: model, isExpanded: $scopeStripExpanded) { scopeStripHeight = $0 }
-                        .padding(.horizontal, StudioLayout.paneInset)
-                        .padding(.bottom, StudioLayout.paneInset)
+                    // Scopes live INSIDE the adjustment rail, at the top, exactly as
+                    // Redlamp does it (InspectorView: HistogramView + ToolStrip, then
+                    // the scrolling panels below). Two earlier attempts docked them
+                    // under the canvas — the first ate the adjustment height, the
+                    // second took the whole bottom row. Neither matched Redlamp.
+                    EditorScopePanelView(model: model)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if showFilmstrip && !model.project.images.isEmpty {
                     filmstrip
@@ -181,7 +176,7 @@ struct EditWorkspaceView: View {
     /// preview is never drawn underneath them.
     private var editorBottomInset: CGFloat {
         var inset = StudioLayout.paneInset
-        if showScopes { inset += scopeStripHeight + StudioLayout.paneInset }
+        
         if showFilmstrip && !model.project.images.isEmpty {
             inset += clampedFilmstripHeight + StudioLayout.paneInset
         }
@@ -403,12 +398,50 @@ private struct EditorInspectorView: View {
                 .padding(.horizontal, 8)
                 .frame(height: RedlampMetrics.panelHeaderHeight)
 
+                // Redlamp keys the scrolling panels off `activeTool`
+                // (ReferencePanels.swift: InspectorView), so a tool shows only its
+                // own panels. The scopes readout rides at the top of the rail, the
+                // same slot Redlamp gives HistogramView + ToolStrip.
+                if showScopes {
+                    Rectangle().fill(StudioPalette.divider).frame(height: 1)
+                    HStack(spacing: 8) {
+                        Text(model.project.preferences.scopeMode.rawValue)
+                            .font(StudioType.section).foregroundStyle(.secondary)
+                        Spacer()
+                        clippingToggle
+                        skinToggle
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: RedlampMetrics.panelHeaderHeight)
+                    Rectangle().fill(StudioPalette.divider).frame(height: 1)
+                }
+
                 Rectangle().fill(StudioPalette.divider).frame(height: 1)
 
                 ControlsView(model: model, mode: mode)
                     .frame(maxHeight: .infinity)
             }
         }
+    }
+
+    private var clippingToggle: some View {
+        Toggle(isOn: Binding(
+            get: { model.project.preferences.clippingEnabled },
+            set: { model.setClippingEnabled($0) })) {
+            Label("Clipping", systemImage: "arrowtriangle.up.fill")
+        }
+        .toggleStyle(.button).controlSize(.mini)
+        .help("Warn when final output approaches white or black. Bright warning is not always irreversible clipping.")
+    }
+
+    private var skinToggle: some View {
+        Toggle(isOn: Binding(
+            get: { model.project.preferences.skinCheckEnabled },
+            set: { model.setSkinCheckEnabled($0) })) {
+            Label("Skin", systemImage: "hand.raised.fill")
+        }
+        .toggleStyle(.button).controlSize(.mini)
+        .help("Show a skin diagnostic on the rendered image")
     }
 
 }

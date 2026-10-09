@@ -77,18 +77,28 @@ struct ControlsView: View {
                     if mode == .masks {
                         MaskPanelView(model: model).padding(10)
                     } else if mode == .adjust {
-                        if panelVisible("raw") && sectionMatches("raw", terms: ["raw", "white balance", "wb", "temperature", "tint", "denoise", "camera"]) {
-                            inspectorSection("White Balance & Camera", id: "raw") { rawSection }
-                        }
-                        if panelVisible("tone") && sectionMatches("tone", terms: ["light", "exposure", "tone", "curve", "contrast", "shadows", "highlights", "whites", "blacks", "edr"]) {
-                            inspectorSection("Light & Tone", id: "tone") { toneSection }
-                        }
-                        if panelVisible("geometry") && sectionMatches("geometry", terms: ["crop", "geometry", "aspect", "rotation", "perspective", "flip", "straighten"]) {
-                            inspectorSection("Crop & Geometry", id: "geometry") { geometrySection }
-                        }
-                        if panelVisible("lens") && sectionMatches("lens", terms: ["lens", "optical", "aberration", "vignette", "swirl", "distortion"]) {
-                            inspectorSection("Optical Character", id: "lens") {
-                                LensCharacterPanel(model: model, isExpanded: .constant(true))
+                        // Each RAW tab owns exactly ONE section. Previously all four
+                        // were rendered on every tab and the tab merely expanded a
+                        // different one, which is why every section appeared in every
+                        // tab. That is the whole reason the tabs exist.
+                        switch openAdjustment ?? "tone" {
+                        case "raw":
+                            if panelVisible("raw") && sectionMatches("raw", terms: ["raw", "white balance", "wb", "temperature", "tint", "denoise", "camera"]) {
+                                inspectorSection("White Balance & Camera", id: "raw") { rawSection }
+                            }
+                        case "tone":
+                            if panelVisible("tone") && sectionMatches("tone", terms: ["light", "exposure", "tone", "curve", "contrast", "shadows", "highlights", "whites", "blacks", "edr"]) {
+                                inspectorSection("Light & Tone", id: "tone") { toneSection }
+                            }
+                        case "geometry":
+                            if panelVisible("geometry") && sectionMatches("geometry", terms: ["crop", "geometry", "aspect", "rotation", "perspective", "flip", "straighten"]) {
+                                inspectorSection("Crop & Geometry", id: "geometry") { geometrySection }
+                            }
+                        default:
+                            if panelVisible("lens") && sectionMatches("lens", terms: ["lens", "optical", "aberration", "vignette", "swirl", "distortion"]) {
+                                inspectorSection("Optical Character", id: "lens") {
+                                    LensCharacterPanel(model: model, isExpanded: .constant(true))
+                                }
                             }
                         }
                     } else if mode == .film {

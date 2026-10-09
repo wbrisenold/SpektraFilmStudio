@@ -83,6 +83,7 @@ struct EditorScopeStrip: View {
                 Button("Expand") { isExpanded = true }
                     .buttonStyle(.borderless).controlSize(.small)
             } else {
+                overlayToggles
                 Spacer()
                 if model.isScopeAnalyzing { ProgressView().controlSize(.mini) }
                 Button("Collapse") { isExpanded = false }
@@ -97,7 +98,31 @@ struct EditorScopeStrip: View {
 
     private var collapsedReadout: String {
         let m = model.analysisMetrics
-        return "\(model.project.preferences.scopeMode.rawValue) · clip \(String(format: "%.1f", m.highlightPercent))% high · \(String(format: "%.1f", m.shadowPercent))% low · skin \(String(format: "%.1f", m.skinCandidatePercent))%"
+        return "\(model.project.preferences.scopeMode.rawValue) · high \(String(format: "%.1f", m.highlightPercent))% · low \(String(format: "%.1f", m.shadowPercent))%"
+    }
+
+    /// Clipping and skin overlays stay reachable while the strip is collapsed.
+    /// They used to live in a "MONITOR" block inside the inspector, which is why
+    /// they disappeared once scopes moved to the canvas.
+    private var overlayToggles: some View {
+        HStack(spacing: 5) {
+            Toggle(isOn: Binding(
+                get: { model.project.preferences.clippingEnabled },
+                set: { model.setClippingEnabled($0) })) {
+                Label("Clipping", systemImage: "arrowtriangle.up.fill")
+            }
+            .toggleStyle(.button).controlSize(.mini)
+            .help("Warn when final output approaches white/red or black/blue. Bright warning is not always irreversible clipping.")
+
+            Toggle(isOn: Binding(
+                get: { model.project.preferences.skinCheckEnabled },
+                set: { model.setSkinCheckEnabled($0) })) {
+                Label("Skin", systemImage: "hand.raised.fill")
+            }
+            .toggleStyle(.button).controlSize(.mini)
+            .help("Show a skin diagnostic on the rendered image")
+        }
+        .font(.caption2)
     }
 }
 
@@ -106,44 +131,24 @@ struct EditorScopePanelView: View {
     @State private var histogramZone: Int?
     @State private var histogramStart: Double = 0
     @State private var histogramPhoto: UUID?
+    /// Tracked via GeometryReader so drag deltas use real well width.
+    @State private var lastWellWidth: CGFloat = 1
 
     var body: some View {
+        // Order and metrics follow Redlamp's HistogramView: a 104pt well, a readout
+        // row with a clipping indicator at each end, then the mode strip beneath.
         VStack(spacing: 6) {
-            HStack(spacing: 8) {
-                Text("SCOPES")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Text(model.project.preferences.scopeMode.rawValue)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                Spacer()
-                if model.isScopeAnalyzing {
-                    ProgressView().controlSize(.mini)
-                }
-            }
-            .padding(.horizontal, 2)
-
-            scopeModeNav
-
-            if model.diagnosticsAreSettling {
-                Label("Diagnostics waiting for exact render", systemImage: "clock.arrow.circlepath")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else if !model.diagnosticStatus.isEmpty {
-                Label(model.diagnosticStatus, systemImage: "exclamationmark.triangle")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-
             ZStack {
-                Color(red: 0.035, green: 0.043, blue: 0.055)
+                StudioPalette.recessed
 
                 if let image = model.editorScopeImage {
                     Image(decorative: image, scale: 1)
                         .resizable()
                         .interpolation(model.project.preferences.scopeMode == .histogram ? .high : .none)
                         .scaledToFit()
+                        .padding(.horizontal, 2)
+                        .padding(.top, 14)
+                        .padding(.bottom, 4)
                         .allowsHitTesting(false)
                 } else {
                     Text(model.selectedImage == nil ? "Select an image to view scopes" : "Reading display scope")
@@ -151,64 +156,52 @@ struct EditorScopePanelView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(height: 188)
-            .overlay {
+            .frame(height: 104)
+            .background(GeometryReader { proxy in
+                Color.clear.onChange(of: proxy.size.width) { _, w in
+                    if w > 0 { lastWellWidth = w }
+                }
+            })
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
+            .gesture(histogramDrag)
+
+            HStack(spacing: 8) {
                 if model.project.preferences.scopeMode == .histogram {
-                    GeometryReader { geometry in
-                        Color.clear.contentShape(Rectangle())
-                            .gesture(DragGesture(minimumDistance: 2).onChanged { drag in
-                                guard model.selectedImage != nil else { return }
-                                if histogramZone == nil {
-                                    let zone = min(4, max(0, Int(drag.startLocation.x / max(1, geometry.size.width) * 5)))
-                                    histogramZone = zone
-                                    histogramPhoto = model.project.selectedImageID
-                                    let tone = model.selectedLook.tone ?? ToneSettings()
-                                    histogramStart = [tone.blacks, tone.shadows, tone.exposureEV, tone.highlights, tone.whites][zone]
-                                    model.beginEditGesture()
-                                }
-                                guard histogramPhoto == model.project.selectedImageID, let zone = histogramZone else { return }
-                                let delta = Double(drag.translation.width / max(1, geometry.size.width))
-                                let value = histogramStart + delta * (zone == 2 ? 10 : 200)
-                                switch zone {
-                                case 0: model.setToneBlacks(value, interactive: true)
-                                case 1: model.setToneShadows(value, interactive: true)
-                                case 2: model.setExposureEV(value, interactive: true)
-                                case 3: model.setToneHighlights(value, interactive: true)
-                                default: model.setToneWhites(value, interactive: true)
-                                }
-                            }.onEnded { _ in finishHistogramDrag() })
+                    clippingIndicator(isClipped: model.analysisMetrics.hardShadowPercent > 0,
+                                      value: model.analysisMetrics.hardShadowPercent,
+                                      tint: .blue, isFlipped: false)
+                    Spacer()
+                    if let zone = histogramZone {
+                        Text("\(tuningName(for: zone))  \(tuningValue(for: zone))")
+                            .monospacedDigit().foregroundStyle(.primary)
+                    } else {
+                        Text("Drag histogram to adjust light").foregroundStyle(.secondary)
                     }
+                    Spacer()
+                    clippingIndicator(isClipped: model.analysisMetrics.hardHighlightPercent > 0,
+                                      value: model.analysisMetrics.hardHighlightPercent,
+                                      tint: .red, isFlipped: true)
+                } else {
+                    Text(" ").foregroundStyle(.secondary)
                 }
             }
-            .clipped()
-            .overlay(alignment: .top) {
-                Rectangle().fill(StudioPalette.subtleBorder).frame(height: 1)
-            }
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(StudioPalette.subtleBorder).frame(height: 1)
+            .font(.caption2)
+
+            if model.diagnosticsAreSettling {
+                Label("Diagnostics waiting for exact render", systemImage: "clock.arrow.circlepath")
+                    .font(.caption2).foregroundStyle(.secondary)
+            } else if !model.diagnosticStatus.isEmpty {
+                Label(model.diagnosticStatus, systemImage: "exclamationmark.triangle")
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
             }
 
-            if model.project.preferences.scopeMode == .histogram {
-                HStack {
-                    Button { model.setClippingEnabled(!model.project.preferences.clippingEnabled) } label: {
-                        Label(String(format: "%.2f%%", model.analysisMetrics.hardShadowPercent), systemImage: "triangle.fill")
-                            .foregroundStyle(model.analysisMetrics.hardShadowPercent > 0 ? Color.blue : Color.secondary)
-                    }.buttonStyle(.plain).help("Shadow clipping · toggle clipping overlay")
-                    Spacer()
-                    Text(histogramZone.map { ["Blacks", "Shadows", "Exposure", "Highlights", "Whites"][$0] } ?? "Drag histogram to adjust light")
-                        .font(.caption2).foregroundStyle(.secondary)
-                    Spacer()
-                    Button { model.setClippingEnabled(!model.project.preferences.clippingEnabled) } label: {
-                        Label(String(format: "%.2f%%", model.analysisMetrics.hardHighlightPercent), systemImage: "triangle.fill")
-                            .foregroundStyle(model.analysisMetrics.hardHighlightPercent > 0 ? Color.red : Color.secondary)
-                    }.buttonStyle(.plain).help("Highlight clipping · toggle clipping overlay")
-                }.font(.caption2)
-            }
+            scopeModeNav
 
             if model.project.preferences.scopeMode == .skinVectorscope {
                 skinReadout
             } else if model.project.preferences.scopeMode == .falseColor {
-                Text("Display-code Y′ · blue: low · green: shadows · gray: mid · yellow/orange: bright · red/white: near clip")
+                Text("Display-code \u{2032} \u{00B7} blue: low \u{00B7} green: shadows \u{00B7} gray: mid \u{00B7} yellow/orange: bright \u{00B7} red/white: near clip")
                     .font(.caption2).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if ![14,15,16,17,18,24,25].contains(Int(model.selectedLook.values["outputColorSpace"]?.intValue ?? 25)) {
@@ -216,14 +209,13 @@ struct EditorScopePanelView: View {
                         .font(.caption2).foregroundStyle(.orange)
                 }
             } else if model.project.preferences.scopeMode == .saturation {
-                Text("HSV saturation · gray: low · teal: moderate · amber: strong · orange: high · pink: very high. Not a creative judgment.")
+                Text("HSV saturation \u{00B7} gray: low \u{00B7} teal: moderate \u{00B7} amber: strong \u{00B7} orange: high \u{00B7} pink: very high. Not a creative judgment.")
                     .font(.caption2).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 7)
-        .background(StudioPalette.panel)
         .onDisappear { finishHistogramDrag() }
         .onChange(of: model.project.selectedImageID) { _, _ in finishHistogramDrag() }
         .onAppear {
@@ -235,6 +227,81 @@ struct EditorScopePanelView: View {
                 model.requestEditorScopeUpdate()
             }
         }
+    }
+
+    /// Redlamp splits the well into five fixed regions (HistogramView.Region) and
+    /// drags one tone parameter per region, rather than sampling arbitrary x.
+    private static let regions: [(name: String, span: ClosedRange<Double>)] = [
+        ("blacks", 0.00...0.08), ("shadows", 0.08...0.32), ("exposure", 0.32...0.68),
+        ("highlights", 0.68...0.92), ("whites", 0.92...1.00),
+    ]
+
+    private static func regionIndex(at fraction: Double) -> Int {
+        regions.firstIndex { $0.span.contains(fraction) } ?? 2
+    }
+
+    private var histogramDrag: some Gesture {
+        DragGesture(minimumDistance: 2).onChanged { value in
+            guard model.selectedImage != nil else { return }
+            if histogramZone == nil {
+                let fraction = Double(value.startLocation.x) / Double(max(lastWellWidth, 1))
+                let zone = Self.regionIndex(at: fraction)
+                histogramZone = zone
+                histogramPhoto = model.project.selectedImageID
+                let tone = model.selectedLook.tone ?? ToneSettings()
+                histogramStart = [tone.blacks, tone.shadows, tone.exposureEV, tone.highlights, tone.whites][zone]
+                model.beginEditGesture()
+            }
+            guard histogramPhoto == model.project.selectedImageID, let zone = histogramZone else { return }
+            let delta = Double(value.translation.width / max(lastWellWidth, 1))
+            let next = histogramStart + delta * (zone == 2 ? 10 : 200)
+            switch zone {
+            case 0: model.setToneBlacks(next, interactive: true)
+            case 1: model.setToneShadows(next, interactive: true)
+            case 2: model.setExposureEV(next, interactive: true)
+            case 3: model.setToneHighlights(next, interactive: true)
+            default: model.setToneWhites(next, interactive: true)
+            }
+        }.onEnded { _ in finishHistogramDrag() }
+    }
+
+    /// Clipping state *and* the overlay toggle, as one control per histogram end.
+    private func clippingIndicator(isClipped: Bool, value: Double, tint: Color, isFlipped: Bool) -> some View {
+        let overlayOn = model.project.preferences.clippingEnabled
+        return Button {
+            model.setClippingEnabled(!overlayOn)
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "arrowtriangle.up.fill")
+                    .font(.system(size: 8))
+                    .rotationEffect(.degrees(isFlipped ? 45 : -45))
+                Text(String(format: "%.2f%%", value))
+                    .monospacedDigit()
+            }
+            .foregroundStyle(isClipped || overlayOn ? tint : Color.secondary)
+        }
+        .buttonStyle(.plain)
+        .help(overlayOn ? "Hide clipping overlay" : "Show clipping overlay")
+        .accessibilityLabel(isFlipped ? "Highlight clipping" : "Shadow clipping")
+        .accessibilityValue(isClipped ? "Clipped" : "Clear")
+    }
+
+    /// Redlamp prints the *tuned* value under the histogram while dragging, not the
+/// clipped-pixel percentage, so the number moves as you drag.
+    private func tuningName(for zone: Int) -> String {
+        ["Blacks", "Shadows", "Exposure", "Highlights", "Whites"][min(max(0, zone), 4)]
+    }
+
+    private func tuningValue(for zone: Int) -> String {
+        let tone = model.selectedLook.tone ?? ToneSettings()
+        let raw: Double = switch zone {
+        case 0: tone.blacks
+        case 1: tone.shadows
+        case 2: tone.exposureEV
+        case 3: tone.highlights
+        default: tone.whites
+        }
+        return String(format: "%+.0f", raw)
     }
 
     private func finishHistogramDrag() {
