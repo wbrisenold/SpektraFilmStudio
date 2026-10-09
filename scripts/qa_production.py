@@ -166,7 +166,7 @@ require("rr = 229; gg = 65; bb = 177" in analysis, "too-magenta skin overlay mis
 require("rr = 238; gg = 184; bb = 72" in analysis, "on-target gold skin overlay missing")
 require("TOO MAGENTA" in preview and "TOO GREEN" in preview and "ON TARGET" in preview and "Too Magenta" in text("EditorScopePanelView.swift") and "Too Green" in text("EditorScopePanelView.swift"), "directional skin legend/readout missing")
 require("contentMode: .fit" in text("EditView.swift"), "Edit filmstrip thumbnails are still crop/fill")
-require("editFilmstripHeight" in text("EditView.swift") and "DragGesture" in text("EditView.swift"), "resizable persistent Edit filmstrip missing")
+require("filmstripPaneHeight" in text("EditView.swift"), "persistent floating Edit filmstrip missing")
 require("skinMagentaPercent" in models and "skinGreenPercent" in models, "direction metrics missing")
 
 # Pass 9: export isolation/reliability
@@ -557,6 +557,15 @@ require('section("Location")' in export_view and 'section("File")' in export_vie
 require('section("Destination"' not in export_view and 'section("File Format"' not in export_view,
         "export sections must not drift back to bespoke per-page names")
 require('Text(title.uppercased())' in export_view, "export section headers must render as grouped-form captions")
+# Filmstrip must float with hover auto-hide at Redlamp's fixed metrics, not be a
+# pinned user-resizable strip.
+_require = {
+    "filmstripPaneHeight: CGFloat { StudioLayout.filmstripHeight" in edit_view,
+    "filmstripHidesAutomatically" in edit_view,
+    "filmstripTrigger" in _redlamp_layout if "_redlamp_layout" in dir() else "filmstripTrigger" in text("StudioUI.swift"),
+    "filmstripResizeHandle" not in edit_view,
+}
+require(all(_require), "filmstrip must float with hover auto-hide at Redlamp's fixed 110pt/14pt metrics")
 
 print("PRODUCTION STATIC QA PASS")
 

@@ -588,8 +588,7 @@ struct ExportWorkspaceView: View {
 
     private var sizeControls: some View {
         VStack(alignment: .leading, spacing: 10) {
-            fieldLabel("Output sizing")
-            Picker("Output sizing", selection: $model.project.exportSettings.resizeMode) {
+            Picker("Resize", selection: $model.project.exportSettings.resizeMode) {
                 Text("Full Size").tag(ExportResizeMode.none)
                 Text("Long Edge").tag(ExportResizeMode.longEdge)
                 Section("Target Size") {

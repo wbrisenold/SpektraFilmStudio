@@ -7,15 +7,16 @@ import AppKit
 enum StudioLayout {
     static let toolbarHeight: CGFloat = 48
     static let statusHeight: CGFloat = 26
-    static let librarySidebarWidth: CGFloat = 240
-    static let libraryInspectorWidth: CGFloat = 286
     static let presetSidebarWidth: CGFloat = 250
     static let editorInspectorWidth: CGFloat = 316
-    static let filmstripHeight: CGFloat = 112
     static let panelCornerRadius: CGFloat = 16
     static let compactCornerRadius: CGFloat = 8
     static let panelPadding: CGFloat = 14
     static let paneInset: CGFloat = 8
+    /// Redlamp PanelMetrics: the filmstrip floats at a fixed height and is
+    /// revealed by hovering the bottom edge, so neither value is user-resizable.
+    static let filmstripHeight: CGFloat = 110
+    static let filmstripTrigger: CGFloat = 14
 }
 
 enum StudioType {

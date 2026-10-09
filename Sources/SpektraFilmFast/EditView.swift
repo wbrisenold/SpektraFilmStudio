@@ -3,9 +3,9 @@ import AppKit
 
 struct EditWorkspaceView: View {
     @ObservedObject var model: AppModel
-    @AppStorage("editFilmstripHeight") private var filmstripHeight = 132.0
-    @State private var filmstripResizeStart: Double?
+    @AppStorage("SpektraFilmStudio.ui.filmstripHidesAutomatically") private var filmstripHidesAutomatically = true
     @State private var inspectorMode: StudioInspectorMode = .adjust
+    @State private var filmstripHovering = false
     @AppStorage("SpektraFilmStudio.designA.showEditorInspector") private var showEditorInspector = true
     @AppStorage("SpektraFilmStudio.designA.showFilmstrip") private var showFilmstrip = true
     @AppStorage("SpektraFilmStudio.designA.showScopes") private var showScopes = false
@@ -33,10 +33,22 @@ struct EditWorkspaceView: View {
                 editorToolbar
                 Spacer(minLength: 0)
                 if showFilmstrip && !model.project.images.isEmpty {
-                    filmstrip
-                        .studioGlassPane()
-                        .padding(.horizontal, StudioLayout.paneInset)
-                        .padding(.bottom, StudioLayout.paneInset)
+                    // Redlamp's FloatingFilmstrip: the pane floats over the stage,
+                    // is revealed by hovering the bottom edge, and hides itself again.
+                    ZStack(alignment: .bottom) {
+                        Color.clear
+                            .frame(height: StudioLayout.filmstripTrigger)
+                            .contentShape(Rectangle())
+                            .onHover { filmstripHovering = $0 }
+                        if filmstripShown {
+                            filmstrip
+                                .studioFloatingPane()
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                                .onHover { filmstripHovering = $0 }
+                                .padding(.horizontal, StudioLayout.paneInset)
+                                .padding(.bottom, StudioLayout.paneInset)
+                        }
+                    }
                 }
             }
 
@@ -148,8 +160,15 @@ struct EditWorkspaceView: View {
         .background(StudioPalette.panel.opacity(0.74))
     }
 
-    private var clampedFilmstripHeight: CGFloat {
-        CGFloat(min(320.0, max(128.0, filmstripHeight)))
+    /// Redlamp PanelMetrics: a fixed 110pt floating filmstrip, not a
+    /// user-dragged strip. The drag handle is gone because the pane floats and
+    /// auto-hides instead of being resized.
+    private var filmstripPaneHeight: CGFloat { StudioLayout.filmstripHeight }
+
+    /// Auto-hide unless the pointer is on the strip, no photo is selected (Redlamp
+    /// keeps it up so an empty editor still shows the library), or the user pinned it.
+    private var filmstripShown: Bool {
+        !filmstripHidesAutomatically || filmstripHovering || model.selectedImage == nil
     }
 
     /// Height reserved at the bottom of the canvas for the docked strips, so the
@@ -157,52 +176,26 @@ struct EditWorkspaceView: View {
     private var editorBottomInset: CGFloat {
         var inset = StudioLayout.paneInset
         
-        if showFilmstrip && !model.project.images.isEmpty {
-            inset += clampedFilmstripHeight + StudioLayout.paneInset
+        if showFilmstrip && !model.project.images.isEmpty && filmstripShown {
+            inset += filmstripPaneHeight + StudioLayout.paneInset
         }
         return inset
     }
 
     private var filmstripThumbnailHeight: CGFloat {
-        max(52, clampedFilmstripHeight - 76)
+        max(52, filmstripPaneHeight - 40)
     }
 
     private var filmstripThumbnailWidth: CGFloat {
         min(224, max(96, filmstripThumbnailHeight * 1.45))
     }
 
-    private var filmstripResizeHandle: some View {
-        ZStack {
-            StudioPalette.panel
-            Capsule()
-                .fill(Color.secondary.opacity(0.42))
-                .frame(width: 38, height: 3)
-        }
-        .frame(height: 8)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    if filmstripResizeStart == nil {
-                        filmstripResizeStart = filmstripHeight
-                    }
-                    let start = filmstripResizeStart ?? filmstripHeight
-                    filmstripHeight = min(320, max(128, start - Double(value.translation.height)))
-                }
-                .onEnded { _ in filmstripResizeStart = nil }
-        )
-        .help("Drag vertically to resize the filmstrip.")
-    }
-
     private var filmstrip: some View {
         VStack(spacing: 0) {
-            filmstripResizeHandle
-
             HStack(spacing: 8) {
-                Text("Filmstrip")
-                    .font(.caption.weight(.semibold))
+                Text("Photos")
+                    .font(.caption)
                 Text("\(model.visibleImages.count)")
-                    .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
 
                 if model.librarySelection.count > 1 {
@@ -218,17 +211,15 @@ struct EditWorkspaceView: View {
                 // Icon-only: the strip's own header already says "Filmstrip" immediately to
                 // the left, so a second labelled control was a duplicate.
                 Menu {
-                    Button("Hide Filmstrip") { showFilmstrip = false }
+                    Toggle("Hide Automatically", isOn: $filmstripHidesAutomatically)
                     Divider()
-                    Button("Small") { filmstripHeight = 128 }
-                    Button("Medium") { filmstripHeight = 156 }
-                    Button("Large") { filmstripHeight = 232 }
+                    Button("Hide Filmstrip") { showFilmstrip = false }
                 } label: {
                     Image(systemName: "rectangle.bottomthird.inset.filled")
                 }
                 .menuStyle(.borderlessButton)
                 .controlSize(.small)
-                .help("Filmstrip size and visibility")
+                .help("Filmstrip visibility")
 
                 // Filename only: Export already lives in the editor toolbar directly
                 // above this strip, so the second copy here was redundant.
@@ -350,7 +341,7 @@ struct EditWorkspaceView: View {
             }
             .background(StudioPalette.recessed)
         }
-        .frame(height: clampedFilmstripHeight)
+        .frame(height: filmstripPaneHeight)
     }
 }
 
