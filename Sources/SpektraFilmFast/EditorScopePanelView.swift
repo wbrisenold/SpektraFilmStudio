@@ -22,9 +22,18 @@ struct EditorScopeStrip: View {
     /// Reports the strip's real height so the canvas reserves exactly that much.
     let onHeightChange: (CGFloat) -> Void
 
-    private static func report(_ geometry: GeometryProxy, to handler: (CGFloat) -> Void) {
-        let height = geometry.size.height
-        DispatchQueue.main.async { handler(height) }
+    /// Feed a *changed* measured height back on the next main-actor turn.
+    ///
+    /// The callback mutates `@State` that reserves this view's own height.
+    /// Reporting synchronously inside the layout pass would create a
+    /// layout -> state -> layout cycle, so it is deferred by one turn. The
+    /// `previous == nil` guard drops the initial `onChange` callback, since the
+    /// caller already seeds a sane collapsed-height fallback.
+    private static func report(previous: CGFloat?, _ height: CGFloat, to handler: (CGFloat) -> Void) {
+        guard let previous, previous != height, height.isFinite, height > 0 else { return }
+        Task { @MainActor in
+            handler(height)
+        }
     }
 
     var body: some View {
@@ -37,8 +46,8 @@ struct EditorScopeStrip: View {
         }
         .background(
             GeometryReader { proxy in
-                Color.clear.onChange(of: proxy.size.height, initial: true) { _, height in
-                    Self.report(proxy, to: onHeightChange)
+                Color.clear.onChange(of: proxy.size.height) { _, height in
+                    Self.report(height, to: onHeightChange)
                 }
             }
         )

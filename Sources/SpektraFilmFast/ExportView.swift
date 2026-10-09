@@ -32,6 +32,9 @@ struct ExportWorkspaceView: View {
     var body: some View {
         VStack(spacing: 0) {
             workspaceHeader
+            // "Build Set" (What) then "Settings" (How) is the only ordering that
+            // makes sense. Photos/Settings used to sit in that order and read as
+            // if the browser changed the output settings.
             Divider()
             HSplitView {
                 if showExportBrowser {
@@ -764,7 +767,8 @@ struct ExportWorkspaceView: View {
     private var exportBlockingReason: String? {
         let settings = model.project.exportSettings
         if model.selectedExportCount == 0 { return "Select at least one photo to export" }
-        if settings.destinationPath.isEmpty { return "Choose an export destination" }
+        // One chooser, per the Export must have one destination chooser rule.
+        if settings.destinationPath.isEmpty { return "Choose a destination folder to enable Export" }
         if settings.sequenceStart < 1 { return "Sequence must start at 1 or later" }
         switch settings.resizeMode {
         case .none: break
