@@ -571,8 +571,7 @@ require(all(_require), "filmstrip must float with hover auto-hide at Redlamp's f
 # slider track. System label colours and system sliders are what made our rail
 # read as a different product even after the structure matched.
 _ui = text("StudioUI.swift")
-require("static let section = Font.system(size: 10, weight: .semibold).tracking(0.6)" in _ui,
-        "StudioType.section must carry Redlamp's 0.6pt tracking")
+require("sectionTracking: CGFloat = 0.6" in _ui, "StudioType.section must carry Redlamp's 0.6pt tracking")
 require("labelWidth: CGFloat = 76" in _ui and "rowHeight: CGFloat = 20" in _ui
         and "panelSymbolSlot: CGFloat = 16" in _ui and "thumbSize: CGFloat = 11" in _ui,
         "StudioType metrics must match Redlamp Metrics.swift")

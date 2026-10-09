@@ -27,7 +27,9 @@ enum StudioType {
     static let label = Font.system(size: 11)
     static let value = Font.system(size: 11).monospacedDigit()
     static let panelTitle = Font.system(size: 11.5, weight: .semibold)
-    static let section = Font.system(size: 10, weight: .semibold).tracking(0.6)
+    /// Redlamp Typography.section: 10pt semibold, 0.6pt letter spacing.
+    static let section = Font.system(size: 10, weight: .semibold)
+    static let sectionTracking: CGFloat = 0.6
     static let caption = Font.system(size: 10)
     static let badge = Font.system(size: 9, weight: .medium)
 
@@ -295,6 +297,6 @@ struct StudioSliderTrack: View {
         }
         .frame(height: StudioType.controlRowMinHeight)
         .opacity(enabled ? 1 : 0.4)
-        .accessibilityValue(Text(format: "%.0f", value))
+        .accessibilityValue(String(format: "%.0f", value))
     }
 }
