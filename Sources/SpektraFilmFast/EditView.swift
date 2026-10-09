@@ -240,9 +240,8 @@ struct EditWorkspaceView: View {
 
                 Spacer()
 
-                // One menu, not two. The filmstrip previously carried both a bare
-                // "rectangle.bottomthird" glyph and an ellipsis menu doing the same
-                // show/hide job, which read as two different controls.
+                // Icon-only: the strip's own header already says "Filmstrip" immediately to
+                // the left, so a second labelled control was a duplicate.
                 Menu {
                     Button("Hide Filmstrip") { showFilmstrip = false }
                     Divider()
@@ -250,7 +249,7 @@ struct EditWorkspaceView: View {
                     Button("Medium") { filmstripHeight = 156 }
                     Button("Large") { filmstripHeight = 232 }
                 } label: {
-                    Label("Filmstrip", systemImage: "rectangle.bottomthird.inset.filled")
+                    Image(systemName: "rectangle.bottomthird.inset.filled")
                 }
                 .menuStyle(.borderlessButton)
                 .controlSize(.small)

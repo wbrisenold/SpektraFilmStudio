@@ -65,10 +65,11 @@ struct EditorScopeStrip: View {
                     Image(systemName: "chevron.right")
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .foregroundStyle(.secondary)
-                    Label("Scopes", systemImage: "waveform.path")
-                        .font(StudioType.section)
-                    Text(model.project.preferences.scopeMode.rawValue)
-                        .font(.caption2).foregroundStyle(.tertiary)
+                    // Glyph + name only. The scope-mode name and the numeric
+                    // readout follow as separate spans, so folding them in here
+                    // produced "Scopes Histogram" plus a stray "Histogram".
+                    Image(systemName: "waveform.path").foregroundStyle(.secondary)
+                    Text("Scopes").font(StudioType.section)
                 }
             }
             .buttonStyle(.plain)
@@ -96,8 +97,7 @@ struct EditorScopeStrip: View {
 
     private var collapsedReadout: String {
         let m = model.analysisMetrics
-        return String(format: "clip %.1f%% high · %.1f%% low · skin %.1f%%",
-                      m.highlightPercent, m.shadowPercent, m.skinCandidatePercent)
+        return "\(model.project.preferences.scopeMode.rawValue) · clip \(String(format: "%.1f", m.highlightPercent))% high · \(String(format: "%.1f", m.shadowPercent))% low · skin \(String(format: "%.1f", m.skinCandidatePercent))%"
     }
 }
 
