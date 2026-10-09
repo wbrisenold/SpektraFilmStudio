@@ -417,12 +417,20 @@ struct ExportWorkspaceView: View {
             Divider()
             ScrollView {
                 LazyVStack(spacing: 10) {
-                    section("Destination", "folder") { destinationControls }
-                    section("File Format", "doc.richtext") { fileControls }
-                    section("Image Size", "aspectratio") { sizeControls }
-                    section("Color", "paintpalette") { deliveryControls }
-                    section("File Naming", "character.cursor.ibeam") { namingControls }
-                    section("Metadata & Privacy", "checkmark.shield") { metadataControls }
+                    // Redlamp's ExportSheet grouping (ExportSheetSections.swift):
+                    // Location -> File -> Size -> Metadata. Ours had six cards and
+                    // split destination from naming, so it never read like the
+                    // macOS Print dialog it is modelled on.
+                    section("Location") {
+                        destinationControls
+                        namingControls
+                    }
+                    section("File") {
+                        fileControls
+                        deliveryControls
+                    }
+                    section("Size") { sizeControls }
+                    section("Metadata") { metadataControls }
                 }
                 .padding(11)
                 .frame(maxWidth: .infinity)
@@ -504,20 +512,20 @@ struct ExportWorkspaceView: View {
         .controlSize(.mini)
     }
 
+    /// A grouped-form section header, as `Form` sections render on macOS: a small
+    /// secondary label above the rows, with no card, no icon and no rounded panel.
     private func section<Content: View>(
         _ title: String,
-        _ icon: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(title, systemImage: icon)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title.uppercased())
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .kerning(0.4)
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(StudioPalette.canvas, in: RoundedRectangle(cornerRadius: 11))
         .overlay {
             RoundedRectangle(cornerRadius: 11)
                 .strokeBorder(StudioPalette.subtleBorder, lineWidth: 0.5)
@@ -564,8 +572,16 @@ struct ExportWorkspaceView: View {
                 Slider(value: $model.project.exportSettings.jpegQuality, in: 0.1...1)
             }
 
-            if model.project.exportSettings.format == .tiff {
-                Toggle("16-bit TIFF", isOn: $model.project.exportSettings.tiff16Bit)
+            // Redlamp keeps bit depth in the SAME section as format and quality.
+            HStack {
+                fieldLabel("Bit depth")
+                Spacer()
+                if model.project.exportSettings.format == .tiff {
+                    Toggle("16-bit", isOn: $model.project.exportSettings.tiff16Bit)
+                        .toggleStyle(.switch).controlSize(.mini)
+                } else {
+                    Text("8-bit").font(.caption).foregroundStyle(.secondary)
+                }
             }
         }
     }
@@ -692,24 +708,39 @@ struct ExportWorkspaceView: View {
 
     private var destinationControls: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(
-                model.project.exportSettings.destinationPath.isEmpty
-                    ? "No destination selected"
-                    : model.project.exportSettings.destinationPath
-            )
-            .font(.caption)
-            .lineLimit(3)
-            .textSelection(.enabled)
-
+            // Redlamp's Location section: an "Export to" picker, then a saved-as
+            // summary row. Ours was a bare path dump with two buttons under it.
             HStack {
-                Button("Choose Folder…") { requestExportFolder() }
-                if !model.project.exportSettings.destinationPath.isEmpty {
-                    Button("Reveal") {
+                fieldLabel("Export to")
+                Spacer()
+                if model.project.exportSettings.destinationPath.isEmpty {
+                    Text("Not set").foregroundStyle(.secondary)
+                    Button("Choose…") { requestExportFolder() }
+                        .controlSize(.small)
+                } else {
+                    Button {
                         NSWorkspace.shared.activateFileViewerSelecting([
                             URL(fileURLWithPath: model.project.exportSettings.destinationPath)
                         ])
+                    } label: {
+                        Text(URL(fileURLWithPath: model.project.exportSettings.destinationPath).lastPathComponent)
+                            .lineLimit(1).truncationMode(.middle)
+                            .help(model.project.exportSettings.destinationPath)
                     }
+                    .buttonStyle(.link)
+                    Button("Change…") { requestExportFolder() }
+                        .buttonStyle(.link)
                 }
+            }
+
+            HStack {
+                fieldLabel("Folder")
+                Spacer()
+                Text(model.project.exportSettings.destinationPath.isEmpty
+                     ? "—" : model.project.exportSettings.destinationPath)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+                    .textSelection(.enabled)
             }
             Label("Existing files are never silently overwritten.", systemImage: "checkmark.shield")
                 .font(.caption2)

@@ -549,6 +549,14 @@ for _page in ("LibraryView.swift", "CullView.swift", "ProofsView.swift", "Export
     _t = text(_page)
     require(".frame(minWidth:" not in _t or "StudioLayout." in _t,
             f"{_page} hardcodes a panel width instead of using StudioLayout (Redlamp PanelMetrics)")
+# Export must keep Redlamp's ExportSheetSections grouping (Location / File / Size /
+# Metadata). Six bespoke cards made it read like a different product entirely.
+require('section("Location")' in export_view and 'section("File")' in export_view and
+        'section("Size")' in export_view and 'section("Metadata")' in export_view,
+        "export inspector must use Redlamp's Location / File / Size / Metadata sections")
+require('section("Destination"' not in export_view and 'section("File Format"' not in export_view,
+        "export sections must not drift back to bespoke per-page names")
+require('Text(title.uppercased())' in export_view, "export section headers must render as grouped-form captions")
 
 print("PRODUCTION STATIC QA PASS")
 
