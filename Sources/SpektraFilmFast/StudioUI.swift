@@ -84,6 +84,9 @@ private struct StudioGlassPaneModifier: ViewModifier {
 }
 
 extension View {
+    // Redlamp uses one FloatingPane for every overlay panel; only the palette
+    // (⌘K) gets a different surface. Keeping these aliases distinct invited
+    // pages to drift into different corner radii.
     func studioGlassPane() -> some View { modifier(StudioGlassPaneModifier(isPalette: false)) }
     func studioFloatingPane() -> some View { studioGlassPane() }
     func studioOmniPane() -> some View { modifier(StudioGlassPaneModifier(isPalette: true)) }

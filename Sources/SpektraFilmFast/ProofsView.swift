@@ -43,8 +43,8 @@ struct ProofsWorkspaceView: View {
             } else {
                 HSplitView {
                     gallerySidebar
-                        .frame(minWidth: 210, idealWidth: 230, maxWidth: 280)
-                        .padding(StudioLayout.paneInset).studioGlassPane()
+                        .frame(minWidth: StudioLayout.presetSidebarWidth, idealWidth: StudioLayout.presetSidebarWidth, maxWidth: 380)
+                        .padding(StudioLayout.paneInset).studioFloatingPane()
                     galleryBody
                 }
             }

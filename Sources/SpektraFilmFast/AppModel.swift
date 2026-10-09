@@ -429,6 +429,22 @@ final class AppModel: ObservableObject {
         return project.images.firstIndex { $0.id == id }
     }
 
+    /// Redlamp's InspectorFooter "Previous": apply this photo's settings to the
+    /// previously viewed one. Adjacent in selection order, excluding itself.
+    var previousLookTargetID: UUID? {
+        guard let index = selectedIndex, project.images.indices.contains(index - 1) else { return nil }
+        return project.images[index - 1].id
+    }
+
+    func applyLookToPreviousImage() {
+        guard let target = previousLookTargetID,
+              let source = selectedImage,
+              let index = project.images.firstIndex(where: { $0.id == target }) else { return }
+        project.images[index].look = source.look
+        status = "Settings applied to the previous photo"
+        requestPreviewRefresh()
+    }
+
     var selectedImage: ProjectImageRecord? {
         guard let i = selectedIndex else { return nil }
         var image = project.images[i]

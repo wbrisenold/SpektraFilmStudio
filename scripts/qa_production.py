@@ -540,6 +540,16 @@ require(
     "architecture audit no longer records the Intel-only contract"
 )
 
+# Redlamp layout parity (PanelMetrics): every overlay panel uses the same metric
+# constants rather than per-page width guesses.
+_redlamp_layout = text("StudioUI.swift")
+require("editorInspectorWidth: CGFloat = 316" in _redlamp_layout and "presetSidebarWidth: CGFloat = 250" in _redlamp_layout,
+        "panel metrics must match Redlamp PanelMetrics (inspector 316, sidebar 250)")
+for _page in ("LibraryView.swift", "CullView.swift", "ProofsView.swift", "ExportView.swift"):
+    _t = text(_page)
+    require(".frame(minWidth:" not in _t or "StudioLayout." in _t,
+            f"{_page} hardcodes a panel width instead of using StudioLayout (Redlamp PanelMetrics)")
+
 print("PRODUCTION STATIC QA PASS")
 
 # User-facing workflow regressions from the Redlamp design audit.

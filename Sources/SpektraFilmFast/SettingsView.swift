@@ -19,17 +19,14 @@ struct SettingsView: View {
     @AppStorage("SpektraFilmStudio.ai.depthProvider") private var depthProvider = "automatic"
 
     var body: some View {
+        // Redlamp uses the macOS 26 `Tab` API ("Appearance", "Models") rather than
+        // `.tabItem`. Same spelling, same icon placement, one row per section.
         TabView {
-            generalTab
-                .tabItem { Label("General", systemImage: "gear") }
-            uiTab
-                .tabItem { Label("UI", systemImage: "rectangle.3.group") }
-            studioTab
-                .tabItem { Label("Color & Scopes", systemImage: "waveform.path.ecg") }
-            MaskModelsSettingsView()
-                .tabItem { Label("Models", systemImage: "cpu") }
-            shortcutsTab
-                .tabItem { Label("Shortcuts", systemImage: "keyboard") }
+            Tab("Appearance", systemImage: "paintpalette") { uiTab }
+            Tab("Color & Scopes", systemImage: "waveform.path.ecg") { studioTab }
+            Tab("Models", systemImage: "cpu") { MaskModelsSettingsView() }
+            Tab("Shortcuts", systemImage: "keyboard") { shortcutsTab }
+            Tab("General", systemImage: "gear") { generalTab }
         }
         .frame(width: 760, height: 610)
         .preferredColorScheme(appAppearance == "dark" ? .dark : (appAppearance == "light" ? .light : nil))

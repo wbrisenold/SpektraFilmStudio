@@ -41,7 +41,7 @@ struct CullWorkspaceView: View {
             HSplitView {
                 viewer.frame(minWidth: 500)
                 if showCullInspector {
-                    inspector.frame(minWidth: 270, idealWidth: 310, maxWidth: 380)
+                    inspector.frame(minWidth: StudioLayout.editorInspectorWidth, idealWidth: StudioLayout.editorInspectorWidth, maxWidth: 440)
                         .padding(StudioLayout.paneInset).studioGlassPane()
                 }
             }

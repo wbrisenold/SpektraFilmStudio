@@ -38,12 +38,12 @@ struct ExportWorkspaceView: View {
             Divider()
             HSplitView {
                 if showExportBrowser {
-                    sourceBrowser.frame(minWidth: 230, idealWidth: 270, maxWidth: 330)
+                    sourceBrowser.frame(minWidth: StudioLayout.presetSidebarWidth, idealWidth: StudioLayout.presetSidebarWidth, maxWidth: 380)
                         .padding(StudioLayout.paneInset).studioGlassPane()
                 }
                 previewAndQueue.frame(minWidth: 420)
                 if showExportInspector {
-                    inspector.frame(minWidth: 310, idealWidth: 350, maxWidth: 410)
+                    inspector.frame(minWidth: StudioLayout.editorInspectorWidth, idealWidth: StudioLayout.editorInspectorWidth, maxWidth: 440)
                         .padding(StudioLayout.paneInset).studioGlassPane()
                 }
             }

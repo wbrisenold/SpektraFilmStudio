@@ -87,69 +87,58 @@ struct EditWorkspaceView: View {
                 Text("Editor").font(.caption.weight(.medium)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
-            Button {
-                model.isPresetSidebarVisible.toggle()
-            } label: {
-                Label("Presets", systemImage: "square.stack")
+
+            // Redlamp's editor toolbar carries no view toggles. Panel visibility
+            // lives on Tab / F7 / F8 and on the Window menu, so the toolbar holds
+            // only actions. Ours had six labelled buttons eating the whole bar.
+            if let image = model.selectedImage {
+                Button {
+                    quickExportRequest = QuickExportRequest(id: image.id)
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .help("Export this photo…")
+                .disabled(model.isExporting)
             }
-            .help("Show or hide presets")
-            .foregroundStyle(model.isPresetSidebarVisible ? .primary : .secondary)
-            Button {
-                showFilmstrip.toggle()
-            } label: {
-                Label("Filmstrip", systemImage: "rectangle.bottomthird.inset.filled")
-            }
-            .help("Show or hide filmstrip")
-            Button {
-                showEditorInspector.toggle()
-            } label: {
-                Label("Adjustments", systemImage: "sidebar.right")
-            }
-            .help("Show or hide adjustments")
-            // Look edits (undo/redo/copy/paste/reset) and the scope toggle live with
-            // the other workspace controls rather than eating inspector height.
-            Button {
-                showScopes.toggle()
-            } label: {
-                Label("Scopes", systemImage: "waveform.path")
-            }
-            .help(showScopes ? "Hide scopes" : "Show scopes")
+
             Menu {
-                Button("Undo") { model.undo() }
-                Button("Redo") { model.redo() }
-                Divider()
-                Button("Copy Look") { model.copyLook() }
-                Button("Paste Look") { model.pasteLook() }
-                Section("Copy / Paste Categories") {
-                    ForEach(LookCopyCategory.allCases) { category in
-                        Toggle(category.rawValue, isOn: Binding(
-                            get: { model.lookCopyCategoryEnabled(category) },
-                            set: { model.setLookCopyCategory(category, enabled: $0) }
-                        ))
+                Section("Panels") {
+                    Toggle("Presets", isOn: $model.isPresetSidebarVisible)
+                    Toggle("Adjustments", isOn: $showEditorInspector)
+                    Toggle("Filmstrip", isOn: $showFilmstrip)
+                    Toggle("Scopes", isOn: $showScopes)
+                }
+                Section("Look") {
+                    Button("Undo") { model.undo() }
+                    Button("Redo") { model.redo() }
+                    Divider()
+                    Button("Copy Look") { model.copyLook() }
+                    Button("Paste Look") { model.pasteLook() }
+                    Menu("Copy / Paste Categories") {
+                        ForEach(LookCopyCategory.allCases) { category in
+                            Toggle(category.rawValue, isOn: Binding(
+                                get: { model.lookCopyCategoryEnabled(category) },
+                                set: { model.setLookCopyCategory(category, enabled: $0) }
+                            ))
+                        }
+                    }
+                    Divider()
+                    Button(role: .destructive) { model.resetLook() } label: {
+                        Label("Reset All", systemImage: "arrow.counterclockwise")
                     }
                 }
-                Divider()
-                Button(role: .destructive) { model.resetLook() } label: {
-                    Label("Reset All", systemImage: "arrow.counterclockwise")
+                Section("Assist") {
+                    Button {
+                        NotificationCenter.default.post(name: StudioOmniEvents.openSceneAssistant, object: nil)
+                    } label: {
+                        Label("Scene Intelligence", systemImage: "sparkles.rectangle.stack")
+                    }
                 }
             } label: {
-                Label("Look", systemImage: "slider.horizontal.3")
+                Image(systemName: "ellipsis.circle")
             }
-            .help("Undo, redo, copy/paste categories and reset the look")
-            // Scene Intelligence was reachable only from ⌘K and the macOS menu, so
-            // it read as a hidden feature. One explicit control in the workspace it
-            // reasons about is discoverable and costs a single button.
-            Button {
-                NotificationCenter.default.post(name: StudioOmniEvents.openSceneAssistant, object: nil)
-            } label: {
-                Label("Scene Intelligence", systemImage: "sparkles.rectangle.stack")
-            }
-            .help("Group photos from the same session and compare film/print starting points")
-            if let image = model.selectedImage {
-                Button("Export Photo…", systemImage: "square.and.arrow.up") {
-                    quickExportRequest = QuickExportRequest(id: image.id)
-                }.disabled(model.isExporting)
-            }
+            .menuStyle(.borderlessButton)
+            .help("Panels, look actions and assistants")
         }
         .labelStyle(.titleAndIcon)
         .buttonStyle(.borderless)
@@ -398,17 +387,37 @@ private struct EditorInspectorView: View {
                 if showScopes {
                     EditorScopePanelView(model: model)
                         .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 8)
-                        .padding(.top, 8)
-                    Rectangle().fill(StudioPalette.divider).frame(height: 1)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 10)
+                        .padding(.bottom, 10)
                 }
 
                 Rectangle().fill(StudioPalette.divider).frame(height: 1)
 
                 ControlsView(model: model, mode: mode)
                     .frame(maxHeight: .infinity)
+
+                Rectangle().fill(StudioPalette.divider).frame(height: 1)
+
+                inspectorFooter
             }
         }
+    }
+
+    /// Redlamp's InspectorFooter: Previous on the left, Reset on the right, below
+    /// the scrolling panels rather than competing for toolbar space.
+    private var inspectorFooter: some View {
+        HStack {
+            Button("Previous") { model.applyLookToPreviousImage() }
+                .disabled(model.previousLookTargetID == nil)
+                .help("Copy this photo's settings to the previously viewed photo")
+            Spacer()
+            Button("Reset") { model.resetLook() }
+                .disabled(model.selectedImage == nil)
+                .help("Reset all settings")
+        }
+        .controlSize(.small)
+        .padding(10)
     }
 
 }
