@@ -253,7 +253,7 @@ require("editorBottomInset" in text("EditView.swift"), "canvas does not reserve 
 require("skinVectorscope" in scope_engine and "drawSkinReference" in scope_engine, "dedicated skin vectorscope missing")
 require(scope_engine.count("SkinToneReference.referenceAngleDegrees") >= 1, "skin vectorscope does not use the shared derived reference angle")
 require("static let referenceAngleDegrees" in text("SkinToneReference.swift"), "skin reference angle is not derived from a single shared constant")
-require("scopeModeNav" in scope_panel and "rectangle.split.3x1" in scope_panel, "compact scope icon navigation missing")
+require("Picker(\"Scope\"" in scope_panel and "rectangle.split.3x1" in scope_panel and "contextMenu" in scope_panel, "scope mode must be selectable (context menu) rather than a permanent strip")
 require("Task.detached(priority: .utility)" in scope_engine, "scope analysis is not off the UI actor")
 
 # Autosave/recovery/dirty protection.

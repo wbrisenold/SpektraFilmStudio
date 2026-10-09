@@ -157,6 +157,17 @@ struct EditorScopePanelView: View {
                 }
             }
             .frame(height: 104)
+            .contextMenu {
+                // Scope choice lives here rather than as a permanent pill strip:
+                // Redlamp's rail carries one histogram well and no mode bar.
+                Picker("Scope", selection: Binding(
+                    get: { model.project.preferences.scopeMode },
+                    set: { model.setEditorScopeMode($0) })) {
+                    ForEach(ScopeMode.allCases) { mode in
+                        Label(mode.rawValue, systemImage: icon(mode)).tag(mode)
+                    }
+                }
+            }
             .background(GeometryReader { proxy in
                 Color.clear.onChange(of: proxy.size.width) { _, w in
                     if w > 0 { lastWellWidth = w }
@@ -196,29 +207,15 @@ struct EditorScopePanelView: View {
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
             }
 
+            // Redlamp's rail has no scope caption and no mode strip: one fixed
+            // histogram well, with the clipping/skin state on the readout row below.
+            // The previous invented "SCOPES / Histogram" pill row was not Redlamp.
             HStack(spacing: 8) {
-                Text(model.project.preferences.scopeMode.rawValue)
-                    .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                Spacer()
                 if model.isScopeAnalyzing { ProgressView().controlSize(.mini) }
-                Toggle(isOn: Binding(
-                    get: { model.project.preferences.clippingEnabled },
-                    set: { model.setClippingEnabled($0) })) {
-                    Label("Clipping", systemImage: "arrowtriangle.up.fill")
-                }
-                .toggleStyle(.button).controlSize(.mini)
-                .help("Warn when final output approaches white or black")
-
-                Toggle(isOn: Binding(
-                    get: { model.project.preferences.skinCheckEnabled },
-                    set: { model.setSkinCheckEnabled($0) })) {
-                    Label("Skin", systemImage: "hand.raised.fill")
-                }
-                .toggleStyle(.button).controlSize(.mini)
-                .help("Show a skin diagnostic on the rendered image")
+                Spacer()
+                Text(model.project.preferences.scopeMode.rawValue)
+                    .font(.caption2).foregroundStyle(.secondary)
             }
-
-            scopeModeNav
 
             if model.project.preferences.scopeMode == .skinVectorscope {
                 skinReadout
@@ -331,32 +328,6 @@ struct EditorScopePanelView: View {
         histogramZone = nil; histogramPhoto = nil
     }
 
-    private var scopeModeNav: some View {
-        HStack(spacing: 2) {
-            ForEach(ScopeMode.allCases) { mode in
-                let selected = model.project.preferences.scopeMode == mode
-                Button {
-                    model.setEditorScopeMode(mode)
-                } label: {
-                    Image(systemName: icon(mode))
-                        .font(.system(size: 11, weight: selected ? .semibold : .regular))
-                        .foregroundStyle(selected ? .primary : .secondary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 27)
-                        .background(selected ? StudioPalette.selected : Color.clear, in: RoundedRectangle(cornerRadius: 5))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(mode.rawValue)
-            }
-        }
-        .padding(3)
-        .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 7))
-        .overlay {
-            RoundedRectangle(cornerRadius: 7)
-                .stroke(StudioPalette.subtleBorder, lineWidth: 0.5)
-        }
-    }
 
     private var skinReadout: some View {
         VStack(spacing: 0) {
