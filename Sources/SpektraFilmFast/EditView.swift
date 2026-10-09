@@ -9,6 +9,9 @@ struct EditWorkspaceView: View {
     @AppStorage("SpektraFilmStudio.designA.showEditorInspector") private var showEditorInspector = true
     @AppStorage("SpektraFilmStudio.designA.showFilmstrip") private var showFilmstrip = true
     @AppStorage("SpektraFilmStudio.designA.showScopes") private var showScopes = false
+    // Measured height of the docked scope strip; seeded from its estimate so the
+    // canvas is reserved correctly on the very first layout pass.
+    @State private var scopeStripHeight = EditorScopeStrip.estimatedHeight
     @State private var quickExportRequest: QuickExportRequest?
 
     var body: some View {
@@ -34,8 +37,9 @@ struct EditWorkspaceView: View {
                 Spacer(minLength: 0)
                 if showScopes {
                     // Scopes sit under the canvas, not in the adjustment rail, so
-                    // turning them on never shrinks the sliders.
-                    EditorScopeStrip(model: model)
+                    // turning them on never shrinks the sliders. The strip reports
+                    // its measured height so the reservation below is exact.
+                    EditorScopeStrip(model: model) { scopeStripHeight = $0 }
                         .padding(.horizontal, StudioLayout.paneInset)
                         .padding(.bottom, StudioLayout.paneInset)
                 }
@@ -64,9 +68,9 @@ struct EditWorkspaceView: View {
             }
             .padding(.horizontal, StudioLayout.paneInset)
             .padding(.top, 45 + StudioLayout.paneInset)
-            .padding(.bottom, showFilmstrip && !model.project.images.isEmpty
-                ? clampedFilmstripHeight + 2 * StudioLayout.paneInset
-                : StudioLayout.paneInset)
+            // Must mirror the canvas reservation exactly, or the side panels run
+            // under the docked scope strip.
+            .padding(.bottom, editorBottomInset)
         }
         .background(StudioPalette.canvas)
         .sheet(item: $quickExportRequest) { request in
@@ -165,7 +169,7 @@ struct EditWorkspaceView: View {
     /// preview is never drawn underneath them.
     private var editorBottomInset: CGFloat {
         var inset = StudioLayout.paneInset
-        if showScopes { inset += EditorScopeStrip.preferredHeight + StudioLayout.paneInset }
+        if showScopes { inset += scopeStripHeight + StudioLayout.paneInset }
         if showFilmstrip && !model.project.images.isEmpty {
             inset += clampedFilmstripHeight + StudioLayout.paneInset
         }

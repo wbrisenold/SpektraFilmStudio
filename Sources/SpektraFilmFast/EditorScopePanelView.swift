@@ -7,15 +7,24 @@ import SwiftUI
 /// inspector too short to work in. Height is fixed and reserved by the caller so
 /// the preview is never drawn underneath it.
 struct EditorScopeStrip: View {
-    static let preferredHeight: CGFloat = 208
+    /// Conservative fallback used before the first measurement lands.
+    static let estimatedHeight: CGFloat = 292
 
     @ObservedObject var model: AppModel
+    /// Reports the strip's real height so the canvas reserves exactly that much.
+    /// Content height varies with scope mode (skin/false-color add readout rows).
+    let onHeightChange: (CGFloat) -> Void
 
     var body: some View {
         EditorScopePanelView(model: model)
             .fixedSize(horizontal: false, vertical: true)
-            .frame(height: Self.preferredHeight, alignment: .top)
-            .clipped()
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.onChange(of: proxy.size.height, initial: true) { _, height in
+                        onHeightChange(height)
+                    }
+                }
+            )
             .studioGlassPane()
     }
 }
