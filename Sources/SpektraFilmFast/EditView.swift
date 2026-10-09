@@ -368,16 +368,33 @@ private struct EditorInspectorView: View {
                 // Only the workflow switch lives here. Look actions and the scope
                 // toggle moved to the editor toolbar so this header costs a single
                 // row and the adjustments below get the rest of the rail.
-                Picker("Edit tools", selection: $mode) {
+                // Redlamp's ToolStrip (HistogramView.swift): a row of tool *icons*
+                // on the well surface, not a full-width segmented control with
+                // labels. Clicking the active tool returns to Edit, as Redlamp does.
+                HStack(spacing: 2) {
                     ForEach(StudioInspectorMode.allCases) { item in
-                        Text(item.rawValue).tag(item)
+                        Button {
+                            mode = (mode == item && item != .adjust) ? .adjust : item
+                        } label: {
+                            Image(systemName: item.symbol)
+                                .font(.system(size: 13))
+                                .frame(maxWidth: .infinity, minHeight: 26)
+                                .foregroundStyle(mode == item ? Color.primary : Color.secondary)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(mode == item ? StudioPalette.selected : Color.clear)
+                                )
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(item.rawValue.capitalized)
+                        .accessibilityLabel(item.rawValue.capitalized)
                     }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .controlSize(.small)
+                .padding(3)
+                .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 8))
                 .padding(.horizontal, 8)
-                .frame(height: RedlampMetrics.panelHeaderHeight)
+                .padding(.bottom, 10)
 
                 // Redlamp keys the scrolling panels off `activeTool`
                 // (ReferencePanels.swift: InspectorView), so a tool shows only its
@@ -389,8 +406,8 @@ private struct EditorInspectorView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 12)
                         .padding(.top, 10)
-                        .padding(.bottom, 10)
                 }
+
 
                 Rectangle().fill(StudioPalette.divider).frame(height: 1)
 
