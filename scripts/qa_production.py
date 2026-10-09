@@ -247,7 +247,8 @@ require("scopeTargetFPS" in models and "startEditorScopeLoop" in scope_support, 
 require("scopeTask == nil" in scope_support and "scopeGeneration" in scope_support, "scope latest-frame/backpressure guard missing")
 require("Histogram" in models and "Waveform" in models and "RGB Parade" in models and "Vectorscope" in models and "Skin Vector" in models, "scope modes missing")
 edit_view = text("EditView.swift")
-require("EditorScopeStrip(model: model)" in edit_view and "EditorScopePanelView(model: model)" in scope_panel and "editorScopeImage" in scope_panel, "docked scope UI not integrated into the editor canvas")
+require("EditorScopeStrip(model: model, isExpanded:" in edit_view and "EditorScopePanelView(model: model)" in scope_panel and "editorScopeImage" in scope_panel, "docked scope UI not integrated into the editor canvas")
+require("collapsedHeight" in scope_panel and "isExpanded" in scope_panel, "scope strip must ship collapsed by default, not expand over the workspace")
 require("editorBottomInset" in text("EditView.swift"), "canvas does not reserve room for the docked scope/filmstrip strips")
 require("skinVectorscope" in scope_engine and "drawSkinReference" in scope_engine, "dedicated skin vectorscope missing")
 require(scope_engine.count("SkinToneReference.referenceAngleDegrees") >= 1, "skin vectorscope does not use the shared derived reference angle")
@@ -427,7 +428,7 @@ require("minimumScaleToCoverCrop" in geometry and "effectiveSettings.scale = max
 require("minimumScaleToCoverCrop(" in app and "geometry.autoCrop = false" in app, "crop viewer does not preview the solved Auto Fill zoom")
 require('changedParameter == "crop" && isCropToolActive' in app and "objectWillChange.send()" in app, "crop overlay still forces an image resample on every drag event")
 require("skinMaskAlpha" in scope and "skinMaskAlpha[mi] > 64" in scope, "Skin Vector is not restricted to detected skin pixels")
-require("scopeEnabled = true" in models and "EditorScopeStrip(model: model)" in edit_view and "Below canvas" in settings, "Edit scopes placement control or truthful settings description missing")
+require("scopeEnabled = true" in models and "EditorScopeStrip(model: model, isExpanded:" in edit_view and "Below canvas" in settings, "Edit scopes placement control or truthful settings description missing")
 
 print("v0.5 studio-workflow acceptance checks passed")
 

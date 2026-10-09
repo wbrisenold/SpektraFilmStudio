@@ -1700,10 +1700,11 @@ final class AppModel: ObservableObject {
         let converted = points.compactMap(maskSourcePoint)
         guard !converted.isEmpty else { return }
         previewObjectMask(at: nil)
-        if objectSelectionTool == "Paint" {
+        if objectSelectionTool == "Paint" || objectSelectionTool == "Brush" {
             paintMaskStroke(converted, gradeID: gradeID, subtract: subtract)
             return
         }
+        
         if objectSelectionTool == "Refine Edge" {
             guard let source = activeLocalGrade?.masks.sources.last(where: { $0.aiRecipe != nil }) else { return }
             refineAIMask(gradeID: gradeID, sourceID: source.id,
@@ -1802,6 +1803,12 @@ final class AppModel: ObservableObject {
 
     func applyMaskPreset(_ preset: StudioMaskPreset) {
         guard let image = selectedImage else { return }
+        // Fail fast with the real reason instead of starting a task that ends in a
+        // generic "Preset unavailable" after a long wait.
+        if let reason = preset.unavailableReason {
+            semanticMaskStatus = "\(preset.name) unavailable · \(reason)"
+            return
+        }
         semanticMaskTask?.cancel()
         semanticMaskStatus = "Computing \(preset.name)…"
         semanticMaskTask = Task { [weak self] in

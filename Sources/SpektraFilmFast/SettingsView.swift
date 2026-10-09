@@ -206,7 +206,7 @@ struct SettingsView: View {
                     Text("Below canvas").tag(true)
                 }
                 .pickerStyle(.segmented)
-                Text("Scopes dock below the canvas so they never shrink the adjustment rail. Choosing Hidden removes them from the Edit workspace entirely; the toolbar Scopes button still toggles them.")
+                Text("Scopes dock below the canvas so they never shrink the adjustment rail. They start as a slim readout bar and expand only when you ask. Choosing Hidden removes them from the Edit workspace entirely; the toolbar Scopes button still toggles them.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Picker("Default scope", selection: Binding(

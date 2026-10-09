@@ -75,7 +75,16 @@ struct MaskPanelView: View {
 
                 Menu("Presets") {
                     ForEach(StudioMaskPreset.builtIn) { preset in
-                        Button(preset.name) { model.applyMaskPreset(preset) }
+                        Button {
+                            model.applyMaskPreset(preset)
+                        } label: {
+                            if let reason = preset.unavailableReason {
+                                Text("\(preset.name) — \(reason)")
+                            } else {
+                                Text(preset.name)
+                            }
+                        }
+                        .disabled(!preset.isAvailable)
                     }
                     Divider()
                     ForEach(StudioMaskPreset.custom) { preset in
@@ -427,7 +436,7 @@ struct ObjectMaskPickOverlay: View {
                                   y: imageRect.minY + (first.y + last.y) / 2 * imageRect.height)
                         .allowsHitTesting(false)
                 }
-                if model.objectSelectionTool == "Paint" {
+                if model.objectSelectionTool == "Paint" || model.objectSelectionTool == "Brush" {
                     if let cursor {
                         Circle().stroke(.white, lineWidth: 1)
                             .frame(width: model.maskBrushSize * max(imageRect.width, imageRect.height) * 2,
@@ -447,9 +456,12 @@ struct ObjectMaskPickOverlay: View {
                 }
                 HStack(spacing: 10) {
                     Picker("Selection tool", selection: $model.objectSelectionTool) {
-                        ForEach(["Click", "Box", "Brush", "Paint", "Refine Edge"], id: \.self) { Text($0).tag($0) }
-                    }.pickerStyle(.segmented).labelsHidden().frame(width: 340)
-                    if model.objectSelectionTool == "Paint" {
+                        // "Paint" is the brush tool. A second "Brush" entry used to
+                        // appear here, and selecting it fell through to the SAM
+                        // object path because only "Paint" is handled downstream.
+                        ForEach(["Click", "Box", "Paint", "Refine Edge"], id: \.self) { Text($0).tag($0) }
+                    }.pickerStyle(.segmented).labelsHidden().frame(width: 300)
+                    if model.objectSelectionTool == "Paint" || model.objectSelectionTool == "Brush" {
                         Slider(value: $model.maskBrushSize, in: 0.005...0.15).frame(width: 80).help("Brush size")
                     }
                     Text("⌥ Remove").font(.caption2).foregroundStyle(.secondary)

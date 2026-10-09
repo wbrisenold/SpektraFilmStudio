@@ -5,6 +5,32 @@ struct StudioMaskPreset: Codable, Identifiable {
     var name: String
     var grade: LocalGradeRecord
     private static let key = "SpektraFilmStudio.maskPresets.v1"
+    /// Model this preset needs beyond Apple Vision. `nil` means it can run today.
+    /// Hair/clothes/body-skin and every landscape class require SAM 3, which is an
+    /// optional download — so those presets must say so instead of appearing broken.
+    var requiredModel: String? {
+        guard let recipe = grade.masks.sources.first(where: { $0.aiRecipe != nil })?.aiRecipe else { return nil }
+        switch recipe.kind {
+        case .landscape: return "sam3"
+        case .people:
+            let part = recipe.part
+            return [.hair, .facialHair, .bodySkin, .clothes].contains(part) ? "sam3" : nil
+        default: return nil
+        }
+    }
+
+    /// Whether the model this preset needs is present on this machine.
+    var isAvailable: Bool {
+        guard let id = requiredModel else { return true }
+        guard let manifest = ModelCatalog.manifest(id) else { return false }
+        return MaskModelStore.installed(manifest)
+    }
+
+    var unavailableReason: String? {
+        guard !isAvailable else { return nil }
+        return "Needs the \(requiredModel ?? "") model · install in Settings › Models"
+    }
+
     static var custom: [StudioMaskPreset] {
         guard let data = UserDefaults.standard.data(forKey: key) else { return [] }
         return (try? JSONDecoder().decode([StudioMaskPreset].self, from: data)) ?? []

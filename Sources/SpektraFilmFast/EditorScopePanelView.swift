@@ -2,30 +2,93 @@ import SwiftUI
 
 /// Docked scopes strip shown beneath the canvas.
 ///
-/// It is deliberately *not* part of the adjustment rail: scopes are a large,
-/// occasionally-used readout, and stacking them above the sliders left the Edit
-/// inspector too short to work in. Height is fixed and reserved by the caller so
-/// the preview is never drawn underneath it.
+/// Two lessons are baked in here:
+/// 1. It is *not* part of the adjustment rail — stacking scopes above the sliders
+///    left the Edit inspector too short to work in.
+/// 2. It is collapsed to a single slim row by default. A permanently expanded
+///    scope panel is ~290pt tall, which meant it swallowed the entire bottom row
+///    of the workspace instead of helping with it.
+///
+/// The strip reports its real measured height so the canvas reserves exactly the
+/// right amount and the preview is never drawn underneath it.
 struct EditorScopeStrip: View {
-    /// Conservative fallback used before the first measurement lands.
-    static let estimatedHeight: CGFloat = 292
+    /// Slim collapsed bar: header row only, plus a little breathing room.
+    static let collapsedHeight: CGFloat = 34
+    /// Fallback used for the expanded estimate before the first measurement lands.
+    static let estimatedExpandedHeight: CGFloat = 292
 
     @ObservedObject var model: AppModel
+    @Binding var isExpanded: Bool
     /// Reports the strip's real height so the canvas reserves exactly that much.
-    /// Content height varies with scope mode (skin/false-color add readout rows).
     let onHeightChange: (CGFloat) -> Void
 
+    private static func report(_ geometry: GeometryProxy, to handler: (CGFloat) -> Void) {
+        let height = geometry.size.height
+        DispatchQueue.main.async { handler(height) }
+    }
+
     var body: some View {
-        EditorScopePanelView(model: model)
-            .fixedSize(horizontal: false, vertical: true)
-            .background(
-                GeometryReader { proxy in
-                    Color.clear.onChange(of: proxy.size.height, initial: true) { _, height in
-                        onHeightChange(height)
-                    }
+        VStack(spacing: 0) {
+            header
+            if isExpanded {
+                EditorScopePanelView(model: model)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .background(
+            GeometryReader { proxy in
+                Color.clear.onChange(of: proxy.size.height, initial: true) { _, height in
+                    Self.report(proxy, to: onHeightChange)
                 }
-            )
-            .studioGlassPane()
+            }
+        )
+        .studioGlassPane()
+    }
+
+    /// Collapsed row doubles as the expand affordance: a live numeric readout of
+    /// the current scope, so it is worth the 34pt it occupies.
+    private var header: some View {
+        HStack(spacing: 8) {
+            Button {
+                isExpanded.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .foregroundStyle(.secondary)
+                    Label("Scopes", systemImage: "waveform.path")
+                        .font(StudioType.section)
+                    Text(model.project.preferences.scopeMode.rawValue)
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
+            .buttonStyle(.plain)
+
+            if !isExpanded {
+                Text(collapsedReadout)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer()
+                Button("Expand") { isExpanded = true }
+                    .buttonStyle(.borderless).controlSize(.small)
+            } else {
+                Spacer()
+                if model.isScopeAnalyzing { ProgressView().controlSize(.mini) }
+                Button("Collapse") { isExpanded = false }
+                    .buttonStyle(.borderless).controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: Self.collapsedHeight)
+        .contentShape(Rectangle())
+        .onTapGesture { isExpanded.toggle() }
+    }
+
+    private var collapsedReadout: String {
+        let m = model.analysisMetrics
+        return String(format: "clip %.1f%% high · %.1f%% low · skin %.1f%%",
+                      m.highlightPercent, m.shadowPercent, m.skinCandidatePercent)
     }
 }
 

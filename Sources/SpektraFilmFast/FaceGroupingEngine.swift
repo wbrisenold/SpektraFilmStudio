@@ -53,17 +53,29 @@ actor FaceGroupingEngine {
     private let directDistance: Float = 0.60
     private let consolidationDistance: Float = 0.70
 
-    func group(items: [(UUID, URL)]) -> [PersonGroup] {
+    struct Outcome: Sendable {
+        let groups: [PersonGroup]
+        let photosRead: Int
+        let facesFound: Int
+        let photosWithFace: Int
+    }
+
+    func group(items: [(UUID, URL)]) -> Outcome {
         var samples: [Sample] = []
         samples.reserveCapacity(items.count)
+        var photosRead = 0
+        var photosWithFace = 0
         for (id, url) in items {
-            if Task.isCancelled { return [] }
-            samples.append(contentsOf: featurePrints(photoID: id, url: url))
+            if Task.isCancelled { return Outcome(groups: [], photosRead: photosRead, facesFound: samples.count, photosWithFace: photosWithFace) }
+            let found = featurePrints(photoID: id, url: url)
+            photosRead += 1
+            if !found.isEmpty { photosWithFace += 1 }
+            samples.append(contentsOf: found)
         }
         samples.sort { $0.area > $1.area }
         var groups: [Cluster] = []
         for sample in samples {
-            if Task.isCancelled { return [] }
+            if Task.isCancelled { return Outcome(groups: [], photosRead: photosRead, facesFound: samples.count, photosWithFace: photosWithFace) }
             var chosen: Int?
             var best = Float.greatestFiniteMagnitude
             for index in groups.indices {
@@ -91,7 +103,7 @@ actor FaceGroupingEngine {
         // photos is forbidden because these clusters may be different co-appearing people.
         var merged = true
         while merged {
-            if Task.isCancelled { return [] }
+            if Task.isCancelled { return Outcome(groups: [], photosRead: photosRead, facesFound: samples.count, photosWithFace: photosWithFace) }
             merged = false
             guard groups.count > 1 else { break }
             outer: for a in 0..<(groups.count - 1) {
@@ -121,7 +133,7 @@ actor FaceGroupingEngine {
             }
         }
 
-        return groups.filter { $0.allPhotoIDs.count >= 2 }
+        let ranked = groups.filter { $0.allPhotoIDs.count >= 2 }
             .sorted {
                 if $0.allPhotoIDs.count != $1.allPhotoIDs.count {
                     return $0.allPhotoIDs.count > $1.allPhotoIDs.count
@@ -136,6 +148,7 @@ actor FaceGroupingEngine {
                     detectedFaceCount: cluster.allPhotoIDs.count
                 )
             }
+        return Outcome(groups: ranked, photosRead: photosRead, facesFound: samples.count, photosWithFace: photosWithFace)
     }
 
     private func distance(_ a: Sample, _ b: Sample) -> Float? {

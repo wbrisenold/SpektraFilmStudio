@@ -79,8 +79,10 @@ struct CullWorkspaceView: View {
             }.buttonStyle(.borderless).fixedSize()
             Menu {
                 Button("Analyze Photos") { model.analyzeVisibleForCull() }
-                Button("Suggest Best 25% in Current Folder") {
-                    model.pickBestInFolder(model.selectedImage.map(Self.folderPath) ?? "__all__", fraction: 0.25)
+                ForEach([0.10, 0.25, 0.50], id: \.self) { fraction in
+                    Button("Suggest Best \(Int(fraction * 100))% in Current Folder") {
+                        model.pickBestInFolder(model.selectedImage.map(Self.folderPath) ?? "__all__", fraction: fraction)
+                    }
                 }
             } label: { Label("Assist", systemImage: "sparkles") }
                 .fixedSize(horizontal: true, vertical: false)

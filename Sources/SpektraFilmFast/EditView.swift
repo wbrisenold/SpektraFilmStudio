@@ -9,9 +9,12 @@ struct EditWorkspaceView: View {
     @AppStorage("SpektraFilmStudio.designA.showEditorInspector") private var showEditorInspector = true
     @AppStorage("SpektraFilmStudio.designA.showFilmstrip") private var showFilmstrip = true
     @AppStorage("SpektraFilmStudio.designA.showScopes") private var showScopes = false
-    // Measured height of the docked scope strip; seeded from its estimate so the
-    // canvas is reserved correctly on the very first layout pass.
-    @State private var scopeStripHeight = EditorScopeStrip.estimatedHeight
+    // Scopes start collapsed to a slim readout bar. Expanding is opt-in, because a
+    // permanently expanded panel took over the whole bottom row of the workspace.
+    @AppStorage("SpektraFilmStudio.ui.scopesExpanded") private var scopeStripExpanded = false
+    // Measured height of the docked scope strip; seeded from its collapsed height so
+    // the canvas is reserved correctly on the very first layout pass.
+    @State private var scopeStripHeight = EditorScopeStrip.collapsedHeight
     @State private var quickExportRequest: QuickExportRequest?
 
     var body: some View {
@@ -39,7 +42,7 @@ struct EditWorkspaceView: View {
                     // Scopes sit under the canvas, not in the adjustment rail, so
                     // turning them on never shrinks the sliders. The strip reports
                     // its measured height so the reservation below is exact.
-                    EditorScopeStrip(model: model) { scopeStripHeight = $0 }
+                    EditorScopeStrip(model: model, isExpanded: $scopeStripExpanded) { scopeStripHeight = $0 }
                         .padding(.horizontal, StudioLayout.paneInset)
                         .padding(.bottom, StudioLayout.paneInset)
                 }

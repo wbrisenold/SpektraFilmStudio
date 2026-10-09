@@ -377,7 +377,9 @@ extension AppModel {
             return (image.id, source)
         }
         guard !items.isEmpty else {
-            peopleGroupingStatus = "No photos available"
+            // Previously this was silent, which read as "grouping does nothing".
+            peopleGroupingStatus = "No readable photos · cloud photos need a downloaded preview first"
+            status = peopleGroupingStatus
             return
         }
         peopleGroupingTask?.cancel()
@@ -387,8 +389,9 @@ extension AppModel {
         let generation = projectGeneration
         peopleGroupingTask = Task { [weak self] in
             guard let self else { return }
-            let groups = await engine.group(items: items)
+            let outcome = await engine.group(items: items)
             guard !Task.isCancelled, generation == projectGeneration else { return }
+            let groups = outcome.groups
             // Keep manual names/IDs where rebuilt faces overlap the old identity.
             var namedGroups = groups
             var assignedOld = Set<UUID>()
@@ -407,9 +410,11 @@ extension AppModel {
             libraryPeopleGroupFilter = nil
             isGroupingPeople = false
             peopleGroupingTask = nil
+            // Say what actually happened. "No repeated faces found" with no context was
+            // indistinguishable from a broken feature.
             peopleGroupingStatus = groups.isEmpty
-                ? "No repeated faces found"
-                : "Grouped \(groups.count) repeated face\(groups.count == 1 ? "" : "s")"
+                ? "No repeat identities · read \(outcome.photosRead) photo\(outcome.photosRead == 1 ? "" : "s"), found \(outcome.facesFound) face\(outcome.facesFound == 1 ? "" : "s") in \(outcome.photosWithFace). A person must appear in 2+ photos."
+                : "Grouped \(groups.count) identit\(groups.count == 1 ? "y" : "ies") from \(outcome.facesFound) face\(outcome.facesFound == 1 ? "" : "s") in \(outcome.photosWithFace) photo\(outcome.photosWithFace == 1 ? "" : "s")"
             status = peopleGroupingStatus
         }
     }
@@ -472,10 +477,26 @@ extension AppModel {
             winners.formUnion(CullBestPicksEngine.choose(group, fraction: bestPicksPercent))
         }
         guard !winners.isEmpty else { status = "No analyzed photos were eligible"; return }
-        for index in project.images.indices where winners.contains(project.images[index].id) {
-            if project.images[index].flag != .rejected { project.images[index].flag = .picked }
+        // This must be a true "best N%" set, not an additive pass. Previously it only
+        // ever added picks, so re-running returned the same count every time and the
+        // percentage control looked broken. Rejected stays rejected (photographer call).
+        var changed = 0
+        for index in project.images.indices {
+            let photo = project.images[index]
+            let folder = Self.cullFolderPath(photo)
+            let inScope = requested == "__all__" ? folders.contains(folder) : folder == requested
+            guard inScope, photo.flag != .rejected else { continue }
+            let shouldPick = winners.contains(photo.id)
+            if shouldPick, photo.flag != .picked { project.images[index].flag = .picked; changed += 1 }
+            if !shouldPick, photo.flag == .picked { project.images[index].flag = .unflagged; changed += 1 }
         }
-        status = "Suggested \(winners.count) best picks across \(folders.count) folder(s) · no files deleted"
+        let analyzed = project.images.filter { photo in
+            let folder = Self.cullFolderPath(photo)
+            let inScope = requested == "__all__" ? folders.contains(folder) : folder == requested
+            return inScope && photo.cullAnalysis != nil
+        }.count
+        isProjectDirty = true
+        status = "Suggested \(winners.count) of \(analyzed) analyzed photo\(analyzed == 1 ? "" : "s") (\(Int((bestPicksPercent * 100).rounded()))% · \(changed) flag\(changed == 1 ? "" : "s") changed) · no files deleted"
     }
 
     private nonisolated static func cullFolderPath(_ photo: ProjectImageRecord) -> String {
