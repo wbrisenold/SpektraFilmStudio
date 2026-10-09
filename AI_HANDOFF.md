@@ -209,7 +209,7 @@ Treat a green `verify_source.sh` on macOS as the minimum bar, not a formality.
 defects were fixed in this repo and are now **machine-checked by
 `scripts/verify_source.sh`**, so reintroducing any of them fails the gate rather
 than the release. Full symptom/cause/fix write-ups are in `docs/BUILD_PITFALLS.md`
-(pitfalls 10–18).
+(pitfalls 10–18, and 19–24 for patch-update failures).
 
 | Trap | Rule |
 |---|---|
@@ -235,6 +235,24 @@ Two rules that cost real time during debugging:
 - **Generate patch files with plain `git diff`.** Some wrappers emit a condensed
   stat table instead of a unified diff, which `git apply` rejects with the
   misleading `No valid patches in input`.
+
+### Patch-update failures that cost the most time (2026-10-09)
+
+These recurred across several patch rounds. Full write-ups in
+`docs/BUILD_PITFALLS.md` pitfalls **19–24**.
+
+| Trap | Rule |
+|---|---|
+| A delivered ZIP was itself an **installer**, so the UI source never landed and the rebuild reproduced the old app (pitfall 19) | Prove the patch is on disk **and** that the built bundle's embedded commit matches `HEAD` before reporting success |
+| Two stages in one package edited the same line inconsistently (`1024` → `1080` widened, then re-anchored on `1024`) (pitfall 20) | Anchor on structure, not literals; a sibling stage's output is an input, not a constant |
+| A vendored MPL license's trailing whitespace failed `git diff --check` (pitfall 21) | Normalize the vendored file; never weaken the gate |
+| `SOURCE_MANIFEST.sha256` was committed **with unresolved conflict markers**, so the generic coverage error masked corruption (pitfall 22) | Grep for `<<<<<<<` before committing; a manifest is derived — regenerate, never merge |
+| Release build aborted on disk space while stale `.build/`/`dist/` held the room (pitfall 23) | Clear `.build` and `dist` first; lowering `SPEKTRAFILM_MIN_FREE_GB` removes a real check |
+| A green build log was mistaken for proof the update landed (pitfall 24) | Verify the **whole** chain: files on disk → source gates → build identity → runtime smoke tests |
+
+**The single highest-value check:** a successful build proves only that the compiler
+ran. Confirm the artifact's embedded commit equals `git rev-parse HEAD`, and show the
+user smoke-test screenshots so any visual claim is checked by eye.
 
 ## Mandatory Mac release gate
 

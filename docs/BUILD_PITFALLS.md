@@ -359,6 +359,145 @@ explicit message if the patch has no `diff --git` headers.
 
 ---
 
+## 19. An installer that ships an *installer* gets reported as "the update didn't take"
+
+**Symptom:** user receives a patch ZIP, the agent applies it, rebuilds, re-zips, and
+pushes. The user launches the app and says **"it still looks the same."** Multiple
+build cycles followed, all producing a bit-identical-looking UI.
+
+**Cause:** the archive being handed around was itself an *installer*, not source or
+a built app. Applying it planned changes but the UI source files were never actually
+present in the checkout. Proof:
+
+```bash
+for f in StudioUI StudioOmniSearch RedlampPortedUI; do
+  [ -f "Sources/SpektraFilmFast/$f.swift" ] && echo "PRESENT $f" || echo "MISSING $f"
+done
+```
+
+All `MISSING` — yet the agent had already rebuilt and re-shipped twice.
+
+**Fix:** run the package's own install command (`APPLY_BUILD_VERIFY.command`, not a
+hand-rolled `git apply`), then prove provenance before reporting success:
+
+```bash
+python3 <pkg>/VERIFY.py "$PWD" --app "$PWD/dist/SpektraFilmStudio.app"
+```
+
+`VERIFY.py` compares the bundle's embedded `SpektraSourceCommit` against `git rev-parse
+HEAD`. **If that check is skipped, "build succeeded" only proves the compiler ran.**
+
+**Rule:** never report a patch as applied until a *file-existence* check confirms the
+patched files are on disk AND the built artifact's embedded commit matches HEAD.
+Rebuilding an unchanged tree reproduces the same app; that is not a fix.
+
+## 20. Cross-stage anchors inside one patch package drift out of sync
+
+**Symptom:** the package's own guard aborts with
+`omni overlay: expected one anchor, got 0; refusing patch` — on a checkout the
+package was explicitly written against.
+
+**Cause:** two stages in the *same* package edited the same line inconsistently.
+`apply_studio_design.py:233` widens the minimum window
+`.frame(minWidth: 1024, ...)` → `1080`; the later `apply_glass_omni_scene.py:140`
+anchored on the literal `1024` and therefore matched nothing. The guard was behaving
+correctly — it refused to guess.
+
+**Fix:** match the anchor structurally, not by literal value, so stage order stops
+mattering:
+
+```python
+m = re.search(r'^        \.frame\(minWidth: (\d+), minHeight: (\d+)\)$', s, re.M)
+if m is None:
+    raise RuntimeError('omni overlay: expected one .frame(minWidth:minHeight:) anchor')
+frame = m.group(0)   # reuse whatever width the previous stage chose
+```
+
+**Rule:** in a multi-stage patch package, an earlier stage's literal output is an
+*input*, not a constant. Anchor on structure. Any stage whose anchors are invalidated
+by a sibling stage in the same package is an ordering bug, not repo drift — check
+`grep -rn '1024\|1080' <package>/baseline/*.py` before blaming the checkout.
+
+## 21. A vendored third-party license file fails your own whitespace gate
+
+**Symptom:** install aborts at the commit step with
+`git diff --cached --check exited 2: THIRD_PARTY/.../LICENSE-MPL-2.0.txt:38: trailing whitespace`.
+
+**Cause:** the upstream MPL-2.0 text carries one trailing space on a wrapped line.
+`git diff --check` runs **before** commit, so the gate fires on a file nobody edited
+by hand.
+
+**Fix:** strip trailing whitespace in the *vendored copy* inside the patch package.
+Never weaken `git diff --check` — it is doing its job, and the exemption would
+silently permit real whitespace damage in first-party code.
+
+**Rule:** gates fail on vendored third-party text. Normalize the vendored file, keep
+the gate strict.
+
+## 22. Manifest conflict markers survive into a pushed release
+
+**Symptom:** `verify_source.sh` keeps reporting *"SOURCE_MANIFEST.sha256 does not
+cover the complete source package"* with no obvious source error. `wc -l` on the
+manifest is far larger than the file count of the repo.
+
+**Cause:** a `git stash pop` conflicted in `SOURCE_MANIFEST.sha256`; it was resolved by
+copying `git show HEAD:SOURCE_MANIFEST.sha256` over it — but **that HEAD version was
+itself already committed with unresolved `<<<<<<< Updated upstream` /
+`>>>>>>> Stashed changes` blocks**. Restoring it restored a corrupt file, and the
+corruption was committed and pushed.
+
+**Detect it directly** (do not trust the generic gate message):
+
+```bash
+grep -c '<<<<<<<\|>>>>>>>' SOURCE_MANIFEST.sha256   # must be 0
+```
+
+**Fix:** regenerate from scratch using the §15 command. A manifest is a *derived
+artifact* — never merge one, always regenerate it.
+
+**Rule:** after any stash/pop/merge that touches a source file, grep for conflict
+markers before committing. A "resolved" file that still contains markers passes
+`git status` (it looks modified, not conflicted) and ships.
+
+## 23. A build guard can refuse on disk space while the real problem is stale build dirs
+
+**Symptom:** `scripts/build_app.sh` aborts with
+`Not enough free disk space for a safe release build: 1 GB free, 8 GB required.`
+
+**Cause:** `.build/` and `dist/` from previous runs consumed the space the build
+needed. The guard was correct; the remedy is cleanup, not lowering the threshold.
+
+**Fix:**
+
+```bash
+rm -rf .build dist          # regenerated by the next build
+# only if genuinely constrained:
+SPEKTRAFILM_MIN_FREE_GB=4 bash scripts/build_app.sh
+```
+
+**Rule:** clear `.build` and `dist` before a release build. Lowering the free-space
+guard is a last resort and should be stated explicitly, because it removes a real
+safety check (see the guard message itself — it tells you this).
+
+## 24. Verify the whole chain, not just the step you changed
+
+**Symptom:** a rebuild was reported as successful, yet the user still saw the old UI.
+
+**Rule:** a patch update is only finished when all four of these agree:
+
+| Check | Command | Catches |
+|---|---|---|
+| Files on disk | file-existence probe (pitfall 19) | patch never applied |
+| Source gates | `./scripts/verify_source.sh` | source regression |
+| Build identity | `VERIFY.py` / embedded commit vs HEAD | stale binary re-zipped |
+| Runtime | `--ux-smoke-test`, `--self-test` | code compiles but misbehaves |
+
+A green build log only proves the **compiler** ran. Report success from the *identity*
+check plus the smoke tests, and show the user screenshots so visual claims are checked
+by eye — that is what finally confirmed this UI stage.
+
+---
+
 ## Release checklist
 
 1. Run `swiftc -frontend -parse Sources/SpektraFilmFast/*.swift`, `swift package dump-package`, `python3 scripts/qa_production.py`, `./scripts/qa_10_passes.sh`, and `./scripts/verify_source.sh`.
@@ -368,6 +507,10 @@ explicit message if the patch has no `diff --git` headers.
 5. Run Metal `--self-test` and `--studio-soak-test`.
 6. For public distribution, perform Developer ID hardened-runtime signing, notarization, stapling, and Gatekeeper assessment.
 7. Verify the produced ZIP and checksum independently before publishing.
+8. **Confirm the artifact was built from the intended commit** — compare the bundle's
+   embedded source commit against `git rev-parse HEAD` (pitfall 24). This is the check
+   that distinguishes a real update from a re-zipped old app.
+9. Confirm `grep -c '<<<<<<<' SOURCE_MANIFEST.sha256` returns `0` (pitfall 22).
 
 ## Known open item
 
