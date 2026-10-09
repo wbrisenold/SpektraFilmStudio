@@ -378,6 +378,7 @@ private struct EditorInspectorView: View {
     @ObservedObject var model: AppModel
     @Binding var mode: StudioInspectorMode
     @AppStorage(EditorPanelVisibilityStore.key) private var hiddenEditorPanels = ""
+    @AppStorage("SpektraFilmStudio.designA.showScopes") private var showScopes = false
 
     // The inspector column is for controls only. Scopes live under the canvas so
     // they never steal height from the sliders (Redlamp keeps them out of the rail).
