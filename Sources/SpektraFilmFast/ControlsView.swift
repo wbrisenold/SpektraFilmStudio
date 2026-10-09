@@ -31,7 +31,7 @@ struct ControlsView: View {
                     }
                 }
                 .padding(.horizontal, 9).frame(height: 30)
-                .background(Color.clear)
+                .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 7))
                 Toggle("Modified", isOn: $showModifiedOnly)
                     .toggleStyle(.button)
                     .controlSize(.small)
@@ -126,9 +126,9 @@ struct ControlsView: View {
                 }
             }
         }
-        .font(.system(size: 11))
+        .font(StudioType.label)
         .controlSize(.small)
-        .tint(Color.primary.opacity(0.78))
+        .tint(Color.accentColor)
         .onChange(of: mode) { _, newMode in
             model.setCropToolActive(false)
             openAdjustment = newMode == .film ? "film.film" : "tone"
@@ -136,6 +136,16 @@ struct ControlsView: View {
         }
         .onChange(of: openAdjustment) { _, section in
             model.setCropToolActive(section == "geometry" && mode == .adjust)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: StudioOmniEvents.focusAdjustment)) { note in
+            guard let name = note.object as? String,
+                  let item = BridgeCatalog.shared.parameters.first(where: { $0.name == name }) else { return }
+            inspectorSearch = item.label
+            if ["raw", "tone", "geometry", "lens"].contains(item.group) { openAdjustment = item.group }
+            else if ["film", "filtering"].contains(item.group) { filmStage = "stock" }
+            else if ["print", "diffusion"].contains(item.group) { filmStage = "print" }
+            else if ["dir", "halation", "grain", "grainSynthesis", "filmPlane"].contains(item.group) { filmStage = "negative" }
+            else { filmStage = "output" }
         }
         .onChange(of: inspectorSearch) { _, value in
             if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -159,11 +169,16 @@ struct ControlsView: View {
                                                 @ViewBuilder content: @escaping () -> Content) -> some View {
         if mode == .film || !searchTerm.isEmpty || openAdjustment == id {
             VStack(alignment: .leading, spacing: 8) {
-                Text(title).font(.system(size: 11, weight: .semibold))
+                Text(title.uppercased())
+                    .font(StudioType.section)
+                    .tracking(0.6)
+                    .foregroundStyle(.secondary)
                 content()
             }
-            .padding(12)
-            Divider()
+            .padding(.horizontal, StudioLayout.panelPadding)
+            .padding(.vertical, 13)
+            .background(StudioPalette.panel.opacity(0.12))
+            Divider().opacity(0.45)
         }
     }
 
@@ -921,8 +936,10 @@ struct DraftScalarSlider: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(label).lineLimit(1).truncationMode(.tail)
-                .frame(width: 104, alignment: .leading)
+            Text(label)
+                .font(StudioType.label)
+                .lineLimit(1).truncationMode(.tail)
+                .frame(width: RedlampMetrics.labelWidth, alignment: .leading)
                 .help(label)
             Slider(value: Binding(
                 get: { draft },
@@ -935,7 +952,7 @@ struct DraftScalarSlider: View {
                 editing = isEditing
                 if isEditing { onBegin() } else { onEnd() }
             })
-            .controlSize(.mini)
+            .controlSize(.small)
             .accessibilityLabel(label)
             TextField(label, value: Binding(
                 get: { draft },
@@ -947,7 +964,7 @@ struct DraftScalarSlider: View {
                 }
             ), format: .number.precision(.fractionLength(0...precision)))
             .textFieldStyle(.plain).multilineTextAlignment(.trailing)
-            .monospacedDigit().frame(width: 44)
+            .font(StudioType.value).frame(width: RedlampMetrics.valueWidth)
             if let onReset {
                 Button {
                     if let resetValue { draft = resetValue }
@@ -959,8 +976,8 @@ struct DraftScalarSlider: View {
                 .help("Reset \(label)")
             }
         }
-        .font(.system(size: 11))
-        .frame(minHeight: 24)
+        .font(StudioType.label)
+        .frame(minHeight: RedlampMetrics.rowHeight)
         .disabled(disabled)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {

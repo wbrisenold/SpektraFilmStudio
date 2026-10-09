@@ -11,31 +11,107 @@ private enum ExportSourceFilter: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+private struct StudioExportUserPreset: Codable, Identifiable {
+    let id: UUID
+    var name: String
+    var settings: ExportSettings
+}
+
 struct ExportWorkspaceView: View {
     @ObservedObject var model: AppModel
     @State private var sourceFilter: ExportSourceFilter = .all
     @State private var search = ""
-    @AppStorage("SpektraFilmStudio.designA.v3.showExportBrowser") private var showExportBrowser = true
-    @State private var showExportInspector = false
+    // Redlamp-inspired native three-pane layout: no blocking settings sheet.
+    @AppStorage("SpektraFilmStudio.designA.v3.showExportBrowser") private var showExportBrowser = false
+    @AppStorage("SpektraFilmStudio.export.showInspector.v1") private var showExportInspector = true
+    @AppStorage("SpektraFilmStudio.export.savedPresets.v1") private var savedPresetsData = Data()
+    @State private var selectedCustomPreset: UUID?
+    @State private var showingSavePreset = false
+    @State private var presetName = ""
 
     var body: some View {
         VStack(spacing: 0) {
+            workspaceHeader
+            Divider()
             HSplitView {
                 if showExportBrowser {
-                    sourceBrowser.frame(minWidth: 250, idealWidth: 290, maxWidth: 360)
+                    sourceBrowser.frame(minWidth: 230, idealWidth: 270, maxWidth: 330)
+                        .padding(StudioLayout.paneInset).studioGlassPane()
                 }
-                previewAndQueue.frame(minWidth: 500)
+                previewAndQueue.frame(minWidth: 420)
+                if showExportInspector {
+                    inspector.frame(minWidth: 310, idealWidth: 350, maxWidth: 410)
+                        .padding(StudioLayout.paneInset).studioGlassPane()
+                }
             }
             Divider()
             actionFooter
         }
         .background(StudioPalette.canvas)
-        .sheet(isPresented: $showExportInspector) {
-            inspector.frame(width: 540, height: 720)
+        .alert("Save Export Preset", isPresented: $showingSavePreset) {
+            TextField("Preset name", text: $presetName)
+            Button("Save") { saveCustomPreset() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Save the current format, size, color, naming, metadata and destination settings.")
         }
     }
 
-    var documentationSettings: some View { inspector.frame(width: 540, height: 720) }
+    // Kept for existing documentation and UI smoke-test callers.
+    var documentationSettings: some View { inspector.frame(width: 400, height: 720) }
+
+    private var workspaceHeader: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "square.and.arrow.up.on.square")
+                .font(.system(size: 21, weight: .medium))
+                .foregroundStyle(.primary)
+                .frame(width: 38, height: 38)
+                .background(StudioPalette.selected, in: RoundedRectangle(cornerRadius: 10))
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Export Studio").font(.title3.weight(.semibold))
+                Text("Prepare, preview and deliver your photos")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Text("\(model.selectedExportCount) selected")
+                .font(.caption.weight(.medium).monospacedDigit())
+                .foregroundStyle(.secondary)
+            Menu {
+                Button("All Photos") { model.setAllExportSelection(true) }
+                Button("Picked Photos") { model.selectExportPicksOnly() }
+                Button("Client Picks") { model.selectExportClientPicksOnly() }
+                Button("4 Stars and Up") { model.selectExportRating(atLeast: 4) }
+                Button("Highlighted in Library") {
+                    model.setAllExportSelection(false)
+                    model.batchSetExportSelection(true)
+                }
+                Divider()
+                Button("Clear Selection") { model.setAllExportSelection(false) }
+            } label: {
+                Label("Build Set", systemImage: "checklist")
+            }
+            .disabled(model.isExporting)
+            Button {
+                showExportBrowser.toggle()
+            } label: {
+                Label("Photos", systemImage: "photo.on.rectangle.angled")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .help(showExportBrowser ? "Hide photo browser" : "Show photo browser")
+            Button {
+                showExportInspector.toggle()
+            } label: {
+                Label("Settings", systemImage: "slider.horizontal.3")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .help(showExportInspector ? "Hide export settings" : "Show export settings")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(StudioPalette.panel)
+    }
 
     private var sourceBrowser: some View {
         VStack(spacing: 0) {
@@ -149,46 +225,14 @@ struct ExportWorkspaceView: View {
 
     private var previewAndQueue: some View {
         VStack(spacing: 0) {
-            VStack(spacing: 8) {
-              HStack {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("OUTPUT PREVIEW")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Text(previewImage?.fileName ?? "No photo selected")
-                        .font(.headline)
-                        .lineLimit(1)
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("LIVE DELIVERY PREVIEW")
+                        .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                    Text(previewImage?.fileName ?? "Choose a photo")
+                        .font(.headline).lineLimit(1).truncationMode(.middle)
                 }
-                Spacer()
-                Menu("Select Photos") {
-                    Button("All Photos") { model.setAllExportSelection(true) }
-                    Button("Picked Photos") { model.selectExportPicksOnly() }
-                    Button("Client Picks") { model.selectExportClientPicksOnly() }
-                    Button("4 Stars and Up") { model.selectExportRating(atLeast: 4) }
-                    Button("Highlighted in Library") { model.setAllExportSelection(false); model.batchSetExportSelection(true) }
-                    Divider()
-                    Button("Clear Export Selection") { model.setAllExportSelection(false) }
-                }.fixedSize(horizontal: true, vertical: false).disabled(model.isExporting)
-                Button {
-                    showExportBrowser.toggle()
-                    if showExportBrowser { showExportInspector = false }
-                } label: {
-                    Label("Photos", systemImage: "photo.stack")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .help(showExportBrowser ? "Hide photo browser" : "Show photo browser")
-                Button {
-                    showExportInspector.toggle()
-
-                } label: {
-                    Label("Export Settings…", systemImage: "slider.horizontal.3")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .help("Show or hide detailed export settings")
-              }
-              HStack {
+                Spacer(minLength: 8)
                 if let image = previewImage {
                     Button {
                         if model.isCropToolActive {
@@ -197,26 +241,20 @@ struct ExportWorkspaceView: View {
                             model.beginExportCrop(image.id)
                         }
                     } label: {
-                        Label(
-                            model.isCropToolActive ? "Done Crop" : "Crop Photo",
-                            systemImage: model.isCropToolActive ? "checkmark.circle" : "crop"
-                        )
+                        Label(model.isCropToolActive ? "Done Crop" : "Crop Photo", systemImage: "crop.rotate")
                     }
-                    .controlSize(.small)
                     .disabled(model.isExporting)
-
                     Button {
                         model.focusPhoto(image.id, destination: .edit)
                     } label: {
-                        Label("Open in Edit", systemImage: "slider.horizontal.3")
+                        Label("Edit", systemImage: "slider.horizontal.3")
                     }
-                    .controlSize(.small)
                 }
-                Spacer(minLength: 0)
-              }
             }
-            .padding(.horizontal, 13)
-            .padding(.vertical, 10)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 13)
             .background(StudioPalette.panel)
 
             Divider()
@@ -243,6 +281,7 @@ struct ExportWorkspaceView: View {
                     }
                 }
                 .frame(minHeight: 320)
+                .shadow(color: .black.opacity(0.16), radius: 12, y: 5)
                 .overlay {
                     RoundedRectangle(cornerRadius: 11)
                         .stroke(StudioPalette.subtleBorder, lineWidth: 0.5)
@@ -261,7 +300,7 @@ struct ExportWorkspaceView: View {
 
             Divider()
             if model.activeExportJob != nil {
-                queuePanel.frame(height: 180)
+                queuePanel.frame(minHeight: 185, idealHeight: 225, maxHeight: 300)
             }
         }
     }
@@ -335,52 +374,94 @@ struct ExportWorkspaceView: View {
     private var inspector: some View {
         VStack(spacing: 0) {
             inspectorHeader
-            Form {
-                Section("Location") { destinationControls }
-                Section("File") { fileControls }
-                Section("Image Size") { sizeControls }
-                Section("Color") { deliveryControls }
-                Section("Naming") { namingControls }
-                Section("Metadata") { metadataControls }
-            }
-            .formStyle(.grouped)
-            .disabled(model.isExporting)
             Divider()
-            actionFooter
+            ScrollView {
+                LazyVStack(spacing: 10) {
+                    section("Destination", "folder") { destinationControls }
+                    section("File Format", "doc.richtext") { fileControls }
+                    section("Image Size", "aspectratio") { sizeControls }
+                    section("Color", "paintpalette") { deliveryControls }
+                    section("File Naming", "character.cursor.ibeam") { namingControls }
+                    section("Metadata & Privacy", "checkmark.shield") { metadataControls }
+                }
+                .padding(11)
+                .frame(maxWidth: .infinity)
+            }
+            .disabled(model.isExporting)
         }
         .background(StudioPalette.panel)
     }
 
     private var inspectorHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("EXPORT")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Text("Output Settings").font(.headline)
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("DELIVERY SETTINGS")
+                        .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                    Text(selectedPresetTitle).font(.subheadline.weight(.semibold)).lineLimit(1)
                 }
                 Spacer()
-                Menu {
-                    ForEach(ExportPresetCategory.allCases) { category in
-                        Menu(category.rawValue) {
-                            ForEach(ExportPresetDefinition.all.filter { $0.category == category }) { preset in
-                                Button(preset.name) { model.applyExportPreset(preset.id) }
-                            }
-                        }
-                    }
-                } label: {
-                    Label("Preset", systemImage: "wand.and.stars")
-                }
-                .fixedSize(horizontal: true, vertical: false)
-                .controlSize(.small)
-                .disabled(model.isExporting)
+                presetMenu
+            }
+            HStack(spacing: 6) {
+                presetShortcut("High Quality", id: "rapidraw-hq")
+                presetShortcut("Fast Web", id: "rapidraw-web")
+                Spacer(minLength: 0)
             }
         }
-        .padding(12)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(StudioPalette.divider).frame(height: 1)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 12)
+    }
+
+    private var presetMenu: some View {
+        Menu {
+            ForEach(ExportPresetCategory.allCases) { category in
+                Menu(category.rawValue) {
+                    ForEach(ExportPresetDefinition.all.filter { $0.category == category }) { preset in
+                        Button(preset.name) {
+                            model.applyExportPreset(preset.id)
+                            selectedCustomPreset = nil
+                        }
+                    }
+                }
+            }
+            if !savedPresets.isEmpty {
+                Divider()
+                Menu("My Presets") {
+                    ForEach(savedPresets) { preset in
+                        Button(preset.name) {
+                            model.project.exportSettings = preset.settings
+                            selectedCustomPreset = preset.id
+                        }
+                    }
+                }
+            }
+            Divider()
+            Button("Save Current as Preset…") {
+                presetName = ""
+                showingSavePreset = true
+            }
+            if let id = selectedCustomPreset,
+               let preset = savedPresets.first(where: { $0.id == id }) {
+                Button("Update \(preset.name)") { updateCustomPreset(id) }
+                Button("Delete \(preset.name)", role: .destructive) { deleteCustomPreset(id) }
+            }
+        } label: {
+            Label("Presets", systemImage: "square.stack.3d.up")
         }
+        .controlSize(.small)
+        .disabled(model.isExporting)
+    }
+
+    private func presetShortcut(_ title: String, id: String) -> some View {
+        Button(title) {
+            if let preset = ExportPresetDefinition.preset(id: id) {
+                model.applyExportPreset(preset.id)
+                selectedCustomPreset = nil
+            }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.mini)
     }
 
     private func section<Content: View>(
@@ -388,15 +469,18 @@ struct ExportWorkspaceView: View {
         _ icon: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 10) {
             Label(title, systemImage: icon)
                 .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
             content()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .disabled(model.isExporting)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(StudioPalette.divider).frame(height: 1)
+        .background(StudioPalette.canvas, in: RoundedRectangle(cornerRadius: 11))
+        .overlay {
+            RoundedRectangle(cornerRadius: 11)
+                .strokeBorder(StudioPalette.subtleBorder, lineWidth: 0.5)
         }
     }
 
@@ -578,7 +662,7 @@ struct ExportWorkspaceView: View {
             .textSelection(.enabled)
 
             HStack {
-                Button("Choose Folder…") { model.chooseExportDestination() }
+                Button("Choose Folder…") { requestExportFolder() }
                 if !model.project.exportSettings.destinationPath.isEmpty {
                     Button("Reveal") {
                         NSWorkspace.shared.activateFileViewerSelecting([
@@ -594,74 +678,130 @@ struct ExportWorkspaceView: View {
     }
 
     private var actionFooter: some View {
-        VStack(spacing: 9) {
+        VStack(spacing: 10) {
+            if let job = model.activeExportJob {
+                HStack(spacing: 10) {
+                    ProgressView(value: job.fractionComplete)
+                        .frame(maxWidth: .infinity)
+                    Text("\(job.processedCount) / \(job.items.count)")
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    if let eta = job.estimatedRemainingSeconds, model.isExporting {
+                        Text("ETA \(Self.duration(eta))")
+                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                    if job.failedCount > 0 {
+                        Label("\(job.failedCount) failed", systemImage: "exclamationmark.triangle")
+                            .font(.caption).foregroundStyle(.red)
+                    }
+                }
+            }
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(model.selectedExportCount) photos · \(formatSummary) · \(outputSizeSummary)")
+                        .font(.subheadline.weight(.medium)).lineLimit(1)
+                    if let issue = exportBlockingReason, !model.isExporting {
+                        Label(issue, systemImage: "info.circle")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Text(model.isExporting ? model.exportCurrentFileName : model.project.exportSettings.destinationPath)
+                            .font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle)
+                    }
+                }
+                Spacer(minLength: 8)
+                if model.isExporting {
+                    Button(role: .destructive) { model.stopExport() } label: {
+                        Label(model.isStoppingExport ? "Stopping…" : "Stop Export", systemImage: "stop.fill")
+                    }
+                    .disabled(model.isStoppingExport)
+                    .buttonStyle(.borderedProminent)
+                } else {
+                    if model.project.exportSettings.destinationPath.isEmpty {
+                        Button("Choose Folder…") { requestExportFolder() }
+                            .buttonStyle(.bordered)
+                    }
+                    Button {
+                        model.exportSelected()
+                    } label: {
+                        Label("Export \(model.selectedExportCount) Photos", systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(exportBlockingReason != nil)
+                }
+            }
             if !model.exportPerformanceSummary.isEmpty {
                 Text(model.exportPerformanceSummary)
                     .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .help("Breakdown for the last completed photo. JPEG quality affects only the last stage.")
-            }
-            if let job = model.activeExportJob {
-                HStack {
-                    Text("\(job.completedCount)/\(max(1, job.items.count))")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                    ProgressView(value: job.fractionComplete)
-                    if job.failedCount > 0 {
-                        Text("\(job.failedCount) failed").font(.caption).foregroundStyle(.red)
-                    }
-                }
-            }
-
-            if model.isExporting {
-                HStack {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Exporting").font(.subheadline.weight(.semibold))
-                        Text(model.exportCurrentFileName)
-                            .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    Spacer()
-                    Button(role: .destructive) { model.stopExport() } label: {
-                        Label(
-                            model.isStoppingExport ? "Stopping…" : "Stop Export",
-                            systemImage: "stop.fill"
-                        )
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.isStoppingExport)
-                }
-            } else {
-                HStack(spacing: 12) {
-                    if showExportInspector {
-                        Button("Cancel", role: .cancel) { showExportInspector = false }
-                            .keyboardShortcut(.cancelAction)
-                    } else {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(model.selectedExportCount) photos · \(formatSummary) · \(outputSizeSummary)")
-                                .font(.caption.weight(.medium))
-                            Text(model.project.exportSettings.destinationPath.isEmpty ? "Choose output settings and destination" : model.project.exportSettings.destinationPath)
-                                .font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                        }
-                    }
-                    Spacer()
-                    Button {
-                        if showExportInspector {
-                            model.exportSelected()
-                            showExportInspector = false
-                        } else { showExportInspector = true }
-                    } label: {
-                        Label(showExportInspector ? "Export \(model.selectedExportCount) Photos" : "Export…", systemImage: "square.and.arrow.up")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .fixedSize()
-                    .disabled(model.selectedExportCount == 0 || (showExportInspector && model.project.exportSettings.destinationPath.isEmpty))
-                }
+                    .foregroundStyle(.tertiary).lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(12)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 13)
         .background(.regularMaterial)
+    }
+
+    private func requestExportFolder() { model.chooseExportDestination() }
+
+    private var exportBlockingReason: String? {
+        let settings = model.project.exportSettings
+        if model.selectedExportCount == 0 { return "Select at least one photo to export" }
+        if settings.destinationPath.isEmpty { return "Choose an export destination" }
+        if settings.sequenceStart < 1 { return "Sequence must start at 1 or later" }
+        switch settings.resizeMode {
+        case .none: break
+        case .longEdge:
+            if settings.resizeLongEdge < 1 { return "Long edge must be greater than zero" }
+        case .width:
+            if settings.resizeWidth < 1 { return "Width must be greater than zero" }
+        case .height:
+            if settings.resizeHeight < 1 { return "Height must be greater than zero" }
+        case .fitBox, .cropToFill:
+            if settings.resizeWidth < 1 || settings.resizeHeight < 1 {
+                return "Output dimensions must be greater than zero"
+            }
+        }
+        return nil
+    }
+
+    private var savedPresets: [StudioExportUserPreset] {
+        (try? JSONDecoder().decode([StudioExportUserPreset].self, from: savedPresetsData)) ?? []
+    }
+
+    private var selectedPresetTitle: String {
+        guard let id = selectedCustomPreset,
+              let preset = savedPresets.first(where: { $0.id == id }) else {
+            return "Custom Export"
+        }
+        return preset.settings == model.project.exportSettings ? preset.name : "\(preset.name) (edited)"
+    }
+
+    private func saveCustomPreset() {
+        let name = presetName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        var all = savedPresets
+        let item = StudioExportUserPreset(id: UUID(), name: name, settings: model.project.exportSettings)
+        all.append(item)
+        if let encoded = try? JSONEncoder().encode(all) {
+            savedPresetsData = encoded
+            selectedCustomPreset = item.id
+        }
+    }
+
+    private func updateCustomPreset(_ id: UUID) {
+        var all = savedPresets
+        guard let index = all.firstIndex(where: { $0.id == id }) else { return }
+        all[index].settings = model.project.exportSettings
+        if let encoded = try? JSONEncoder().encode(all) { savedPresetsData = encoded }
+    }
+
+    private func deleteCustomPreset(_ id: UUID) {
+        let all = savedPresets.filter { $0.id != id }
+        if let encoded = try? JSONEncoder().encode(all) {
+            savedPresetsData = encoded
+            selectedCustomPreset = nil
+        }
     }
 
     private var previewImage: ProjectImageRecord? {
@@ -736,7 +876,7 @@ struct ExportWorkspaceView: View {
     private func quickName(_ title: String, _ pattern: String) -> some View {
         Button(title) { model.project.exportSettings.filenameTemplate = pattern }
             .buttonStyle(.bordered)
-            .controlSize(.small)
+            .controlSize(.mini)
     }
 
     private func token(_ value: String) -> some View {

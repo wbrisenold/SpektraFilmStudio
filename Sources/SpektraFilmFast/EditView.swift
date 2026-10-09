@@ -3,7 +3,7 @@ import AppKit
 
 struct EditWorkspaceView: View {
     @ObservedObject var model: AppModel
-    @AppStorage("editFilmstripHeight") private var filmstripHeight = 156.0
+    @AppStorage("editFilmstripHeight") private var filmstripHeight = 132.0
     @State private var filmstripResizeStart: Double?
     @State private var inspectorMode: StudioInspectorMode = .adjust
     @AppStorage("SpektraFilmStudio.designA.showEditorInspector") private var showEditorInspector = true
@@ -12,34 +12,66 @@ struct EditWorkspaceView: View {
     @State private var quickExportRequest: QuickExportRequest?
 
     var body: some View {
-        HStack(spacing: 0) {
-            if model.isPresetSidebarVisible {
-                PresetBrowserView(model: model)
-                    .frame(width: StudioLayout.presetSidebarWidth)
+        ZStack(alignment: .top) {
+            StudioPalette.canvas
 
-                Divider().opacity(0.65)
-            }
+            // Redlamp's stage-inset principle: the underlying editor occupies the
+            // whole workspace; panels overlay the stage rather than HSplitView
+            // resizing the renderer when they are shown or hidden.
+            PreviewView(model: model)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.top, 45)
+                .padding(.leading, model.isPresetSidebarVisible
+                    ? StudioLayout.presetSidebarWidth + 2 * StudioLayout.paneInset
+                    : StudioLayout.paneInset)
+                .padding(.trailing, showEditorInspector
+                    ? StudioLayout.editorInspectorWidth + 2 * StudioLayout.paneInset
+                    : StudioLayout.paneInset)
+                .padding(.bottom, showFilmstrip && !model.project.images.isEmpty
+                    ? clampedFilmstripHeight + StudioLayout.paneInset * 2
+                    : StudioLayout.paneInset)
 
             VStack(spacing: 0) {
                 editorToolbar
-                PreviewView(model: model)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Spacer(minLength: 0)
                 if showFilmstrip && !model.project.images.isEmpty {
-                    Divider().opacity(0.45)
                     filmstrip
+                        .studioGlassPane()
+                        .padding(.horizontal, StudioLayout.paneInset)
+                        .padding(.bottom, StudioLayout.paneInset)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if showEditorInspector {
-                Divider().opacity(0.45)
-                EditorInspectorView(model: model, mode: $inspectorMode, scopesVisible: $showScopes)
-                    .frame(width: StudioLayout.editorInspectorWidth)
+            HStack(alignment: .top, spacing: 0) {
+                if model.isPresetSidebarVisible {
+                    PresetBrowserView(model: model)
+                        .frame(width: StudioLayout.presetSidebarWidth)
+                        .frame(maxHeight: .infinity)
+                        .studioGlassPane()
+                }
+                Spacer(minLength: 0)
+                if showEditorInspector {
+                    EditorInspectorView(model: model, mode: $inspectorMode, scopesVisible: $showScopes)
+                        .frame(width: StudioLayout.editorInspectorWidth)
+                        .frame(maxHeight: .infinity)
+                        .studioGlassPane()
+                }
             }
+            .padding(.horizontal, StudioLayout.paneInset)
+            .padding(.top, 45 + StudioLayout.paneInset)
+            .padding(.bottom, showFilmstrip && !model.project.images.isEmpty
+                ? clampedFilmstripHeight + 2 * StudioLayout.paneInset
+                : StudioLayout.paneInset)
         }
         .background(StudioPalette.canvas)
         .sheet(item: $quickExportRequest) { request in
             QuickExportSheet(model: model, imageID: request.id)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: StudioOmniEvents.focusAdjustment)) { note in
+            guard let name = note.object as? String,
+                  let item = BridgeCatalog.shared.parameters.first(where: { $0.name == name }) else { return }
+            inspectorMode = ["raw", "tone", "geometry", "lens"].contains(item.group) ? .adjust : .film
+            showEditorInspector = true
         }
         .onChange(of: model.activeLocalGradeID) { _, id in
             if id != nil { inspectorMode = .masks }
@@ -86,8 +118,8 @@ struct EditWorkspaceView: View {
         .buttonStyle(.borderless)
         .controlSize(.small)
         .padding(.horizontal, 12)
-        .frame(height: 35)
-        .background(StudioPalette.panel)
+        .frame(height: 37)
+        .background(StudioPalette.panel.opacity(0.74))
     }
 
     private var clampedFilmstripHeight: CGFloat {

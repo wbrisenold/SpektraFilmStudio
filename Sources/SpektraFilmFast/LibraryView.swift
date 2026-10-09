@@ -32,6 +32,7 @@ struct LibraryWorkspaceView: View {
             } else {
                 HSplitView {
                     sidebar.frame(minWidth: 170, idealWidth: 190, maxWidth: 235)
+                        .padding(StudioLayout.paneInset).studioGlassPane()
                     VStack(spacing: 0) {
                         toolbar
                         Divider()
@@ -39,6 +40,7 @@ struct LibraryWorkspaceView: View {
                     }
                     if showLibraryInspector {
                         inspector.frame(minWidth: 230, idealWidth: 270, maxWidth: 330)
+                            .padding(StudioLayout.paneInset).studioGlassPane()
                     }
                 }
             }

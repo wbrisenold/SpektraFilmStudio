@@ -66,7 +66,7 @@ struct PresetBrowserView: View {
                 Text("Hover = live preview · Click = apply").font(.caption2).foregroundStyle(.secondary)
             }.padding(.horizontal, 10).frame(height: 38)
         }
-        .background(StudioPalette.panel)
+        .background(StudioPalette.panel.opacity(0.12))
         .sheet(isPresented: $showingSaveSheet) {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Save Current Look").font(.title3.weight(.semibold))

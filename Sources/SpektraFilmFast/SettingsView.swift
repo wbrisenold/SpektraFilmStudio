@@ -4,6 +4,8 @@ import Foundation
 struct SettingsView: View {
     @ObservedObject var model: AppModel
     @AppStorage(EditorPanelVisibilityStore.key) private var hiddenEditorPanels = ""
+    @AppStorage("SpektraFilmStudio.ui.glassEnabled") private var glassEnabled = true
+    @AppStorage("SpektraFilmStudio.ui.glassTransparency") private var glassTransparency = 0.60
     private let editorCatalog = BridgeCatalog.shared
 
     var body: some View {
@@ -23,6 +25,18 @@ struct SettingsView: View {
 
     private var generalTab: some View {
         Form {
+            Section("Appearance") {
+                Toggle("Transparent glass panels", isOn: $glassEnabled)
+                HStack {
+                    Text("Glass transparency")
+                    Slider(value: $glassTransparency, in: 0...0.90)
+                        .disabled(!glassEnabled)
+                    Text("\(Int((glassTransparency * 100).rounded()))%")
+                        .monospacedDigit().foregroundStyle(.secondary).frame(width: 44)
+                }
+                Text("Uses native Liquid Glass on macOS 26 and material panels on older systems. Accessibility Reduce Transparency always takes precedence. The photo canvas stays color-neutral.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Preview") {
                 LabeledContent("Edit proxy") {
                     Text("1080 px · live + idle")

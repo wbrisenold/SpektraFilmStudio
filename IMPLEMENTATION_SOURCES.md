@@ -291,3 +291,56 @@ physics kernels at half size with physical pixel size adjusted accordingly; its
 fine scatter core stays full size. Grain preview policy changes only a transient
 look, preserving the selected saved/export model. Reduced diffusion and alternate
 scanner blur candidates were rejected; their code is not enabled or shipped here.
+
+
+### Export interface design (2026-10-09)
+
+The native SpektraFilmStudio Export Workspace and Quick Export sheet were redesigned
+using the *interaction model* and structured export settings from Redlamp's
+MPL-2.0 export implementation as a design reference (no Redlamp Swift source copied).
+Reference: https://github.com/pdcgomes/redlamp/tree/d8a892a259ccdaa12f1041ff01f88ce8e7ce68af/packages/RedlampUI/Sources/Export
+Unlike Redlamp, this application retains its existing JPEG/HEIC/TIFF output
+capabilities, no-overwrite policy, batch queue and Spektrafilm rendering engine.
+User-defined export presets are stored in local app preferences.
+
+### Studio-wide UI design reference (2026-10-09)
+Redlamp's editing surface, navigation, compact controls and panel geometry are
+used as reference; pdcgomes/redlamp at d8a892a259ccdaa12f1041ff01f88ce8e7ce68af,
+MPL-2.0: https://github.com/pdcgomes/redlamp .
+
+### Native glass, omnibox and Scene Intelligence (2026-10-09)
+
+UI patterns studied from Redlamp's `EditorSplitViewController.swift`, `ThemeSettings.swift`,
+`CommandPaletteView.swift`, `PaletteCatalog.swift` and `SearchMatcher.swift`, reference
+`d8a892a259ccdaa12f1041ff01f88ce8e7ce68af` (MPL-2.0):
+https://github.com/pdcgomes/redlamp
+This implementation is original SwiftUI/AppKit code. No Redlamp source file has been
+copied. On macOS 26 it uses Apple's SwiftUI `glassEffect`, with material fallback on
+macOS 15. The on-device scene model uses Apple Vision image feature prints and image
+classification. Stock/paper choices reference the unchanged, pinned Spektrafilm native
+catalog by index and use transparent rules, NOT an upstream film-trained model.
+No online AI services or licensing weights are bundled.
+
+### Direct Redlamp source port (MPL-2.0)
+
+The following **real upstream code** was ported from `pdcgomes/redlamp` commit
+`d8a892a259ccdaa12f1041ff01f88ce8e7ce68af` under Mozilla Public License 2.0.
+Reproduced with namespace/host-integration edits in the listed files:
+
+- `Sources/SpektraFilmFast/RedlampPortedUI.swift`: original `FloatingPane`
+  (`packages/RedlampUI/Sources/Editor/EditorView.swift`), `Metrics`
+  (`packages/RedlampDesign/Sources/Tokens/Metrics.swift`), `PaletteMetrics`
+  (`packages/RedlampUI/Sources/CommandPalette/CommandPaletteView.swift`),
+  and `PaletteQueryField`/`PaletteTextField`
+  (`packages/RedlampUI/Sources/CommandPalette/PaletteQueryField.swift`).
+- `Sources/SpektraFilmFast/RedlampSearchMatcher.swift`: original `SearchMatcher`
+  (`packages/RedlampUI/Sources/Model/SearchMatcher.swift`).
+
+Upstream source: https://github.com/pdcgomes/redlamp/tree/d8a892a259ccdaa12f1041ff01f88ce8e7ce68af
+License copy: `THIRD_PARTY/Redlamp-Design/LICENSE-MPL-2.0.txt`.
+
+SpektraFilmStudio-specific glue in `StudioUI`, `EditView`, `ControlsView`,
+`PresetBrowserView` and `StudioOmniSearch` is a host adaptation. The existing
+Spektrafilm renderer, Native/, stock/print index and user project formats are
+unchanged. macOS 26 gets Redlamp's ConcentricRectangle Liquid Glass; older
+macOS uses a material fallback, with Reduce Transparency taking precedence.

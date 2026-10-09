@@ -109,6 +109,11 @@ struct SpektraCommands: Commands {
             Button("Save Project") { model.saveProject() }.keyboardShortcut("s")
             Button("Save Project As…") { model.saveProject(asNew: true) }.keyboardShortcut("s", modifiers: [.command, .shift])
         }
+        CommandMenu("Find") {
+            Button("Omni Search…") {
+                NotificationCenter.default.post(name: StudioOmniEvents.open, object: nil)
+            }.keyboardShortcut("k", modifiers: [.command])
+        }
         CommandMenu("Cloud Library") {
             Button("Import Lightroom Catalog to iCloud…") { model.importLightroomCatalogToICloud() }
             Button("Move Current Library to iCloud…") { model.moveCurrentLibraryToICloud() }

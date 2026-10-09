@@ -42,6 +42,7 @@ struct CullWorkspaceView: View {
                 viewer.frame(minWidth: 500)
                 if showCullInspector {
                     inspector.frame(minWidth: 270, idealWidth: 310, maxWidth: 380)
+                        .padding(StudioLayout.paneInset).studioGlassPane()
                 }
             }
 

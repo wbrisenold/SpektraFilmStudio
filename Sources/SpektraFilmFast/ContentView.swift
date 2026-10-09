@@ -7,6 +7,8 @@ struct ContentView: View {
     @ObservedObject var model: AppModel
     @ObservedObject private var frameState: PreviewFrameState
     @State private var showingCloudTransfer = false
+    @State private var showingOmni = false
+    @State private var showingSceneAssistant = false
 
     init(model: AppModel) {
         self.model = model
@@ -24,12 +26,27 @@ struct ContentView: View {
             statusBar
         }
         .background(StudioPalette.canvas)
-        .frame(minWidth: 1024, minHeight: 650)
+        .overlay(alignment: .top) {
+            if showingOmni {
+                StudioOmniSearch(model: model, isPresented: $showingOmni)
+                    .zIndex(100)
+            }
+        }
+        .frame(minWidth: 1080, minHeight: 650)
         .sheet(isPresented: $model.showingLightroomImportWizard) {
             StudioImportWizard(model: model, preferredSource: "Lightroom Classic")
         }
         .sheet(isPresented: $showingCloudTransfer) {
             NativeCloudTransferView(model: model)
+        }
+        .sheet(isPresented: $showingSceneAssistant) {
+            StudioSceneAssistantView(model: model)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: StudioOmniEvents.openSceneAssistant)) { _ in
+            showingSceneAssistant = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: StudioOmniEvents.open)) { _ in
+            showingOmni.toggle()
         }
         .onChange(of: model.page) { _, newPage in
             model.workspaceDidChange(newPage)
@@ -63,87 +80,97 @@ struct ContentView: View {
 
     private var topToolbar: some View {
         HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text("SPEKTRAFILM")
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .tracking(1.3)
-                    .foregroundStyle(.secondary)
-                Text(model.project.name)
-                    .font(.system(size: 12, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .frame(maxWidth: 140, alignment: .leading)
-            .help("Current project. Choose Home to browse recent projects")
-
             Button {
                 model.page = .library
                 model.showProjectHome = true
             } label: {
-                Label("Home", systemImage: "house")
-                    .font(.system(size: 12, weight: .medium))
+                HStack(spacing: 9) {
+                    SpektraApplicationIconView()
+                        .frame(width: 27, height: 27)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("SPEKTRAFILM")
+                            .font(.system(size: 10, weight: .semibold))
+                            .tracking(1.0)
+                        Text(model.project.name)
+                            .font(StudioType.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+                .foregroundStyle(.primary)
+                .frame(maxWidth: 196, alignment: .leading)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(.plain)
             .help("Home · New, Open and Recent Projects")
             .accessibilityLabel("Home and recent projects")
-            .accessibilityAddTraits(model.showProjectHome && model.page == .library ? [.isSelected] : [])
 
-            Spacer(minLength: 6)
+            Spacer(minLength: 4)
 
             HStack(spacing: 2) {
                 ForEach(WorkspacePage.allCases) { page in
+                    let selected = model.page == page && !model.showProjectHome
                     Button {
-                        // Library is distinct from Home even when already selected.
                         model.showProjectHome = false
                         model.page = page
                     } label: {
                         Text(page.title)
-                            .font(.system(size: 12, weight: model.page == page && !model.showProjectHome ? .semibold : .regular))
-                            .foregroundStyle(model.page == page && !model.showProjectHome ? .primary : .secondary)
-                            .padding(.horizontal, 13)
+                            .font(.system(size: 11, weight: selected ? .semibold : .medium))
+                            .foregroundStyle(selected ? .primary : .secondary)
+                            .padding(.horizontal, 14)
                             .frame(height: 29)
-                            .background(
-                                model.page == page && !model.showProjectHome ? StudioPalette.selected : Color.clear,
-                                in: RoundedRectangle(cornerRadius: 6)
-                            )
+                            .background(selected ? StudioPalette.selected : Color.clear,
+                                        in: RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)
-                    .accessibilityAddTraits(model.page == page && !model.showProjectHome ? [.isSelected] : [])
+                    .accessibilityAddTraits(selected ? [.isSelected] : [])
                 }
             }
-            .padding(3)
-            .background(Color.clear)
+            .padding(4)
+            .background(StudioPalette.recessed,
+                        in: RoundedRectangle(cornerRadius: 11))
+            .overlay {
+                RoundedRectangle(cornerRadius: 11)
+                    .strokeBorder(StudioPalette.subtleBorder, lineWidth: 0.5)
+            }
             .accessibilityLabel("Workspace")
 
-            Spacer(minLength: 6)
+            Spacer(minLength: 4)
+
+            Button {
+                showingOmni = true
+            } label: {
+                Label("Search", systemImage: "magnifyingglass")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .help("Omni Search · ⌘K")
 
             Button {
                 showingCloudTransfer = true
             } label: {
-                Label("Cloud Setup…", systemImage: "icloud.and.arrow.up")
+                Image(systemName: "icloud")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .help("Configure Lightroom, Oracle transfer and iCloud in SpektraFilm")
+            .buttonStyle(.borderless)
+            .help("Cloud library, Lightroom and transfer settings")
+            .accessibilityLabel("Cloud Setup")
 
             if model.isIngesting {
                 ProgressView(value: model.ingestProgress)
-                    .frame(width: 64)
+                    .frame(width: 55)
                     .help(model.ingestStatus)
             }
-
             if model.isExporting {
                 ProgressView()
                     .controlSize(.mini)
                     .help("Export in progress")
             }
-
             if model.page == .library && !model.project.images.isEmpty {
                 Button {
                     model.importImages()
                 } label: {
-                    Label("Import Photos…", systemImage: "plus")
+                    Label("Import", systemImage: "plus")
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
@@ -153,12 +180,12 @@ struct ContentView: View {
                 } label: {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderedProminent)
                 .controlSize(.small)
             }
         }
-        .padding(.horizontal, 14)
-        .frame(height: 45)
+        .padding(.horizontal, 15)
+        .frame(height: 51)
         .background(StudioPalette.panel)
     }
 
