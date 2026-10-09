@@ -4127,6 +4127,11 @@ final class AppModel: ObservableObject {
             interactiveBaselineTask?.cancel()
             cacheStatus = "Critical memory pressure · full-resolution/transient buffers released"
         }
+        if level != .normal {
+            Task { [exactRenderer] in
+                await exactRenderer?.releaseTransientResources()
+            }
+        }
         Task { [decoder, thumbnails] in
             await decoder.handleMemoryPressure(level)
             await thumbnails.handleMemoryPressure(level)
@@ -5199,7 +5204,7 @@ final class AppModel: ObservableObject {
                 let (filmOutput, renderDiagnostics) =
                     try await exactRenderer.render(
                         renderInput,
-                        look: exportLook
+                        look: exportLook, useDensityLuts: false, useStageCache: false
                     )
                 timings.renderMs = Self.msSince(renderStarted)
                 timings.renderGpuMs = renderDiagnostics.commandBufferMs

@@ -68,8 +68,9 @@ require("decodeInteractiveWhiteBalance" in decoder, "WB still lacks no-redecode 
 require("reusableCachedBuffer" in decoder and "reusableInFlightTask" in decoder and "resized(longEdge:" in decoder, "interactive decode/in-flight reuse/downscale missing")
 require("vImageScale_ARGBFFFF" in interaction, "Accelerate float downscale missing")
 require("vImageMatrixMultiply_ARGBFFFF" in interaction, "interactive WB is not vectorized with Accelerate")
-for token in ["grainEnabled", "halationEnabled", "cameraDiffusionEnabled", "printDiffusionEnabled", "scannerEnabled", "dirCouplersAmount"]:
+for token in ["fastSpatial", "grainModel", "grainSublayersEnabled", "dirCouplersDiffusionUm", "dirCouplersDiffusionTailUm"]:
     require(token in interaction, f"interactive bypass policy missing {token}")
+require('setScalar("dirCouplersAmount", 0' not in interaction, "interactive DIR chemistry must remain enabled")
 require("input.pixels.withUnsafeBytes" in native, "native renderer still copies source array")
 require("var sourcePixels = input.pixels" not in native, "full source COW copy returned")
 require("makeFloatImagePayload" in native and "Task.detached(priority: .userInitiated)" in app, "float preview packaging still blocks main actor")
@@ -296,7 +297,7 @@ require("sourceFileSize" in models and "sourceModificationTime" in models, "sour
 require("Exposure Warning" in settings and "final rendered image" in settings and "SpektraFilm stock/print processing" in settings, "settings do not disclose final-render diagnostic semantics")
 
 # Regression gates for v0.6.8 live-render/mask/export failures.
-require("applyingHostGrade(tone: request.look.tone" in app, "settled preview drops RAW Develop host tone")
+require("applyingHostAndFilmGrade(tone: request.look.tone" in app, "settled preview drops RAW Develop host tone")
 require("applyingHostGrade(tone: nil" not in app, "settled preview still discards RAW Develop host tone")
 proxy_block = app.split("private func publishInteractiveProxy",1)[1].split("private func schedulePreviewRenderAfterIdle",1)[0]
 require("requestEditorScopeUpdate()" in proxy_block, "false color/scopes do not follow the live slider proxy")

@@ -11,7 +11,12 @@ links into its app executable.
 
 These files are based on that pinned commit. A local host adaptation in
 `SpektraMetalRenderer.mm` selects a discrete Metal GPU where available; the
-spectral shader equations and generated profile curves are unchanged. Other
+generated profile curves are unchanged. The export LUT adaptation samples the
+existing enlarger and scanner equations into one FLOAT32 density-to-RGB table on the GPU.
+`Native/generated/SpektraDensityLutShader.h` contains the needed GPLv3 shader
+helpers from the same pinned source, plus local cubic B-spline interpolation
+and baking kernels. Color matrices and scanner correction are baked;
+near-zero/out-of-domain pixels and bleach-bypass looks retain the spectral calculation. Other
 bridge hardening changes are recorded in the repository history.
 This project is GPLv3 (see the root `LICENSE`), and the native core is GPLv3, so
 vendoring it is license-compatible.

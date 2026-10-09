@@ -18,6 +18,23 @@ Built around [Andrea Volpato’s spektrafilm](https://github.com/andreavolpato/s
 
 Save work in any older running copy before quitting it and launching a newly built app.
 
+## Faster editing
+
+Unchanged film development is reused automatically when changing printing or scanning
+controls. This is an exact GPU cache, bounded to 256 MiB and released on memory pressure.
+It benefits repeat preview edits; full-resolution exports bypass it.
+
+**FILM → Fast halation** uses half-resolution buffers for broad glow while keeping the
+fine scatter core full size. **FILM → Negative → Fast DIR color** retains DIR chemistry
+and skips its spatial diffusion. Both choices are saved with the photo and apply to
+preview and export; they can change fine edges. During slider movement, grain uses its
+lightweight preview model while the selected export grain model remains unchanged.
+
+Camera/print diffusion and scanner processing retain their original GPU kernels:
+the tested alternatives did not pass quality checks. Experimental spectral LUTs are
+also disabled in normal exports because they were slower on the tested Radeon.
+Measurements and limitations are in [rendering research](docs/RENDERING_RESEARCH.md).
+
 ## Library and import
 
 ![Library selection, folders and import controls](docs/screenshots/library.png)
@@ -107,3 +124,5 @@ Studio is developed openly with substantial AI-assisted iteration. Report reprod
 Studio source is GPL-3.0. Respect the original spektrafilm source and separate profile/data terms, [citation](https://github.com/andreavolpato/spektrafilm/blob/main/CITATION.cff), [NOTICE](NOTICE.md), dependency licenses and pretrained-weight licenses. SAM 2.1 Tiny’s Apache-2.0 license ships with its models. A project’s source-code license does not automatically license every model or dataset.
 
 Film → Finish provides Redlamp’s actual procedural light leaks, dust, scratches, keyline, white-print, 35 mm rebate and slide-mount frames. Settings are saved with each edit and applied after cropping on the GPU.
+
+![Film controls and optional fast halation](docs/screenshots/film-performance.png)

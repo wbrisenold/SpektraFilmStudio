@@ -51,6 +51,12 @@ struct ControlsView: View {
                 .pickerStyle(.segmented).padding(.horizontal, 9).padding(.top, 8)
             }
             if mode == .film {
+                Toggle("Fast halation", isOn: Binding(
+                    get: { model.selectedLook.values["fastSpatial"] == .bool(true) },
+                    set: { model.setParameter("fastSpatial", value: .bool($0), interactive: false) }
+                ))
+                .help("Calculates broad halation at half resolution, keeping its fine core full size. Diffusion, scanner processing and selected export grain retain their original kernels. Saved for preview and export.")
+                .padding(.horizontal, 12).padding(.top, 8)
                 Picker("Film workflow", selection: $filmStage) {
                     Text("Stock").tag("stock")
                     Text("Negative").tag("negative")
@@ -81,6 +87,14 @@ struct ControlsView: View {
                             }
                         }
                     } else if mode == .film {
+                        if filmStage == "negative" {
+                            Toggle("Fast DIR color", isOn: Binding(
+                                get: { model.selectedLook.values["fastDIR"] == .bool(true) },
+                                set: { model.setParameter("fastDIR", value: .bool($0), interactive: false) }
+                            ))
+                            .help("Keeps DIR color chemistry and skips spatial diffusion. Applies to preview and export; fine edge contrast may change.")
+                            .padding(12)
+                        }
                         if filmStage == "finish" { FilmEffectsPanel(model: model) }
                         Text("FILM PROCESS")
                             .font(.system(size: 10, weight: .semibold))

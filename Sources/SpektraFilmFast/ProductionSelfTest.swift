@@ -54,7 +54,80 @@ struct ProductionSelfTest {
                 fputs("SELFTEST FAIL: renderer produced invalid or trivial output\n", stderr)
                 return 22
             }
-            try runExportRoundTrip(output, look: look)
+            let (cachedOutput, cachedDiagnostics) = try await renderer.render(input, look: look)
+            guard cachedOutput.pixels == output.pixels,
+                  cachedDiagnostics.passCount < diagnostics.passCount else {
+                throw RendererError.renderFailed("Film stage cache changed pixels or failed reuse")
+            }
+            var printLook=look
+            printLook.values["printExposureEv"] = .scalar(0.3)
+            let (reusedPrint, _) = try await renderer.render(input, look: printLook)
+            let (uncachedPrint, _) = try await renderer.render(input, look: printLook, useStageCache: false)
+            guard reusedPrint.pixels == uncachedPrint.pixels else {
+                throw RendererError.renderFailed("Print edit stage cache parity failed")
+            }
+            var grainLook=look
+            grainLook.values["grainEnabled"] = .bool(true)
+            grainLook.values["grainModel"] = .int(2)
+            let interactive=InteractiveRenderPolicy.previewLook(from: grainLook, changedParameter: "filterMShift", rawField: nil)
+            guard interactive.values["grainEnabled"] == .bool(true),
+                  interactive.values["grainModel"] == .int(0),
+                  interactive.values["fastSpatial"] == .bool(true),
+                  grainLook.values["grainModel"] == .int(2) else {
+                throw RendererError.renderFailed("Interactive grain changed saved export model")
+            }
+            print("STAGE CACHE / INTERACTIVE GRAIN PASS: exact reuse, print edits, export model preserved")
+            var haloLook=look
+            haloLook.values["halationEnabled"] = .bool(true)
+            haloLook.values["halationScale"] = .scalar(14)
+            haloLook.values["scatterScale"] = .scalar(16)
+            let (referenceHalo, referenceHaloDiagnostics) = try await renderer.render(input, look: haloLook, useStageCache: false)
+            haloLook.values["fastSpatial"] = .bool(true)
+            let savedHalo = try JSONDecoder().decode(RenderLook.self, from: JSONEncoder().encode(haloLook))
+            let (fastHalo, fastHaloDiagnostics) = try await renderer.render(input, look: savedHalo, useStageCache: false)
+            var haloMaximum=0.0
+            for i in referenceHalo.pixels.indices {
+                guard fastHalo.pixels[i].isFinite else { throw RendererError.renderFailed("Non-finite fast halation") }
+                if i % 4 == 3 {
+                    guard fastHalo.pixels[i] == referenceHalo.pixels[i] else { throw RendererError.renderFailed("Fast halation changed alpha") }
+                } else {
+                    haloMaximum=max(haloMaximum,Double(abs(fastHalo.pixels[i]-referenceHalo.pixels[i]))/max(1,Double(abs(referenceHalo.pixels[i]))))
+                }
+            }
+            guard haloMaximum <= 0.03, fastHaloDiagnostics.passCount > referenceHaloDiagnostics.passCount else {
+                throw RendererError.renderFailed("Fast halation quality/path gate failed: \(haloMaximum)")
+            }
+            print("FAST HALATION PASS: saved setting, reduced GPU path, full-size core, maximum error \(haloMaximum)")
+            var fastLook = look
+            fastLook.values["fastDIR"] = .bool(true)
+            let restored = try JSONDecoder().decode(RenderLook.self, from: JSONEncoder().encode(fastLook))
+            var explicitLook = look
+            explicitLook.values["dirCouplersDiffusionUm"] = .scalar(0)
+            explicitLook.values["dirCouplersDiffusionTailUm"] = .scalar(0)
+            let (fastOutput, fastDiagnostics) = try await renderer.render(input, look: restored)
+            let (explicitOutput, _) = try await renderer.render(input, look: explicitLook)
+            guard fastOutput.pixels == explicitOutput.pixels,
+                  fastDiagnostics.passCount < diagnostics.passCount else {
+                throw RendererError.renderFailed("Fast DIR persistence/chemistry bypass failed")
+            }
+            print("FAST DIR SELFTEST PASS: saved mode matches explicit non-spatial chemistry, fewer GPU passes")
+            let (lutOutput, _) = try await renderer.render(input, look: look, useDensityLuts: true)
+            var lutMaximum = 0.0
+            var lutSquaredError = 0.0
+            for i in output.pixels.indices where i % 4 != 3 {
+                let actual = Double(lutOutput.pixels[i])
+                let expected = Double(output.pixels[i])
+                guard actual.isFinite else { throw RendererError.renderFailed("Non-finite density LUT output") }
+                let error = abs(actual - expected) / max(1, abs(expected))
+                lutMaximum = max(lutMaximum, error)
+                lutSquaredError += error * error
+            }
+            let lutRMS = sqrt(lutSquaredError / Double(width * height * 3))
+            guard lutMaximum <= 0.002, lutRMS <= 0.0001 else {
+                throw RendererError.renderFailed("Density LUT parity failed: max \(lutMaximum), RMS \(lutRMS)")
+            }
+            print("DENSITY LUT SELFTEST PASS: maximum \(lutMaximum), RMS \(lutRMS)")
+            try runExportRoundTrip(lutOutput, look: look)
             print(String(format: "SELFTEST PASS: Metal %.2f ms, %u passes", diagnostics.commandBufferMs, diagnostics.passCount))
             return 0
         } catch {

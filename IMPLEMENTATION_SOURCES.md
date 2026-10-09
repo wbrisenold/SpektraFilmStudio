@@ -260,3 +260,34 @@ Apple conversion: https://huggingface.co/apple/coreml-sam2.1-tiny at revision `3
 ### Redlamp film finish
 
 Light leaks, dust, scratches, hash/noise helpers and four frame styles are directly ported from `packages/RedlampKernels/Sources/Shaders/Develop.metal` at Redlamp commit `0ed3a59211e4128111f2c8ba11bc5d249b0cb8dd`, under MPL-2.0. `RedlampFilmEffectsEngine.swift` retains those shader functions; the local adapter adds GPU dispatch, native-output transfer handling, saved settings and a Film Finish panel. These effects do not replace the spectral film renderer. Source: https://github.com/pdcgomes/redlamp/blob/0ed3a59211e4128111f2c8ba11bc5d249b0cb8dd/packages/RedlampKernels/Sources/Shaders/Develop.metal
+
+### Experimental spectral LUT path (2026-10-08)
+
+An opt-in native test path bakes one 129³ FLOAT32 film-density → linear-output RGB
+texture using the original pinned OFX equations. GPU cubic B-spline interpolation
+uses eight filtered samples; near-zero channels and out-of-domain densities use
+original GPU equations. Spatial/stochastic stages remain separate. Embedded MSL
+is adapted GPLv3 source from OFX revision 8f6651858f439a99b7202b4b8dea59e344dadf5d.
+The Python LUT creator informed the boundary, but is not a bundled dependency.
+Automatic LUT export is disabled: the Radeon benchmark was slower than native.
+
+Fast DIR color is a saved host setting that zeros only DIR diffusion radii,
+retaining inhibition/channel chemistry. It applies to preview and export.
+Existing projects retain their original diffusion until enabled. Interactive
+previews now retain chemistry while bypassing diffusion rather than disabling DIR.
+
+### Exact GPU stage reuse and fast halation (2026-10-08)
+
+Local host code in SpektraMetalRenderer.mm caches developed film density and,
+for smaller preview frames, the linear RGB before scanner processing. Complete
+source bytes and conservative upstream keys (including the DIR matrix) establish
+identity; downstream printing/scanner settings are excluded only at their correct
+boundary. Cache publication follows successful GPU completion. It is bounded,
+released under memory pressure and disabled for exports/external asynchronous buffers.
+
+SpektraSpatialShader.h contains local GPU box reduction, bilinear reconstruction
+and bit-preserving stage-copy kernels. Broad halation uses the original pinned
+physics kernels at half size with physical pixel size adjusted accordingly; its
+fine scatter core stays full size. Grain preview policy changes only a transient
+look, preserving the selected saved/export model. Reduced diffusion and alternate
+scanner blur candidates were rejected; their code is not enabled or shipped here.

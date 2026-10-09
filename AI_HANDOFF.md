@@ -314,3 +314,43 @@ There is no GitHub Actions release requirement in this package. Local Mac build 
 - Direct MPL-2.0 Redlamp light-leak, dust, scratch and frame shader functions are in RedlampFilmEffectsEngine.swift; Film → Finish exposes saved controls. Standalone Radeon execution passed four frames, leak/dust/scratch presence and repeatability. Full application tests remain required before pushing.
 - Cull filter controls use an expandable adaptive grid; mask creation/maintenance controls have separate rows; per-person face choices, GPU additive/subtractive paint and 22 built-in presets are provided. Skin diagnostics follow crop/geometry. Album removal preserves originals/library membership.
 - Final source gates, optimized Intel build, GUI smoke tests, optional-model matrix and reconciled application bundle must be rerun after the last edits. Dirty work has not been pushed; ed3fa659850d5f4db66b713aa4079d743eb484a3 is the last verified remote HEAD.
+
+## 2026-10-08 Fast DIR and experimental LUT follow-up
+
+Basis: 6955acafc4592756ae0a1aa296414ebaf656a9a5 (patch6: async file picker integration).
+Fast DIR color is saved per look under values.fastDIR, defaults off for compatibility,
+and bypasses only spatial DIR diffusion in both preview/export. Interactive policy
+now preserves DIR chemistry. Experimental density LUT remains disabled in exports:
+6MP Radeon measurements were slower than original GPU equations. Both 25-case
+native GPU LUT matrices passed. See docs/RENDERING_RESEARCH.md for measured values.
+
+Build Issues Encountered: no new Swift type-check errors. Source QA initially failed
+because it required the removed whole-DIR bypass; updated to require diffusion-only
+bypass. A pre-existing stale QA assertion named applyingHostGrade despite the code
+already using applyingHostAndFilmGrade; corrected the assertion.
+Validation: Intel release build PASS (214.38 s, zero warnings); app self-test
+PASS including Fast DIR persistence/parity, LUT parity, four export formats,
+GPU grade/brush and cache checks. Picker smoke PASS including project open/save
+and malformed-document preservation. Source gate and QA 10/10 PASS.
+
+## 2026-10-08 exact stage caching and spatial follow-up
+
+Same basis: 6955acafc4592756ae0a1aa296414ebaf656a9a5. Adds bounded exact GPU
+film/scanner-input caches, memory-pressure release, saved Fast halation, transient
+preview grain, and native-archive relink fingerprints. Exports bypass stage caches.
+Reduced camera/print diffusion and alternate scanner blur failed quality checks
+and were removed; original kernels remain. Fast halation is opt-in. Details and
+fixture measurements: docs/RENDERING_RESEARCH.md.
+
+Validation so far: optimized Intel release build 185.34 s, zero warnings;
+native-only relink 2.40 s. Updated app self-test PASS (stage cache, grain policy,
+saved fast halation/DIR, LUT parity, GPU grades/brushes, caches and four export
+formats). Cache matrix 25/25 pixel-identical; spatial matrix 25/25, odd width and
+large-radius exact path included. Source gates and GUI smoke are rerun below.
+
+Build Issues Encountered: introduced C++ cache key initially used RenderParams
+scanner field names in KernelParams; corrected to scannerBlurSigmaPx and
+scannerUnsharpSigmaPx before the final build. No remaining compiler errors.
+A native-only relink dependency omission was found and fixed in build_app.sh.
+
+Final follow-up: source/production QA 10/10 PASS; picker GUI smoke PASS; UX screenshot smoke PASS. LUT matrix 25/25 PASS. Original diffusion and scanner retained after alternative quality/performance checks. Film inspector screenshot: docs/screenshots/film-performance.png.

@@ -72,7 +72,16 @@ if [[ " $NATIVE_ARCHS " != *" x86_64 "* ]]; then
 fi
 
 SCRATCH="$ROOT/.build/swift-x86_64"
+# SwiftPM does not track archives supplied through linker flags as build inputs.
+# Remove only the product when either native archive changes, forcing a fresh link.
+LINK_INPUT_SHA="$(shasum -a 256 "$NATIVE_LIB" "$ROOT/.build/spektrastudio-core/x86_64-apple-darwin/release/libspektrastudio_core.a" | shasum -a 256 | awk '{print $1}')"
+LINK_STAMP="$SCRATCH/native-link.sha256"
+BIN_DIR="$(swift build -c release --arch x86_64 --scratch-path "$SCRATCH" --show-bin-path)"
+if [[ ! -f "$LINK_STAMP" ]] || [[ "$(cat "$LINK_STAMP")" != "$LINK_INPUT_SHA" ]]; then
+  rm -f "$BIN_DIR/SpektraFilmStudio"
+fi
 swift build -c release --arch x86_64 --scratch-path "$SCRATCH" >&2
+printf '%s\n' "$LINK_INPUT_SHA" > "$LINK_STAMP"
 
 # Resolve the actual product path from SwiftPM, never pick the first executable
 # encountered during recursive find (which can select a stale scratch artifact).

@@ -251,6 +251,9 @@ typedef struct SpektraAppParamDescriptor {
 } SpektraAppParamDescriptor;
 
 SpektraRendererRef SpektraRendererCreate(void);
+void SpektraRendererReleaseTransientResources(SpektraRendererRef renderer);
+void SpektraRendererSetPerformanceOptions(SpektraRendererRef renderer, int32_t fastSpatial, int32_t stageCache);
+void SpektraRendererSetDensityLutsEnabled(SpektraRendererRef renderer, int32_t enabled);
 void SpektraRendererDestroy(SpektraRendererRef renderer);
 int32_t SpektraRendererIsAvailable(SpektraRendererRef renderer);
 const char *SpektraRendererLastError(SpektraRendererRef renderer);

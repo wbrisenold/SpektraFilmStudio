@@ -9,8 +9,8 @@ enum RawInteractiveField: Sendable {
 }
 
 /// Interactive rendering is intentionally dependency-aware. While the pointer is down,
-/// unrelated expensive spatial stages are bypassed so core color/tone controls do not pay
-/// for grain/halation/diffusion/scanner work. Mouse-up keeps the live frame; an explicit
+/// broad halation uses reduced GPU intermediates and grain uses its preview model.
+/// Mouse-up keeps the live frame; an explicit
 /// Accurate Preview / 100% / export restores the exact look.
 enum InteractiveRenderPolicy {
     private static let groupByParameter: [String: String] = Dictionary(
@@ -25,45 +25,16 @@ enum InteractiveRenderPolicy {
         var look = exactLook
         let group = rawField != nil ? "raw" : changedParameter.flatMap { groupByParameter[$0] }
 
-        let preserveGrain = group == "grain" || group == "grainSynthesis"
-        let preserveHalation = group == "halation"
-        let preserveDiffusion = group == "diffusion"
-        let preserveScanner = group == "scanner"
-        let preserveDIR = group == "dir"
-
-        if !preserveGrain {
-            setBool("grainEnabled", false, in: &look)
-        } else {
-            // The production/synthesis grain models are intentionally too expensive for
-            // pointer-rate feedback. Use the native preview model while dragging; exact
-            // production grain is restored only for an explicit accurate/full render or export.
-            setInt("grainModel", 0, in: &look)
-            setBool("grainSublayersEnabled", false, in: &look)
-            setInt("grainSubLayerCount", 1, in: &look)
-            setBool("grainAnimate", false, in: &look)
-        }
-
-        if !preserveHalation {
-            setBool("halationEnabled", false, in: &look)
-        }
-
-        if !preserveDiffusion {
-            setBool("cameraDiffusionEnabled", false, in: &look)
-            setBool("printDiffusionEnabled", false, in: &look)
-        } else if let changedParameter {
-            if changedParameter.hasPrefix("cameraDiffusion") {
-                setBool("printDiffusionEnabled", false, in: &look)
-            } else if changedParameter.hasPrefix("printDiffusion") {
-                setBool("cameraDiffusionEnabled", false, in: &look)
-            }
-        }
-
-        if !preserveScanner {
-            setBool("scannerEnabled", false, in: &look)
-        }
-
-        if !preserveDIR {
-            setScalar("dirCouplersAmount", 0, in: &look)
+        // Preserve spatial effects during pointer-rate feedback; use their reduced
+        // GPU path instead of switching the look off. Selected export grain is untouched.
+        setBool("fastSpatial", true, in: &look)
+        setInt("grainModel", 0, in: &look)
+        setBool("grainSublayersEnabled", false, in: &look)
+        setInt("grainSubLayerCount", 1, in: &look)
+        setBool("grainAnimate", false, in: &look)
+        if group != "dir" {
+            setScalar("dirCouplersDiffusionUm", 0, in: &look)
+            setScalar("dirCouplersDiffusionTailUm", 0, in: &look)
         }
 
         return look

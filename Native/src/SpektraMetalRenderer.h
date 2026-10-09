@@ -33,6 +33,8 @@ public:
   const MetalRenderDiagnostics &lastDiagnostics() const override;
   const std::string &lastError() const override;
   void releaseTransientResources() override;
+  void setPerformanceOptions(bool fastSpatial, bool stageCache);
+  void setDensityLutsEnabled(bool enabled);
   bool startGpuTraceCapture(const std::string &path);
   void stopGpuTraceCapture();
 

@@ -529,6 +529,27 @@ SpektraAppDiagnostics SpektraRendererLastDiagnostics(SpektraRendererRef renderer
   return out;
 }
 
+void SpektraRendererReleaseTransientResources(SpektraRendererRef renderer) {
+  if(renderer && renderer->renderer) {
+    auto *metal=dynamic_cast<spektrafilm::MetalRenderer*>(renderer->renderer.get());
+    if(metal)metal->releaseTransientResources();
+  }
+}
+
+void SpektraRendererSetPerformanceOptions(SpektraRendererRef renderer, int32_t fastSpatial, int32_t stageCache) {
+  if(renderer && renderer->renderer) {
+    auto *metal=dynamic_cast<spektrafilm::MetalRenderer*>(renderer->renderer.get());
+    if(metal)metal->setPerformanceOptions(fastSpatial!=0,stageCache!=0);
+  }
+}
+
+void SpektraRendererSetDensityLutsEnabled(SpektraRendererRef renderer, int32_t enabled) {
+  if (renderer && renderer->renderer) {
+    auto *metal = dynamic_cast<spektrafilm::MetalRenderer *>(renderer->renderer.get());
+    if (metal) metal->setDensityLutsEnabled(enabled != 0);
+  }
+}
+
 int32_t SpektraRendererRender(
   SpektraRendererRef renderer,
   const SpektraImageBuffer *source,

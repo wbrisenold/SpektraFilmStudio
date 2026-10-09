@@ -1,5 +1,7 @@
 #include "SpektraMetalRenderer.h"
 #include "SpektraProfileCurves.h"
+#include "SpektraDensityLutShader.h"
+#include "SpektraSpatialShader.h"
 
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
@@ -2719,6 +2721,86 @@ struct MetalRenderer::Impl {
   MetalRenderDiagnostics diagnostics{};
   std::unordered_map<const void *, std::string> pipelineNames;
   std::mutex renderMutex;
+  bool fastSpatial = false;
+  bool stageCacheEnabled = false;
+  std::string filmStageKey;
+  std::string scannerStageKey;
+  id<MTLBuffer> cachedScannerInput=nil;
+  std::vector<unsigned char> filmStageSource;
+  id<MTLBuffer> cachedFilmDensity = nil;
+  id<MTLComputePipelineState> spatialDownPipeline = nil;
+  id<MTLComputePipelineState> spatialUpPipeline = nil;
+  id<MTLComputePipelineState> spatialCopyPipeline = nil;
+  bool prepareSpatialPipelines() {
+    if(spatialDownPipeline && spatialUpPipeline && spatialCopyPipeline) return true;
+    NSError *error=nil;
+    id<MTLLibrary> lib=[device newLibraryWithSource:[NSString stringWithUTF8String:kSpatialMetalSource] options:nil error:&error];
+    if(lib) {
+      spatialDownPipeline=[device newComputePipelineStateWithFunction:[lib newFunctionWithName:@"spatial_down"] error:&error];
+      spatialUpPipeline=[device newComputePipelineStateWithFunction:[lib newFunctionWithName:@"spatial_up"] error:&error];
+      spatialCopyPipeline=[device newComputePipelineStateWithFunction:[lib newFunctionWithName:@"spatial_copy"] error:&error];
+    }
+    if(!spatialDownPipeline || !spatialUpPipeline || !spatialCopyPipeline) {
+      lastError=error?[[error localizedDescription] UTF8String]:"Spatial helper unavailable";return false;
+    }
+    pipelineNames[(__bridge const void*)spatialDownPipeline]="halation reduce";
+    pipelineNames[(__bridge const void*)spatialUpPipeline]="halation restore";
+    pipelineNames[(__bridge const void*)spatialCopyPipeline]="film stage cache copy";
+    return true;
+  }
+  bool densityLutsEnabled = false;
+  id<MTLComputePipelineState> finalDensityLutPipeline = nil;
+  id<MTLComputePipelineState> densityLutToTexturePipeline = nil;
+  id<MTLComputePipelineState> densityLutPrefilterPipeline = nil;
+  id<MTLBuffer> densityLutGrid = nil;
+  id<MTLBuffer> densityLutSamples = nil;
+  id<MTLTexture> densityLutTexture = nil;
+  std::string densityLutKey;
+
+  bool prepareDensityLutPipelines() {
+    if (finalDensityLutPipeline && densityLutToTexturePipeline && densityLutGrid && densityLutSamples && densityLutTexture) return true;
+    NSError *error = nil;
+    MTLCompileOptions *options = [MTLCompileOptions new];
+    options.mathMode = MTLMathModeFast;
+    options.mathFloatingPointFunctions = MTLMathFloatingPointFunctionsFast;
+    id<MTLLibrary> library = [device newLibraryWithSource:
+      [NSString stringWithUTF8String:kDensityLutMetalSource] options:options error:&error];
+    if (!library) { lastError = error ? [[error localizedDescription] UTF8String] : "LUT shader unavailable"; return false; }
+    finalDensityLutPipeline = [device newComputePipelineStateWithFunction:
+      [library newFunctionWithName:@"spektrafilm_final_from_film_density_lut"] error:&error];
+    densityLutToTexturePipeline = [device newComputePipelineStateWithFunction:
+      [library newFunctionWithName:@"spektrafilm_lut_to_texture"] error:&error];
+    densityLutPrefilterPipeline = [device newComputePipelineStateWithFunction:
+      [library newFunctionWithName:@"spektrafilm_lut_prefilter"] error:&error];
+    if (!finalDensityLutPipeline || !densityLutToTexturePipeline || !densityLutPrefilterPipeline) {
+      lastError = error ? [[error localizedDescription] UTF8String] : "LUT pipeline unavailable";
+      return false;
+    }
+    pipelineNames[(__bridge const void *)densityLutPrefilterPipeline] = "spectral LUT prefilter";
+    pipelineNames[(__bridge const void *)finalDensityLutPipeline] = "fused spectral LUT";
+    pipelineNames[(__bridge const void *)densityLutToTexturePipeline] = "spectral LUT texture";
+    constexpr size_t count = 129u*129u*129u;
+    std::vector<float> grid(count*4u,1.f);
+    for (size_t i=0;i<count;++i) {
+      grid[i*4u]=float(i%129u)/32.f-.25f;
+      grid[i*4u+1]=float((i/129u)%129u)/32.f-.25f;
+      grid[i*4u+2]=float(i/(129u*129u))/32.f-.25f;
+    }
+    densityLutGrid = [device newBufferWithBytes:grid.data() length:grid.size()*sizeof(float) options:MTLResourceStorageModeShared];
+    densityLutSamples = [device newBufferWithLength:grid.size()*sizeof(float) options:MTLResourceStorageModePrivate];
+    MTLTextureDescriptor *descriptor=[MTLTextureDescriptor new];
+    descriptor.textureType=MTLTextureType3D;descriptor.pixelFormat=MTLPixelFormatRGBA32Float;
+    descriptor.width=129;descriptor.height=129;descriptor.depth=129;
+    descriptor.storageMode=MTLStorageModePrivate;
+    descriptor.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite;
+    densityLutTexture=[device newTextureWithDescriptor:descriptor];
+    if (!densityLutGrid || !densityLutSamples || !densityLutTexture) {
+      lastError="Not enough GPU memory for export LUT";return false;
+    }
+    diagnostics.staticAllocationBytes+=count*sizeof(float)*4u*3u;
+    return true;
+  }
+
   bool preferPrivateScratch = true;
   bool passGpuTimingEnabled = false;
   bool useScannerTextures = false;
@@ -2966,6 +3048,10 @@ struct MetalRenderer::Impl {
     scratchBuffers.shrink_to_fit();
     scratchTextures.clear();
     scratchTextures.shrink_to_fit();
+    scannerStageKey.clear();cachedScannerInput=nil;
+    filmStageKey.clear();filmStageSource.clear();filmStageSource.shrink_to_fit();cachedFilmDensity=nil;
+    densityLutKey.clear();densityLutGrid=nil;densityLutSamples=nil;densityLutTexture=nil;
+    finalDensityLutPipeline=nil;densityLutToTexturePipeline=nil;densityLutPrefilterPipeline=nil;
     autoExposureLuminance.clear();
     autoExposureLuminance.shrink_to_fit();
     scratchCursor = 0;
@@ -3793,6 +3879,17 @@ const MetalRenderDiagnostics &MetalRenderer::lastDiagnostics() const {
   return impl_ ? impl_->diagnostics : empty;
 }
 
+void MetalRenderer::setPerformanceOptions(bool fastSpatial, bool stageCache) {
+  std::lock_guard<std::mutex> lock(impl_->renderMutex);
+  impl_->fastSpatial=fastSpatial;impl_->stageCacheEnabled=stageCache;
+  if(!stageCache){impl_->scannerStageKey.clear();impl_->cachedScannerInput=nil;impl_->filmStageKey.clear();impl_->filmStageSource.clear();impl_->filmStageSource.shrink_to_fit();impl_->cachedFilmDensity=nil;}
+}
+
+void MetalRenderer::setDensityLutsEnabled(bool enabled) {
+  std::lock_guard<std::mutex> lock(impl_->renderMutex);
+  impl_->densityLutsEnabled=enabled;
+}
+
 void MetalRenderer::releaseTransientResources() {
   if (!impl_) {
     return;
@@ -3878,6 +3975,7 @@ bool MetalRenderer::render(
   std::lock_guard<std::mutex> renderLock(impl_->renderMutex);
   @autoreleasepool {
     const auto renderStart = PerfClock::now();
+    if((impl_->fastSpatial || impl_->stageCacheEnabled) && !impl_->prepareSpatialPipelines())return false;
     impl_->diagnostics = {};
     impl_->diagnostics.renderSerialized = true;
     impl_->diagnostics.privateScratchEnabled = impl_->preferPrivateScratch;
@@ -4169,6 +4267,14 @@ bool MetalRenderer::render(
     id<MTLBuffer> paramBuffer = impl_->sharedScratchBuffer(sizeof(KernelParams), "kernel params");
     id<MTLBuffer> enlargedSourceBuffer = sourceTransformPath ? impl_->gpuScratchBuffer(bufferBytes, "enlarger source") : nil;
 
+    const bool reducedHalation=impl_->fastSpatial && halationPath && width>=64 && height>=64;
+    const uint32_t reducedDims[2]={uint32_t((width+1)/2),uint32_t((height+1)/2)};
+    const NSUInteger reducedBytes=NSUInteger(reducedDims[0])*reducedDims[1]*16;
+    id<MTLBuffer> reducedRaw=reducedHalation?impl_->gpuScratchBuffer(reducedBytes,"halation reduced source"):nil;
+    id<MTLBuffer> reducedTemp=reducedHalation?impl_->gpuScratchBuffer(reducedBytes,"halation reduced temp"):nil;
+    id<MTLBuffer> reducedBlur=reducedHalation?impl_->gpuScratchBuffer(reducedBytes,"halation reduced blur"):nil;
+    if(reducedHalation && (!reducedRaw || !reducedTemp || !reducedBlur)){impl_->lastError="Halation scratch unavailable";return false;}
+
     const bool printGlarePath =
       printLikeFinalPath && !rcmOutput && params.scannerEnabled && params.glarePercent > 0.0f;
     const bool scannerNeedsBlur =
@@ -4183,8 +4289,12 @@ bool MetalRenderer::render(
       ? MTLPixelFormatRGBA16Float
       : MTLPixelFormatRGBA32Float;
     const bool directFinalEncodePath = finalPostProcessPath && !printGlarePath && !scannerNeedsBlur && !scannerNeedsUnsharp;
+    const bool useDensityLuts=impl_->densityLutsEnabled && finalPrintSimulation &&
+      !printDiffusionPath && params.negativeBleachBypassAmount==0.f && params.printBleachBypassAmount==0.f &&
+      [impl_->device supports32BitFloatFiltering];
+    if (useDensityLuts && !impl_->prepareDensityLutPipelines()) return false;
     const bool stagedFinalCorePath =
-      impl_->finalCoreMode == "staged" &&
+      impl_->finalCoreMode == "staged" && !useDensityLuts &&
       finalPrintSimulation &&
       !printDiffusionPath &&
       directFinalEncodePath;
@@ -4427,6 +4537,60 @@ bool MetalRenderer::render(
         impl_->autoExposureLuminance
       );
     }
+    KernelParams filmKeyParams=kernelParams;
+    filmKeyParams.printExposureEv=0;filmKeyParams.filterC=0;filmKeyParams.filterMShift=0;filmKeyParams.filterYShift=0;
+    filmKeyParams.preflashExposure=0;filmKeyParams.preflashMFilterShift=0;filmKeyParams.preflashYFilterShift=0;
+    filmKeyParams.printGamma=0;filmKeyParams.printShadowShape=0;filmKeyParams.printHighlightShape=0;
+    filmKeyParams.printBleachBypassAmount=0;
+    filmKeyParams.printDiffusionEnabled=0;
+    filmKeyParams.printDiffusionFamily=0;
+    filmKeyParams.printDiffusionStrength=0;
+    filmKeyParams.printDiffusionSpatialScale=0;
+    filmKeyParams.printDiffusionHaloWarmth=0;
+    filmKeyParams.printDiffusionCoreIntensity=0;
+    filmKeyParams.printDiffusionCoreSize=0;
+    filmKeyParams.printDiffusionHaloIntensity=0;
+    filmKeyParams.printDiffusionHaloSize=0;
+    filmKeyParams.printDiffusionBloomIntensity=0;
+    filmKeyParams.printDiffusionBloomSize=0;
+
+    // Output and scanner settings affect only the post-film branch.
+    filmKeyParams.outputColorSpace=0;filmKeyParams.outputRole=0;filmKeyParams.hdrPreset=0;filmKeyParams.hdrTransfer=0;
+    filmKeyParams.hdrReferenceWhiteNits=0;filmKeyParams.hdrPeakNits=0;filmKeyParams.hdrExposureEv=0;filmKeyParams.hdrToneMapping=0;
+    filmKeyParams.scannerEnabled=0;filmKeyParams.scannerBlurSigmaPx=0;filmKeyParams.scannerUnsharpSigmaPx=0;filmKeyParams.scannerUnsharpAmount=0;
+    filmKeyParams.glarePercent=0;filmKeyParams.glareRoughness=0;filmKeyParams.glareBlur=0;
+    std::string candidateFilmKey(reinterpret_cast<const char*>(&filmKeyParams),sizeof(filmKeyParams));
+    candidateFilmKey.append(reinterpret_cast<const char*>(&width),sizeof(width));
+    candidateFilmKey.append(reinterpret_cast<const char*>(&height),sizeof(height));
+    candidateFilmKey.append(reinterpret_cast<const char*>(&dirInfo),sizeof(dirInfo));
+    candidateFilmKey.push_back(impl_->fastSpatial?'1':'0');
+    const void *cacheSource=externalMetal?nullptr:contiguousFloatWindowPointer(source,window,width,height);
+    // Bounded to 256 MiB total (CPU source snapshot + private GPU density).
+    const bool cacheEligible=impl_->stageCacheEnabled && finalPrintSimulation && !params.colorAdaptation && cacheSource && bufferBytes<=128u*1024u*1024u;
+    if(!cacheEligible) {
+      impl_->filmStageKey.clear();impl_->filmStageSource.clear();impl_->filmStageSource.shrink_to_fit();impl_->cachedFilmDensity=nil;
+    }
+    const bool filmCacheHit=cacheEligible && impl_->cachedFilmDensity && impl_->filmStageKey==candidateFilmKey &&
+      impl_->filmStageSource.size()==bufferBytes && std::memcmp(cacheSource,impl_->filmStageSource.data(),bufferBytes)==0;
+    bool filmCacheWritten=false;
+    auto scannerKeyParams=kernelParams;
+    scannerKeyParams.scannerBlurSigmaPx=0;scannerKeyParams.scannerUnsharpSigmaPx=0;scannerKeyParams.scannerUnsharpAmount=0;
+    std::string candidateScannerKey(reinterpret_cast<const char*>(&scannerKeyParams),sizeof(scannerKeyParams));
+    candidateScannerKey.append(reinterpret_cast<const char*>(&dirInfo),sizeof(dirInfo));
+    candidateScannerKey.append(reinterpret_cast<const char*>(&width),sizeof(width));
+    candidateScannerKey.append(reinterpret_cast<const char*>(&height),sizeof(height));
+    candidateScannerKey.push_back(impl_->fastSpatial?'1':'0');
+    // Third cache buffer only fits when the frame is <=64 MiB; total stays <=256 MiB.
+    const bool scannerCacheEligible=cacheEligible && bufferBytes<=64u*1024u*1024u && finalPostProcessPath && !directFinalEncodePath;
+    if(!scannerCacheEligible){impl_->scannerStageKey.clear();impl_->cachedScannerInput=nil;}
+    const bool scannerCacheHit=scannerCacheEligible && filmCacheHit && impl_->cachedScannerInput && impl_->scannerStageKey==candidateScannerKey;
+    bool scannerCacheWritten=false;
+    id<MTLBuffer> reducedParamsBuffer=reducedHalation?impl_->sharedScratchBuffer(sizeof(KernelParams),"halation reduced params"):nil;
+    if(reducedHalation) {
+      if(!reducedParamsBuffer){impl_->lastError="Halation uniforms unavailable";return false;}
+      auto reducedParams=kernelParams;reducedParams.filmPixelSizeUm*=2.f;
+      std::memcpy([reducedParamsBuffer contents],&reducedParams,sizeof(reducedParams));
+    }
     std::memcpy([paramBuffer contents], &kernelParams, sizeof(kernelParams));
     impl_->diagnostics.uploadBytes += sizeof(kernelParams);
     if (optimizedGrainSynthesisPath) {
@@ -4591,6 +4755,7 @@ bool MetalRenderer::render(
       splitCommandMs += passMs;
       impl_->diagnostics.gpuCommandBufferMs += passGpuMs;
       if ([commandBuffer status] == MTLCommandBufferStatusError) {
+        impl_->densityLutKey.clear();impl_->filmStageKey.clear();impl_->scannerStageKey.clear();
         NSError *error = [commandBuffer error];
         impl_->lastError = error ? [[error localizedDescription] UTF8String] : "Metal command buffer failed.";
         encodeFailed = true;
@@ -4774,6 +4939,7 @@ bool MetalRenderer::render(
         splitCommandMs += passMs;
         impl_->diagnostics.gpuCommandBufferMs += passGpuMs;
         if ([commandBuffer status] == MTLCommandBufferStatusError) {
+        impl_->densityLutKey.clear();impl_->filmStageKey.clear();impl_->scannerStageKey.clear();
           NSError *error = [commandBuffer error];
           impl_->lastError = error ? [[error localizedDescription] UTF8String] : "Metal command buffer failed.";
           encodeFailed = true;
@@ -4921,6 +5087,18 @@ bool MetalRenderer::render(
     };
 
     auto encodeScannerPostProcess = [&](id<MTLBuffer> linearRgbBuffer) {
+      if(scannerCacheEligible && !scannerCacheHit) {
+        impl_->scannerStageKey.clear();
+        if(!impl_->cachedScannerInput || [impl_->cachedScannerInput length]!=bufferBytes)
+          impl_->cachedScannerInput=[impl_->device newBufferWithLength:bufferBytes options:MTLResourceStorageModePrivate];
+        if(impl_->cachedScannerInput) {
+          [encoder setComputePipelineState:impl_->spatialCopyPipeline];
+          [encoder setBuffer:linearRgbBuffer offset:0 atIndex:0];
+          [encoder setBuffer:impl_->cachedScannerInput offset:0 atIndex:1];
+          [encoder setBytes:dims length:sizeof(dims) atIndex:2];dispatch2D(impl_->spatialCopyPipeline);
+          scannerCacheWritten=true;
+        }
+      }
       const uint32_t encodeOutput = impl_->linearFinalOutput ? 0u : 1u;
       linearRgbBuffer = encodePrintGlare(linearRgbBuffer);
       if (scannerTexturePath) {
@@ -5069,14 +5247,15 @@ bool MetalRenderer::render(
       dispatch2D(impl_->scannerFinalizePipeline);
     };
 
-    auto encodeFinalFromFilmDensity = [&](id<MTLBuffer> filmDensityBuffer) {
+    auto encodeFinalFromFilmDensity = [&](id<MTLBuffer> filmDensityBuffer, bool bake = false) {
       const uint32_t encodeOutput =
-        !impl_->linearFinalOutput && (directFinalEncodePath || !finalPostProcessPath) ? 1u : 0u;
-      [encoder setComputePipelineState:impl_->finalFromFilmDensityPipeline];
+        !bake && !impl_->linearFinalOutput && (directFinalEncodePath || !finalPostProcessPath) ? 1u : 0u;
+      [encoder setComputePipelineState:(useDensityLuts && !bake ? impl_->finalDensityLutPipeline : impl_->finalFromFilmDensityPipeline)];
       [encoder setBuffer:filmDensityBuffer offset:0 atIndex:0];
-      [encoder setBuffer:(directFinalEncodePath || !finalPostProcessPath ? dstBuffer : scannerRgbBufferA) offset:0 atIndex:1];
+      [encoder setBuffer:(bake ? impl_->densityLutSamples : (directFinalEncodePath || !finalPostProcessPath ? dstBuffer : scannerRgbBufferA)) offset:0 atIndex:1];
       [encoder setBuffer:paramBuffer offset:0 atIndex:2];
-      [encoder setBytes:dims length:sizeof(dims) atIndex:3];
+      const uint32_t lutDims[2]={129u,129u*129u};
+      [encoder setBytes:(bake ? lutDims : dims) length:sizeof(dims) atIndex:3];
       [encoder setBuffer:curveInfoBuffer offset:0 atIndex:4];
       [encoder setBuffer:logExposureBuffer offset:0 atIndex:5];
       [encoder setBuffer:densityCurvesBuffer offset:0 atIndex:6];
@@ -5104,8 +5283,10 @@ bool MetalRenderer::render(
       [encoder setBuffer:colorEncodeLutBuffer offset:0 atIndex:28];
       [encoder setBuffer:frameConstantsBuffer offset:0 atIndex:29];
       [encoder setBytes:&encodeOutput length:sizeof(encodeOutput) atIndex:30];
-      dispatch2D(impl_->finalFromFilmDensityPipeline);
-      if (finalPostProcessPath && !directFinalEncodePath) {
+      if(useDensityLuts && !bake) [encoder setTexture:impl_->densityLutTexture atIndex:0];
+      if(bake) dispatch2DSize(impl_->finalFromFilmDensityPipeline,129u,129u*129u);
+      else dispatch2D(useDensityLuts ? impl_->finalDensityLutPipeline : impl_->finalFromFilmDensityPipeline);
+      if (!bake && finalPostProcessPath && !directFinalEncodePath) {
         encodeScannerPostProcess(scannerRgbBufferA);
       }
     };
@@ -5282,6 +5463,7 @@ bool MetalRenderer::render(
               splitCommandMs += passMs;
               impl_->diagnostics.gpuCommandBufferMs += passGpuMs;
               if ([commandBuffer status] == MTLCommandBufferStatusError) {
+        impl_->densityLutKey.clear();impl_->filmStageKey.clear();impl_->scannerStageKey.clear();
                 NSError *error = [commandBuffer error];
                 impl_->lastError = error ? [[error localizedDescription] UTF8String] : "Metal command buffer failed.";
                 encodeFailed = true;
@@ -5869,6 +6051,18 @@ bool MetalRenderer::render(
     };
 
     auto encodeFinalFilmDensityOrPrintDiffusion = [&](id<MTLBuffer> filmDensityBuffer) {
+      if(cacheEligible && !filmCacheHit) {
+        impl_->filmStageKey.clear();
+        if(!impl_->cachedFilmDensity || [impl_->cachedFilmDensity length]!=bufferBytes)
+          impl_->cachedFilmDensity=[impl_->device newBufferWithLength:bufferBytes options:MTLResourceStorageModePrivate];
+        if(impl_->cachedFilmDensity) {
+          [encoder setComputePipelineState:impl_->spatialCopyPipeline];
+          [encoder setBuffer:filmDensityBuffer offset:0 atIndex:0];
+          [encoder setBuffer:impl_->cachedFilmDensity offset:0 atIndex:1];
+          [encoder setBytes:dims length:sizeof(dims) atIndex:2];
+          dispatch2D(impl_->spatialCopyPipeline);filmCacheWritten=true;
+        }
+      }
       if (densityOutput || densityWithGrainOutput) {
         encodeCopyBufferToDestination(filmDensityBuffer);
       } else if (printDiffusionPath) {
@@ -5883,7 +6077,61 @@ bool MetalRenderer::render(
       }
     };
 
-    if (finalProcessNegative) {
+    auto encodeReducedHalation=[&](id<MTLBuffer> input,id<MTLBuffer> output,
+      id<MTLComputePipelineState> blurX,id<MTLComputePipelineState> blurY,uint32_t component) {
+      [encoder setComputePipelineState:impl_->spatialDownPipeline];
+      [encoder setBuffer:input offset:0 atIndex:0];[encoder setBuffer:reducedRaw offset:0 atIndex:1];
+      [encoder setBytes:dims length:sizeof(dims) atIndex:2];
+      dispatch2DSize(impl_->spatialDownPipeline,reducedDims[0],reducedDims[1]);
+      [encoder setComputePipelineState:impl_->halationClearPipeline];
+      [encoder setBuffer:reducedRaw offset:0 atIndex:0];[encoder setBuffer:reducedBlur offset:0 atIndex:1];
+      [encoder setBytes:reducedDims length:sizeof(reducedDims) atIndex:2];
+      dispatch2DSize(impl_->halationClearPipeline,reducedDims[0],reducedDims[1]);
+      [encoder setComputePipelineState:blurX];
+      [encoder setBuffer:reducedRaw offset:0 atIndex:0];[encoder setBuffer:reducedTemp offset:0 atIndex:1];
+      [encoder setBuffer:reducedParamsBuffer offset:0 atIndex:2];[encoder setBytes:reducedDims length:sizeof(reducedDims) atIndex:3];
+      [encoder setBytes:&component length:sizeof(component) atIndex:4];
+      dispatch2DSize(blurX,reducedDims[0],reducedDims[1]);
+      [encoder setComputePipelineState:blurY];
+      [encoder setBuffer:reducedTemp offset:0 atIndex:0];[encoder setBuffer:reducedBlur offset:0 atIndex:1];
+      [encoder setBuffer:reducedParamsBuffer offset:0 atIndex:2];[encoder setBytes:reducedDims length:sizeof(reducedDims) atIndex:3];
+      [encoder setBytes:&component length:sizeof(component) atIndex:4];
+      dispatch2DSize(blurY,reducedDims[0],reducedDims[1]);
+      const uint32_t accumulate=1;
+      [encoder setComputePipelineState:impl_->spatialUpPipeline];
+      [encoder setBuffer:reducedBlur offset:0 atIndex:0];[encoder setBuffer:output offset:0 atIndex:1];
+      [encoder setBuffer:input offset:0 atIndex:2];[encoder setBytes:dims length:sizeof(dims) atIndex:3];
+      [encoder setBytes:&accumulate length:sizeof(accumulate) atIndex:4];dispatch2D(impl_->spatialUpPipeline);
+    };
+
+    if(useDensityLuts) {
+      // All uniforms and profile identities participate. Single bounded cache;
+      // no disk cache or incomplete settings hash can reuse an obsolete table.
+      std::string key(reinterpret_cast<const char *>(&kernelParams),sizeof(kernelParams));
+      key.append(reinterpret_cast<const char *>(&resources.film),sizeof(resources.film));
+      key.append(reinterpret_cast<const char *>(&resources.paper),sizeof(resources.paper));
+      if(key!=impl_->densityLutKey) {
+        encodeFinalFromFilmDensity(impl_->densityLutGrid,true);
+        for(uint32_t axis=0;axis<3;axis++) {
+          [encoder setComputePipelineState:impl_->densityLutPrefilterPipeline];
+          [encoder setBuffer:impl_->densityLutSamples offset:0 atIndex:0];
+          [encoder setBytes:&axis length:sizeof(axis) atIndex:1];
+          dispatch1D(impl_->densityLutPrefilterPipeline,129u*129u);
+        }
+        [encoder setComputePipelineState:impl_->densityLutToTexturePipeline];
+        [encoder setBuffer:impl_->densityLutSamples offset:0 atIndex:0];
+        [encoder setTexture:impl_->densityLutTexture atIndex:0];
+        dispatch2DSize(impl_->densityLutToTexturePipeline,129u,129u*129u);
+        impl_->densityLutKey=key;
+      }
+      impl_->diagnostics.finalCoreMode="spectral-lut";
+    }
+
+    if(scannerCacheHit) {
+      encodeScannerPostProcess(impl_->cachedScannerInput);
+    } else if(filmCacheHit) {
+      encodeFinalFilmDensityOrPrintDiffusion(impl_->cachedFilmDensity);
+    } else if (finalProcessNegative) {
       if (printDiffusionPath) {
         encodePrintDiffusionFromNegativeLight();
       } else {
@@ -5993,6 +6241,11 @@ bool MetalRenderer::render(
           dispatch2D(impl_->halationScatterTailGroupBlurYPipeline, static_cast<uint64_t>(bufferBytes) * 4u);
         } else {
           for (uint32_t component = 0; component < 3u; ++component) {
+            const float minSigma=9.1f*(component==0?.536f:(component==1?1.5236f:2.7684f))*kernelParams.scatterScale/kernelParams.filmPixelSizeUm;
+            const float maxSigma=9.7f*(component==0?.536f:(component==1?1.5236f:2.7684f))*kernelParams.scatterScale/kernelParams.filmPixelSizeUm;
+            if(reducedHalation && minSigma>=4.f && maxSigma<=256.f/3.f) {
+              encodeReducedHalation(currentRawBuffer,scatterAccumBuffer,impl_->halationScatterTailBlurXPipeline,impl_->halationScatterTailBlurYPipeline,component);
+            } else {
             [encoder setComputePipelineState:impl_->halationScatterTailBlurXPipeline];
             [encoder setBuffer:currentRawBuffer offset:0 atIndex:0];
             [encoder setBuffer:scatterTempBuffer offset:0 atIndex:1];
@@ -6008,6 +6261,7 @@ bool MetalRenderer::render(
             [encoder setBytes:dims length:sizeof(dims) atIndex:3];
             [encoder setBytes:&component length:sizeof(component) atIndex:4];
             dispatch2D(impl_->halationScatterTailBlurYPipeline);
+            }
           }
         }
 
@@ -6033,6 +6287,11 @@ bool MetalRenderer::render(
         dispatch2D(impl_->halationClearPipeline);
 
         for (uint32_t bounce = 0; bounce < 3u; ++bounce) {
+          const float minSigma=std::min({kernelParams.halationFirstSigmaUmR,kernelParams.halationFirstSigmaUmG,kernelParams.halationFirstSigmaUmB})*kernelParams.halationScale*std::sqrt(float(bounce+1))/kernelParams.filmPixelSizeUm;
+          const float maxSigma=std::max({kernelParams.halationFirstSigmaUmR,kernelParams.halationFirstSigmaUmG,kernelParams.halationFirstSigmaUmB})*kernelParams.halationScale*std::sqrt(float(bounce+1))/kernelParams.filmPixelSizeUm;
+          if(reducedHalation && minSigma>=4.f && maxSigma<=256.f/3.f) {
+            encodeReducedHalation(currentRawBuffer,bounceAccumBuffer,impl_->halationBounceBlurXPipeline,impl_->halationBounceBlurYAccumulatePipeline,bounce);
+          } else {
           [encoder setComputePipelineState:impl_->halationBounceBlurXPipeline];
           [encoder setBuffer:currentRawBuffer offset:0 atIndex:0];
           [encoder setBuffer:halationRawBufferD offset:0 atIndex:1];
@@ -6048,6 +6307,7 @@ bool MetalRenderer::render(
           [encoder setBytes:dims length:sizeof(dims) atIndex:3];
           [encoder setBytes:&bounce length:sizeof(bounce) atIndex:4];
           dispatch2D(impl_->halationBounceBlurYAccumulatePipeline);
+          }
         }
 
         if (needsPreExposureLogRaw) {
@@ -6182,7 +6442,7 @@ bool MetalRenderer::render(
       }
     }
 
-    if (finalProcessNegative || ((dirPath || preExposurePath) && !productionGrainPath && !grainSynthesisPath)) {
+    if (scannerCacheHit || filmCacheHit || finalProcessNegative || ((dirPath || preExposurePath) && !productionGrainPath && !grainSynthesisPath)) {
       // Final output was encoded by the precomputed film-density branch.
     } else if (productionGrainPath) {
       if (!dirPath && !preExposurePath) {
@@ -6333,6 +6593,7 @@ bool MetalRenderer::render(
       );
     }
     if (encodeFailed) {
+      impl_->densityLutKey.clear();impl_->filmStageKey.clear();impl_->scannerStageKey.clear();
       return false;
     }
     if (useSplitPassTiming) {
@@ -6359,6 +6620,7 @@ bool MetalRenderer::render(
         impl_->diagnostics.gpuCommandBufferMs = impl_->commandBufferGpuMilliseconds(commandBuffer);
 
         if ([commandBuffer status] == MTLCommandBufferStatusError) {
+        impl_->densityLutKey.clear();impl_->filmStageKey.clear();impl_->scannerStageKey.clear();
           NSError *error = [commandBuffer error];
           impl_->lastError = error ? [[error localizedDescription] UTF8String] : "Metal command buffer failed.";
           return false;
@@ -6386,6 +6648,19 @@ bool MetalRenderer::render(
       }
     }
 
+    if(scannerCacheWritten) {impl_->scannerStageKey=candidateScannerKey;}
+    else if(!scannerCacheHit){impl_->scannerStageKey.clear();}
+    if(filmCacheWritten) {
+      try {
+        impl_->filmStageSource.assign(static_cast<const unsigned char*>(cacheSource),static_cast<const unsigned char*>(cacheSource)+bufferBytes);
+        impl_->filmStageKey=candidateFilmKey;
+      } catch(const std::bad_alloc&) {
+        // The completed render remains valid if this optional cache cannot fit.
+        impl_->filmStageKey.clear();impl_->scannerStageKey.clear();
+        std::vector<unsigned char>().swap(impl_->filmStageSource);
+        impl_->cachedFilmDensity=nil;impl_->cachedScannerInput=nil;
+      }
+    } else if(!filmCacheHit) {impl_->filmStageKey.clear();}
     if (!externalMetal && !destinationWrappedDirectly && !destinationHalfWrappedDirectly) {
       const auto outputCopyStart = PerfClock::now();
       copyFloatStagingToDestination(static_cast<const float *>([dstBuffer contents]), destination, window, width, height);

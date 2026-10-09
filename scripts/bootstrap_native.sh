@@ -26,6 +26,8 @@ REQUIRED=(
   "$NATIVE_SRC/SpektraRenderer.h"
   "$NATIVE_GEN/SpektraGeneratedProfileCurves.cpp"
   "$NATIVE_GEN/SpektraGeneratedProfileCounts.h"
+  "$NATIVE_GEN/SpektraDensityLutShader.h"
+  "$NATIVE_GEN/SpektraSpatialShader.h"
 )
 
 if [[ "$(uname -s)" != "Darwin" ]]; then

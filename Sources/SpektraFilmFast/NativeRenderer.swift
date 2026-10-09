@@ -230,13 +230,26 @@ actor NativeRenderer {
 
     deinit { SpektraRendererDestroy(handle) }
 
-    func render(_ input: PixelBufferF32, look: RenderLook, time: Double = 0) throws -> (PixelBufferF32, RenderDiagnosticsView) {
+    func releaseTransientResources() {
+        SpektraRendererReleaseTransientResources(handle)
+    }
+
+    func render(_ input: PixelBufferF32, look: RenderLook, time: Double = 0, useDensityLuts: Bool = false, useStageCache: Bool = true) throws -> (PixelBufferF32, RenderDiagnosticsView) {
         // A cancelled request that was waiting for the actor must not become another
         // expensive Metal render after it finally reaches the front of the queue.
         try Task.checkCancellation()
 
+        SpektraRendererSetPerformanceOptions(handle,
+            look.values["fastSpatial"] == .bool(true) ? 1 : 0, useStageCache ? 1 : 0)
+        SpektraRendererSetDensityLutsEnabled(handle, useDensityLuts ? 1 : 0)
         var params = SpektraAppMakeDefaultRenderParams()
         apply(look: look, to: &params)
+        // Keep local DIR chemistry; only its neighbourhood diffusion is bypassed.
+        // This saved choice applies identically to preview and export.
+        if look.values["fastDIR"] == .bool(true) {
+            params.dirCouplersDiffusionUm = 0
+            params.dirCouplersDiffusionTailUm = 0
+        }
         params.inputColorSpace = SpektraAppLinearRec2020ColorSpace()
 
         var outputPixels = [Float](repeating: 0, count: input.width * input.height * 4)
