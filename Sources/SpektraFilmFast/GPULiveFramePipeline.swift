@@ -167,6 +167,7 @@ actor GPULiveFramePipeline {
     private var rawCache: [(key: DecodeKey, frame: MetalDevelopedRAW)] = []
     private let rawCacheCapacity = 3
     private var spectralLUT: StudioSpectralLUT?
+    private var importedLUT: StudioImportedLUTMetal?
 
     func reset() { rawCache.removeAll() }
 
@@ -246,9 +247,25 @@ actor GPULiveFramePipeline {
         // Only ALREADY GPU-resident LUTs may run during slider movement.
         // A cold/missing LUT uses native Metal immediately, never bakes inline.
         var usedSpectralLUT = false
+        var usedImportedLUT = false
+        var importedOutput: StudioImportedLUT.OutputSpace?
         let resolution = StudioSpectralLUT.selectedResolution()
         let renderedStart = ProcessInfo.processInfo.systemUptime
-        if resolution != nil, let spectralLUT {
+        if StudioImportedLUT.isSelected {
+            guard let file = StudioImportedLUT.selectedURL() else {
+                throw StudioImportedLUT.Failure.invalid("Choose a LUT from the linked folder in Settings.")
+            }
+            if importedLUT == nil { importedLUT = try StudioImportedLUTMetal(gpu: gpu) }
+            guard let importedLUT,
+                  let command = gpu.queue.makeCommandBuffer() else {
+                throw StudioImportedLUT.Failure.invalid("Metal imported-LUT stage unavailable.")
+            }
+            importedOutput = try importedLUT.encode(source: graded, destination: filmOutput,
+                                    width: width, height: height, on: command, file: file)
+            command.commit()
+            usedImportedLUT = true
+        }
+        if !usedImportedLUT && resolution != nil, let spectralLUT {
             do {
                 usedSpectralLUT = try await spectralLUT.encodeIfEligible(
                     film: film, look: look, source: graded, destination: filmOutput,
@@ -256,7 +273,7 @@ actor GPULiveFramePipeline {
             } catch is CancellationError { throw CancellationError() }
             catch { usedSpectralLUT = false }
         }
-        if !usedSpectralLUT {
+        if !usedImportedLUT && !usedSpectralLUT {
             try await film.enqueueMetalFilm(GPUMetalFilmIO(source: graded, destination: filmOutput,
                  queue: gpu.queue, width: width, height: height), look: look)
         }
@@ -298,7 +315,9 @@ actor GPULiveFramePipeline {
         try Task.checkCancellation()
         let elapsed = (ProcessInfo.processInfo.systemUptime - renderedStart) * 1000.0
         let label: String
-        if usedSpectralLUT {
+        if usedImportedLUT {
+            label = "Imported film LUT · " + (StudioImportedLUT.selectedURL()?.lastPathComponent ?? "unknown")
+        } else if usedSpectralLUT {
             label = "Cached spectral LUT \(resolution ?? 33)³ · \(Int(elapsed.rounded())) ms"
         } else if let resolution {
             let blocked = await film.colorLUTBlockingReason(look: look)
@@ -307,7 +326,7 @@ actor GPULiveFramePipeline {
         } else {
             label = "Native spectral Metal · \(Int(elapsed.rounded())) ms"
         }
-        return GPULiveFrame(texture: texture, colorSpace: OutputColorProfile.forLook(look).cgColorSpace,
+        return GPULiveFrame(texture: texture, colorSpace: importedOutput?.cgColorSpace ?? OutputColorProfile.forLook(look).cgColorSpace,
                             rendererLabel: label)
     }
 }

@@ -3351,6 +3351,14 @@ final class AppModel: ObservableObject {
     }
 
     func rendererPolicyDidChange() {
+        cancelIdleRefinement()
+        if selectedImage != nil { requestPreviewRefresh() }
+        if StudioImportedLUT.isSelected {
+            lutPreparationStatus = StudioImportedLUT.selectedURL() == nil
+                ? "Imported LUT missing: choose a file in Settings"
+                : "Imported LUT selected · active on next render"
+            return
+        }
         lutPrewarmTask?.cancel()
         lutPrewarmTask = nil
         lutIsPreparing = false
@@ -3755,7 +3763,22 @@ final class AppModel: ObservableObject {
                     return graded
                 }.value
                 try GPUProcessingFailure.requireSuccess(after: hostCheckpoint)
-                let (filmOutput, d) = try await activeRenderer.render(renderInput, look: renderLook)
+                let filmOutput: PixelBufferF32
+                let d: RenderDiagnosticsView
+                if StudioImportedLUT.isSelected {
+                    guard let file = StudioImportedLUT.selectedURL() else {
+                        throw StudioImportedLUT.Failure.invalid("Link and select a LUT in Settings.")
+                    }
+                    let lutStarted = ProcessInfo.processInfo.systemUptime
+                    filmOutput = try await StudioImportedLUTOffline.shared.render(renderInput, file: file)
+                    d = RenderDiagnosticsView(cpuSetupMs: 0, sourceCopyMs: 0,
+                         commandBufferMs: (ProcessInfo.processInfo.systemUptime - lutStarted) * 1000,
+                         outputCopyMs: 0, passCount: 1, uploadBytes: 0)
+                } else {
+                    let exact = try await activeRenderer.render(renderInput, look: renderLook)
+                    filmOutput = exact.0
+                    d = exact.1
+                }
                 if Task.isCancelled { break }
                 // Geometry is deliberately post-render and color-neutral. Crop/straighten/keystone
                 // therefore never changes SpektraFilm's spectral processing and can be previewed
@@ -3803,7 +3826,7 @@ final class AppModel: ObservableObject {
                     lastSourcePreviewKey = sourceKey
                 }
 
-                let profile = OutputColorProfile.forLook(request.look)
+                let profile = StudioImportedLUT.isSelected ? CGColorSpace(name: CGColorSpace.sRGB)! : OutputColorProfile.forLook(request.look).cgColorSpace
                 // The O(n) float-array -> Data copy is performed off the main actor. Keeping
                 // this copy away from the event thread is critical for smooth pointer tracking.
                 let renderedPayload = await Task.detached(priority: .userInitiated) {
@@ -3812,8 +3835,8 @@ final class AppModel: ObservableObject {
                 if Task.isCancelled { break }
                 guard request.generation == renderGeneration,
                       project.selectedImageID == request.imageID else { continue }
-                guard let newRenderedPreview = renderedPayload?.makeCGImage(colorSpace: profile.cgColorSpace)
-                        ?? output.makeCGImage8(colorSpace: profile.cgColorSpace) else {
+                guard let newRenderedPreview = renderedPayload?.makeCGImage(colorSpace: profile)
+                        ?? output.makeCGImage8(colorSpace: profile) else {
                     throw RendererError.renderFailed("Could not create preview image")
                 }
                 renderedPreview = newRenderedPreview
@@ -5429,18 +5452,30 @@ final class AppModel: ObservableObject {
                 try Task.checkCancellation()
 
                 var exportLook = item.look
-                if job.settings.colorMode == .sRGB {
+                if job.settings.colorMode == .sRGB || StudioImportedLUT.isSelected {
                     exportLook.values["outputColorSpace"] = .int(17)
                     exportLook.values["outputRole"] = .int(0)
                 }
 
                 status = "SpektraFilm simulation (full resolution) · \(item.sourceFileName)"
                 let renderStarted = ProcessInfo.processInfo.systemUptime
-                let (filmOutput, renderDiagnostics) =
-                    try await exactRenderer.render(
-                        renderInput,
-                        look: exportLook, useDensityLuts: false, useStageCache: false
-                    )
+                let filmOutput: PixelBufferF32
+                let renderDiagnostics: RenderDiagnosticsView
+                if StudioImportedLUT.isSelected {
+                    guard let file = StudioImportedLUT.selectedURL() else {
+                        throw StudioImportedLUT.Failure.invalid("Selected export LUT is missing.")
+                    }
+                    let lutStarted = ProcessInfo.processInfo.systemUptime
+                    filmOutput = try await StudioImportedLUTOffline.shared.render(renderInput, file: file)
+                    renderDiagnostics = RenderDiagnosticsView(cpuSetupMs: 0, sourceCopyMs: 0,
+                        commandBufferMs: (ProcessInfo.processInfo.systemUptime - lutStarted) * 1000,
+                        outputCopyMs: 0, passCount: 1, uploadBytes: 0)
+                } else {
+                    let exact = try await exactRenderer.render(renderInput,
+                        look: exportLook, useDensityLuts: false, useStageCache: false)
+                    filmOutput = exact.0
+                    renderDiagnostics = exact.1
+                }
                 timings.renderMs = Self.msSince(renderStarted)
                 timings.renderGpuMs = renderDiagnostics.commandBufferMs
                 timings.renderPassCount = renderDiagnostics.passCount

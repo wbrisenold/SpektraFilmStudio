@@ -58,7 +58,7 @@ def main():
           'onClose()' in sheet,
           'Edit from popup should close popup and preserve navigation')
     check('case "33": return 33' in lut and 'case "65": return 65' in lut and
-          'default: return nil' in lut and 'if !usedSpectralLUT' in preview,
+          'default: return nil' in lut and '!usedImportedLUT && !usedSpectralLUT' in preview,
           'experimental LUT/native accuracy guard missing')
     check('struct StudioSliderTrack' in controls and 'thumbX - thumbRadius' in controls,
           'original Redlamp slider layout regressed')

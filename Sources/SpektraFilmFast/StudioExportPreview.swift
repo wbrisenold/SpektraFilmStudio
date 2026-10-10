@@ -122,7 +122,13 @@ extension AppModel {
             let graded=await Task.detached(priority:.utility) {
                 base.applyingHostGrade(tone:look.tone,density:look.colorDensity).applyingFilmExposureShape(look.filmTone)
             }.value
-            let (film,_)=try await activeRenderer.render(graded,look:look)
+            let film: PixelBufferF32
+            if StudioImportedLUT.isSelected {
+                guard let file = StudioImportedLUT.selectedURL() else { return nil }
+                film = try await StudioImportedLUTOffline.shared.render(graded,file:file)
+            } else {
+                film = try await activeRenderer.render(graded,look:look).0
+            }
             let prefs=project.preferences
             let output=await Task.detached(priority:.utility) {
                 ExposureBoundaryEngine.apply(
@@ -130,7 +136,7 @@ extension AppModel {
                         LensCharacterEngine.apply(MaskedLocalGradeEngine.apply(film,grades:look.localGrades),settings:look.lensEffects),
                         settings:look.geometry),look:look,preferences:prefs)
             }.value
-            let space=OutputColorProfile.forLook(look).cgColorSpace
+            let space=StudioImportedLUT.isSelected ? CGColorSpace(name: CGColorSpace.sRGB)! : OutputColorProfile.forLook(look).cgColorSpace
             return output.makeFloatImagePayload()?.makeCGImage(colorSpace:space) ?? output.makeCGImage8(colorSpace:space)
         } catch { return nil }
     }
