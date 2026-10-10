@@ -42,7 +42,19 @@ private enum SpektraStartup {
     static func start(model: AppModel, delegate appDelegate: SpektraApplicationDelegate) {
         guard !started else { return }
         started = true
-        if CommandLine.arguments.contains("--mask-integration-test") {
+        if CommandLine.arguments.contains("--lut-smoke-test") {
+            Task.detached {
+                do {
+                    try await StudioLUTSmokeSuite.run()
+                    fflush(stdout)
+                    exit(0)
+                } catch {
+                    fputs("LUT_SMOKE_FAIL: \(error)\n", stderr)
+                    fflush(stderr)
+                    exit(26)
+                }
+            }
+        } else if CommandLine.arguments.contains("--mask-integration-test") {
             Task.detached {
                 let result = await IntegratedMaskSmokeTest.run()
                 _ = Inference.shared.stop(waitingAtMost: 10)

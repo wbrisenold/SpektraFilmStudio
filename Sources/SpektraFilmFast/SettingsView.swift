@@ -73,7 +73,7 @@ struct SettingsView: View {
         do {
             importedLUTs = try StudioImportedLUT.discover(
                 folder: URL(fileURLWithPath: lutLibraryFolder,isDirectory:true))
-            importedLUTStatus = "Indexed \(importedLUTs.count) LUTs · scene-linear LUTs require explicit sidecar contracts"
+            importedLUTStatus = "Indexed \(importedLUTs.count) LUTs · LUT_Catalog.csv names take priority"
         } catch {
             importedLUTs = []
             importedLUTStatus = error.localizedDescription
@@ -137,7 +137,7 @@ struct SettingsView: View {
                     Picker("Film + Print LUT", selection: $importedLUTSelection) {
                         Text("Choose LUT").tag("")
                         ForEach(importedLUTs) { item in
-                            Text(item.id + (item.assumedSRGB ? " · assumed sRGB" : " · " + item.input.rawValue + " / " + item.shaper.rawValue))
+                            Text(item.name + (item.assumedSRGB ? " · sRGB" : " · " + item.input.rawValue + " / " + item.shaper.rawValue))
                                 .tag(item.id)
                         }
                     }

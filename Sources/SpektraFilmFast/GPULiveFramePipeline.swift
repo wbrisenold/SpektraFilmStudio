@@ -197,6 +197,56 @@ actor GPULiveFramePipeline {
         return try await spectralLUT?.prewarm(film: film, look: look)
     }
 
+    /// Reuse the exact SAME resident film LUT for settled frames. This never
+    /// prepares or bakes LUTs. Missing/ineligible LUTs return nil explicitly.
+    /// The CPU readback is required only by the existing mask/geometry display
+    /// adapter, not by the interactive Metal view.
+    func settledCachedFilmLUT(_ input: PixelBufferF32, look: RenderLook) async throws -> PixelBufferF32? {
+        guard StudioSpectralLUT.selectedResolution() != nil,
+              Self.supports(look), let spectralLUT else { return nil }
+        if film == nil { film = try NativeRenderer(profile: .exact) }
+        guard let film else { return nil }
+        if gpu == nil {
+            let device = try await film.preferredMetalDevice()
+            gpu = try GPULiveDevice(device: device.device)
+        }
+        guard let gpu else { return nil }
+        let count = input.pixels.count
+        guard input.width > 0, input.height > 0,
+              count == input.width * input.height * 4,
+              count <= Int.max / 4 else { throw GPULiveError.unavailable("Invalid settled LUT frame") }
+        let bytes = count * MemoryLayout<Float>.stride
+        guard let source = input.pixels.withUnsafeBytes({ data in
+                  gpu.device.makeBuffer(bytes: data.baseAddress!, length: bytes, options: .storageModeShared)
+              }),
+              let destination = gpu.device.makeBuffer(length: bytes, options: .storageModeShared) else {
+            throw GPULiveError.unavailable("Settled LUT Metal buffers unavailable")
+        }
+        let used = try await spectralLUT.encodeIfEligible(film: film, look: look,
+            source: source, destination: destination, width: input.width, height: input.height)
+        guard used else { return nil }
+        guard let fence = gpu.queue.makeCommandBuffer() else {
+            throw GPULiveError.unavailable("Settled LUT fence unavailable")
+        }
+        let retained = GPUBufferLifetime([source, destination])
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            fence.addCompletedHandler { completed in
+                withExtendedLifetime(retained) {
+                    if completed.status == .completed { continuation.resume() }
+                    else { continuation.resume(throwing: GPULiveError.unavailable(
+                        completed.error?.localizedDescription ?? "Settled LUT GPU failure")) }
+                }
+            }
+            fence.commit() // same FIFO Metal queue; previous LUT kernel completed
+        }
+        try Task.checkCancellation()
+        var pixels = [Float](repeating: 0, count: count)
+        pixels.withUnsafeMutableBytes { dest in
+            dest.baseAddress!.copyMemory(from: destination.contents(), byteCount: bytes)
+        }
+        return PixelBufferF32(width: input.width, height: input.height, pixels: pixels)
+    }
+
     func render(url: URL, look: RenderLook, bypassImportTransform: Bool,
                 decoder: ImageDecoder, longEdge: Int = 1080) async throws -> GPULiveFrame {
         // The exact code path remains authoritative when an unsupported stage
@@ -316,7 +366,7 @@ actor GPULiveFramePipeline {
         let elapsed = (ProcessInfo.processInfo.systemUptime - renderedStart) * 1000.0
         let label: String
         if usedImportedLUT {
-            label = "Imported film LUT · " + (StudioImportedLUT.selectedURL()?.lastPathComponent ?? "unknown")
+            label = "Imported film LUT · " + StudioImportedLUT.selectedDisplayName
         } else if usedSpectralLUT {
             label = "Cached spectral LUT \(resolution ?? 33)³ · \(Int(elapsed.rounded())) ms"
         } else if let resolution {

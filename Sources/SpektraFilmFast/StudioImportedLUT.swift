@@ -10,6 +10,7 @@ enum StudioImportedLUT {
     static let folderKey = "SpektraFilmStudio.lutLibrary.folder.v1"
     static let selectionKey = "SpektraFilmStudio.lutLibrary.selected.v1"
     static let modeKey = "SpektraFilmStudio.preview.spectralLUT.v1"
+    static let displayNameKey = "SpektraFilmStudio.lutLibrary.selectedDisplayName.v1"
 
     enum InputSpace: String, Codable, Sendable {
         case encodedSRGB = "srgb"
@@ -77,6 +78,10 @@ enum StudioImportedLUT {
     }
 
     static var isSelected: Bool { UserDefaults.standard.string(forKey: modeKey) == "imported" }
+    static var selectedDisplayName: String {
+        let label = UserDefaults.standard.string(forKey: displayNameKey) ?? ""
+        return label.isEmpty ? (selectedURL()?.deletingPathExtension().lastPathComponent ?? "unknown") : label
+    }
 
     static func selectedURL() -> URL? {
         let defaults = UserDefaults.standard
@@ -114,7 +119,17 @@ enum StudioImportedLUT {
                               shaper: contract.shaper, assumedSRGB: assumed))
             if items.count > 100_000 { throw Failure.invalid("Library exceeds 100,000 LUTs.") }
         }
-        return items.sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
+        // Catalog descriptions take precedence over machine-generated filenames.
+        // Identity remains the relative file path (never a display name).
+        let labels = StudioLUTCatalog.metadata(for: root, relativeLUTs: items.map(\.id))
+        return items.map { item in
+            Item(id: item.id, name: labels[item.id]?.name ?? item.name,
+                 input: item.input, output: item.output, shaper: item.shaper,
+                 assumedSRGB: item.assumedSRGB)
+        }.sorted {
+            let order = $0.name.localizedStandardCompare($1.name)
+            return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
+        }
     }
 
     private static func readContract(for url: URL) throws -> (Contract, Bool) {
@@ -199,6 +214,8 @@ final class StudioImportedLUTMetal: @unchecked Sendable {
     private let gpu: GPULiveDevice
     private let kernel: any MTLComputePipelineState
     private var cached: (key: String, cube: StudioImportedLUT.Cube, texture: any MTLTexture)?
+    private(set) var lutUploadCount = 0
+    private(set) var lutCacheHitCount = 0
 
     init(gpu: GPULiveDevice) throws {
         self.gpu = gpu
@@ -216,7 +233,8 @@ final class StudioImportedLUTMetal: @unchecked Sendable {
         let sidecar = URL(fileURLWithPath: file.path + ".lut.json")
         let sideInfo = try? sidecar.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
         let stamp = "\(file.standardizedFileURL.path)|\(fileInfo.contentModificationDate?.timeIntervalSince1970 ?? 0)|\(fileInfo.fileSize ?? 0)|\(sideInfo?.contentModificationDate?.timeIntervalSince1970 ?? 0)|\(sideInfo?.fileSize ?? 0)"
-        if cached?.key != stamp {
+        let reused = cached?.key == stamp
+        if !reused {
             let cube = try StudioImportedLUT.load(url: file)
             let descriptor = MTLTextureDescriptor()
             descriptor.textureType = .type3D
@@ -246,8 +264,10 @@ final class StudioImportedLUTMetal: @unchecked Sendable {
             // until that command buffer finishes. No extra GPU fence required.
             command.addCompletedHandler { _ in withExtendedLifetime(staging) {} }
             cached = (stamp,cube,texture)
+            lutUploadCount += 1
         }
         guard let entry = cached else { throw StudioImportedLUT.Failure.invalid("No uploaded LUT.") }
+        if reused { lutCacheHitCount += 1 }
         let count = width.multipliedReportingOverflow(by: height)
         guard width > 0, height > 0, !count.overflow,
               count.partialValue <= Int.max/16,
@@ -353,6 +373,10 @@ actor StudioImportedLUTOffline {
     static let shared = StudioImportedLUTOffline()
     private var gpu: GPULiveDevice?
     private var stage: StudioImportedLUTMetal?
+
+    func gpuCacheCounts() -> (uploads: Int, hits: Int) {
+        (stage?.lutUploadCount ?? 0, stage?.lutCacheHitCount ?? 0)
+    }
 
     func render(_ input: PixelBufferF32, file: URL) async throws -> PixelBufferF32 {
         try Task.checkCancellation()

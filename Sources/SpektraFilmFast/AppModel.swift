@@ -350,6 +350,8 @@ final class AppModel: ObservableObject {
     @Published var lutPreparationStatus = ""
     @Published var lutIsPreparing = false
     private var lutPrewarmTask: Task<Void, Never>?
+    private var lastPreparedLUTSignature: String?
+    private var preparingLUTSignature: String?
     private let gpuLivePipeline = GPULiveFramePipeline()
     private var pendingGPUPreview: GPULivePreviewRequest?
     private var gpuPreviewTask: Task<Void, Never>?
@@ -390,7 +392,7 @@ final class AppModel: ObservableObject {
         configureCaches()
         installCacheVolumeObservers()
 
-        if CommandLine.arguments.contains(where: { ["--picker-smoke-test", "--ux-smoke-test", "--export-smoke-test", "--self-test", "--studio-soak-test"].contains($0) }) {
+        if CommandLine.arguments.contains(where: { ["--picker-smoke-test", "--ux-smoke-test", "--export-smoke-test", "--lut-smoke-test", "--self-test", "--studio-soak-test"].contains($0) }) {
             didStartProjectWorkflow = true
             return
         }
@@ -3301,8 +3303,27 @@ final class AppModel: ObservableObject {
     // MARK: - Latest-render-wins preview scheduler
 
     private func scheduleLUTPrewarm(look: RenderLook, imageID: UUID, immediate: Bool = false) {
+        if StudioImportedLUT.isSelected {
+            lutPrewarmTask?.cancel()
+            lutIsPreparing = false
+            preparingLUTSignature = nil
+            lutPreparationStatus = "Imported LUT already baked · no native LUT preparation"
+            return
+        }
+        // Raw development and host tone changes do not change film chemistry.
+        let signature = StudioSpectralLUT.bakeSignature(for: look)
+        if !immediate, signature != nil, signature == lastPreparedLUTSignature {
+            lutIsPreparing = false
+            lutPreparationStatus = "Ready: cached film LUT unchanged · no rebake"
+            return
+        }
+        if signature != nil, signature == preparingLUTSignature, lutIsPreparing {
+            // Leave an already-running bake alive when only host controls changed.
+            return
+        }
         lutPrewarmTask?.cancel()
         lutIsPreparing = false
+        preparingLUTSignature = nil
         guard StudioSpectralLUT.selectedResolution() != nil else {
             lutPreparationStatus = "Native mode selected"
             return
@@ -3316,6 +3337,7 @@ final class AppModel: ObservableObject {
         // Neither path ever runs from the pointer-rate live render callback.
         lutPreparationStatus = immediate ? "Checking LUT eligibility…" : "LUT queued for idle check"
         lutIsPreparing = true
+        preparingLUTSignature = signature
         lutPrewarmTask = Task(priority: .utility) { [weak self] in
             guard let self else { return }
             do {
@@ -3324,26 +3346,37 @@ final class AppModel: ObservableObject {
                 if let reason = try await gpuLivePipeline.lutBlockReason(look: look) {
                     guard !Task.isCancelled else { return }
                     lutPreparationStatus = "Cannot bake this look: \(reason). Native spectral processing remains active."
+                    if preparingLUTSignature == signature { preparingLUTSignature = nil }
                     lutIsPreparing = false
                     return
                 }
                 lutPreparationStatus = "Loading cached LUT or generating film LUT…"
                 let prepared = try await gpuLivePipeline.prewarmLUT(look: look)
                 guard !Task.isCancelled, project.selectedImageID == imageID else { return }
+                let newlyPrepared = prepared != nil && signature != lastPreparedLUTSignature
+                if prepared != nil { lastPreparedLUTSignature = signature }
+                if preparingLUTSignature == signature { preparingLUTSignature = nil }
                 switch prepared {
-                case .inMemory?: lutPreparationStatus = "Ready: GPU LUT already resident · next live edit"
+                case .inMemory?: lutPreparationStatus = "Ready: GPU LUT already resident · live and settled previews"
                 case .loadedFromDisk?: lutPreparationStatus = "Ready: LUT loaded from disk to GPU · next live edit"
                 case .generatedAndSaved?: lutPreparationStatus = "Ready: LUT generated and saved · next live edit"
                 case .generatedButNotSaved?: lutPreparationStatus = "Ready: GPU LUT generated; disk save failed"
                 case nil: lutPreparationStatus = "Cannot use LUT for current look; see native renderer settings"
                 }
                 lutIsPreparing = false
+                // One refresh when a previously missing LUT first becomes available;
+                // the next settled pass uses its resident texture, not the native renderer.
+                if newlyPrepared && page == .edit && !isRendering,
+                   project.selectedImageID == imageID {
+                    requestPreviewRefresh()
+                }
             } catch is CancellationError {
                 // Superseded by a newer edit or photo selection.
                 if !Task.isCancelled { lutIsPreparing = false }
             } catch {
                 if !Task.isCancelled && project.selectedImageID == imageID {
                     lutPreparationStatus = "LUT preparation failed: \(error.localizedDescription)"
+                    if preparingLUTSignature == signature { preparingLUTSignature = nil }
                     lutIsPreparing = false
                 }
             }
@@ -3351,6 +3384,11 @@ final class AppModel: ObservableObject {
     }
 
     func rendererPolicyDidChange() {
+        lutPrewarmTask?.cancel()
+        lutPrewarmTask = nil
+        lutIsPreparing = false
+        lastPreparedLUTSignature = nil
+        preparingLUTSignature = nil
         cancelIdleRefinement()
         if selectedImage != nil { requestPreviewRefresh() }
         if StudioImportedLUT.isSelected {
@@ -3359,9 +3397,6 @@ final class AppModel: ObservableObject {
                 : "Imported LUT selected · active on next render"
             return
         }
-        lutPrewarmTask?.cancel()
-        lutPrewarmTask = nil
-        lutIsPreparing = false
         guard let selected = selectedImage else {
             lutPreparationStatus = "Select a photograph to prepare a LUT"
             return
@@ -3775,9 +3810,23 @@ final class AppModel: ObservableObject {
                          commandBufferMs: (ProcessInfo.processInfo.systemUptime - lutStarted) * 1000,
                          outputCopyMs: 0, passCount: 1, uploadBytes: 0)
                 } else {
-                    let exact = try await activeRenderer.render(renderInput, look: renderLook)
-                    filmOutput = exact.0
-                    d = exact.1
+                    let lutStart = ProcessInfo.processInfo.systemUptime
+                    let settledLUT = !useFull && !isFastPath && StudioSpectralLUT.selectedResolution() != nil
+                        ? try await gpuLivePipeline.settledCachedFilmLUT(renderInput, look: renderLook)
+                        : nil
+                    if let settledLUT {
+                        filmOutput = settledLUT
+                        d = RenderDiagnosticsView(cpuSetupMs: 0, sourceCopyMs: 0,
+                            commandBufferMs: (ProcessInfo.processInfo.systemUptime - lutStart) * 1000,
+                            outputCopyMs: 0, passCount: 1, uploadBytes: 0)
+                        rendererPathStatus = "Cached film LUT · settled frame"
+                    } else {
+                        let exact = try await activeRenderer.render(renderInput, look: renderLook)
+                        filmOutput = exact.0
+                        d = exact.1
+                        rendererPathStatus = StudioSpectralLUT.selectedResolution() == nil
+                            ? "Native spectral Metal · exact" : "Native spectral Metal · LUT missing or unsupported"
+                    }
                 }
                 if Task.isCancelled { break }
                 // Geometry is deliberately post-render and color-neutral. Crop/straighten/keystone
@@ -3841,7 +3890,11 @@ final class AppModel: ObservableObject {
                 }
                 renderedPreview = newRenderedPreview
                 // An exact settled render must never be labeled as a live LUT frame.
-                rendererPathStatus = "Native spectral Metal · settled exact"
+                if StudioImportedLUT.isSelected {
+                    rendererPathStatus = "Imported film LUT · settled frame"
+                } else if StudioSpectralLUT.selectedResolution() == nil {
+                    rendererPathStatus = "Native spectral Metal · settled exact"
+                }
                 liveGPUFrame = nil
                 if !request.interactive {
                     updateCloudPreview(photoID: request.imageID, image: newRenderedPreview)
@@ -3914,7 +3967,7 @@ final class AppModel: ObservableObject {
                 }
                 refreshStudioAnalysis(interactive: isFastPath)
                 requestEditorScopeUpdate()
-                if !request.interactive && !useFull {
+                if !request.interactive && !useFull && !StudioImportedLUT.isSelected {
                     scheduleLUTPrewarm(look: request.look, imageID: request.imageID)
                 }
             } catch is CancellationError {

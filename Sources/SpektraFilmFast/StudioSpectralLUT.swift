@@ -18,6 +18,18 @@ final class StudioSpectralLUT: @unchecked Sendable {
         }
     }
 
+    /// Only parameters baked into film chemistry participate in the LUT key.
+    /// Host exposure/WB/tone adjustments live outside `look.values` and MUST
+    /// NOT request another expensive film bake.
+    static func bakeSignature(for look: RenderLook) -> String? {
+        guard let resolution = selectedResolution() else { return nil }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let bytes = try? encoder.encode(look.values) else { return nil }
+        let sha = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        return "v2-\(resolution)-\(sha)"
+    }
+
     private struct Entry {
         let key: Data
         let resolution: Int
