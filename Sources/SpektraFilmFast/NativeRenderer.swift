@@ -241,30 +241,37 @@ actor NativeRenderer {
         return GPUMetalDeviceToken(device: device)
     }
 
-    // A LUT is valid only when the native pipeline has no non-local stages.
-    // This is a conservative whitelist, evaluated using the REAL applied
-    // native params, not guessed UI defaults. Spatial/auto modes use exact GPU.
-    func isColorLUTEligible(look: RenderLook) -> Bool {
+    /// Only image-independent color responses may be represented by an RGB LUT.
+    /// Native spatial kernels and image statistics are never silently removed.
+    func colorLUTBlockingReason(look: RenderLook) -> String? {
         var params = SpektraAppMakeDefaultRenderParams()
         apply(look: look, to: &params)
         if look.values["fastDIR"] == .bool(true) {
             params.dirCouplersDiffusionUm = 0
             params.dirCouplersDiffusionTailUm = 0
         }
-        let dirSpatial = params.dirCouplersAmount > 0 &&
-            (params.dirCouplersDiffusionUm > 0 || params.dirCouplersDiffusionTailUm > 0)
-        let scanSpatial = params.scannerEnabled != 0 && (
-            params.glarePercent > 0 || params.scannerUnsharpAmount > 0 ||
-            params.scannerMtf50LpMm > 0)
-        return params.autoExposure == 0 &&
-            params.grainEnabled == 0 && params.halationEnabled == 0 &&
-            params.cameraDiffusionEnabled == 0 &&
-            params.printDiffusionEnabled == 0 && !dirSpatial && !scanSpatial &&
-            params.scannerWhiteCorrection == 0 &&
-            params.scannerBlackCorrection == 0 &&
-            params.enlargerScale == 1 &&
-            params.enlargerOffsetXPercent == 0 &&
-            params.enlargerOffsetYPercent == 0
+        if params.autoExposure != 0 { return "auto exposure" }
+        if params.grainEnabled != 0 { return "film grain" }
+        if params.halationEnabled != 0 { return "halation" }
+        if params.cameraDiffusionEnabled != 0 { return "camera diffusion" }
+        if params.printDiffusionEnabled != 0 { return "print diffusion" }
+        if params.dirCouplersAmount > 0 &&
+            (params.dirCouplersDiffusionUm > 0 || params.dirCouplersDiffusionTailUm > 0) {
+            return "spatial DIR"
+        }
+        if params.scannerEnabled != 0 &&
+            (params.glarePercent > 0 || params.scannerUnsharpAmount > 0 ||
+             params.scannerMtf50LpMm > 0) { return "spatial scanner" }
+        if params.scannerWhiteCorrection != 0 || params.scannerBlackCorrection != 0 {
+            return "image-wide scanner statistics"
+        }
+        if params.enlargerScale != 1 || params.enlargerOffsetXPercent != 0 ||
+            params.enlargerOffsetYPercent != 0 { return "enlarger geometry" }
+        return nil
+    }
+
+    func isColorLUTEligible(look: RenderLook) -> Bool {
+        colorLUTBlockingReason(look: look) == nil
     }
 
     func releaseTransientResources() {

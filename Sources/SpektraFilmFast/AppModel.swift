@@ -346,6 +346,9 @@ final class AppModel: ObservableObject {
     private var interactiveProxyTask: Task<Void, Never>?
     // Latest-only GPU render queue, independent of CPU image packaging.
     @Published var liveGPUFrame: GPULiveFrame?
+    @Published var rendererPathStatus = "Native spectral Metal · exact"
+    @Published var lutPreparationStatus = ""
+    private var lutPrewarmTask: Task<Void, Never>?
     private let gpuLivePipeline = GPULiveFramePipeline()
     private var pendingGPUPreview: GPULivePreviewRequest?
     private var gpuPreviewTask: Task<Void, Never>?
@@ -1187,6 +1190,7 @@ final class AppModel: ObservableObject {
     // MARK: - Edit gestures
 
     func beginEditGesture() {
+        lutPrewarmTask?.cancel() // Prevent a new LUT bake from contending with live input.
         cancelIdleRefinement()
         if project.preferences.fullResolutionPreview { project.preferences.fullResolutionPreview = false }
         invalidateNativePreviewForInteraction()
@@ -3295,6 +3299,55 @@ final class AppModel: ObservableObject {
 
     // MARK: - Latest-render-wins preview scheduler
 
+    private func scheduleLUTPrewarm(look: RenderLook, imageID: UUID) {
+        lutPrewarmTask?.cancel()
+        guard StudioSpectralLUT.selectedResolution() != nil else {
+            lutPreparationStatus = "Native mode selected"
+            return
+        }
+        guard GPULiveFramePipeline.supports(look), currentSourceSupportsGPULive,
+              !project.preferences.bypassImportTransform else {
+            lutPreparationStatus = "LUT unavailable for this RAW/effect configuration"
+            return
+        }
+        // Work runs after settling and 750ms of idle time. A new gesture cancels
+        // the request; an uncacheable look continues to use the exact renderer.
+        lutPreparationStatus = "LUT queued for idle cache check"
+        lutPrewarmTask = Task(priority: .utility) { [weak self] in
+            guard let self else { return }
+            do {
+                try await Task.sleep(for: .milliseconds(750))
+                guard !Task.isCancelled, project.selectedImageID == imageID else { return }
+                lutPreparationStatus = "Checking saved LUT / preparing Metal texture"
+                let prepared = try await gpuLivePipeline.prewarmLUT(look: look)
+                guard !Task.isCancelled, project.selectedImageID == imageID else { return }
+                switch prepared {
+                case .inMemory?: lutPreparationStatus = "LUT ready · in GPU memory"
+                case .loadedFromDisk?: lutPreparationStatus = "LUT ready · restored from disk"
+                case .generatedAndSaved?: lutPreparationStatus = "LUT ready · generated and saved"
+                case .generatedButNotSaved?: lutPreparationStatus = "LUT ready · disk save failed"
+                case nil: lutPreparationStatus = "LUT not eligible for current film configuration"
+                }
+            } catch is CancellationError {
+                // Superseded by a newer edit or photo selection.
+            } catch {
+                if !Task.isCancelled && project.selectedImageID == imageID {
+                    lutPreparationStatus = "LUT unavailable: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    func rendererPolicyDidChange() {
+        lutPrewarmTask?.cancel()
+        lutPrewarmTask = nil
+        guard let selected = selectedImage else {
+            lutPreparationStatus = "Select a photograph to prepare a LUT"
+            return
+        }
+        scheduleLUTPrewarm(look: selectedLook, imageID: selected.id)
+    }
+
     func scheduleRender(
         interactive: Bool,
         changedParameter: String? = nil,
@@ -3422,7 +3475,8 @@ final class AppModel: ObservableObject {
                       request.imageID == project.selectedImageID,
                       gestureWorkingLook == request.look else { continue }
                 liveGPUFrame = frame
-                status = "Live Metal film · \(frame.texture.width) × \(frame.texture.height)"
+                rendererPathStatus = frame.rendererLabel
+                status = "\(frame.rendererLabel) · \(frame.texture.width) × \(frame.texture.height)"
                 requestEditorScopeUpdate()
             } catch is CancellationError {
                 break
@@ -3740,7 +3794,8 @@ final class AppModel: ObservableObject {
                     throw RendererError.renderFailed("Could not create preview image")
                 }
                 renderedPreview = newRenderedPreview
-                // The exact settled preview supersedes the transient GPU texture.
+                // An exact settled render must never be labeled as a live LUT frame.
+                rendererPathStatus = "Native spectral Metal · settled exact"
                 liveGPUFrame = nil
                 if !request.interactive {
                     updateCloudPreview(photoID: request.imageID, image: newRenderedPreview)
@@ -3813,6 +3868,9 @@ final class AppModel: ObservableObject {
                 }
                 refreshStudioAnalysis(interactive: isFastPath)
                 requestEditorScopeUpdate()
+                if !request.interactive && !useFull {
+                    scheduleLUTPrewarm(look: request.look, imageID: request.imageID)
+                }
             } catch is CancellationError {
                 // Cancellation is expected when navigating or closing a project.
             } catch {
@@ -3836,6 +3894,10 @@ final class AppModel: ObservableObject {
     }
 
     private func cancelPreviewForNavigation() {
+        lutPrewarmTask?.cancel()
+        lutPrewarmTask = nil
+        rendererPathStatus = "No active frame"
+        lutPreparationStatus = ""
         cancelIdleRefinement()
         renderGeneration += 1
         pendingRenderRequest = nil

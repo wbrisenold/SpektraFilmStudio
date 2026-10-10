@@ -37,6 +37,22 @@ struct PreviewView: View {
                                     MaskOverlayView(model: model)
                                 }
                             }
+                            // Reflect the actually completed frame, not a setting.
+                            // No extra CGImage renders or scope computations.
+                            .overlay(alignment: .topLeading) {
+                                if !model.showingBefore {
+                                    Text(model.rendererPathStatus)
+                                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                        .lineLimit(1)
+                                        .foregroundStyle(.primary)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 5)
+                                        .background(.regularMaterial, in: Capsule())
+                                        .padding(10)
+                                        .allowsHitTesting(false)
+                                        .help(model.lutPreparationStatus)
+                                }
+                            }
 
                         if !model.showingBefore,
                            let overlay = model.analysisOverlay,

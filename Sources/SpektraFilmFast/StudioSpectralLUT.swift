@@ -1,5 +1,7 @@
 import Foundation
 import Metal
+import CryptoKit
+import os
 
 // Experimental, OFF by default. GPL-3.0, based on SpektraFilm's own native spectral
 // renderer (NOT a replacement film model). Inspired by ART's staged CLF generator.
@@ -33,6 +35,10 @@ final class StudioSpectralLUT: @unchecked Sendable {
     private let lookup: any MTLComputePipelineState
     private var recentlyUsed: [Entry] = []
     private let maxEntries = 3
+    private let disk = SpectralLUTDiskStore()
+    private var pendingKeys = Set<Data>()
+    private(set) var cacheHits = 0
+    private(set) var cacheMisses = 0
 
     init(gpu: GPULiveDevice) throws {
         self.gpu = gpu
@@ -64,11 +70,12 @@ final class StudioSpectralLUT: @unchecked Sendable {
             recentlyUsed.insert(hit, at: 0)
             texture = hit.texture
         } else {
-            texture = try await bake(film: film, look: look, resolution: resolution)
-            try Task.checkCancellation()
-            recentlyUsed.insert(Entry(key: key, resolution: resolution, texture: texture), at: 0)
-            if recentlyUsed.count > maxEntries { recentlyUsed.removeLast() }
+            // Live render is never allowed to bake or load a LUT. A cold LUT
+            // must use the native Metal renderer; background prewarm handles it.
+            cacheMisses += 1
+            return false
         }
+        cacheHits += 1
         guard let command = gpu.queue.makeCommandBuffer(),
               let encoder = command.makeComputeCommandEncoder() else {
             throw GPULiveError.unavailable("LUT lookup encoder unavailable")
@@ -94,6 +101,91 @@ final class StudioSpectralLUT: @unchecked Sendable {
         return true
     }
 
+    enum Prepared: Sendable { case inMemory, loadedFromDisk, generatedAndSaved, generatedButNotSaved }
+
+    /// Called by the idle preview coordinator, NEVER from a slider callback.
+    /// Loads existing LUTs across sessions; a new look is baked once and
+    /// persisted. A failure never injects an invalid LUT into a live frame.
+    func prewarm(film: NativeRenderer, look: RenderLook) async throws -> Prepared? {
+        guard let n = Self.selectedResolution(),
+              await film.isColorLUTEligible(look: look) else { return nil }
+        let key = try makeKey(look: look, resolution: n)
+        if recentlyUsed.contains(where: { $0.key == key }) { return .inMemory }
+        if pendingKeys.contains(key) { return nil }
+        pendingKeys.insert(key)
+        defer { pendingKeys.remove(key) }
+        try Task.checkCancellation()
+        let texture: any MTLTexture
+        let outcome: Prepared
+        if let payload = try disk.load(key: key, resolution: n) {
+            texture = try await upload(payload: payload, resolution: n)
+            outcome = .loadedFromDisk
+        } else {
+            let baked = try await bake(film: film, look: look, resolution: n)
+            texture = baked.texture
+            do {
+                try disk.save(baked.payload, key: key, resolution: n)
+                outcome = .generatedAndSaved
+            } catch {
+                SpectralLUTDiskStore.logger.error("LUT disk cache write failed: \(String(describing: error))")
+                outcome = .generatedButNotSaved
+            }
+        }
+        try Task.checkCancellation()
+        recentlyUsed.insert(Entry(key: key, resolution: n, texture: texture), at: 0)
+        if recentlyUsed.count > maxEntries { recentlyUsed.removeLast() }
+        return outcome
+    }
+
+    private func upload(payload: Data, resolution n: Int) async throws -> any MTLTexture {
+        let descriptor = Self.textureDescriptor(n)
+        guard let texture = gpu.device.makeTexture(descriptor: descriptor),
+              let staging = gpu.device.makeBuffer(length: payload.count, options: .storageModeShared),
+              let command = gpu.queue.makeCommandBuffer(),
+              let blit = command.makeBlitCommandEncoder() else {
+            throw GPULiveError.unavailable("Persisted spectral LUT Metal upload allocation failed")
+        }
+        payload.withUnsafeBytes { bytes in
+            if let address = bytes.baseAddress {
+                staging.contents().copyMemory(from: address, byteCount: payload.count)
+            }
+        }
+        blit.copy(from: staging, sourceOffset: 0,
+                  sourceBytesPerRow: n * 16, sourceBytesPerImage: n * n * 16,
+                  sourceSize: MTLSize(width: n, height: n, depth: n),
+                  to: texture, destinationSlice: 0, destinationLevel: 0,
+                  destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0))
+        blit.endEncoding()
+        try await Self.finish(command: command, retaining: RetainedBuffers([staging]))
+        return texture
+    }
+
+    private static func textureDescriptor(_ n: Int) -> MTLTextureDescriptor {
+        let d = MTLTextureDescriptor()
+        d.textureType = .type3D
+        d.pixelFormat = .rgba32Float
+        d.width = n
+        d.height = n
+        d.depth = n
+        d.usage = [.shaderRead, .shaderWrite]
+        d.storageMode = .private
+        return d
+    }
+
+    private static func finish(command: any MTLCommandBuffer,
+                               retaining payload: RetainedBuffers) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            command.addCompletedHandler { completed in
+                withExtendedLifetime(payload) {
+                    if completed.status == .completed { continuation.resume() }
+                    else { continuation.resume(throwing: GPULiveError.unavailable(
+                        completed.error?.localizedDescription ?? "Spectral LUT GPU command failed")) }
+                }
+            }
+            command.commit()
+        }
+    }
+
     private func makeKey(look: RenderLook, resolution: Int) throws -> Data {
         // Ignore host tone, RAW and post-film lens settings: the baked stage has
         // access ONLY to native film parameters (`look.values`). This avoids
@@ -101,13 +193,13 @@ final class StudioSpectralLUT: @unchecked Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let values = try encoder.encode(look.values)
-        var key = Data("SpektraColorLUT-v1|Rec2020-linear|\(resolution)|".utf8)
+        var key = Data("SpektraColorLUT-v2|engine-60c7f467|Rec2020-linear|\(resolution)|".utf8)
         key.append(values)
         return key
     }
 
     private func bake(film: NativeRenderer, look: RenderLook,
-                      resolution n: Int) async throws -> any MTLTexture {
+                      resolution n: Int) async throws -> (texture: any MTLTexture, payload: Data) {
         let w = n * n, h = n
         let src = try gpu.allocateFloatBuffer(width: w, height: h)
         let dst = try gpu.allocateFloatBuffer(width: w, height: h)
@@ -131,17 +223,10 @@ final class StudioSpectralLUT: @unchecked Sendable {
                            width: w, height: h), look: look)
         try Task.checkCancellation()
 
-        let descriptor = MTLTextureDescriptor()
-        descriptor.textureType = .type3D
-        descriptor.pixelFormat = .rgba32Float
-        descriptor.width = n
-        descriptor.height = n
-        descriptor.depth = n
-        descriptor.usage = [.shaderRead, .shaderWrite]
-        descriptor.storageMode = .private
-        guard let lut = gpu.device.makeTexture(descriptor: descriptor),
+        guard let lut = gpu.device.makeTexture(descriptor: Self.textureDescriptor(n)),
               let command = gpu.queue.makeCommandBuffer(),
-              let encoder = command.makeComputeCommandEncoder() else {
+              let encoder = command.makeComputeCommandEncoder(),
+              let staging = gpu.device.makeBuffer(length: n*n*n*16, options: .storageModeShared) else {
             throw GPULiveError.unavailable("3D LUT texture/encoder allocation failed")
         }
         encoder.setComputePipelineState(pack)
@@ -150,18 +235,17 @@ final class StudioSpectralLUT: @unchecked Sendable {
         encoder.dispatchThreads(MTLSize(width: n, height: n, depth: n),
                                 threadsPerThreadgroup: MTLSize(width: 4, height: 4, depth: 4))
         encoder.endEncoding()
-        let retained = RetainedBuffers([src, dst])
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            command.addCompletedHandler { completed in
-                withExtendedLifetime(retained) {
-                    if completed.status == .completed { continuation.resume() }
-                    else { continuation.resume(throwing: GPULiveError.unavailable(
-                        completed.error?.localizedDescription ?? "Spectral LUT bake failed")) }
-                }
-            }
-            command.commit()
+        // One readback at LUT creation for persistence — NEVER per image/slider.
+        // Film output is packed in the same R,G,B index order as the 3D texture.
+        guard let blit = command.makeBlitCommandEncoder() else {
+            throw GPULiveError.unavailable("Spectral LUT disk snapshot encoder unavailable")
         }
-        return lut
+        blit.copy(from: dst, sourceOffset: 0, to: staging,
+                  destinationOffset: 0, size: n*n*n*16)
+        blit.endEncoding()
+        try await Self.finish(command: command, retaining: RetainedBuffers([src, dst, staging]))
+        let bytes = Data(bytes: staging.contents(), count: n*n*n*16)
+        return (lut, bytes)
     }
 
     // We use float32 3D textures and manual tetrahedral interpolation; RGBA32Float
@@ -241,4 +325,98 @@ final class StudioSpectralLUT: @unchecked Sendable {
         destination[i] = float4(sampleTetra(lut, u), input.w);
     }
     """#
+}
+
+/// On-disk immutable color-look assets. Data is non-authoritative; corrupted
+/// or incompatible files are ignored and the native engine remains available.
+private struct SpectralLUTDiskStore {
+    static let logger = Logger(subsystem: "SpektraFilmStudio", category: "SpectralLUTDisk")
+    private struct Envelope: Codable {
+        let schema: Int
+        let resolution: Int
+        let inputColorSpace: String
+        let keySHA256: String
+        let payloadSHA256: String
+    }
+    private let magic = Data("SFLUT2\n".utf8)
+    private let budget: Int64 = 512 * 1024 * 1024
+
+    private func digest(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+    private func directory() throws -> URL {
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory,
+                                                        in: .userDomainMask).first else {
+            throw GPULiveError.unavailable("Application Support location unavailable")
+        }
+        let folder = appSupport.appendingPathComponent("SpektraFilmStudio", isDirectory: true)
+                               .appendingPathComponent("SpectralLUTs-v2", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }
+    private func location(for key: Data, resolution: Int) throws -> URL {
+        try directory().appendingPathComponent("\(resolution)-\(digest(key)).sflut", isDirectory: false)
+    }
+    func load(key: Data, resolution: Int) throws -> Data? {
+        let url = try location(for: key, resolution: resolution)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let bytes: Data
+        do { bytes = try Data(contentsOf: url, options: [.mappedIfSafe]) }
+        catch { return nil }
+        let expected = resolution * resolution * resolution * 16
+        guard bytes.count > magic.count + 4 + expected,
+              bytes.prefix(magic.count) == magic else { return nil }
+        let a = magic.count
+        let headerLen = bytes[a..<(a+4)].enumerated().reduce(UInt32(0)) {
+            $0 | UInt32($1.element) << UInt32($1.offset * 8)
+        }
+        let n = Int(headerLen)
+        guard n > 0, n <= 4096, bytes.count == a + 4 + n + expected,
+              let header = try? JSONDecoder().decode(Envelope.self, from: bytes.subdata(in: a+4..<a+4+n)),
+              header.schema == 2, header.resolution == resolution,
+              header.inputColorSpace == "linear-Rec2020-signed-v1",
+              header.keySHA256 == digest(key) else { return nil }
+        let payload = bytes.subdata(in: a+4+n..<bytes.count)
+        guard digest(payload) == header.payloadSHA256 else { return nil }
+        return payload
+    }
+    func save(_ payload: Data, key: Data, resolution: Int) throws {
+        let expected = resolution * resolution * resolution * 16
+        guard payload.count == expected else {
+            throw GPULiveError.unavailable("Unexpected spectral LUT payload size")
+        }
+        let meta = Envelope(schema: 2, resolution: resolution,
+                            inputColorSpace: "linear-Rec2020-signed-v1",
+                            keySHA256: digest(key), payloadSHA256: digest(payload))
+        let header = try JSONEncoder().encode(meta)
+        guard header.count <= 4096 else { throw GPULiveError.unavailable("Spectral LUT header too large") }
+        var file = Data()
+        file.reserveCapacity(magic.count + 4 + header.count + payload.count)
+        file.append(magic)
+        let n = UInt32(header.count)
+        file.append(contentsOf: [UInt8(truncatingIfNeeded:n), UInt8(truncatingIfNeeded:n >> 8),
+                                 UInt8(truncatingIfNeeded:n >> 16),UInt8(truncatingIfNeeded:n >> 24)])
+        file.append(header)
+        file.append(payload)
+        let url = try location(for: key, resolution: resolution)
+        try file.write(to: url, options: [.atomic])
+        prune(excluding: url)
+    }
+    private func prune(excluding current: URL) {
+        guard let folder = try? directory(),
+              let files = try? FileManager.default.contentsOfDirectory(at: folder,
+                    includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey], options: []) else { return }
+        let sorted = files.filter { $0.pathExtension == "sflut" }.sorted {
+            let d1 = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let d2 = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return d1 < d2
+        }
+        var used = sorted.reduce(Int64(0)) {
+            $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+        for url in sorted where used > budget && url != current {
+            let size = Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+            if (try? FileManager.default.removeItem(at: url)) != nil { used -= size }
+        }
+    }
 }

@@ -50,7 +50,13 @@ struct SettingsView: View {
         .frame(width: 730, height: 610)
         .studioOmniPane()
         .preferredColorScheme(appAppearance == "dark" ? .dark : (appAppearance == "light" ? .light : nil))
-        .onAppear { model.refreshCacheStatus() }
+        .onAppear {
+            model.refreshCacheStatus()
+            model.rendererPolicyDidChange()
+        }
+        .onChange(of: spectralPreviewLUT) { _, _ in
+            model.rendererPolicyDidChange()
+        }
     }
 
     private var generalTab: some View {
@@ -63,11 +69,15 @@ struct SettingsView: View {
                 }
                 Picker("Live film renderer", selection: $spectralPreviewLUT) {
                     Text("Native spectral (exact)").tag("native")
-                    Text("Spectral 33³ LUT (test)").tag("33")
-                    Text("Spectral 65³ LUT (test)").tag("65")
+                    Text("Cached film LUT 33³ (experimental)").tag("33")
+                    Text("Cached film LUT 65³ (experimental)").tag("65")
                 }
-                Text("Experimental ART-style LUT bake: only for film/print settings with no spatial effects or automatic image statistics. LUTs remain on Metal, are cached by film settings, and affect live preview only. All unsupported looks continue through native Metal; export is always exact. The separate ART Spectral Film LUT generator is available in the experiment tools.")
+                Text("A valid LUT is saved once under Application Support and reused as a GPU texture. Native Metal handles cold and spatial looks; full-resolution export always uses the exact engine. The viewer reports which renderer actually drew the frame. Mode stays experimental until parity benchmarks pass.")
                     .font(.caption).foregroundStyle(.secondary)
+                Text("LUT cache: \(model.lutPreparationStatus.isEmpty ? "not prepared" : model.lutPreparationStatus)")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Button("Prepare Selected Film LUT") { model.rendererPolicyDidChange() }
+                    .disabled(spectralPreviewLUT == "native" || model.selectedImage == nil)
                 Toggle("Paper background", isOn: $model.project.preferences.paperBackground)
                 DisclosureGroup("Advanced color handling") {
                     Toggle("Bypass import color transform", isOn: $model.project.preferences.bypassImportTransform)

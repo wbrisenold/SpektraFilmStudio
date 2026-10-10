@@ -639,19 +639,22 @@ require("MetalPreviewCanvas(image:" in _preview and "MTKView" in _metal_canvas a
         "GPU-backed frame presentation and bounded latest-frame scheduling missing")
 require("enqueueMetalFilm" in _native and "SpektraRendererRenderMetalBuffers" in _native,
         "Metal-only native engine bridge not accessible from Swift")
-# Color-only ART-style LUT preview experiment is OFF by default.
+# Persistently cached spectral LUTs: never bake inline during slider drag.
 _spectral = text("StudioSpectralLUT.swift")
-require("case \"33\": return 33" in _spectral and "case \"65\": return 65" in _spectral and
-        "default: return nil" in _spectral and "sampleTetra" in _spectral,
-        "experimental LUT mode must be explicit, tetrahedral and off by default")
-require("isColorLUTEligible" in _native and "params.autoExposure == 0" in _native and
-        "params.halationEnabled == 0" in _native and "params.cameraDiffusionEnabled == 0" in _native,
-        "LUT cannot replace spatial or auto spectral chemistry")
-require("encodeIfEligible" in text("GPULiveFramePipeline.swift") and
+require('case "33": return 33' in _spectral and 'case "65": return 65' in _spectral
+        and "default: return nil" in _spectral and "sampleTetra" in _spectral,
+        "spectral LUT sampler and explicit resolution gate missing")
+require("prewarmLUT" in text("GPULiveFramePipeline.swift") and
+        "encodeIfEligible" in text("GPULiveFramePipeline.swift") and
         "if !usedSpectralLUT" in text("GPULiveFramePipeline.swift"),
-        "LUT fallback must be the native GPU stage")
-require("Live film renderer" in settings and "Native spectral (exact)" in settings,
-        "native exact mode and experimental LUT controls are missing")
+        "LUT must be warmed outside interactive rendering and use native Metal on miss")
+require("SpectralLUTs-v2" in _spectral and "payloadSHA256" in _spectral and
+        "Data(contentsOf:" in _spectral and "Data(bytes: staging.contents()" in _spectral,
+        "versioned persistent GPU LUT cache missing")
+require("colorLUTBlockingReason" in _native and "film grain" in _native,
+        "LUT must explain when spatial simulation prevents sampling")
+require("Cached film LUT 33³" in settings and "Native spectral (exact)" in settings,
+        "persistent LUT settings and original renderer option missing")
 require("StudioFloatingScopes(model: model" in edit_view and
         "floatingScopesHeight" in text("StudioFloatingScopes.swift"),
         "contextual scope overlay not connected to Edit canvas")
