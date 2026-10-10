@@ -2,6 +2,10 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// Used by the native File menu to open the existing single-photo export sheet.
+enum StudioExportEvents {
+    static let open = Notification.Name("SpektraFilmStudio.Export.OpenSharedDialog")
+}
+
 enum StudioEditEvents {
     static let exportCurrentPhoto = Notification.Name("SpektraFilmStudio.Edit.ExportCurrentPhoto")
 }
@@ -14,6 +18,8 @@ struct ContentView: View {
     @State private var showingCloudTransfer = false
     @State private var showingOmni = false
     @State private var showingSceneAssistant = false
+    // One export sheet shared by Library, Cull, Proofs, Edit and command search.
+    @State private var showingExportDialog = false
     @State private var quickExportRequest: QuickExportRequest?
     @AppStorage("SpektraFilmStudio.ui.appearance") private var appAppearance = "system"
 
@@ -53,12 +59,21 @@ struct ContentView: View {
         .sheet(item: $quickExportRequest) { request in
             QuickExportSheet(model: model, imageID: request.id)
         }
+        .sheet(isPresented: $showingExportDialog) {
+            ExportWorkspaceView(model: model, isDialog: true) {
+                showingExportDialog = false
+            }
+            .accessibilityIdentifier("studio.export.dialog")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: StudioExportEvents.open)) { _ in
+            openExportDialog()
+        }
         .onReceive(NotificationCenter.default.publisher(for: StudioOmniEvents.openSceneAssistant)) { _ in
             showingSceneAssistant = true
         }
         .onReceive(NotificationCenter.default.publisher(for: StudioEditEvents.exportCurrentPhoto)) { _ in
-            guard model.page == .edit, !model.isExporting, let id = model.selectedImage?.id else { return }
-            quickExportRequest = QuickExportRequest(id: id)
+            // Legacy File menu event now opens THE SAME export dialog used everywhere.
+            openExportDialog()
         }
         .onReceive(NotificationCenter.default.publisher(for: StudioOmniEvents.open)) { _ in
             showingOmni.toggle()
@@ -66,8 +81,21 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("SpektraFilmStudio.UI.CloudSetup"))) { _ in
             showingCloudTransfer = true
         }
-        .onChange(of: model.page) { _, newPage in
-            model.workspaceDidChange(newPage)
+        .onChange(of: model.page) { oldPage, newPage in
+            if newPage == .export {
+                // Keep the original workspace alive (no expensive page teardown).
+                // Omni and historical Export-page requests are redirected here.
+                model.page = oldPage == .export ? .library : oldPage
+                openExportDialog()
+            } else {
+                model.workspaceDidChange(newPage)
+            }
+        }
+        .onAppear {
+            if model.page == .export {
+                model.page = .library
+                openExportDialog()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: GPUProcessingFailure.notification)) { event in
             if let detail = event.object as? String { model.rendererError = detail }
@@ -92,7 +120,8 @@ struct ContentView: View {
         case .cull: CullWorkspaceView(model: model)
         case .proofs: ProofsWorkspaceView(model: model)
         case .edit: EditWorkspaceView(model: model)
-        case .export: ExportWorkspaceView(model: model)
+        // Historical export route shows no heavyweight page while it redirects.
+        case .export: StudioPalette.canvas
         }
     }
 
@@ -127,7 +156,7 @@ struct ContentView: View {
             Spacer(minLength: 4)
 
             HStack(spacing: 2) {
-                ForEach(WorkspacePage.allCases) { page in
+                ForEach(WorkspacePage.allCases.filter { $0 != .export }) { page in
                     let selected = model.page == page && !model.showProjectHome
                     Button {
                         model.showProjectHome = false
@@ -181,21 +210,30 @@ struct ContentView: View {
                 } label: {
                     Label("Import", systemImage: "plus")
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-            } else if model.page == .edit, model.selectedImage != nil {
-                Button {
-                    model.page = .export
-                } label: {
-                    Label("Export", systemImage: "square.and.arrow.up")
-                }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.bordered)
                 .controlSize(.small)
             }
+            // Permanent File > Export equivalent: visible on EVERY photo workspace.
+            Button {
+                openExportDialog()
+            } label: {
+                Label("Export…", systemImage: "square.and.arrow.up")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(model.project.images.isEmpty)
+            .accessibilityIdentifier("studio.export.open")
         }
         .padding(.horizontal, 15)
         .frame(height: 51)
         .background(StudioPalette.panel)
+    }
+
+    private func openExportDialog() {
+        guard !model.project.images.isEmpty else { return }
+        // No selection changes on opening: existing queued sets are preserved.
+        // If nothing is queued the modal offers Current Photo / Picks / All.
+        showingExportDialog = true
     }
 
     private var missingMediaBanner: some View {

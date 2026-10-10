@@ -21,6 +21,7 @@ struct SettingsView: View {
     @AppStorage("SpektraFilmStudio.designA.v3.showExportBrowser") private var exportBrowserVisible = true
     @AppStorage("SpektraFilmStudio.ui.collapsedFilmSections") private var collapsedFilmSections = ""
     @AppStorage("SpektraFilmStudio.ai.depthProvider") private var depthProvider = "automatic"
+    @AppStorage(StudioSpectralLUT.setting) private var spectralPreviewLUT = "native"
 
     var body: some View {
         // Redlamp uses the macOS 26 `Tab` API ("Appearance", "Models") rather than
@@ -60,6 +61,13 @@ struct SettingsView: View {
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
+                Picker("Live film renderer", selection: $spectralPreviewLUT) {
+                    Text("Native spectral (exact)").tag("native")
+                    Text("Spectral 33³ LUT (test)").tag("33")
+                    Text("Spectral 65³ LUT (test)").tag("65")
+                }
+                Text("Experimental ART-style LUT bake: only for film/print settings with no spatial effects or automatic image statistics. LUTs remain on Metal, are cached by film settings, and affect live preview only. All unsupported looks continue through native Metal; export is always exact. The separate ART Spectral Film LUT generator is available in the experiment tools.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Toggle("Paper background", isOn: $model.project.preferences.paperBackground)
                 DisclosureGroup("Advanced color handling") {
                     Toggle("Bypass import color transform", isOn: $model.project.preferences.bypassImportTransform)

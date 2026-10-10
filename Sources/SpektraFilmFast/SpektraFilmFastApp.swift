@@ -113,12 +113,11 @@ struct SpektraCommands: Commands {
             Button("Save Project As…") { model.saveProject(asNew: true) }.keyboardShortcut("s", modifiers: [.command, .shift])
         }
         CommandGroup(after: .saveItem) {
-            Button("Export Current Photo…") {
-                NotificationCenter.default.post(name: StudioEditEvents.exportCurrentPhoto, object: nil)
+            Button("Export Photos…") {
+                NotificationCenter.default.post(name: StudioExportEvents.open, object: nil)
             }
-            .disabled(model.page != .edit || model.selectedImage == nil || model.isExporting)
-            Button("Open Export Workspace…") { model.showProjectHome = false; model.page = .export }
-                .disabled(model.project.images.isEmpty)
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+            .disabled(model.project.images.isEmpty)
         }
         CommandMenu("Workspace") {
             Button(model.isPresetSidebarVisible ? "Hide Presets / Photos Sidebar" : "Show Presets / Photos Sidebar") {

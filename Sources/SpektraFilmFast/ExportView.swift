@@ -3,6 +3,16 @@ import AppKit
 
 struct ExportWorkspaceView: View {
     @ObservedObject var model: AppModel
+    // The legacy workspace remains solely for source compatibility.
+    // The production entry points all use the same modal presentation.
+    let isDialog: Bool
+    let onClose: (() -> Void)?
+    init(model: AppModel, isDialog: Bool = false, onClose: (() -> Void)? = nil) {
+        self.model = model
+        self.isDialog = isDialog
+        self.onClose = onClose
+    }
+    @State private var dialogPhotosOpen = false
     @State private var sourceFilter: ExportSourceFilter = .all
     @State private var search = ""
     // Redlamp-inspired native three-pane layout: no blocking settings sheet.
@@ -14,8 +24,12 @@ struct ExportWorkspaceView: View {
     @State private var presetName = ""
 
     var body: some View {
-        VStack(spacing: 0) {
-            workspaceHeader
+        Group {
+            if isDialog {
+                exportDialog
+            } else {
+                VStack(spacing: 0) {
+                    workspaceHeader
             // "Build Set" (What) then "Settings" (How) is the only ordering that
             // makes sense. Photos/Settings used to sit in that order and read as
             // if the browser changed the output settings.
@@ -38,6 +52,8 @@ struct ExportWorkspaceView: View {
             if model.isExporting || model.activeExportJob != nil {
                 actionFooter
             }
+                }
+            }
         }
         .background(StudioPalette.canvas)
         .alert("Save Export Preset", isPresented: $showingSavePreset) {
@@ -47,6 +63,90 @@ struct ExportWorkspaceView: View {
         } message: {
             Text("Save the current format, size, color, naming, metadata and destination settings.")
         }
+    }
+
+    // Photoshop-like non-destructive export sheet, composed from the SAME
+    // Redlamp-inspired Location/File/Size/Metadata controls as the original.
+    // One implementation owns model state, preview, queue and export settings.
+    private var exportDialog: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Image(systemName: "square.and.arrow.up.on.square")
+                    .font(.system(size: 20, weight: .medium))
+                    .frame(width: 38, height: 38)
+                    .background(StudioPalette.selected, in: RoundedRectangle(cornerRadius: 9))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Export Photos").font(.headline.weight(.semibold))
+                    Text("Preview your delivery before writing any files")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text("\(model.selectedExportCount) queued")
+                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                Button { onClose?() } label: {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(.borderless)
+                .help("Close · exports already running continue")
+            }
+            .padding(.horizontal, 18).frame(height: 61)
+            Divider()
+            HStack(spacing: 0) {
+                // Live fit/crop preview reacts to resize presets, JPEG settings,
+                // photo switching and the real export settings model.
+                previewAndQueue
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("studio.export.preview")
+                Rectangle().fill(StudioPalette.divider).frame(width: 1)
+                inspector
+                    .frame(width: 345)
+                    .accessibilityIdentifier("studio.export.inspector")
+            }
+            Divider()
+            HStack(spacing: 10) {
+                Button {
+                    dialogPhotosOpen = true
+                } label: {
+                    Label("Choose Photos", systemImage: "photo.on.rectangle.angled")
+                }
+                .popover(isPresented: $dialogPhotosOpen, arrowEdge: .top) {
+                    sourceBrowser
+                        .frame(width: 375, height: 480)
+                        .studioOmniPane()
+                }
+                Menu {
+                    if let image = model.selectedImage {
+                        Button("Current Photo Only · \(image.fileName)") {
+                            model.setAllExportSelection(false)
+                            model.toggleExportSelection(image.id)
+                        }
+                    }
+                    Button("Picked Photos") { model.selectExportPicksOnly() }
+                    Button("Client Picks") { model.selectExportClientPicksOnly() }
+                    Button("4 Stars and Up") { model.selectExportRating(atLeast: 4) }
+                    Button("All Photos") { model.setAllExportSelection(true) }
+                    Divider()
+                    Button("Clear Queue") { model.setAllExportSelection(false) }
+                } label: {
+                    Label("Selection", systemImage: "checklist")
+                }
+                .disabled(model.isExporting)
+                Spacer(minLength: 6)
+                if let reason = exportBlockingReason, !model.isExporting {
+                    Text(reason).font(.caption2).foregroundStyle(.secondary)
+                        .lineLimit(2).frame(maxWidth: 250, alignment: .trailing)
+                }
+                Button("Close") { onClose?() }
+                    .keyboardShortcut(.cancelAction)
+                exportActions
+            }
+            .controlSize(.small)
+            .padding(.horizontal, 16)
+            .frame(height: 62)
+        }
+        .frame(width: 1060, height: 730)
+        .studioOmniPane()
+        .accessibilityIdentifier("studio.export.shared-modal")
     }
 
     // Kept for existing documentation and UI smoke-test callers.
@@ -269,6 +369,7 @@ struct ExportWorkspaceView: View {
                     }
                     .disabled(model.isExporting)
                     Button {
+                        if isDialog { onClose?() }
                         model.focusPhoto(image.id, destination: .edit)
                     } label: {
                         Label("Edit", systemImage: "slider.horizontal.3")

@@ -162,6 +162,8 @@ actor GPULiveFramePipeline {
     private var film: NativeRenderer?
     private var gpu: GPULiveDevice?
     private var rawCache: (key: DecodeKey, frame: MetalDevelopedRAW)?
+    // Three recent color-only film LUTs, never cached as authoritative images.
+    private var spectralLUT: StudioSpectralLUT?
 
     func reset() { rawCache = nil }
 
@@ -209,9 +211,32 @@ actor GPULiveFramePipeline {
             tone: look.tone, density: look.colorDensity, film: look.filmTone)
         preCommand.commit()
         try Task.checkCancellation()
-        // Native stage enqueues on the SAME queue; it does not wait for CPU pixels.
-        try await film.enqueueMetalFilm(GPUMetalFilmIO(source: graded, destination: filmOutput,
-             queue: gpu.queue, width: width, height: height), look: look)
+        // Experimental ART-style whole-film 3D LUT: source from the exact
+        // film engine, GPU-generated only for proven non-spatial looks. Never
+        // replaces its pixel-accurate export or drops enabled spatial stages.
+        // The lookup and native renderer both enqueue on the SAME Metal queue.
+        var usedSpectralLUT = false
+        if StudioSpectralLUT.selectedResolution() != nil {
+            do {
+                if spectralLUT == nil { spectralLUT = try StudioSpectralLUT(gpu: gpu) }
+                if let spectralLUT {
+                    usedSpectralLUT = try await spectralLUT.encodeIfEligible(
+                        film: film, look: look, source: graded, destination: filmOutput,
+                        width: width, height: height)
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // Never poison exact export or emit an ungraded image: use the
+                // authoritative NATIVE GPU film stage for unsupported hardware.
+                // The experimental LUT is optional and failure cannot break Edit.
+                usedSpectralLUT = false
+            }
+        }
+        if !usedSpectralLUT {
+            try await film.enqueueMetalFilm(GPUMetalFilmIO(source: graded, destination: filmOutput,
+                 queue: gpu.queue, width: width, height: height), look: look)
+        }
         try Task.checkCancellation()
         guard let postCommand = gpu.queue.makeCommandBuffer() else {
             throw GPULiveError.unavailable("Post-film Metal command allocation failed")
