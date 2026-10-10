@@ -23,7 +23,9 @@ struct PreviewView: View {
             ZStack {
                 viewerBackground
 
-                if let image = model.showingBefore ? frameState.sourcePreview : frameState.renderedPreview {
+                if let image = model.showingBefore ? frameState.sourcePreview :
+                    (frameState.renderedPreview ??
+                     (StudioImportedCubeLUTSettings.isSelected ? frameState.sourcePreview : nil)) {
                     ZStack {
                         // Redlamp-derived mask is composited in the image itself, not an
                         // independent translucent view whose size can drift after crop.

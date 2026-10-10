@@ -60,6 +60,8 @@ def main():
     check('case "33": return 33' in lut and 'case "65": return 65' in lut and
           'default: return nil' in lut and '!usedImportedLUT && !usedSpectralLUT' in preview,
           'experimental LUT/native accuracy guard missing')
+    check('if importedMode' in preview and 'importedCubeLUT.encode' in preview,
+          'imported GPU film/LUT renderer contract missing')
     check('struct StudioSliderTrack' in controls and 'thumbX - thumbRadius' in controls,
           'original Redlamp slider layout regressed')
     check((S/'StudioFloatingScopes.swift').exists() and

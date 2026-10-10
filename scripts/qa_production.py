@@ -648,6 +648,10 @@ require("prewarmLUT" in text("GPULiveFramePipeline.swift") and
         "encodeIfEligible" in text("GPULiveFramePipeline.swift") and
         "!usedImportedLUT && !usedSpectralLUT" in text("GPULiveFramePipeline.swift"),
         "LUT must be warmed outside interactive rendering and use native Metal on miss")
+require("if importedMode" in text("GPULiveFramePipeline.swift") and
+        "importedCubeLUT.encode" in text("GPULiveFramePipeline.swift") and
+        "StudioImportedCubeLUTSettings.isSelected" in text("AppModel.swift"),
+        "imported GPU LUT must bypass native with no fallback on the editing path")
 require("SpectralLUTs-v2" in _spectral and "payloadSHA256" in _spectral and
         "Data(contentsOf:" in _spectral and "Data(bytes: staging.contents()" in _spectral,
         "versioned persistent GPU LUT cache missing")

@@ -99,12 +99,16 @@ struct SettingsView: View {
                 }
                 Picker("Live film renderer", selection: $spectralPreviewLUT) {
                     Text("Native spectral (exact)").tag("native")
+                    Text("Imported .cube · GPU only").tag("imported-cube")
                     Text("Cached film LUT 33³ (experimental)").tag("33")
                     Text("Cached film LUT 65³ (experimental)").tag("65")
                     Text("Imported film + print LUT").tag("imported")
                 }
-                Text("A valid LUT is saved once under Application Support and reused as a GPU texture. Native Metal handles cold and spatial looks; full-resolution export always uses the exact engine. The viewer reports which renderer actually drew the frame. Mode stays experimental until parity benchmarks pass.")
+                Text("Imported .cube mode uses a resident Metal LUT with no native film fallback and no live re-baking. Existing 33³/65³ modes remain experimental and can fall back to native. Full-resolution export still uses the original exact renderer: preview/export parity is NOT established yet.")
                     .font(.caption).foregroundStyle(.secondary)
+                if spectralPreviewLUT == "imported-cube" {
+                    StudioImportedLUTSettingsView(model: model)
+                }
                 Text("LUT cache: \(model.lutPreparationStatus.isEmpty ? "not prepared" : model.lutPreparationStatus)")
                     .font(.caption2).foregroundStyle(.secondary)
                 if spectralPreviewLUT == "imported" {
@@ -115,7 +119,7 @@ struct SettingsView: View {
                         Button(model.lutIsPreparing ? "Preparing…" : "Prepare Selected Film LUT") {
                             model.prepareSelectedFilmLUT()
                         }
-                        .disabled(spectralPreviewLUT == "native" || model.selectedImage == nil || model.lutIsPreparing)
+                        .disabled(spectralPreviewLUT == "native" || spectralPreviewLUT == "imported" || spectralPreviewLUT == "imported-cube" || model.selectedImage == nil || model.lutIsPreparing)
                         if model.lutIsPreparing { ProgressView().controlSize(.mini) }
                     }
                 }

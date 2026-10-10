@@ -167,6 +167,7 @@ actor GPULiveFramePipeline {
     private var rawCache: [(key: DecodeKey, frame: MetalDevelopedRAW)] = []
     private let rawCacheCapacity = 3
     private var spectralLUT: StudioSpectralLUT?
+    private var importedCubeLUT: StudioImportedCubeLUT?
     private var importedLUT: StudioImportedLUTMetal?
 
     func reset() { rawCache.removeAll() }
@@ -260,11 +261,21 @@ actor GPULiveFramePipeline {
         if look.tone?.autoContrast == true || look.filmTone?.autoContrast == true {
             throw GPULiveError.unavailable("Auto Contrast requires full-frame analysis")
         }
-        if film == nil { film = try NativeRenderer(profile: .exact) }
-        guard let film else { throw GPULiveError.unavailable("Native film engine unavailable") }
+        // Imported .cube is the authoritative FILM stage when selected.
+        // It NEVER initializes or calls NativeRenderer (not even on a cache miss).
+        let importedMode = StudioImportedCubeLUTSettings.isSelected
+        if !importedMode && film == nil { film = try NativeRenderer(profile: .exact) }
         if gpu == nil {
-            let nativeDevice = try await film.preferredMetalDevice()
-            gpu = try GPULiveDevice(device: nativeDevice.device)
+            if importedMode {
+                guard let device = StudioGPUDevice.shared else {
+                    throw GPULiveError.unavailable("Metal GPU unavailable for imported LUT")
+                }
+                gpu = try GPULiveDevice(device: device)
+            } else {
+                guard let film else { throw GPULiveError.unavailable("Native film engine unavailable") }
+                let nativeDevice = try await film.preferredMetalDevice()
+                gpu = try GPULiveDevice(device: nativeDevice.device)
+            }
         }
         guard let gpu else { throw GPULiveError.unavailable("Metal device unavailable") }
         let key = DecodeKey(path: url.path, longEdge: longEdge, raw: look.raw,
@@ -299,8 +310,20 @@ actor GPULiveFramePipeline {
         var usedSpectralLUT = false
         var usedImportedLUT = false
         var importedOutput: StudioImportedLUT.OutputSpace?
+        var importedLabel: String? = nil
         let resolution = StudioSpectralLUT.selectedResolution()
         let renderedStart = ProcessInfo.processInfo.systemUptime
+        if importedMode {
+            // Imported .cube is the authoritative FILM stage when selected.
+            // It NEVER initializes or calls NativeRenderer (not even on a cache miss).
+            if importedCubeLUT == nil { importedCubeLUT = try StudioImportedCubeLUT(gpu: gpu) }
+            guard let importedCubeLUT else {
+                throw GPULiveError.unavailable("Imported .cube shader unavailable")
+            }
+            importedLabel = try importedCubeLUT.encode(source: graded, destination: filmOutput,
+                                                       width: width, height: height)
+        } else {
+        guard let film else { throw GPULiveError.unavailable("Native film engine unavailable") }
         if StudioImportedLUT.isSelected {
             guard let file = StudioImportedLUT.selectedURL() else {
                 throw StudioImportedLUT.Failure.invalid("Choose a LUT from the linked folder in Settings.")
@@ -326,6 +349,7 @@ actor GPULiveFramePipeline {
         if !usedImportedLUT && !usedSpectralLUT {
             try await film.enqueueMetalFilm(GPUMetalFilmIO(source: graded, destination: filmOutput,
                  queue: gpu.queue, width: width, height: height), look: look)
+        }
         }
         try Task.checkCancellation()
         guard let postCommand = gpu.queue.makeCommandBuffer() else {
@@ -365,18 +389,22 @@ actor GPULiveFramePipeline {
         try Task.checkCancellation()
         let elapsed = (ProcessInfo.processInfo.systemUptime - renderedStart) * 1000.0
         let label: String
-        if usedImportedLUT {
+        if let importedLabel {
+            label = "\(importedLabel) · \(Int(elapsed.rounded())) ms"
+        } else if usedImportedLUT {
             label = "Imported film LUT · " + StudioImportedLUT.selectedDisplayName
         } else if usedSpectralLUT {
             label = "Cached spectral LUT \(resolution ?? 33)³ · \(Int(elapsed.rounded())) ms"
         } else if let resolution {
-            let blocked = await film.colorLUTBlockingReason(look: look)
+            let blocked = await film?.colorLUTBlockingReason(look: look)
             label = blocked.map { "Native Metal · LUT blocked (\($0))" }
                 ?? "Native Metal · LUT \(resolution)³ not yet cached"
         } else {
             label = "Native spectral Metal · \(Int(elapsed.rounded())) ms"
         }
-        return GPULiveFrame(texture: texture, colorSpace: importedOutput?.cgColorSpace ?? OutputColorProfile.forLook(look).cgColorSpace,
-                            rendererLabel: label)
+        return GPULiveFrame(texture: texture,
+              colorSpace: importedMode ? StudioImportedCubeLUTSettings.colorSpace
+                                       : (importedOutput?.cgColorSpace ?? OutputColorProfile.forLook(look).cgColorSpace),
+              rendererLabel: label)
     }
 }

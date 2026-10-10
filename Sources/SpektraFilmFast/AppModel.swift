@@ -1262,6 +1262,12 @@ final class AppModel: ObservableObject {
         // A new pointer gesture then remains coalesced behind the old GPU fence.
 
         guard let baselineLook, baselineLook != committedLook else { return }
+        if StudioImportedCubeLUTSettings.isSelected {
+            // No exact/native settled render after a LUT slider gesture.
+            // Keep using the same GPU-only imported LUT graph for the final value.
+            scheduleGPULivePreview(look: committedLook)
+            return
+        }
         scheduleIdleRefinement(
             baselineRaw: rawField == nil ? nil : baselineLook.raw,
             rawField: rawField,
@@ -3303,6 +3309,12 @@ final class AppModel: ObservableObject {
     // MARK: - Latest-render-wins preview scheduler
 
     private func scheduleLUTPrewarm(look: RenderLook, imageID: UUID, immediate: Bool = false) {
+        if StudioImportedCubeLUTSettings.isSelected {
+            lutPrewarmTask?.cancel()
+            lutIsPreparing = false
+            lutPreparationStatus = "Imported .cube loaded by Metal on first use; no film LUT baking"
+            return
+        }
         if StudioImportedLUT.isSelected {
             lutPrewarmTask?.cancel()
             lutIsPreparing = false
@@ -3397,10 +3409,30 @@ final class AppModel: ObservableObject {
                 : "Imported LUT selected · active on next render"
             return
         }
+        // A changed LUT file, shaper, or output profile must never leave an
+        // unrelated frame on the Metal canvas. Also clear imported frames when
+        // returning to the native renderer.
+        gpuPreviewGeneration &+= 1
+        pendingGPUPreview = nil
+        gpuPreviewTask?.cancel()
+        liveGPUFrame = nil
         guard let selected = selectedImage else {
             lutPreparationStatus = "Select a photograph to prepare a LUT"
             return
         }
+        if StudioImportedCubeLUTSettings.isSelected {
+            lutPreparationStatus = StudioImportedCubeLUTSettings.selectedURL.map {
+                "Imported .cube · \($0.lastPathComponent) · resident after first GPU use"
+            } ?? "Choose a .cube file in General > LUT Library"
+            if currentSourceSupportsGPULive, !project.preferences.bypassImportTransform,
+               GPULiveFramePipeline.supports(selectedLook) {
+                scheduleGPULivePreview(look: selectedLook)
+            }
+            return
+        }
+        // Restore native preview immediately when imported mode is turned off.
+        // A renderer setting is a display identity change, not only a prewarm request.
+        if page == .edit { scheduleRender(interactive: false, reason: "renderer policy changed") }
         scheduleLUTPrewarm(look: selectedLook, imageID: selected.id)
     }
 
@@ -3427,8 +3459,23 @@ final class AppModel: ObservableObject {
         lookOverride: RenderLook? = nil
     ) {
         guard let image = selectedImage, renderer != nil else { return }
+        let previewLook = lookOverride ?? gestureWorkingLook ?? selectedLook
+        if StudioImportedCubeLUTSettings.isSelected && !fullResolutionRequest && page == .edit {
+            // A single GPU renderer owns BOTH live and settled 1080px previews.
+            // Never run the native exact-preview queue behind the imported LUT.
+            guard currentSourceSupportsGPULive, !project.preferences.bypassImportTransform,
+                  GPULiveFramePipeline.supports(previewLook) else {
+                status = "Imported LUT needs supported RAW, Metal, and non-masked edit settings"
+                return
+            }
+            renderGeneration &+= 1
+            pendingRenderRequest = nil
+            renderLoopTask?.cancel()
+            scheduleGPULivePreview(look: previewLook)
+            return
+        }
         if interactive && currentSourceSupportsGPULive &&
-           GPULiveFramePipeline.supports(lookOverride ?? gestureWorkingLook ?? selectedLook) {
+           GPULiveFramePipeline.supports(previewLook) {
             // AppModel's live Metal queue supersedes the 720px CPU-packaged
             // interactive exact render. The normal settled exact render remains.
             return
@@ -3539,7 +3586,7 @@ final class AppModel: ObservableObject {
                 )
                 guard !Task.isCancelled, request.generation == gpuPreviewGeneration,
                       request.imageID == project.selectedImageID,
-                      gestureWorkingLook == request.look else { continue }
+                      (gestureWorkingLook ?? selectedLook) == request.look else { continue }
                 liveGPUFrame = frame
                 rendererPathStatus = frame.rendererLabel
                 status = "\(frame.rendererLabel) · \(frame.texture.width) × \(frame.texture.height)"
@@ -3549,6 +3596,11 @@ final class AppModel: ObservableObject {
             } catch {
                 if request.generation == gpuPreviewGeneration {
                     status = "Metal live unavailable: \(error.localizedDescription)"
+                    if StudioImportedCubeLUTSettings.isSelected {
+                        liveGPUFrame = nil // No implicit native fallback or stale LUT preview.
+                        renderedPreview = nil
+                        rendererPathStatus = "Imported LUT error · \(error.localizedDescription)"
+                    }
                 }
             }
         }
@@ -3697,6 +3749,10 @@ final class AppModel: ObservableObject {
     }
 
     func requestFullResolutionPreview() {
+        if StudioImportedCubeLUTSettings.isSelected {
+            status = "Full-resolution imported LUT preview is not implemented; preserving the live Metal preview"
+            return
+        }
         cancelIdleRefinement()
         project.preferences.fullResolutionPreview = true
         scheduleRender(
@@ -5078,6 +5134,10 @@ final class AppModel: ObservableObject {
     }
 
     func exportSelected() {
+        guard !StudioImportedCubeLUTSettings.isSelected else {
+            status = "Export blocked: imported .cube has no matching full-resolution GPU export path yet"
+            return
+        }
         guard !isExporting, exactRenderer != nil else { return }
         let selected = project.images.filter(\.selectedForExport)
         guard !selected.isEmpty else { status = "No images selected for export"; return }
@@ -5102,6 +5162,10 @@ final class AppModel: ObservableObject {
     }
 
     func exportImage(_ id: UUID, settings: ExportSettings) {
+        guard !StudioImportedCubeLUTSettings.isSelected else {
+            status = "Export blocked: imported .cube has no matching full-resolution GPU export path yet"
+            return
+        }
         guard !isExporting, exactRenderer != nil,
               let image = project.images.first(where: { $0.id == id }) else { return }
         var effective = settings
