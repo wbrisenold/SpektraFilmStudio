@@ -965,6 +965,12 @@ struct DraftScalarSlider: View {
     @State private var draft: Double
     @State private var editing = false
 
+    /// Keyboard nudge step, same span/100 rule as StudioSliderTrack.
+    private var step: Double {
+        let span = range.upperBound - range.lowerBound
+        return span > 0 ? span / 100 : 0
+    }
+
     init(
         label: String,
         committedValue: Double,

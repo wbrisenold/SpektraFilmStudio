@@ -169,7 +169,9 @@ final class AppModel: ObservableObject {
     @Published var presetSearch = ""
     @Published var presetCategoryFilter = "All"
     @Published var isPresetSidebarVisible: Bool = {
-        if UserDefaults.standard.object(forKey: "SpektraFilmFast.isPresetSidebarVisible") == nil { return false }
+        // New installations show the Presets / Photos tabbed sidebar by default;
+        // existing users' explicit sidebar choice is preserved.
+        if UserDefaults.standard.object(forKey: "SpektraFilmFast.isPresetSidebarVisible") == nil { return true }
         return UserDefaults.standard.bool(forKey: "SpektraFilmFast.isPresetSidebarVisible")
     }() {
         didSet { UserDefaults.standard.set(isPresetSidebarVisible, forKey: "SpektraFilmFast.isPresetSidebarVisible") }

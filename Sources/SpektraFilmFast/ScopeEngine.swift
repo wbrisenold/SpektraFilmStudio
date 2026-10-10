@@ -54,8 +54,10 @@ actor ScopeEngine {
     // MARK: - Histogram
 
     private nonisolated static func histogram(_ buffer: PixelBufferF32, look: RenderLook) -> ScopePayload {
-        let width = 384
-        let height = 180
+        // Render into a real high-resolution scope surface, not a 384px bitmap
+        // stretched to occupy the new dock. Bin counts remain data-driven.
+        let width = 768
+        let height = 320
         let bins = 256
         var red = [UInt32](repeating: 0, count: bins)
         var green = red
@@ -129,8 +131,10 @@ actor ScopeEngine {
     // MARK: - Waveform / RGB parade
 
     private nonisolated static func waveform(_ buffer: PixelBufferF32, look: RenderLook, parade: Bool) -> ScopePayload {
-        let width = 384
-        let height = 192
+        // Larger x/time and level grids improve readability without changing
+        // the RGB measurement pipeline or clipping math.
+        let width = 768
+        let height = 320
         let planeSize = width * height
         var counts = [UInt16](repeating: 0, count: planeSize * 3)
         let xStep = max(1, buffer.width / width)
@@ -280,7 +284,7 @@ actor ScopeEngine {
         skinMeanDeviationDegrees: Double = 0.0,
         skinMeasurementConfidencePercent: Double = 0.0
     ) -> ScopePayload {
-        let size = 280
+        let size = 448
         let pixelCount = size * size
         var counts = [UInt16](repeating: 0, count: pixelCount)
         var sumR = [Float](repeating: 0, count: pixelCount)

@@ -166,7 +166,7 @@ require("rr = 229; gg = 65; bb = 177" in analysis, "too-magenta skin overlay mis
 require("rr = 238; gg = 184; bb = 72" in analysis, "on-target gold skin overlay missing")
 require("TOO MAGENTA" in preview and "TOO GREEN" in preview and "ON TARGET" in preview and "Too Magenta" in text("EditorScopePanelView.swift") and "Too Green" in text("EditorScopePanelView.swift"), "directional skin legend/readout missing")
 require("contentMode: .fit" in text("EditView.swift"), "Edit filmstrip thumbnails are still crop/fill")
-require("filmstripPaneHeight" in text("EditView.swift"), "persistent floating Edit filmstrip missing")
+require('Picker("Left browser"' in text("EditView.swift") and "LazyVGrid" in text("EditView.swift"), "Edit Photos tab in left sidebar missing")
 require("skinMagentaPercent" in models and "skinGreenPercent" in models, "direction metrics missing")
 
 # Pass 9: export isolation/reliability
@@ -247,8 +247,9 @@ require("scopeTargetFPS" in models and "startEditorScopeLoop" in scope_support, 
 require("scopeTask == nil" in scope_support and "scopeGeneration" in scope_support, "scope latest-frame/backpressure guard missing")
 require("Histogram" in models and "Waveform" in models and "RGB Parade" in models and "Vectorscope" in models and "Skin Vector" in models, "scope modes missing")
 edit_view = text("EditView.swift")
-require("EditorScopePanelView(model: model)" in edit_view and "clippingEnabled" in scope_panel and "skinCheckEnabled" in scope_panel and "editorScopeImage" in scope_panel,
-        "scopes and their clipping/skin toggles must live in the adjustment rail, as Redlamp does")
+require("private var scopeDock" in edit_view and "EditorScopePanelView(" in edit_view and
+        "clippingEnabled" in scope_panel and "skinCheckEnabled" in scope_panel and "editorScopeImage" in scope_panel,
+        "large center-stage scopes dock or its clipping/skin readout missing")
 require("editorBottomInset" in text("EditView.swift"), "canvas does not reserve room for the docked scope/filmstrip strips")
 require("skinVectorscope" in scope_engine and "drawSkinReference" in scope_engine, "dedicated skin vectorscope missing")
 require(scope_engine.count("SkinToneReference.referenceAngleDegrees") >= 1, "skin vectorscope does not use the shared derived reference angle")
@@ -431,7 +432,7 @@ require("minimumScaleToCoverCrop" in geometry and "effectiveSettings.scale = max
 require("minimumScaleToCoverCrop(" in app and "geometry.autoCrop = false" in app, "crop viewer does not preview the solved Auto Fill zoom")
 require('changedParameter == "crop" && isCropToolActive' in app and "objectWillChange.send()" in app, "crop overlay still forces an image resample on every drag event")
 require("skinMaskAlpha" in scope and "skinMaskAlpha[mi] > 64" in scope, "Skin Vector is not restricted to detected skin pixels")
-require("scopeEnabled = true" in models and "EditorScopePanelView(model: model)" in edit_view and "Below canvas" in settings, "Edit scopes placement control or truthful settings description missing")
+require("scopeEnabled = true" in models and "EditorScopePanelView(" in edit_view and "Below canvas" in settings, "Edit scopes placement control or truthful settings description missing")
 
 print("v0.5 studio-workflow acceptance checks passed")
 
@@ -543,8 +544,8 @@ require(
 # Redlamp layout parity (PanelMetrics): every overlay panel uses the same metric
 # constants rather than per-page width guesses.
 _redlamp_layout = text("StudioUI.swift")
-require("editorInspectorWidth: CGFloat = 316" in _redlamp_layout and "presetSidebarWidth: CGFloat = 250" in _redlamp_layout,
-        "panel metrics must match Redlamp PanelMetrics (inspector 316, sidebar 250)")
+require("editorInspectorWidth: CGFloat = 316" in _redlamp_layout and "presetSidebarWidth: CGFloat = 300" in _redlamp_layout,
+        "panel widths must preserve the right inspector and make the Photos/Presets sidebar readable")
 for _page in ("LibraryView.swift", "CullView.swift", "ProofsView.swift", "ExportView.swift"):
     _t = text(_page)
     require(".frame(minWidth:" not in _t or "StudioLayout." in _t,
@@ -557,15 +558,21 @@ require('section("Location")' in export_view and 'section("File")' in export_vie
 require('section("Destination"' not in export_view and 'section("File Format"' not in export_view,
         "export sections must not drift back to bespoke per-page names")
 require('Text(title.uppercased())' in export_view, "export section headers must render as grouped-form captions")
-# Filmstrip must float with hover auto-hide at Redlamp's fixed metrics, not be a
-# pinned user-resizable strip.
+# The requested layout is Photos / Presets tabs in the left browser; the bottom
+# floating filmstrip must stay removed. Scopes belong to a resizable center dock.
 _require = {
-    "filmstripPaneHeight: CGFloat { StudioLayout.filmstripHeight" in edit_view,
-    "filmstripHidesAutomatically" in edit_view,
-    "filmstripTrigger" in _redlamp_layout if "_redlamp_layout" in dir() else "filmstripTrigger" in text("StudioUI.swift"),
-    "filmstripResizeHandle" not in edit_view,
+    'Text("Presets").tag("presets")' in edit_view,
+    'Text("Photos").tag("photos")' in edit_view,
+    'ScrollView(.vertical)' in edit_view,
+    'LazyVGrid(columns:' in edit_view,
+    'ScrollView(.horizontal)' not in edit_view,
+    'private var scopeDock' in edit_view,
+    'DragGesture(minimumDistance: 2)' in edit_view,
+    '.padding(.bottom, editorBottomInset)' in edit_view,
+    'let width = 768' in scope_engine,
+    'let size = 448' in scope_engine,
 }
-require(all(_require), "filmstrip must float with hover auto-hide at Redlamp's fixed 110pt/14pt metrics")
+require(all(_require), "tabbed Photos browser or large resizable scopes dock regressed")
 # Redlamp visual parity: the neutral white-alpha palette, the Typography specs
 # (including 0.6pt section tracking), the Metrics row sizes, and Redlamp's own
 # slider track. System label colours and system sliders are what made our rail
@@ -607,3 +614,17 @@ require('mask_fused' in text("MaskMetalEngine.swift"), "fused mask evaluator mis
 require('previewObjectMask(at:' in text("MaskPanelView.swift"), "object hover preview missing")
 require('Refine Edges' in text("MaskPanelView.swift"), "edge refinement control missing")
 print("REDLAMP WORKFLOW AND MASK SOURCE GATES PASS")
+
+# Edit should have a single global toolbar, not an extra 37pt filename/overflow row.
+_app_shell = text("ContentView.swift")
+_app_commands = text("SpektraFilmFastApp.swift")
+require("editorToolbar" not in edit_view and "private var scopeDock" in edit_view,
+        "Edit reintroduced the redundant filename/ellipsis toolbar")
+require(".padding(.top, 45)" not in edit_view and
+        ".padding(.top, 45 + StudioLayout.paneInset)" not in edit_view,
+        "Edit still reserves height for the deleted toolbar")
+require("CommandMenu(\"Workspace\")" in _app_commands and
+        "Copy / Paste Categories" in _app_commands and
+        "StudioEditEvents.exportCurrentPhoto" in _app_shell and
+        "QuickExportSheet(model: model, imageID: request.id)" in _app_shell,
+        "secondary Edit actions were removed without accessible native menu replacements")

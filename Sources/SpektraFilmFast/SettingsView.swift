@@ -155,7 +155,7 @@ struct SettingsView: View {
             }
             Section("Workspace Visibility") {
                 Toggle("Editor adjustment inspector", isOn: $editorInspectorVisible)
-                Toggle("Editor filmstrip", isOn: $editorFilmstripVisible)
+                Toggle("Photos tab in editor sidebar", isOn: $editorFilmstripVisible)
                 Toggle("Library inspector", isOn: $libraryInspectorVisible)
                 Toggle("Cull inspector", isOn: $cullInspectorVisible)
                 Toggle("Export source browser", isOn: $exportBrowserVisible)
@@ -203,7 +203,7 @@ struct SettingsView: View {
                     Text("Below canvas").tag(true)
                 }
                 .pickerStyle(.segmented)
-                Text("Scopes dock below the canvas so they never shrink the adjustment rail. They start as a slim readout bar and expand only when you ask. Choosing Hidden removes them from the Edit workspace entirely; the toolbar Scopes button still toggles them.")
+                Text("Scopes now occupy a separate, full-width center-stage dock rather than the right adjustment rail. Drag the dock handle upward for more height; select a scope type in its header. Hiding the dock returns the full center area to the photo. Scope renderings use higher-resolution traces.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Picker("Default scope", selection: Binding(

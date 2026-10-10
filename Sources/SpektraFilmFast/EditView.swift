@@ -1,11 +1,16 @@
 import SwiftUI
 import AppKit
 
+// SFS-EDIT-LEFT-PHOTOS-LARGE-SCOPES-20261009
+
 struct EditWorkspaceView: View {
     @ObservedObject var model: AppModel
-    @AppStorage("SpektraFilmStudio.ui.filmstripHidesAutomatically") private var filmstripHidesAutomatically = true
+    // Photos now live alongside Presets in the left editor sidebar.
+    @AppStorage("SpektraFilmStudio.ui.editLeftTab") private var editLeftTab = "photos"
+    // A real, resizable scope dock, independent of the adjustment rail.
+    @AppStorage("SpektraFilmStudio.ui.scopesDockHeight") private var scopesDockHeight = 356.0
+    @State private var scopesResizeOrigin: Double?
     @State private var inspectorMode: StudioInspectorMode = .adjust
-    @State private var filmstripHovering = false
     @AppStorage("SpektraFilmStudio.designA.showEditorInspector") private var showEditorInspector = true
     @AppStorage("SpektraFilmStudio.designA.showFilmstrip") private var showFilmstrip = true
     @AppStorage("SpektraFilmStudio.designA.showScopes") private var showScopes = false
@@ -20,7 +25,7 @@ struct EditWorkspaceView: View {
             // resizing the renderer when they are shown or hidden.
             PreviewView(model: model)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.top, 45)
+                .padding(.top, StudioLayout.paneInset)
                 .padding(.leading, model.isPresetSidebarVisible
                     ? StudioLayout.presetSidebarWidth + 2 * StudioLayout.paneInset
                     : StudioLayout.paneInset)
@@ -30,34 +35,43 @@ struct EditWorkspaceView: View {
                 .padding(.bottom, editorBottomInset)
 
             VStack(spacing: 0) {
-                editorToolbar
                 Spacer(minLength: 0)
-                if showFilmstrip && !model.project.images.isEmpty {
-                    // Redlamp's FloatingFilmstrip: the pane floats over the stage,
-                    // is revealed by hovering the bottom edge, and hides itself again.
-                    ZStack(alignment: .bottom) {
-                        Color.clear
-                            .frame(height: StudioLayout.filmstripTrigger)
-                            .contentShape(Rectangle())
-                            .onHover { filmstripHovering = $0 }
-                        if filmstripShown {
-                            filmstrip
-                                .studioFloatingPane()
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
-                                .onHover { filmstripHovering = $0 }
-                                .padding(.horizontal, StudioLayout.paneInset)
-                                .padding(.bottom, StudioLayout.paneInset)
-                        }
-                    }
+                if showScopes {
+                    scopeDock
+                        // The scope dock uses only the center stage, never the left browser
+                        // or the right RAW/FILM/MASK controls.
+                        .padding(.leading, model.isPresetSidebarVisible
+                            ? StudioLayout.presetSidebarWidth + 2 * StudioLayout.paneInset
+                            : StudioLayout.paneInset)
+                        .padding(.trailing, showEditorInspector
+                            ? StudioLayout.editorInspectorWidth + 2 * StudioLayout.paneInset
+                            : StudioLayout.paneInset)
+                        .padding(.bottom, StudioLayout.paneInset)
                 }
             }
 
             HStack(alignment: .top, spacing: 0) {
                 if model.isPresetSidebarVisible {
-                    PresetBrowserView(model: model)
-                        .frame(width: StudioLayout.presetSidebarWidth)
-                        .frame(maxHeight: .infinity)
-                        .studioGlassPane()
+                    VStack(spacing: 0) {
+                        Picker("Left browser", selection: $editLeftTab) {
+                            Text("Presets").tag("presets")
+                            if showFilmstrip { Text("Photos").tag("photos") }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .accessibilityLabel("Editor left browser")
+                        .padding(10)
+
+                        Rectangle().fill(StudioPalette.divider).frame(height: 1)
+                        if editLeftTab == "photos" && showFilmstrip {
+                            filmstrip
+                        } else {
+                            PresetBrowserView(model: model)
+                        }
+                    }
+                    .frame(width: StudioLayout.presetSidebarWidth)
+                    .frame(maxHeight: .infinity)
+                    .studioGlassPane()
                 }
                 Spacer(minLength: 0)
                 if showEditorInspector {
@@ -68,10 +82,10 @@ struct EditWorkspaceView: View {
                 }
             }
             .padding(.horizontal, StudioLayout.paneInset)
-            .padding(.top, 45 + StudioLayout.paneInset)
-            // Must mirror the canvas reservation exactly, or the side panels run
-            // under the docked scope strip.
-            .padding(.bottom, editorBottomInset)
+            .padding(.top, StudioLayout.paneInset)
+            // Sidebars keep their full height. Only the PHOTO PREVIEW is reserved
+            // above the scopes; the adjustment rail must never shrink for scopes.
+            .padding(.bottom, StudioLayout.paneInset)
         }
         .background(StudioPalette.canvas)
         .sheet(item: $quickExportRequest) { request in
@@ -86,108 +100,107 @@ struct EditWorkspaceView: View {
         .onChange(of: model.activeLocalGradeID) { _, id in
             if id != nil { inspectorMode = .masks }
         }
+        .onChange(of: showFilmstrip) { _, visible in
+            if !visible && editLeftTab == "photos" { editLeftTab = "presets" }
+        }
+        .onChange(of: showScopes) { _, enabled in
+            if enabled { model.requestEditorScopeUpdate() }
+        }
     }
 
-    private var editorToolbar: some View {
-        HStack(spacing: 8) {
-            if let image = model.selectedImage {
-                Text(image.fileName)
-                    .font(.caption.weight(.medium))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            } else {
-                Text("Editor").font(.caption.weight(.medium)).foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 8)
+    // Edit actions now live in the macOS Workspace / Edit Look / File menus.
+    // There is no duplicate toolbar between the global page picker and viewer.
 
-            // Redlamp's editor toolbar carries no view toggles. Panel visibility
-            // lives on Tab / F7 / F8 and on the Window menu, so the toolbar holds
-            // only actions. Ours had six labelled buttons eating the whole bar.
-            if let image = model.selectedImage {
-                Button {
-                    quickExportRequest = QuickExportRequest(id: image.id)
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                }
-                .help("Export this photo…")
-                .disabled(model.isExporting)
-            }
+    /// Reserve the scope dock below the preview. The side panels stay full-height.
+    private var editorBottomInset: CGFloat {
+        showScopes ? CGFloat(scopesDockHeight) + 2 * StudioLayout.paneInset : StudioLayout.paneInset
+    }
 
-            Menu {
-                Section("Panels") {
-                    Toggle("Presets", isOn: $model.isPresetSidebarVisible)
-                    Toggle("Adjustments", isOn: $showEditorInspector)
-                    Toggle("Filmstrip", isOn: $showFilmstrip)
-                    Toggle("Scopes", isOn: $showScopes)
-                }
-                Section("Look") {
-                    Button("Undo") { model.undo() }
-                    Button("Redo") { model.redo() }
-                    Divider()
-                    Button("Copy Look") { model.copyLook() }
-                    Button("Paste Look") { model.pasteLook() }
-                    Menu("Copy / Paste Categories") {
-                        ForEach(LookCopyCategory.allCases) { category in
-                            Toggle(category.rawValue, isOn: Binding(
-                                get: { model.lookCopyCategoryEnabled(category) },
-                                set: { model.setLookCopyCategory(category, enabled: $0) }
-                            ))
+    private var filmstripThumbnailHeight: CGFloat { 106 }
+    private var filmstripThumbnailWidth: CGFloat {
+        (StudioLayout.presetSidebarWidth - 42) / 2
+    }
+
+    // The full-width studio monitor is independently scalable (drag its grab bar).
+    // Scope calculations still run off the latest finalized display signal.
+    private var scopeDock: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Capsule()
+                    .fill(StudioPalette.secondaryLabel)
+                    .frame(width: 38, height: 4)
+                    .frame(width: 56, height: 30)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 2)
+                            .onChanged { drag in
+                                if scopesResizeOrigin == nil { scopesResizeOrigin = scopesDockHeight }
+                                let proposed = (scopesResizeOrigin ?? scopesDockHeight) - Double(drag.translation.height)
+                                scopesDockHeight = min(480, max(280, proposed))
+                            }
+                            .onEnded { _ in scopesResizeOrigin = nil }
+                    )
+                    .help("Drag vertically to resize scopes")
+                    .accessibilityLabel("Scope dock resize handle")
+                Text("SCOPES")
+                    .font(StudioType.section)
+                    .tracking(StudioType.sectionTracking)
+                    .foregroundStyle(.secondary)
+                Menu {
+                    ForEach(ScopeMode.allCases) { mode in
+                        Button {
+                            model.setEditorScopeMode(mode)
+                        } label: {
+                            if model.project.preferences.scopeMode == mode {
+                                Label(mode.rawValue, systemImage: "checkmark")
+                            } else {
+                                Text(mode.rawValue)
+                            }
                         }
                     }
-                    Divider()
-                    Button(role: .destructive) { model.resetLook() } label: {
-                        Label("Reset All", systemImage: "arrow.counterclockwise")
-                    }
+                } label: {
+                    Label(model.project.preferences.scopeMode.rawValue, systemImage: "waveform.path.ecg")
+                        .lineLimit(1)
                 }
-                Section("Assist") {
-                    Button {
-                        NotificationCenter.default.post(name: StudioOmniEvents.openSceneAssistant, object: nil)
-                    } label: {
-                        Label("Scene Intelligence", systemImage: "sparkles.rectangle.stack")
-                    }
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
+                .menuStyle(.borderlessButton)
+                Spacer(minLength: 4)
+                if model.isScopeAnalyzing { ProgressView().controlSize(.mini) }
+                Toggle(isOn: Binding(
+                    get: { model.project.preferences.clippingEnabled },
+                    set: { model.setClippingEnabled($0) }
+                )) { Label("Clipping", systemImage: "arrowtriangle.up.fill") }
+                .toggleStyle(.button)
+                .labelStyle(.iconOnly)
+                .controlSize(.mini)
+                .help("Show clipping warnings over the preview")
+                Toggle(isOn: Binding(
+                    get: { model.project.preferences.skinCheckEnabled },
+                    set: { model.setSkinCheckEnabled($0) }
+                )) { Label("Skin", systemImage: "hand.raised.fill") }
+                .toggleStyle(.button)
+                .labelStyle(.iconOnly)
+                .controlSize(.mini)
+                .help("Show skin diagnostic over the preview")
+                Button { showScopes = false } label: { Image(systemName: "xmark") }
+                    .help("Close scopes")
             }
-            .menuStyle(.borderlessButton)
-            .help("Panels, look actions and assistants")
+            .controlSize(.small)
+            .padding(.trailing, 12)
+            .frame(height: 38)
+
+            Rectangle().fill(StudioPalette.divider).frame(height: 1)
+            ScrollView(.vertical) {
+                EditorScopePanelView(
+                    model: model,
+                    wellHeight: max(210, CGFloat(scopesDockHeight) - 145)
+                )
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 10)
+            }
+            .scrollIndicators(.automatic)
         }
-        .labelStyle(.titleAndIcon)
-        .buttonStyle(.borderless)
-        .controlSize(.small)
-        .padding(.horizontal, 12)
-        .frame(height: 37)
-        .background(StudioPalette.panel.opacity(0.74))
-    }
-
-    /// Redlamp PanelMetrics: a fixed 110pt floating filmstrip, not a
-    /// user-dragged strip. The drag handle is gone because the pane floats and
-    /// auto-hides instead of being resized.
-    private var filmstripPaneHeight: CGFloat { StudioLayout.filmstripHeight }
-
-    /// Auto-hide unless the pointer is on the strip, no photo is selected (Redlamp
-    /// keeps it up so an empty editor still shows the library), or the user pinned it.
-    private var filmstripShown: Bool {
-        !filmstripHidesAutomatically || filmstripHovering || model.selectedImage == nil
-    }
-
-    /// Height reserved at the bottom of the canvas for the docked strips, so the
-    /// preview is never drawn underneath them.
-    private var editorBottomInset: CGFloat {
-        var inset = StudioLayout.paneInset
-        
-        if showFilmstrip && !model.project.images.isEmpty && filmstripShown {
-            inset += filmstripPaneHeight + StudioLayout.paneInset
-        }
-        return inset
-    }
-
-    private var filmstripThumbnailHeight: CGFloat {
-        max(52, filmstripPaneHeight - 40)
-    }
-
-    private var filmstripThumbnailWidth: CGFloat {
-        min(224, max(96, filmstripThumbnailHeight * 1.45))
+        .frame(height: CGFloat(scopesDockHeight))
+        .studioGlassPane()
     }
 
     private var filmstrip: some View {
@@ -208,36 +221,19 @@ struct EditWorkspaceView: View {
 
                 Spacer()
 
-                // Icon-only: the strip's own header already says "Filmstrip" immediately to
-                // the left, so a second labelled control was a duplicate.
-                Menu {
-                    Toggle("Hide Automatically", isOn: $filmstripHidesAutomatically)
-                    Divider()
-                    Button("Hide Filmstrip") { showFilmstrip = false }
-                } label: {
-                    Image(systemName: "rectangle.bottomthird.inset.filled")
+                Button { model.isPresetSidebarVisible = false } label: {
+                    Image(systemName: "sidebar.left")
                 }
-                .menuStyle(.borderlessButton)
-                .controlSize(.small)
-                .help("Filmstrip visibility")
+                .buttonStyle(.borderless)
+                .help("Close left sidebar")
 
-                // Filename only: Export already lives in the editor toolbar directly
-                // above this strip, so the second copy here was redundant.
-                if let image = model.selectedImage {
-                    Text(image.fileName)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .frame(maxWidth: 200, alignment: .trailing)
-                        .help(image.fileName)
-                }
             }
             .padding(.horizontal, 10)
             .frame(height: 30)
             .background(StudioPalette.panel)
 
-            ScrollView(.horizontal) {
-                LazyHStack(spacing: 8) {
+            ScrollView(.vertical) {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 8) {
                     ForEach(model.visibleImages) { image in
                         let highlighted = model.librarySelection.contains(image.id)
                         let active = model.project.selectedImageID == image.id
@@ -337,11 +333,11 @@ struct EditWorkspaceView: View {
                     }
                 }
                 .padding(.horizontal, 8)
-                .padding(.vertical, 6)
+                .padding(.vertical, 8)
             }
             .background(StudioPalette.recessed)
         }
-        .frame(height: filmstripPaneHeight)
+        .frame(maxHeight: .infinity)
     }
 }
 
@@ -349,7 +345,6 @@ private struct EditorInspectorView: View {
     @ObservedObject var model: AppModel
     @Binding var mode: StudioInspectorMode
     @AppStorage(EditorPanelVisibilityStore.key) private var hiddenEditorPanels = ""
-    @AppStorage("SpektraFilmStudio.designA.showScopes") private var showScopes = false
 
     // The inspector column is for controls only. Scopes live under the canvas so
     // they never steal height from the sliders (Redlamp keeps them out of the rail).
@@ -389,17 +384,9 @@ private struct EditorInspectorView: View {
 
                 // Redlamp keys the scrolling panels off `activeTool`
                 // (ReferencePanels.swift: InspectorView), so a tool shows only its
-                // Redlamp's InspectorView order: HistogramView + ToolStrip, divider,
+                // Redlamp's InspectorView order: ToolStrip, divider,
                 // then the scrolling panels. The scope readout owns the well; the
-                // toggles sit in its header row, so nothing extra is stacked above.
-                if showScopes {
-                    EditorScopePanelView(model: model)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 10)
-                }
-
-
+                // scope toggles live in the large monitor dock, outside this inspector.
                 Rectangle().fill(StudioPalette.divider).frame(height: 1)
 
                 ControlsView(model: model, mode: mode)
@@ -420,9 +407,11 @@ private struct EditorInspectorView: View {
                 .disabled(model.previousLookTargetID == nil)
                 .help("Copy this photo's settings to the previously viewed photo")
             Spacer()
-            Button("Reset") { model.resetLook() }
-                .disabled(model.selectedImage == nil)
-                .help("Reset all settings")
+            Button(role: .destructive) { model.resetLook() } label: {
+                Label("Reset All", systemImage: "arrow.counterclockwise")
+            }
+            .disabled(model.selectedImage == nil)
+            .help("Reset all settings")
         }
         .controlSize(.small)
         .padding(10)

@@ -1,6 +1,11 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Used by the native File menu to open the existing single-photo export sheet.
+enum StudioEditEvents {
+    static let exportCurrentPhoto = Notification.Name("SpektraFilmStudio.Edit.ExportCurrentPhoto")
+}
+
 /// Native Pro Studio shell: project actions live in a text-only menu, photography
 /// workflows stay in one predictable navigation row, and status is unobtrusive.
 struct ContentView: View {
@@ -9,6 +14,7 @@ struct ContentView: View {
     @State private var showingCloudTransfer = false
     @State private var showingOmni = false
     @State private var showingSceneAssistant = false
+    @State private var quickExportRequest: QuickExportRequest?
     @AppStorage("SpektraFilmStudio.ui.appearance") private var appAppearance = "system"
 
     init(model: AppModel) {
@@ -44,8 +50,15 @@ struct ContentView: View {
         .sheet(isPresented: $showingSceneAssistant) {
             StudioSceneAssistantView(model: model)
         }
+        .sheet(item: $quickExportRequest) { request in
+            QuickExportSheet(model: model, imageID: request.id)
+        }
         .onReceive(NotificationCenter.default.publisher(for: StudioOmniEvents.openSceneAssistant)) { _ in
             showingSceneAssistant = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: StudioEditEvents.exportCurrentPhoto)) { _ in
+            guard model.page == .edit, !model.isExporting, let id = model.selectedImage?.id else { return }
+            quickExportRequest = QuickExportRequest(id: id)
         }
         .onReceive(NotificationCenter.default.publisher(for: StudioOmniEvents.open)) { _ in
             showingOmni.toggle()

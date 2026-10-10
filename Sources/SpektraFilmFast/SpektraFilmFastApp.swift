@@ -96,6 +96,9 @@ private enum SpektraStartup {
 
 struct SpektraCommands: Commands {
     @ObservedObject var model: AppModel
+    @AppStorage("SpektraFilmStudio.designA.showEditorInspector") private var showEditorInspector = true
+    @AppStorage("SpektraFilmStudio.designA.showFilmstrip") private var showPhotosTab = true
+    @AppStorage("SpektraFilmStudio.designA.showScopes") private var showScopes = false
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
             Button("New Project") { model.newProject() }.keyboardShortcut("n")
@@ -108,6 +111,31 @@ struct SpektraCommands: Commands {
         CommandGroup(replacing: .saveItem) {
             Button("Save Project") { model.saveProject() }.keyboardShortcut("s")
             Button("Save Project As…") { model.saveProject(asNew: true) }.keyboardShortcut("s", modifiers: [.command, .shift])
+        }
+        CommandGroup(after: .saveItem) {
+            Button("Export Current Photo…") {
+                NotificationCenter.default.post(name: StudioEditEvents.exportCurrentPhoto, object: nil)
+            }
+            .disabled(model.page != .edit || model.selectedImage == nil || model.isExporting)
+            Button("Open Export Workspace…") { model.showProjectHome = false; model.page = .export }
+                .disabled(model.project.images.isEmpty)
+        }
+        CommandMenu("Workspace") {
+            Button(model.isPresetSidebarVisible ? "Hide Presets / Photos Sidebar" : "Show Presets / Photos Sidebar") {
+                model.isPresetSidebarVisible.toggle()
+            }
+            .disabled(model.page != .edit)
+            Toggle("Photos Tab", isOn: $showPhotosTab)
+                .disabled(model.page != .edit)
+            Toggle("Adjustments Panel", isOn: $showEditorInspector)
+                .disabled(model.page != .edit)
+            Toggle("Scopes Dock", isOn: $showScopes)
+                .disabled(model.page != .edit)
+            Divider()
+            Button("Scene Intelligence…") {
+                NotificationCenter.default.post(name: StudioOmniEvents.openSceneAssistant, object: nil)
+            }
+            .disabled(model.page != .edit)
         }
         CommandMenu("Find") {
             Button("Omni Search…") {
@@ -147,6 +175,14 @@ struct SpektraCommands: Commands {
             Divider()
             Button("Copy Look") { model.copyLook() }.keyboardShortcut("c", modifiers: [.command, .option])
             Button("Paste Look") { model.pasteLook() }.keyboardShortcut("v", modifiers: [.command, .option])
+            Menu("Copy / Paste Categories") {
+                ForEach(LookCopyCategory.allCases) { category in
+                    Toggle(category.rawValue, isOn: Binding(
+                        get: { model.lookCopyCategoryEnabled(category) },
+                        set: { model.setLookCopyCategory(category, enabled: $0) }
+                    ))
+                }
+            }
             Button("Reset Look") { model.resetLook() }
         }
         CommandMenu("Photo") {

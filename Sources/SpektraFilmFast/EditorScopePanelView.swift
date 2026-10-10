@@ -128,6 +128,9 @@ struct EditorScopeStrip: View {
 
 struct EditorScopePanelView: View {
     @ObservedObject var model: AppModel
+    // Larger dock size is supplied by EditWorkspaceView; the old compact well
+    // remains available for legacy or future hosts.
+    var wellHeight: CGFloat = 104
     @State private var histogramZone: Int?
     @State private var histogramStart: Double = 0
     @State private var histogramPhoto: UUID?
@@ -156,7 +159,7 @@ struct EditorScopePanelView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(height: 104)
+            .frame(height: wellHeight)
             .contextMenu {
                 // Scope choice lives here rather than as a permanent pill strip:
                 // Redlamp's rail carries one histogram well and no mode bar.
@@ -175,7 +178,9 @@ struct EditorScopePanelView: View {
             })
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .contentShape(Rectangle())
-            .gesture(histogramDrag)
+            // Never change tone by dragging a waveform, parade, vectorscope or
+            // false-color preview. Only the histogram has tonal drag regions.
+            .gesture(histogramDrag, including: model.project.preferences.scopeMode == .histogram ? .all : .none)
 
             HStack(spacing: 8) {
                 if model.project.preferences.scopeMode == .histogram {

@@ -7,7 +7,7 @@ import AppKit
 enum StudioLayout {
     static let toolbarHeight: CGFloat = 48
     static let statusHeight: CGFloat = 26
-    static let presetSidebarWidth: CGFloat = 250
+    static let presetSidebarWidth: CGFloat = 300
     static let editorInspectorWidth: CGFloat = 316
     static let panelCornerRadius: CGFloat = 16
     static let compactCornerRadius: CGFloat = 8
@@ -246,6 +246,39 @@ struct SpektraApplicationIconView: View {
 /// white 0.16 with a white 0.55 fill and an 11pt white 0.92 thumb. The system
 /// `Slider` is a different height, a different thumb and a blue fill, which is
 /// the most obvious remaining difference in the rail.
+
+/// ⌘-scroll capture for SwiftUI views. SwiftUI has no scrollWheel hook, so a
+/// transparent NSView intercepts the event; the handler returns true to consume.
+private final class CommandScrollWheelCaptureView: NSView {
+    var handler: (Double, NSEvent.ModifierFlags) -> Bool = { _, _ in false }
+
+    override func scrollWheel(with event: NSEvent) {
+        if handler(event.scrollingDeltaY, event.modifierFlags) { return }
+        super.scrollWheel(with: event)
+    }
+}
+
+private struct CommandScrollWheelRepresentable: NSViewRepresentable {
+    let handler: (Double, NSEvent.ModifierFlags) -> Bool
+
+    func makeNSView(context: Context) -> CommandScrollWheelCaptureView {
+        let view = CommandScrollWheelCaptureView()
+        view.handler = handler
+        return view
+    }
+
+    func updateNSView(_ nsView: CommandScrollWheelCaptureView, context: Context) {
+        nsView.handler = handler
+    }
+}
+
+extension View {
+    /// Handler receives (scrollingDeltaY, modifierFlags); return true to consume.
+    func onScrollWheel(_ handler: @escaping (Double, NSEvent.ModifierFlags) -> Bool) -> some View {
+        background(CommandScrollWheelRepresentable(handler: handler))
+    }
+}
+
 struct StudioSliderTrack: View {
     @Binding var value: Double
     let range: ClosedRange<Double>
@@ -275,15 +308,15 @@ struct StudioSliderTrack: View {
     /// `,` `.` select the slider; `-` `=` nudge it, as Redlamp's FocusMarker does.
     func handleKey(_ key: KeyEquivalent, flags: NSEvent.ModifierFlags, onEdit: @escaping (Double) -> Void) {
         let nudge: Double? = switch key {
-        case .minus: -1
-        case .equal: 1
+        case KeyEquivalent("-"): -1
+        case KeyEquivalent("="): 1
         default: nil
         }
         if let nudge {
             adjust(by: nudge, flags: flags, onEdit: onEdit)
             return
         }
-        if key == .comma || key == .period {
+        if key == KeyEquivalent(",") || key == KeyEquivalent(".") {
             adjust(by: flags.contains(.shift) ? 10 : 1, flags: flags, onEdit: onEdit)
         }
     }
@@ -311,8 +344,7 @@ struct StudioSliderTrack: View {
             .contentShape(Rectangle())
             .onScrollWheel { delta, flags in
                 guard flags.contains(.command), enabled else { return false }
-                var d = delta
-                scrollRemainder += d
+                scrollRemainder += delta
                 let steps = scrollRemainder.rounded(.towardZero)
                 guard steps != 0 else { return true }
                 scrollRemainder -= steps
