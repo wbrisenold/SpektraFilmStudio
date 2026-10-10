@@ -76,8 +76,15 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 Text("LUT cache: \(model.lutPreparationStatus.isEmpty ? "not prepared" : model.lutPreparationStatus)")
                     .font(.caption2).foregroundStyle(.secondary)
-                Button("Prepare Selected Film LUT") { model.rendererPolicyDidChange() }
-                    .disabled(spectralPreviewLUT == "native" || model.selectedImage == nil)
+                HStack {
+                    Button(model.lutIsPreparing ? "Preparing…" : "Prepare Selected Film LUT") {
+                        model.prepareSelectedFilmLUT()
+                    }
+                    .disabled(spectralPreviewLUT == "native" || model.selectedImage == nil || model.lutIsPreparing)
+                    if model.lutIsPreparing { ProgressView().controlSize(.mini) }
+                }
+                Text("When a film has spatial DIR, halation, grain, or automatic image statistics, a single color LUT cannot represent the whole look. Preparation will explain the exact blocking stage. Enable Fast DIR color in FILM → Negative if you want to test a color-only LUT without DIR diffusion.")
+                    .font(.caption2).foregroundStyle(.secondary)
                 Toggle("Paper background", isOn: $model.project.preferences.paperBackground)
                 DisclosureGroup("Advanced color handling") {
                     Toggle("Bypass import color transform", isOn: $model.project.preferences.bypassImportTransform)

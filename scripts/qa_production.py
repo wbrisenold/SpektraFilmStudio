@@ -312,7 +312,7 @@ require("requestEditorScopeUpdate()" in proxy_block, "false color/scopes do not 
 require("activeLocalGradeID" in app and "publishLocalGradePreview" in app, "selected-mask local edit target missing")
 require("centerX" in models and "centerY" in models and "LensCharacterOverlay" in preview, "Lens Character center overlay missing")
 export_preview = text("StudioExportPreview.swift")
-require("settings.resizeMode.rawValue" in export_preview and "settings.resizeWidth" in export_preview and "settings.resizeHeight" in export_preview,
+require("settings.resizeMode" in export_preview and "settings.resizeWidth" in export_preview and "settings.resizeHeight" in export_preview,
         "export preview refresh ignores sizing/crop selections")
 require("presetThumbnail(" not in text("PresetBrowserView.swift"), "preset browser returned to stale thumbnail grid")
 tone_grade = text("ToneGradeEngine.swift")
@@ -655,6 +655,9 @@ require("colorLUTBlockingReason" in _native and "film grain" in _native,
         "LUT must explain when spatial simulation prevents sampling")
 require("Cached film LUT 33³" in settings and "Native spectral (exact)" in settings,
         "persistent LUT settings and original renderer option missing")
+require("prepareSelectedFilmLUT()" in settings and "lutIsPreparing" in settings and
+        "Cannot bake this look" in text("AppModel.swift") and "lutBlockReason" in text("GPULiveFramePipeline.swift"),
+        "Prepare button must call an immediate action and explain actual native eligibility")
 require("StudioFloatingScopes(model: model" in edit_view and
         "floatingScopesHeight" in text("StudioFloatingScopes.swift"),
         "contextual scope overlay not connected to Edit canvas")

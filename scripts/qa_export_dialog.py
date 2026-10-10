@@ -16,6 +16,8 @@ def main():
     shell=src('ContentView.swift')
     menus=src('SpektraFilmFastApp.swift')
     ui=src('ExportView.swift')
+    sheet=src('StudioRedlampExportDialog.swift')
+    delivery=src('StudioExportPreview.swift')
     lut=src('StudioSpectralLUT.swift')
     preview=src('GPULiveFramePipeline.swift')
     controls=src('StudioUI.swift')
@@ -33,19 +35,27 @@ def main():
           'dialog host uses a divergent view')
     check('NotificationCenter.default.post(name: StudioExportEvents.open' in menus,
           'File menu must open same modal')
-    check('studio.export.shared-modal' in ui and 'studio.export.preview' in ui and
-          'StudioExportPreview(model: model, image: image)' in ui,
-          'export preview absent or detached from settings')
-    check('sourceBrowser' in ui and '.popover(isPresented: $dialogPhotosOpen' in ui,
-          'Photos selection no longer accessible')
+    check('StudioRedlampExportDialog(model: model)' in ui and
+          'studio.export.shared-modal' in sheet and 'studio.export.preview' in sheet,
+          'shared modal must use Redlamp grouped native export component')
+    check('StudioExportPreview(model: model, image: currentPhoto)' in sheet and
+          'StudioExportPhotoPicker' in sheet and 'choosePhotos = true' in sheet,
+          'large actual preview or photo choice inaccessible')
+    check('.formStyle(.grouped)' in sheet and 'Section("Location")' in sheet and
+          'Section("File")' in sheet and 'Section("Size")' in sheet and
+          'Section("Metadata")' in sheet,
+          'Redlamp form sections missing from popup')
+    check('stroke(Color.yellow' not in delivery and
+          'settings.resizeWidth)x' not in delivery and 'settings.dontEnlarge)|' not in delivery,
+          'fit guide distortion or redundant spectral render on output resize')
     check('StudioExportSectionLayout' in ui and 'destinationControls' in ui and
           'fileControls' in ui and 'sizeControls' in ui and 'metadataControls' in ui,
           'Redlamp modular export sections regressed')
-    check('model.exportSelected()' in ui and 'model.stopExport()' in ui and
-          'model.resumeExport()' in ui and 'model.retryFailedExports()' in ui,
+    check('model.exportSelected()' in sheet and 'model.stopExport()' in sheet and
+          'model.resumeExport()' in sheet and 'model.retryFailedExports()' in sheet,
           'export job controller replaced or broken')
-    check('model.focusPhoto(image.id, destination: .edit)' in ui and
-          'if isDialog { onClose?() }' in ui,
+    check('model.focusPhoto(currentPhoto.id, destination: .edit)' in sheet and
+          'onClose()' in sheet,
           'Edit from popup should close popup and preserve navigation')
     check('case "33": return 33' in lut and 'case "65": return 65' in lut and
           'default: return nil' in lut and 'if !usedSpectralLUT' in preview,
@@ -55,6 +65,10 @@ def main():
     check((S/'StudioFloatingScopes.swift').exists() and
           'StudioFloatingScopes' in src('EditView.swift'),
           'draggable floating scopes removed')
-    print('EXPORT MODAL / SPEED REGRESSION GATE: 14 checks PASS (structural only)')
+    check('prepareSelectedFilmLUT()' in src('SettingsView.swift') and
+          'func lutBlockReason(' in preview and
+          'lutIsPreparing' in src('AppModel.swift'),
+          'Prepare Selected Film LUT has no immediate activation or diagnostic')
+    print('EXPORT MODAL / SPEED REGRESSION GATE: checks PASS (structural only)')
 
 if __name__ == '__main__': main()

@@ -32,7 +32,7 @@ struct StudioExportPreview: View {
         return rendered.cropping(to:rect) ?? rendered
     }
     private var token:String {
-        "\(image.id)|\(image.look.hashValue)|\(settings.colorMode.rawValue)|\(settings.resizeMode.rawValue)|\(settings.resizeWidth)x\(settings.resizeHeight)|\(settings.resizeLongEdge)|\(settings.dontEnlarge)|\(model.rawDenoiseStatus)"
+        "\(image.id)|\(image.look.hashValue)|\(settings.colorMode.rawValue)|\(model.rawDenoiseStatus)"
     }
 
     var body: some View {
@@ -56,27 +56,13 @@ struct StudioExportPreview: View {
                 ZStack {
                     Color(red:0.055,green:0.061,blue:0.073)
                     if let displayImage {
-                        if settings.resizeMode == .fitBox || settings.resizeMode == .cropToFill {
-                            ZStack {
-                                RoundedRectangle(cornerRadius:4).fill(Color.white.opacity(0.018))
-                                    .overlay {
-                                        RoundedRectangle(cornerRadius:4)
-                                            .stroke(Color.yellow.opacity(0.72),style:StrokeStyle(lineWidth:1,dash:[6,4]))
-                                    }
-                                    .aspectRatio(targetRatio,contentMode:.fit)
-                                    .frame(maxWidth:proxy.size.width-34,maxHeight:proxy.size.height-34)
-
-                                Image(decorative:displayImage,scale:1)
-                                    .resizable()
-                                    .aspectRatio(contentMode:settings.resizeMode == .cropToFill ? .fill : .fit)
-                                    .aspectRatio(targetRatio,contentMode:.fit)
-                                    .frame(maxWidth:proxy.size.width-34,maxHeight:proxy.size.height-34)
-                                    .clipped()
-                            }
-                        } else {
-                            Image(decorative:displayImage,scale:1).resizable().aspectRatio(contentMode:.fit)
-                                .frame(maxWidth:proxy.size.width-34,maxHeight:proxy.size.height-34)
-                        }
+                        // The preview displays the actual output image. Fit Inside
+                        // does not export background padding or a yellow frame;
+                        // Crop to Fill uses the same center-cropped CGImage as export.
+                        Image(decorative:displayImage,scale:1)
+                            .resizable()
+                            .aspectRatio(contentMode:.fit)
+                            .frame(maxWidth:proxy.size.width-34,maxHeight:proxy.size.height-34)
                     } else if failed {
                         ContentUnavailableView("Preview unavailable",systemImage:"photo.badge.exclamationmark")
                     } else { ProgressView() }
@@ -115,7 +101,7 @@ struct StudioExportPreview: View {
     private var detailText:String {
         switch settings.resizeMode {
         case .cropToFill:"Yellow frame is the exact target aspect. The image shown is the same center crop used by export. No stretching."
-        case .fitBox:"Yellow frame is only the target constraint. The whole photo is exported; empty viewer area is not written to the file."
+        case .fitBox:"Fit Inside preserves the complete image without padding. Output dimensions never exceed the chosen bounds."
         case .none:"Full rendered dimensions and framing."
         case .longEdge:"Framing stays unchanged; only resolution changes."
         case .width:"Width changes resolution; height follows the photo aspect."

@@ -170,6 +170,15 @@ actor GPULiveFramePipeline {
 
     func reset() { rawCache.removeAll() }
 
+    /// Called before Prepare: returns the actual blocking stage, not a generic
+    /// silent nil.  This does not change the spectral engine's correctness gate.
+    func lutBlockReason(look: RenderLook) async throws -> String? {
+        if !Self.supports(look) { return "masks, geometry, Auto Contrast, denoise or output role" }
+        if film == nil { film = try NativeRenderer(profile: .exact) }
+        guard let film else { return "native spectral renderer unavailable" }
+        return await film.colorLUTBlockingReason(look: look)
+    }
+
     /// The only code path permitted to read or create LUT assets. Triggered
     /// after an idle settled render; never on a pointer-rate live render.
     func prewarmLUT(look: RenderLook) async throws -> StudioSpectralLUT.Prepared? {

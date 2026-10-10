@@ -348,6 +348,7 @@ final class AppModel: ObservableObject {
     @Published var liveGPUFrame: GPULiveFrame?
     @Published var rendererPathStatus = "Native spectral Metal · exact"
     @Published var lutPreparationStatus = ""
+    @Published var lutIsPreparing = false
     private var lutPrewarmTask: Task<Void, Never>?
     private let gpuLivePipeline = GPULiveFramePipeline()
     private var pendingGPUPreview: GPULivePreviewRequest?
@@ -3299,8 +3300,9 @@ final class AppModel: ObservableObject {
 
     // MARK: - Latest-render-wins preview scheduler
 
-    private func scheduleLUTPrewarm(look: RenderLook, imageID: UUID) {
+    private func scheduleLUTPrewarm(look: RenderLook, imageID: UUID, immediate: Bool = false) {
         lutPrewarmTask?.cancel()
+        lutIsPreparing = false
         guard StudioSpectralLUT.selectedResolution() != nil else {
             lutPreparationStatus = "Native mode selected"
             return
@@ -3310,29 +3312,39 @@ final class AppModel: ObservableObject {
             lutPreparationStatus = "LUT unavailable for this RAW/effect configuration"
             return
         }
-        // Work runs after settling and 750ms of idle time. A new gesture cancels
-        // the request; an uncacheable look continues to use the exact renderer.
-        lutPreparationStatus = "LUT queued for idle cache check"
+        // Automatic prep yields to interaction; pressing Prepare checks now.
+        // Neither path ever runs from the pointer-rate live render callback.
+        lutPreparationStatus = immediate ? "Checking LUT eligibility…" : "LUT queued for idle check"
+        lutIsPreparing = true
         lutPrewarmTask = Task(priority: .utility) { [weak self] in
             guard let self else { return }
             do {
-                try await Task.sleep(for: .milliseconds(750))
+                if !immediate { try await Task.sleep(for: .milliseconds(750)) }
                 guard !Task.isCancelled, project.selectedImageID == imageID else { return }
-                lutPreparationStatus = "Checking saved LUT / preparing Metal texture"
+                if let reason = try await gpuLivePipeline.lutBlockReason(look: look) {
+                    guard !Task.isCancelled else { return }
+                    lutPreparationStatus = "Cannot bake this look: \(reason). Native spectral processing remains active."
+                    lutIsPreparing = false
+                    return
+                }
+                lutPreparationStatus = "Loading cached LUT or generating film LUT…"
                 let prepared = try await gpuLivePipeline.prewarmLUT(look: look)
                 guard !Task.isCancelled, project.selectedImageID == imageID else { return }
                 switch prepared {
-                case .inMemory?: lutPreparationStatus = "LUT ready · in GPU memory"
-                case .loadedFromDisk?: lutPreparationStatus = "LUT ready · restored from disk"
-                case .generatedAndSaved?: lutPreparationStatus = "LUT ready · generated and saved"
-                case .generatedButNotSaved?: lutPreparationStatus = "LUT ready · disk save failed"
-                case nil: lutPreparationStatus = "LUT not eligible for current film configuration"
+                case .inMemory?: lutPreparationStatus = "Ready: GPU LUT already resident · next live edit"
+                case .loadedFromDisk?: lutPreparationStatus = "Ready: LUT loaded from disk to GPU · next live edit"
+                case .generatedAndSaved?: lutPreparationStatus = "Ready: LUT generated and saved · next live edit"
+                case .generatedButNotSaved?: lutPreparationStatus = "Ready: GPU LUT generated; disk save failed"
+                case nil: lutPreparationStatus = "Cannot use LUT for current look; see native renderer settings"
                 }
+                lutIsPreparing = false
             } catch is CancellationError {
                 // Superseded by a newer edit or photo selection.
+                if !Task.isCancelled { lutIsPreparing = false }
             } catch {
                 if !Task.isCancelled && project.selectedImageID == imageID {
-                    lutPreparationStatus = "LUT unavailable: \(error.localizedDescription)"
+                    lutPreparationStatus = "LUT preparation failed: \(error.localizedDescription)"
+                    lutIsPreparing = false
                 }
             }
         }
@@ -3341,11 +3353,22 @@ final class AppModel: ObservableObject {
     func rendererPolicyDidChange() {
         lutPrewarmTask?.cancel()
         lutPrewarmTask = nil
+        lutIsPreparing = false
         guard let selected = selectedImage else {
             lutPreparationStatus = "Select a photograph to prepare a LUT"
             return
         }
         scheduleLUTPrewarm(look: selectedLook, imageID: selected.id)
+    }
+
+    /// Explicit Settings action: starts immediately and reports the exact reason
+    /// it cannot run; unlike the automatic idle scheduler, it does not sleep.
+    func prepareSelectedFilmLUT() {
+        guard let selected = selectedImage else {
+            lutPreparationStatus = "Select a photo first"
+            return
+        }
+        scheduleLUTPrewarm(look: selectedLook, imageID: selected.id, immediate: true)
     }
 
     func scheduleRender(
@@ -3896,6 +3919,7 @@ final class AppModel: ObservableObject {
     private func cancelPreviewForNavigation() {
         lutPrewarmTask?.cancel()
         lutPrewarmTask = nil
+        lutIsPreparing = false
         rendererPathStatus = "No active frame"
         lutPreparationStatus = ""
         cancelIdleRefinement()

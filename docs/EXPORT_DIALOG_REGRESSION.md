@@ -37,3 +37,13 @@ Performance parity benchmark: same Intel Mac, same 140-photo project, same 1080 
 - Photo chooser is popover-on-demand to leave the preview and settings uncluttered.
 - Folder picking, batch presets, existing-file safety and queue resume/retry continue working.
 - Close popup during a job then reopen it to inspect progress; no duplicate queue or job is created.
+
+## 2026-10-10 direct Redlamp source follow-up
+
+Audited `pdcgomes/redlamp` commit `657beb41d148a8f66916123f961e612b95c1a047`, specifically `packages/RedlampUI/Sources/Export/{ExportSheet.swift,ExportSheetSections.swift,ExportPlan.swift}`. The popup is **now a separate SwiftUI view** using native `.formStyle(.grouped)` and actual `Section` controls; a large SpektraFilm live output preview occupies the left side. The old ExportWorkspaceView is not embedded in the modal. The queue is hidden until processing or completed/failed progress exists. Fit-Inside preview uses the image, not a drawn yellow target box; resizing delivery-only parameters no longer forces an extra native spectral render.
+
+The upstream Redlamp sheet is 540×720 and does not have a large live preview or batch set; those two controls are explicitly SpektraFilm additions, not falsely attributed to Redlamp. Native export engine, metadata and original-vs-export color matching are unchanged.
+
+**LUT action fix:** The action immediately invokes `prepareSelectedFilmLUT`, first checking actual native renderer eligibility, showing progress then a blocking reason such as spatial DIR, grain, halation, or scanner statistics, or a successful cached/generated status. It never quietly changes film look settings to make a LUT eligible. A blocked look continues through native spectral Metal and remains visually accurate. A LUT-ready status only applies to compatible subsequent live frames; settled exact preview continues to show native renderer.
+
+**Not validated here:** Intel macOS SDK build, actual Metal execution and visual screenshots. The user must run the bundled Mac build gate before release.
