@@ -1,5 +1,5 @@
 import Foundation
-import Metal
+@preconcurrency import Metal
 import CoreGraphics
 
 // GPL-3.0. Imported 3D LUTs are an alternative to the *native film-and-print*
@@ -45,8 +45,8 @@ enum StudioImportedLUT {
                                          output: .encodedSRGB,
                                          shaper: .encodedSRGB, role: .fullFilmPrint)
         func validate() throws {
-            guard version == 1, role == .fullFilmPrint, output == .encodedSRGB else {
-                throw Failure.invalid("Only version-1 full-film-print LUTs with encoded sRGB output are supported.")
+            guard version == 1, role == .fullFilmPrint else {
+                throw Failure.invalid("Only version-1 full-film-print LUT contracts are supported.")
             }
             guard (input == .encodedSRGB && shaper == .encodedSRGB) ||
                   (input == .linearRec2020 && shaper != .encodedSRGB) else {
@@ -146,8 +146,15 @@ enum StudioImportedLUT {
         return (meta, false)
     }
 
-    static func load(url: URL) throws -> Cube {
-        let (contract, assumed) = try readContract(for: url)
+    static func load(url: URL, contractOverride: Contract? = nil) throws -> Cube {
+        let contractInfo: (Contract, Bool)
+        if let contractOverride {
+            try contractOverride.validate()
+            contractInfo = (contractOverride, false)
+        } else {
+            contractInfo = try readContract(for: url)
+        }
+        let (contract, assumed) = contractInfo
         let properties = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
         guard properties.isRegularFile == true, (properties.fileSize ?? 0) <= 48_000_000 else {
             throw Failure.invalid("LUT is missing or exceeds the 48 MB import limit.")
@@ -203,6 +210,21 @@ enum StudioImportedLUT {
         if contract.shaper == .signedLog2 && (minimum != SIMD3<Float>(repeating: 0) || maximum != SIMD3<Float>(repeating: 1)) {
             throw Failure.invalid("signed-log2-v1 LUT must use DOMAIN_MIN 0 and DOMAIN_MAX 1.")
         }
+        // A nearly constant LUT cannot produce a usable picture. Reject it
+        // at LOAD time instead of displaying a flat gray/white preview.
+        var lower = SIMD3<Float>(repeating: Float.greatestFiniteMagnitude)
+        var upper = SIMD3<Float>(repeating: -Float.greatestFiniteMagnitude)
+        for pixel in values {
+            lower.x = Swift.min(lower.x, pixel.x)
+            lower.y = Swift.min(lower.y, pixel.y)
+            lower.z = Swift.min(lower.z, pixel.z)
+            upper.x = Swift.max(upper.x, pixel.x)
+            upper.y = Swift.max(upper.y, pixel.y)
+            upper.z = Swift.max(upper.z, pixel.z)
+        }
+        if Swift.max(upper.x-lower.x, Swift.max(upper.y-lower.y, upper.z-lower.z)) < 0.0001 {
+            throw Failure.invalid("Selected LUT contains almost no tonal variation. Inspect or regenerate the .cube file.")
+        }
         return Cube(size: size, values: values, domainMin: minimum,
                     domainMax: maximum, contract: contract, assumedSRGB: assumed)
     }
@@ -228,14 +250,17 @@ final class StudioImportedLUTMetal: @unchecked Sendable {
 
     func encode(source: any MTLBuffer, destination: any MTLBuffer,
                 width: Int, height: Int, on command: any MTLCommandBuffer,
-                file: URL) throws -> StudioImportedLUT.OutputSpace {
+                file: URL, contractOverride: StudioImportedLUT.Contract? = nil) throws -> StudioImportedLUT.OutputSpace {
         let fileInfo = try file.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
         let sidecar = URL(fileURLWithPath: file.path + ".lut.json")
         let sideInfo = try? sidecar.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
-        let stamp = "\(file.standardizedFileURL.path)|\(fileInfo.contentModificationDate?.timeIntervalSince1970 ?? 0)|\(fileInfo.fileSize ?? 0)|\(sideInfo?.contentModificationDate?.timeIntervalSince1970 ?? 0)|\(sideInfo?.fileSize ?? 0)"
+        let overrideIdentity = contractOverride.map {
+            "\($0.input.rawValue)|\($0.output.rawValue)|\($0.shaper.rawValue)|\($0.role.rawValue)"
+        } ?? "file-sidecar"
+        let stamp = "\(file.standardizedFileURL.path)|\(fileInfo.contentModificationDate?.timeIntervalSince1970 ?? 0)|\(fileInfo.fileSize ?? 0)|\(sideInfo?.contentModificationDate?.timeIntervalSince1970 ?? 0)|\(sideInfo?.fileSize ?? 0)|\(overrideIdentity)"
         let reused = cached?.key == stamp
         if !reused {
-            let cube = try StudioImportedLUT.load(url: file)
+            let cube = try StudioImportedLUT.load(url: file, contractOverride: contractOverride)
             let descriptor = MTLTextureDescriptor()
             descriptor.textureType = .type3D
             descriptor.pixelFormat = .rgba32Float
@@ -279,7 +304,7 @@ final class StudioImportedLUTMetal: @unchecked Sendable {
             throw StudioImportedLUT.Failure.invalid("Metal LUT encoder failed.")
         }
         var dims = SIMD2<UInt32>(UInt32(width),UInt32(height))
-        var inputMode: UInt32 = entry.cube.contract.input == .encodedSRGB ? 0 : 1
+        var inputMode: UInt32 = entry.cube.contract.input == .linearRec2020 ? 0 : 1
         var shaperMode: UInt32 = entry.cube.contract.shaper == .signedLog2 ? 1 : 0
         var boundsMin = entry.cube.domainMin
         var boundsMax = entry.cube.domainMax

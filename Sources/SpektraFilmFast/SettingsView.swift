@@ -23,6 +23,8 @@ struct SettingsView: View {
     @AppStorage("SpektraFilmStudio.ui.collapsedFilmSections") private var collapsedFilmSections = ""
     @AppStorage("SpektraFilmStudio.ai.depthProvider") private var depthProvider = "automatic"
     @AppStorage(StudioSpectralLUT.setting) private var spectralPreviewLUT = "native"
+    @AppStorage(StudioImportedCubeLUTSettings.inputKey) private var inputContract = "auto"
+    @AppStorage(StudioImportedCubeLUTSettings.outputKey) private var outputContract = "auto"
     @AppStorage(StudioImportedLUT.folderKey) private var lutLibraryFolder = ""
     @AppStorage(StudioImportedLUT.selectionKey) private var importedLUTSelection = ""
     @State private var importedLUTs: [StudioImportedLUT.Item] = []
@@ -104,10 +106,27 @@ struct SettingsView: View {
                     Text("Cached film LUT 65³ (experimental)").tag("65")
                     Text("Imported film + print LUT").tag("imported")
                 }
-                Text("Imported .cube mode uses a resident Metal LUT with no native film fallback and no live re-baking. Existing 33³/65³ modes remain experimental and can fall back to native. Full-resolution export still uses the original exact renderer: preview/export parity is NOT established yet.")
+                Text("Imported .cube now uses the same color-managed Metal LUT shader as Imported film + print LUT, with a single GPU cache and validated input/output contract. No native fallback or re-baking during sliders. For full-resolution export, use Imported film + print LUT until the direct .cube export entry point is unified.")
                     .font(.caption).foregroundStyle(.secondary)
                 if spectralPreviewLUT == "imported-cube" {
-                    StudioImportedLUTSettingsView(model: model)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Input/output contract for the selected .cube. A .cube.lut.json sidecar takes priority; otherwise both default to sRGB.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Picker("LUT input", selection: $inputContract) {
+                            Text("Automatic · file sidecar / untagged sRGB").tag("auto")
+                            Text("Display sRGB").tag("display-srgb")
+                            Text("Signed log Rec.2020").tag("signed-log-rec2020")
+                            Text("Linear Rec.2020").tag("linear-rec2020")
+                        }
+                        Picker("LUT output", selection: $outputContract) {
+                            Text("Automatic · file sidecar / untagged sRGB").tag("auto")
+                            Text("Display sRGB").tag("display-srgb")
+                            Text("Linear Rec.2020").tag("linear-rec2020")
+                        }
+                        Text("Contradictory IN-sRGB filenames are rejected rather than rendered gray.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
                 }
                 Text("LUT cache: \(model.lutPreparationStatus.isEmpty ? "not prepared" : model.lutPreparationStatus)")
                     .font(.caption2).foregroundStyle(.secondary)

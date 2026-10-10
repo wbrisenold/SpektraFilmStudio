@@ -3424,6 +3424,10 @@ final class AppModel: ObservableObject {
             lutPreparationStatus = StudioImportedCubeLUTSettings.selectedURL.map {
                 "Imported .cube · \($0.lastPathComponent) · resident after first GPU use"
             } ?? "Choose a .cube file in General > LUT Library"
+            // The prior native CPU frame must not masquerade as the new GPU
+            // output in scope/false-color monitors.
+            editorScopeImage = nil
+            analysisOverlay = nil
             if currentSourceSupportsGPULive, !project.preferences.bypassImportTransform,
                GPULiveFramePipeline.supports(selectedLook) {
                 scheduleGPULivePreview(look: selectedLook)
@@ -3595,12 +3599,13 @@ final class AppModel: ObservableObject {
                 break
             } catch {
                 if request.generation == gpuPreviewGeneration {
-                    status = "Metal live unavailable: \(error.localizedDescription)"
-                    if StudioImportedCubeLUTSettings.isSelected {
-                        liveGPUFrame = nil // No implicit native fallback or stale LUT preview.
-                        renderedPreview = nil
-                        rendererPathStatus = "Imported LUT error · \(error.localizedDescription)"
+                    liveGPUFrame = nil
+                    rendererPathStatus = "LUT ERROR · \(error.localizedDescription)"
+                    editorScopeImage = nil
+                    if StudioImportedCubeLUTSettings.isSelected, let sourcePreview {
+                        renderedPreview = sourcePreview
                     }
+                    status = "Metal live unavailable: \(error.localizedDescription)"
                 }
             }
         }

@@ -90,9 +90,12 @@ struct MetalPreviewCanvas: NSViewRepresentable {
                   let queue, let context = ciContext else { return }
             lock.lock()
             let gpu = liveGPUFrame
-            guard let image = (gpu.flatMap {
-                CIImage(mtlTexture: $0.texture, options: [.colorSpace: $0.colorSpace])
-            }) ?? queuedCIImage else { lock.unlock(); return }
+            // The exact same content importer and aspect-fit composition
+            // are exercised by the real-Metal smoke test. No silent nil CIImage.
+            let image = gpu.flatMap {
+                try? MetalPreviewComposition.content(texture: $0.texture, colorSpace: $0.colorSpace)
+            } ?? queuedCIImage
+            guard let image else { lock.unlock(); return }
             if inFlight >= 2 {
                 needsLatest = true
                 lock.unlock()
@@ -107,18 +110,8 @@ struct MetalPreviewCanvas: NSViewRepresentable {
             }
 
             let tex = drawable.texture
-            let src = image.extent
-            let scale = min(CGFloat(tex.width) / max(1, src.width),
-                            CGFloat(tex.height) / max(1, src.height))
-            let scaled = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-            let extent = scaled.extent
-            let centered = scaled.transformed(by: CGAffineTransform(
-                translationX: (CGFloat(tex.width) - extent.width) * 0.5 - extent.minX,
-                y: (CGFloat(tex.height) - extent.height) * 0.5 - extent.minY
-            ))
-            let canvas = CIImage(color: CIColor.black)
-                .cropped(to: CGRect(x: 0, y: 0, width: tex.width, height: tex.height))
-            let composition = centered.composited(over: canvas)
+            let composition = MetalPreviewComposition.letterbox(image,
+                width: tex.width, height: tex.height)
             context.render(
                 composition, to: tex, commandBuffer: command,
                 bounds: CGRect(x: 0, y: 0, width: tex.width, height: tex.height),

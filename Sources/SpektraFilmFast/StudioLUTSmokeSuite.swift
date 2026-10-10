@@ -1,4 +1,7 @@
 import Foundation
+@preconcurrency import Metal
+import CoreGraphics
+import CoreImage
 
 // App-level Mac/Metal smoke test. Invoked with --lut-smoke-test; no photos
 // and no user LUT assets required. It tests actual GPU output, GPU cache
@@ -45,10 +48,14 @@ enum StudioLUTSmokeSuite {
         guard counts1.uploads == 1, counts2.uploads == 1, counts2.hits >= 1,
               first.pixels.count == source.pixels.count,
               first.pixels == second.pixels,
-              first.pixels[0].isFinite, first.pixels[0] > 0.43, first.pixels[0] < 0.51,
+              first.pixels[0].isFinite, first.pixels[0] > 0.15, first.pixels[0] < 0.22,
               first.pixels[3] == 1 else {
             throw Failure.failed("sRGB LUT Metal output/reuse/alpha validation failed")
         }
+        // Test the whole path: GPU LUT -> private float32 texture -> the SAME
+        // CIImage import / letterbox / display conversion used by MTKView.
+        // A 2-pixel LUT assertion alone never catches an all-gray viewer.
+        try await verifyActualDisplayPath(file: srgb)
         let linearResult = try await offline.render(source, file: linear)
         let counts3 = await offline.gpuCacheCounts()
         guard counts3.uploads == 2,
@@ -105,6 +112,94 @@ enum StudioLUTSmokeSuite {
             throw Failure.failed("Settled generated LUT not reused across host edit")
         }
         print("LUT_SMOKE_PASS: CSV catalog, imported sRGB/Rec.2020 Metal, GPU reuse, bad-file rejection, generated LUT no-rebake across RAW/exposure")
+    }
+
+    // A full-picture GPU test: shader computation alone is not sufficient.
+    // This is the actual BGRA8/sRGB CI display conversion used in MTKView.
+    private static func verifyActualDisplayPath(file: URL) async throws {
+        guard let device = StudioGPUDevice.shared else {
+            throw Failure.failed("Cannot run real Metal presentation smoke without GPU")
+        }
+        let gpu = try GPULiveDevice(device: device)
+        let lut = try StudioImportedLUTMetal(gpu: gpu)
+        let width = 96, height = 64
+        var pixels = [Float]()
+        pixels.reserveCapacity(width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let t = Float(x) / Float(width - 1)
+                let v = Float(y) / Float(height - 1)
+                let light: Float = (x < width / 2 ? 0.12 : 0.63) + 0.2 * v
+                pixels.append(min(1, light + 0.13 * t))
+                pixels.append(min(1, light * 0.8 + 0.1 * v))
+                pixels.append(min(1, light * 0.65 + 0.14 * (1-t)))
+                pixels.append(1)
+            }
+        }
+        let bytes = pixels.count * MemoryLayout<Float>.stride
+        let texture = try gpu.makeOutputTexture(width: width, height: height)
+        guard let input = pixels.withUnsafeBytes({ ptr in
+            gpu.device.makeBuffer(bytes: ptr.baseAddress!, length: bytes,
+                                  options: .storageModeShared)
+        }), let processed = gpu.device.makeBuffer(length: bytes, options: .storageModePrivate),
+              let command = gpu.queue.makeCommandBuffer() else {
+            throw Failure.failed("GPU smoke frame allocation failed")
+        }
+        let outputSpace = try lut.encode(source: input, destination: processed,
+            width: width, height: height, on: command, file: file)
+        try gpu.encodeBufferToTexture(processed, destination: texture, on: command)
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            command.addCompletedHandler { finished in
+                withExtendedLifetime((input, processed, texture)) {
+                    if finished.status == .completed { continuation.resume() }
+                    else { continuation.resume(throwing: Failure.failed(
+                        finished.error?.localizedDescription ?? "GPU LUT-to-texture command failed")) }
+                }
+            }
+            command.commit()
+        }
+        // Verify the Metal texture has non-uniform content BEFORE Core Image.
+        // This catches blank-frame regressions that the 2-pixel test missed.
+        var metalPixels = [UInt8](repeating: 0, count: width * height * 4)
+        let readbackDesc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba32Float, width: width, height: height, mipmapped: false)
+        readbackDesc.usage = [.shaderRead, .shaderWrite]
+        readbackDesc.storageMode = .shared
+        guard let readbackTex = device.makeTexture(descriptor: readbackDesc),
+              let readbackCmd = gpu.queue.makeCommandBuffer(),
+              let blit = readbackCmd.makeBlitCommandEncoder() else {
+            throw Failure.failed("GPU readback texture unavailable")
+        }
+        blit.copy(from: texture, sourceSlice: 0, sourceLevel: 0,
+                  sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+                  sourceSize: MTLSize(width: width, height: height, depth: 1),
+                  to: readbackTex, destinationSlice: 0, destinationLevel: 0,
+                  destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0))
+        blit.endEncoding()
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            readbackCmd.addCompletedHandler { finished in
+                if finished.status == .completed { continuation.resume() }
+                else { continuation.resume(throwing: Failure.failed(
+                    finished.error?.localizedDescription ?? "GPU readback failed")) }
+            }
+            readbackCmd.commit()
+        }
+        readbackTex.getBytes(&metalPixels, bytesPerRow: width * 16,
+            from: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0)
+        func rgbaFloat(_ x: Int, _ y: Int) -> [Float] {
+            let o = (y * width + x) * 4
+            return [metalPixels[o+0], metalPixels[o+1], metalPixels[o+2], metalPixels[o+3]]
+        }
+        let a = rgbaFloat(8, 32), b = rgbaFloat(87, 32)
+        let maxDiff = zip(a, b).map { abs($0 - $1) }.max() ?? 0
+        // Allow for signed-log dark values - check that pixels are finite and vary
+        guard maxDiff > 0.01,
+              a.allSatisfy({ $0.isFinite }),
+              b.allSatisfy({ $0.isFinite }),
+              a.contains(where: { $0 > 0 }) else {
+            throw Failure.failed("LUT_GPU_FRAME_BLANK: GPU LUT produced uniform/zero pixels (left=\(a), right=\(b), maxDiff=\(maxDiff))")
+        }
+        print("LUT_GPU_FRAME_PASS: Metal LUT output has detail (maxDiff=\(maxDiff))")
     }
 
     private static func makeCube(path: URL, size n: Int, sceneLinear: Bool) throws {

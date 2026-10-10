@@ -167,8 +167,8 @@ actor GPULiveFramePipeline {
     private var rawCache: [(key: DecodeKey, frame: MetalDevelopedRAW)] = []
     private let rawCacheCapacity = 3
     private var spectralLUT: StudioSpectralLUT?
-    private var importedCubeLUT: StudioImportedCubeLUT?
     private var importedLUT: StudioImportedLUTMetal?
+    private var contentGuard: MetalFrameContentGuard?
 
     func reset() { rawCache.removeAll() }
 
@@ -314,14 +314,22 @@ actor GPULiveFramePipeline {
         let resolution = StudioSpectralLUT.selectedResolution()
         let renderedStart = ProcessInfo.processInfo.systemUptime
         if importedMode {
-            // Imported .cube is the authoritative FILM stage when selected.
-            // It NEVER initializes or calls NativeRenderer (not even on a cache miss).
-            if importedCubeLUT == nil { importedCubeLUT = try StudioImportedCubeLUT(gpu: gpu) }
-            guard let importedCubeLUT else {
-                throw GPULiveError.unavailable("Imported .cube shader unavailable")
+            // Imported .cube is handled by the SAME validated shader, shaper,
+            // sampler, and GPU cache as the library/settled/export importer.
+            // Do not run the separate experimental .cube GPU shader here.
+            guard let file = StudioImportedCubeLUTSettings.selectedURL else {
+                throw GPULiveError.unavailable("Select a .cube file in Settings > General")
             }
-            importedLabel = try importedCubeLUT.encode(source: graded, destination: filmOutput,
-                                                       width: width, height: height)
+            let contract = try StudioImportedCubeLUTSettings.explicitContract(for: file)
+            if importedLUT == nil { importedLUT = try StudioImportedLUTMetal(gpu: gpu) }
+            guard let importedLUT, let command = gpu.queue.makeCommandBuffer() else {
+                throw GPULiveError.unavailable("Unified Metal LUT renderer unavailable")
+            }
+            importedOutput = try importedLUT.encode(source: graded, destination: filmOutput,
+                width: width, height: height, on: command, file: file,
+                contractOverride: contract)
+            command.commit()
+            importedLabel = "Imported .cube GPU · \(file.deletingPathExtension().lastPathComponent) · unified Metal"
         } else {
         guard let film else { throw GPULiveError.unavailable("Native film engine unavailable") }
         if StudioImportedLUT.isSelected {
@@ -373,6 +381,18 @@ actor GPULiveFramePipeline {
         }
         let texture = try gpu.makeOutputTexture(width: width, height: height)
         try gpu.encodeBufferToTexture(result, destination: texture, on: postCommand)
+        // Sample GPU-resident pixels, never transfer the full preview to the CPU.
+        // An all-gray LUT output from a detailed RAW must fail the render.
+        var contentSamples: (any MTLBuffer)?
+        if importedMode {
+            if contentGuard == nil { contentGuard = try MetalFrameContentGuard(device: gpu.device) }
+            if let guardEngine = contentGuard {
+                let samples = try guardEngine.encode(before: graded, after: filmOutput,
+                    width: width, height: height, on: postCommand)
+                keepAlive.append(samples)
+                contentSamples = samples
+            }
+        }
         // Keep all upstream buffers alive until the final GPU completion fence.
         // An async continuation, never waitUntilCompleted() on the main thread.
         let retained = GPUBufferLifetime(keepAlive)
@@ -387,6 +407,7 @@ actor GPULiveFramePipeline {
             postCommand.commit()
         }
         try Task.checkCancellation()
+        if let contentSamples { try MetalFrameContentGuard.verify(contentSamples) }
         let elapsed = (ProcessInfo.processInfo.systemUptime - renderedStart) * 1000.0
         let label: String
         if let importedLabel {
@@ -403,8 +424,7 @@ actor GPULiveFramePipeline {
             label = "Native spectral Metal · \(Int(elapsed.rounded())) ms"
         }
         return GPULiveFrame(texture: texture,
-              colorSpace: importedMode ? StudioImportedCubeLUTSettings.colorSpace
-                                       : (importedOutput?.cgColorSpace ?? OutputColorProfile.forLook(look).cgColorSpace),
+              colorSpace: importedOutput?.cgColorSpace ?? OutputColorProfile.forLook(look).cgColorSpace,
               rendererLabel: label)
     }
 }

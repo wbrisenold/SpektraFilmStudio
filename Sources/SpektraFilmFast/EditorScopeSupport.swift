@@ -20,6 +20,19 @@ extension AppModel {
     /// scope task. It samples the latest frame at execution time, so rapid slider traffic
     /// cannot build a scope queue and cannot delay the renderer.
     func requestEditorScopeUpdate() {
+        if StudioImportedCubeLUTSettings.isSelected {
+            // These scopes currently sample latestRenderedBuffer (the native CPU
+            // frame), NOT liveGPUFrame. Presenting them with an imported Metal
+            // look creates a false-color/waveform lie. Disable until GPU scope
+            // sampling is implemented; do not make render latency worse by
+            // forcing a full-frame synchronous readback every slider tick.
+            scopeGeneration &+= 1
+            scopeTask?.cancel()
+            scopeTask = nil
+            editorScopeImage = nil
+            isScopeAnalyzing = false
+            return
+        }
         guard page == .edit, latestRenderedBuffer != nil else { return }
         scopeGeneration += 1
         if scopeTask == nil { startEditorScopeLoop() }

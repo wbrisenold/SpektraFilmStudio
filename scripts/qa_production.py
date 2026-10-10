@@ -639,6 +639,13 @@ require("MetalPreviewCanvas(image:" in _preview and "MTKView" in _metal_canvas a
         "GPU-backed frame presentation and bounded latest-frame scheduling missing")
 require("enqueueMetalFilm" in _native and "SpektraRendererRenderMetalBuffers" in _native,
         "Metal-only native engine bridge not accessible from Swift")
+# Prevent blank-photo regressions that the historical 2-pixel LUT test missed.
+require("LUT_GPU_DISPLAY_PASS" in text("StudioLUTSmokeSuite.swift") and
+        "MetalPreviewComposition.letterbox" in text("MetalPreviewCanvas.swift"),
+        "LUT smoke must check final Metal-to-display texture, not just LUT arithmetic")
+require("MetalFrameContentGuard.verify(contentSamples)" in text("GPULiveFramePipeline.swift") and
+        "LUT_GPU_FRAME_BLANK" in text("MetalFrameContentGuard.swift"),
+        "live renderer must refuse featureless LUT output from detailed RAW input")
 # Persistently cached spectral LUTs: never bake inline during slider drag.
 _spectral = text("StudioSpectralLUT.swift")
 require('case "33": return 33' in _spectral and 'case "65": return 65' in _spectral
@@ -649,7 +656,7 @@ require("prewarmLUT" in text("GPULiveFramePipeline.swift") and
         "!usedImportedLUT && !usedSpectralLUT" in text("GPULiveFramePipeline.swift"),
         "LUT must be warmed outside interactive rendering and use native Metal on miss")
 require("if importedMode" in text("GPULiveFramePipeline.swift") and
-        "importedCubeLUT.encode" in text("GPULiveFramePipeline.swift") and
+        "contractOverride: contract" in text("GPULiveFramePipeline.swift") and
         "StudioImportedCubeLUTSettings.isSelected" in text("AppModel.swift"),
         "imported GPU LUT must bypass native with no fallback on the editing path")
 require("SpectralLUTs-v2" in _spectral and "payloadSHA256" in _spectral and

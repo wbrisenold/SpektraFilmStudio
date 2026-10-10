@@ -164,7 +164,7 @@ struct EditorScopePanelView: View {
                             .allowsHitTesting(false)
                     }
                 } else {
-                    Text(model.selectedImage == nil ? "Select an image to view scopes" : "Reading display scope")
+                    Text(model.selectedImage == nil ? "Select an image to view scopes" : (StudioImportedCubeLUTSettings.isSelected ? "GPU scopes not yet connected to imported LUT" : "Reading display scope"))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
