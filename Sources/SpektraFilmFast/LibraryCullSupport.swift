@@ -201,8 +201,10 @@ extension AppModel {
         return project.images.filter { ids.contains($0.id) }
     }
 
-    func selectLibraryImage(_ id: UUID, additive: Bool = false, range: Bool = false) {
-        let ordered = visibleImages.map(\.id)
+    func selectLibraryImage(_ id: UUID, additive: Bool = false, range: Bool = false, orderedIDs: [UUID]? = nil) {
+        // Edit's filtered grid supplies its own visible order so Shift does
+        // not silently include hidden photos between two selected thumbnails.
+        let ordered = orderedIDs ?? visibleImages.map(\.id)
         if range, let anchor = librarySelectionAnchor,
            let a = ordered.firstIndex(of: anchor), let b = ordered.firstIndex(of: id) {
             let lo = min(a, b), hi = max(a, b)

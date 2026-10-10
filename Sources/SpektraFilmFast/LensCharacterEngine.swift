@@ -20,8 +20,8 @@ enum LensCharacterEngine {
 
 }
 
-private final class LensOpticalMetal: @unchecked Sendable {
-    static let shared = LensOpticalMetal()
+final class LensOpticalMetal: @unchecked Sendable {
+    static let shared = LensOpticalMetal(device: StudioGPUDevice.shared)
     private struct Params {
         var width: UInt32; var height: UInt32; var caChannel: UInt32; var pad: UInt32 = 0
         var distortion: Float; var ca: Float; var highlightCA: Float; var spherical: Float
@@ -31,8 +31,8 @@ private final class LensOpticalMetal: @unchecked Sendable {
     }
     private let queue: MTLCommandQueue?
     private let pipeline: MTLComputePipelineState?
-    private init() {
-        guard let device = StudioGPUDevice.shared,
+    init(device suppliedDevice: (any MTLDevice)?) {
+        guard let device = suppliedDevice,
               let library = try? device.makeLibrary(source: Self.source, options: nil),
               let function = library.makeFunction(name: "lens_optical_kernel"),
               let queue = device.makeCommandQueue(),
@@ -41,6 +41,32 @@ private final class LensOpticalMetal: @unchecked Sendable {
         }
         self.queue = queue; self.pipeline = pipeline
     }
+    func encode(source: any MTLBuffer, destination: any MTLBuffer,
+                command: any MTLCommandBuffer, width: Int, height: Int,
+                parameters p: LensEffectsResolved) throws {
+        guard let pipeline, source.device.registryID == command.device.registryID,
+              destination.device.registryID == command.device.registryID,
+              let encoder = command.makeComputeCommandEncoder() else {
+            throw GPULiveError.unavailable("lens optics GPU device/pipeline unavailable")
+        }
+        var params = Params(width: UInt32(width), height: UInt32(height),
+            caChannel: p.caChannel == .red ? 1 : (p.caChannel == .blue ? 2 : 0),
+            distortion: Float(p.distortion), ca: Float(p.chromaticAberration),
+            highlightCA: Float(p.highlightChromaticAberration), spherical: Float(p.sphericalAberration),
+            swirl: Float(p.petzvalSwirl), edgeSoft: Float(p.edgeSoftness),
+            vignette: Float(p.vignette), lensShape: Float(p.lensShape),
+            blurThickness: Float(p.blurThickness), swirlRadius: Float(p.swirlRadius),
+            vignetteRadius: Float(p.vignetteRadius), vignetteFalloff: Float(p.vignetteFalloff),
+            centerX: Float(p.centerX), centerY: Float(p.centerY))
+        encoder.setComputePipelineState(pipeline)
+        encoder.setBuffer(source, offset: 0, index: 0)
+        encoder.setBuffer(destination, offset: 0, index: 1)
+        encoder.setBytes(&params, length: MemoryLayout<Params>.stride, index: 2)
+        encoder.dispatchThreads(MTLSize(width: width, height: height, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
+        encoder.endEncoding()
+    }
+
     func apply(_ input: PixelBufferF32, parameters p: LensEffectsResolved) -> PixelBufferF32? {
         guard let queue, let pipeline else { return nil }
         let count = input.pixels.count

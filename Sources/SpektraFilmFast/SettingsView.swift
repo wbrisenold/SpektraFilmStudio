@@ -12,6 +12,7 @@ struct SettingsView: View {
     @AppStorage("SpektraFilmStudio.designA.showEditorInspector") private var editorInspectorVisible = true
     @AppStorage("SpektraFilmStudio.designA.showFilmstrip") private var editorFilmstripVisible = true
     @AppStorage("SpektraFilmStudio.designA.showScopes") private var editorScopesVisible = false
+    @AppStorage("SpektraFilmStudio.ui.scopesRailWidth") private var scopesRailWidth = 376.0
     @AppStorage("SpektraFilmStudio.designA.showCullInspector") private var cullInspectorVisible = false
     @AppStorage("SpektraFilmStudio.designA.showLibraryInspector") private var libraryInspectorVisible = false
     @AppStorage("SpektraFilmStudio.designA.v3.showExportBrowser") private var exportBrowserVisible = true
@@ -200,12 +201,17 @@ struct SettingsView: View {
             Section("Editor Scopes") {
                 Picker("Scopes appear", selection: $editorScopesVisible) {
                     Text("Hidden").tag(false)
-                    Text("Below canvas").tag(true)
+                    Text("Dedicated right scope panel").tag(true)
                 }
                 .pickerStyle(.segmented)
-                Text("Scopes now occupy a separate, full-width center-stage dock rather than the right adjustment rail. Drag the dock handle upward for more height; select a scope type in its header. Hiding the dock returns the full center area to the photo. Scope renderings use higher-resolution traces.")
+                Text("Scopes are a separate adjustable-width panel immediately to the right of the viewer, before the RAW/FILM/MASK inspector. The photo stays full height. At narrower window sizes the Photos/Presets sidebar automatically folds away while scopes are open, without changing your saved preference.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                HStack {
+                    Text("Scope panel width")
+                    Slider(value: $scopesRailWidth, in: 300...500, step: 8)
+                    Text("\(Int(scopesRailWidth)) pt").monospacedDigit().frame(width: 54)
+                }
                 Picker("Default scope", selection: Binding(
                     get: { model.project.preferences.scopeMode },
                     set: { model.setEditorScopeMode($0) }

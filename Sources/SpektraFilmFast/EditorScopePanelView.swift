@@ -130,7 +130,7 @@ struct EditorScopePanelView: View {
     @ObservedObject var model: AppModel
     // Larger dock size is supplied by EditWorkspaceView; the old compact well
     // remains available for legacy or future hosts.
-    var wellHeight: CGFloat = 104
+    var wellHeight: CGFloat = 240
     @State private var histogramZone: Int?
     @State private var histogramStart: Double = 0
     @State private var histogramPhoto: UUID?
@@ -142,17 +142,26 @@ struct EditorScopePanelView: View {
         // row with a clipping indicator at each end, then the mode strip beneath.
         VStack(spacing: 6) {
             ZStack {
-                StudioPalette.recessed
+                Color(red: 0.032, green: 0.037, blue: 0.045)
 
                 if let image = model.editorScopeImage {
-                    Image(decorative: image, scale: 1)
-                        .resizable()
-                        .interpolation(model.project.preferences.scopeMode == .histogram ? .high : .none)
-                        .scaledToFit()
-                        .padding(.horizontal, 2)
-                        .padding(.top, 14)
-                        .padding(.bottom, 4)
-                        .allowsHitTesting(false)
+                    if [.vectorscope, .skinVectorscope, .chromaticity].contains(model.project.preferences.scopeMode) {
+                        Image(decorative: image, scale: 1)
+                            .resizable()
+                            .interpolation(.none)
+                            .scaledToFit()
+                            .padding(8)
+                            .allowsHitTesting(false)
+                    } else {
+                        // Level/time plots can scale axes independently; never
+                        // crop out off-screen clipping or histogram bins.
+                        Image(decorative: image, scale: 1)
+                            .resizable()
+                            .interpolation(model.project.preferences.scopeMode == .histogram ? .high : .none)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding(8)
+                            .allowsHitTesting(false)
+                    }
                 } else {
                     Text(model.selectedImage == nil ? "Select an image to view scopes" : "Reading display scope")
                         .font(.caption2)
@@ -176,7 +185,31 @@ struct EditorScopePanelView: View {
                     if w > 0 { lastWellWidth = w }
                 }
             })
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.75)
+            }
+            .overlay(alignment: .topLeading) {
+                if model.project.preferences.scopeMode == .waveform ||
+                   model.project.preferences.scopeMode == .parade {
+                    Text("100%")
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.58))
+                        .padding(7)
+                        .allowsHitTesting(false)
+                }
+            }
+            .overlay(alignment: .bottomLeading) {
+                if model.project.preferences.scopeMode == .waveform ||
+                   model.project.preferences.scopeMode == .parade {
+                    Text("0%")
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.58))
+                        .padding(7)
+                        .allowsHitTesting(false)
+                }
+            }
             .contentShape(Rectangle())
             // Never change tone by dragging a waveform, parade, vectorscope or
             // false-color preview. Only the histogram has tonal drag regions.

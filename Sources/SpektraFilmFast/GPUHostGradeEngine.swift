@@ -4,11 +4,13 @@ import Metal
 /// Analytical tone/color-density/film-input math on Metal. The spectral film kernel stays intact.
 final class GPUHostGradeEngine: @unchecked Sendable {
     static let shared = GPUHostGradeEngine()
-    private let device = StudioGPUDevice.shared
+    private let device: (any MTLDevice)?
     private let lock = NSLock()
     private var pipeline: MTLComputePipelineState?
     private var queue: MTLCommandQueue?
-    private init() {
+    private convenience init() { self.init(device: StudioGPUDevice.shared) }
+    init(device: (any MTLDevice)?) {
+        self.device = device
         guard let device else { return }
         queue = device.makeCommandQueue()
         let options = MTLCompileOptions(); options.mathMode = .safe
@@ -17,6 +19,57 @@ final class GPUHostGradeEngine: @unchecked Sendable {
             if let function = library.makeFunction(name: "hostGrade") { pipeline = try device.makeComputePipelineState(function: function) }
         } catch { GPUProcessingFailure.report("GPU tone shader: \(error.localizedDescription)") }
     }
+    /// Enqueue the EXACT existing hostGrade Metal shader on caller-owned buffers.
+    /// No CPU copies/readback and no waitUntilCompleted. The caller serializes
+    /// submission on the same queue as the native spectral film renderer.
+    func encode(source: any MTLBuffer, destination: any MTLBuffer,
+                on command: any MTLCommandBuffer, width: Int, height: Int,
+                tone: ToneSettings?, density: ColorDensitySettings?, film: ToneSettings?) throws {
+        let t = tone ?? ToneSettings(), f = film ?? ToneSettings(), d = density ?? ColorDensitySettings()
+        guard !t.autoContrast && !f.autoContrast else {
+            throw GPULiveError.unavailable("Auto Contrast needs quantile analysis")
+        }
+        guard let device, let pipeline, source.device.registryID == device.registryID,
+              destination.device.registryID == device.registryID else {
+            throw GPULiveError.unavailable("host grade GPU device/pipeline mismatch")
+        }
+        let points = ToneCurveMath.normalize(t.curvePoints)
+        let curve = ToneCurveMath.buildCache(points)
+        let identity = points.count == 2 && points[0] == ToneCurvePoint(x: 0, y: 0)
+                    && points[1] == ToneCurvePoint(x: 1, y: 1)
+        let p: [Float] = [
+            Float(t.exposureEV), Float(t.brightness), Float(t.midtones), Float(t.contrast),
+            Float(t.shadows), Float(t.highlights), Float(t.highlightRecovery), Float(t.shadowRecovery),
+            Float(t.blacks), Float(t.whites), Float(t.blackPoint), Float(t.whitePoint),
+            0, 0, identity ? 0 : Float(points.count), d.isIdentity ? 0 : 1,
+            Float(d.master), Float(d.red), Float(d.yellow), Float(d.green),
+            Float(d.cyan), Float(d.blue), Float(d.magenta), film == nil ? 0 : 1,
+            Float(f.blacks), Float(f.shadows), Float(f.brightness), Float(f.highlights),
+            Float(f.whites), Float(f.highlightRecovery), Float(f.shadowRecovery),
+            Float(f.contrast), 0, 0, tone != nil || !d.isIdentity ? 1 : 0
+        ]
+        let knots = points.indices.map {
+            SIMD4<Float>(Float(points[$0].x), Float(points[$0].y), Float(curve.m[$0]), 0)
+        }
+        guard let pb = p.withUnsafeBytes({ device.makeBuffer(bytes: $0.baseAddress!,
+                            length: $0.count, options: .storageModeShared) }),
+              let kb = knots.withUnsafeBytes({ device.makeBuffer(bytes: $0.baseAddress!,
+                            length: $0.count, options: .storageModeShared) }),
+              let encoder = command.makeComputeCommandEncoder() else {
+            throw GPULiveError.unavailable("host grade parameter buffer allocation failed")
+        }
+        var count = UInt32(width * height)
+        encoder.setComputePipelineState(pipeline)
+        encoder.setBuffer(source, offset: 0, index: 0)
+        encoder.setBuffer(destination, offset: 0, index: 1)
+        encoder.setBuffer(pb, offset: 0, index: 2)
+        encoder.setBuffer(kb, offset: 0, index: 3)
+        encoder.setBytes(&count, length: MemoryLayout<UInt32>.stride, index: 4)
+        encoder.dispatchThreads(MTLSize(width: width * height, height: 1, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: min(256, pipeline.maxTotalThreadsPerThreadgroup), height: 1, depth: 1))
+        encoder.endEncoding()
+    }
+
     func apply(_ input: PixelBufferF32, tone: ToneSettings?, density: ColorDensitySettings?, film: ToneSettings?) -> PixelBufferF32 {
         let t = tone ?? ToneSettings(), f = film ?? ToneSettings(), d = density ?? ColorDensitySettings()
         if t == ToneSettings() && d.isIdentity && f == ToneSettings() { return input }

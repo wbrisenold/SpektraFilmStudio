@@ -1,6 +1,7 @@
 import Foundation
 import CoreImage
 import CoreGraphics
+import Metal
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -193,6 +194,54 @@ actor ImageDecoder {
             baseTemperature: reference?.temperature,
             baseTint: reference?.tint
         )
+    }
+
+    /// Decode the SAME camera-space CIRAWFilter chain directly into a GPU texture.
+    /// No toBitmap, CPU float array or Core Image software rendering is used.
+    /// Unsupported non-RAW / working-space Auto WB is NOT silently approximated.
+    func decodeMetal(url: URL, longEdge: Int, raw: RawSettings,
+                     bypassImportTransform: Bool, gpu: GPULiveDevice) async throws -> MetalDevelopedRAW {
+        try Task.checkCancellation()
+        let autoNeutral = raw.whiteBalanceMode == .auto
+            ? await resolvedAutoNeutralLocation(url: url, lensCorrection: raw.lensCorrection)
+            : nil
+        let source = try Self.sourceImage(url: url, raw: raw,
+                                          draft: longEdge <= 1024,
+                                          autoNeutralLocation: autoNeutral)
+        guard source.cameraSpaceWhiteBalanceApplied else {
+            throw GPULiveError.unavailable("source requires unresolved working-space white balance")
+        }
+        let extent = source.image.extent.integral
+        guard extent.width.isFinite, extent.height.isFinite,
+              extent.width > 0, extent.height > 0,
+              longEdge > 0 && longEdge <= 2048 else {
+            throw GPULiveError.unavailable("unsafe GPU decode dimensions")
+        }
+        let scale = min(1, CGFloat(longEdge) / max(extent.width, extent.height))
+        let translated = source.image.transformed(by: CGAffineTransform(
+            translationX: -extent.minX, y: -extent.minY))
+        let scaled = translated.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let width = max(1, Int((extent.width * scale).rounded()))
+        let height = max(1, Int((extent.height * scale).rounded()))
+        guard width <= 2048, height <= 2048 else {
+            throw GPULiveError.unavailable("GPU preview exceeds 2048 px")
+        }
+        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba32Float,
+                       width: width, height: height, mipmapped: false)
+        d.usage = [.renderTarget, .shaderRead]
+        d.storageMode = .private
+        guard let texture = gpu.device.makeTexture(descriptor: d),
+              let command = gpu.queue.makeCommandBuffer() else {
+            throw GPULiveError.unavailable("GPU RAW development allocation failed")
+        }
+        let colorSpace = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        gpu.context.render(scaled, to: texture, commandBuffer: command,
+                           bounds: CGRect(x: 0, y: 0, width: width, height: height),
+                           colorSpace: colorSpace)
+        command.commit()
+        // The queue guarantees GPU ordering; do not block for the RAW command.
+        try Task.checkCancellation()
+        return MetalDevelopedRAW(texture: texture, width: width, height: height)
     }
 
     func fullResolution(url: URL, raw: RawSettings, bypassImportTransform: Bool) async throws -> PixelBufferF32 {

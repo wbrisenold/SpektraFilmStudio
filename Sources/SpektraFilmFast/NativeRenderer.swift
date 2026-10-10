@@ -3,6 +3,7 @@ import Darwin
 import CoreGraphics
 import CSpektraBridge
 import Accelerate
+import Metal
 
 
 struct FloatImagePayload: Sendable {
@@ -230,8 +231,67 @@ actor NativeRenderer {
 
     deinit { SpektraRendererDestroy(handle) }
 
+    /// Do not assume MTLCreateSystemDefaultDevice() is the native film GPU
+    /// on an Intel machine with both integrated and discrete graphics.
+    func preferredMetalDevice() throws -> GPUMetalDeviceToken {
+        guard let pointer = SpektraRendererMetalDevice(handle),
+              let device = Unmanaged<AnyObject>.fromOpaque(pointer).takeUnretainedValue() as? (any MTLDevice) else {
+            throw RendererError.unavailable("Native film Metal device not available")
+        }
+        return GPUMetalDeviceToken(device: device)
+    }
+
     func releaseTransientResources() {
         SpektraRendererReleaseTransientResources(handle)
+    }
+
+    /// GPU-resident native film stage entry point. This queues on the supplied
+    /// Metal command queue without allocating or reading back a Swift float array.
+    /// A caller MUST retain the buffers and wait on a completion fence submitted
+    /// after this render before inspecting/presenting the destination.
+    /// Host grade, local masks, lenses and geometry must be encoded on the same
+    /// GPU path before this replaces the authoritative display pipeline.
+    func enqueueMetalFilm(_ resources: GPUMetalFilmIO, look: RenderLook, time: Double = 0) throws {
+        let source = resources.source, destination = resources.destination
+        let queue = resources.queue, width = resources.width, height = resources.height
+        try Task.checkCancellation()
+        guard width > 0, height > 0, width <= Int(Int32.max) / 16,
+              height <= Int(Int32.max),
+              let byteCount = UInt64(exactly: width).flatMap({ w in
+                  UInt64(exactly: height).flatMap({ h in
+                      w.multipliedReportingOverflow(by: h).overflow ? nil : w * h
+                  })
+              }).flatMap({ count -> UInt64? in
+                  let result = count.multipliedReportingOverflow(by: 16)
+                  return result.overflow ? nil : result.partialValue
+              }), byteCount <= UInt64(Int.max),
+              source.length >= Int(byteCount), destination.length >= Int(byteCount),
+              ObjectIdentifier(source.device as AnyObject) == ObjectIdentifier(queue.device as AnyObject),
+              ObjectIdentifier(destination.device as AnyObject) == ObjectIdentifier(queue.device as AnyObject) else {
+            throw RendererError.renderFailed("GPU buffer dimensions, length, or device mismatch")
+        }
+        SpektraRendererSetPerformanceOptions(handle,
+            look.values["fastSpatial"] == .bool(true) ? 1 : 0, 1)
+        SpektraRendererSetDensityLutsEnabled(handle, 0)
+        var params = SpektraAppMakeDefaultRenderParams()
+        apply(look: look, to: &params)
+        if look.values["fastDIR"] == .bool(true) {
+            params.dirCouplersDiffusionUm = 0
+            params.dirCouplersDiffusionTailUm = 0
+        }
+        params.inputColorSpace = SpektraAppLinearRec2020ColorSpace()
+        let result = SpektraRendererRenderMetalBuffers(
+            handle,
+            Unmanaged.passUnretained(source as AnyObject).toOpaque(),
+            Unmanaged.passUnretained(destination as AnyObject).toOpaque(),
+            Unmanaged.passUnretained(queue as AnyObject).toOpaque(),
+            Int32(width), Int32(height), &params, time
+        )
+        guard result != 0 else {
+            throw RendererError.renderFailed(
+                SpektraRendererLastError(handle).map(String.init(cString:)) ?? "Metal buffer render failed"
+            )
+        }
     }
 
     func render(_ input: PixelBufferF32, look: RenderLook, time: Double = 0, useDensityLuts: Bool = false, useStageCache: Bool = true) throws -> (PixelBufferF32, RenderDiagnosticsView) {

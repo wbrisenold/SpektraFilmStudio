@@ -247,10 +247,10 @@ require("scopeTargetFPS" in models and "startEditorScopeLoop" in scope_support, 
 require("scopeTask == nil" in scope_support and "scopeGeneration" in scope_support, "scope latest-frame/backpressure guard missing")
 require("Histogram" in models and "Waveform" in models and "RGB Parade" in models and "Vectorscope" in models and "Skin Vector" in models, "scope modes missing")
 edit_view = text("EditView.swift")
-require("private var scopeDock" in edit_view and "EditorScopePanelView(" in edit_view and
+require("private var scopeRail" in edit_view and "EditorScopePanelView(" in edit_view and
         "clippingEnabled" in scope_panel and "skinCheckEnabled" in scope_panel and "editorScopeImage" in scope_panel,
-        "large center-stage scopes dock or its clipping/skin readout missing")
-require("editorBottomInset" in text("EditView.swift"), "canvas does not reserve room for the docked scope/filmstrip strips")
+        "independent viewer-right scopes rail or its clipping/skin readout missing")
+require("scopeRail" in text("EditView.swift") and "sidebarActuallyVisible" in text("EditView.swift"), "viewer must reserve width for separate scope rail")
 require("skinVectorscope" in scope_engine and "drawSkinReference" in scope_engine, "dedicated skin vectorscope missing")
 require(scope_engine.count("SkinToneReference.referenceAngleDegrees") >= 1, "skin vectorscope does not use the shared derived reference angle")
 require("static let referenceAngleDegrees" in text("SkinToneReference.swift"), "skin reference angle is not derived from a single shared constant")
@@ -432,7 +432,7 @@ require("minimumScaleToCoverCrop" in geometry and "effectiveSettings.scale = max
 require("minimumScaleToCoverCrop(" in app and "geometry.autoCrop = false" in app, "crop viewer does not preview the solved Auto Fill zoom")
 require('changedParameter == "crop" && isCropToolActive' in app and "objectWillChange.send()" in app, "crop overlay still forces an image resample on every drag event")
 require("skinMaskAlpha" in scope and "skinMaskAlpha[mi] > 64" in scope, "Skin Vector is not restricted to detected skin pixels")
-require("scopeEnabled = true" in models and "EditorScopePanelView(" in edit_view and "Below canvas" in settings, "Edit scopes placement control or truthful settings description missing")
+require("scopeEnabled = true" in models and "EditorScopePanelView(" in edit_view and "Dedicated right scope panel" in settings, "Edit scopes placement control or truthful settings description missing")
 
 print("v0.5 studio-workflow acceptance checks passed")
 
@@ -566,9 +566,9 @@ _require = {
     'ScrollView(.vertical)' in edit_view,
     'LazyVGrid(columns:' in edit_view,
     'ScrollView(.horizontal)' not in edit_view,
-    'private var scopeDock' in edit_view,
-    'DragGesture(minimumDistance: 2)' in edit_view,
-    '.padding(.bottom, editorBottomInset)' in edit_view,
+    'private var scopeRail' in edit_view,
+    'Slider(value: $scopesRailWidth' in edit_view,
+    'sidebarActuallyVisible' in edit_view,
     'let width = 768' in scope_engine,
     'let size = 448' in scope_engine,
 }
@@ -587,8 +587,8 @@ require("static let secondaryLabel = white(0.45)" in _ui and "static let well" n
         "StudioPalette must use Redlamp's explicit white-alpha ramp, not system label colours")
 require("Color.primary.opacity" not in _ui and "Color.secondary\n" not in _ui,
         "StudioPalette still uses system colours; Redlamp editing surfaces are neutral")
-require("struct StudioSliderTrack" in _ui and "StudioSliderTrack(" in controls,
-        "adjustment rows must use Redlamp's own slider track, not the system Slider")
+require("StudioSliderTrack(" in controls and "struct StudioSliderTrack" in _ui,
+        "preserve Redlamp slider behavior and appearance")
 
 print("PRODUCTION STATIC QA PASS")
 
@@ -618,7 +618,7 @@ print("REDLAMP WORKFLOW AND MASK SOURCE GATES PASS")
 # Edit should have a single global toolbar, not an extra 37pt filename/overflow row.
 _app_shell = text("ContentView.swift")
 _app_commands = text("SpektraFilmFastApp.swift")
-require("editorToolbar" not in edit_view and "private var scopeDock" in edit_view,
+require("editorToolbar" not in edit_view and "private var scopeRail" in edit_view,
         "Edit reintroduced the redundant filename/ellipsis toolbar")
 require(".padding(.top, 45)" not in edit_view and
         ".padding(.top, 45 + StudioLayout.paneInset)" not in edit_view,
@@ -628,3 +628,27 @@ require("CommandMenu(\"Workspace\")" in _app_commands and
         "StudioEditEvents.exportCurrentPhoto" in _app_shell and
         "QuickExportSheet(model: model, imageID: request.id)" in _app_shell,
         "secondary Edit actions were removed without accessible native menu replacements")
+
+# October 10 GPU preview/source-bridge integration gate.
+_preview = text("PreviewView.swift")
+_native = text("NativeRenderer.swift")
+_metal_canvas = text("MetalPreviewCanvas.swift")
+require("MetalPreviewCanvas(image:" in _preview and "MTKView" in _metal_canvas and "inFlight >= 2" in _metal_canvas,
+        "GPU-backed frame presentation and bounded latest-frame scheduling missing")
+require("enqueueMetalFilm" in _native and "SpektraRendererRenderMetalBuffers" in _native,
+        "Metal-only native engine bridge not accessible from Swift")
+require("scopesRailWidth" in edit_view and "sidebarActuallyVisible" in edit_view,
+        "scope rail width/compact-window handling missing")
+
+# Latest Redlamp slider geometry + local Edit photo filtering regression.
+require("let thumbX = thumbRadius + usableWidth * fraction" in _ui and
+        ".offset(x: thumbX - thumbRadius)" in _ui and
+        "let usable = max(1, usableWidth)" in _ui,
+        "Redlamp slider fill/center/drag geometry diverged")
+require("private var filteredEditPhotos" in edit_view and
+        "Photos filter options" in edit_view and
+        "ForEach(filteredEditPhotos)" in edit_view,
+        "Edit Photos tab filter options are missing")
+require("orderedIDs: filteredEditPhotos.map" in edit_view and
+        "orderedIDs: [UUID]? = nil" in text("LibraryCullSupport.swift"),
+        "Shift selection includes filtered-out photos")

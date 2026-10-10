@@ -326,21 +326,26 @@ struct StudioSliderTrack: View {
             let width = max(1, proxy.size.width)
             let span = range.upperBound - range.lowerBound
             let fraction = span > 0 ? min(1, max(0, (value - range.lowerBound) / span)) : 0
-            let thumbX = min(max(StudioType.thumbSize / 2, width * fraction),
-                             width - StudioType.thumbSize / 2)
+            // Use ONE coordinate system for the visible thumb, filled track,
+            // click position and drag position. The thumb's center moves only
+            // across the usable width; capsule and circle are both vertically
+            // centered by the same ZStack (no .position into a 4pt child view).
+            let thumbRadius = StudioType.thumbSize / 2
+            let usableWidth = max(0, width - StudioType.thumbSize)
+            let thumbX = thumbRadius + usableWidth * fraction
 
             ZStack(alignment: .leading) {
                 Capsule().fill(StudioPalette.track)
+                    .frame(height: StudioType.trackHeight)
                 Capsule()
                     .fill(StudioPalette.trackFill)
-                    .frame(width: thumbX)
+                    .frame(width: thumbX, height: StudioType.trackHeight)
                 Circle()
                     .fill(StudioPalette.thumb)
                     .frame(width: StudioType.thumbSize, height: StudioType.thumbSize)
-                    .position(x: thumbX, y: proxy.size.height / 2)
+                    .offset(x: thumbX - thumbRadius)
             }
-            .frame(height: StudioType.trackHeight)
-            .frame(maxHeight: .infinity, alignment: .center)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .onScrollWheel { delta, flags in
                 guard flags.contains(.command), enabled else { return false }
@@ -359,7 +364,7 @@ struct StudioSliderTrack: View {
                     .onChanged { drag in
                         guard enabled, span > 0 else { return }
                         if !dragging { dragging = true; onEditingChanged(true) }
-                        let usable = max(1, width - StudioType.thumbSize)
+                        let usable = max(1, usableWidth)
                         let t = min(1, max(0, (drag.location.x - StudioType.thumbSize / 2) / usable))
                         value = clamp(range.lowerBound + t * span)
                     }

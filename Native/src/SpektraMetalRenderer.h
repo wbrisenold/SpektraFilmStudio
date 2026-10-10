@@ -30,6 +30,7 @@ public:
   MetalRenderer &operator=(const MetalRenderer &) = delete;
 
   bool isAvailable() const override;
+  void *metalDevice() const;
   const MetalRenderDiagnostics &lastDiagnostics() const override;
   const std::string &lastError() const override;
   void releaseTransientResources() override;

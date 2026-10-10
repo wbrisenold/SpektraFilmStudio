@@ -344,6 +344,12 @@ final class AppModel: ObservableObject {
     private var interactiveBaselineTask: Task<Void, Never>?
     private var interactiveBaselineGeneration = 0
     private var interactiveProxyTask: Task<Void, Never>?
+    // Latest-only GPU render queue, independent of CPU image packaging.
+    @Published var liveGPUFrame: GPULiveFrame?
+    private let gpuLivePipeline = GPULiveFramePipeline()
+    private var pendingGPUPreview: GPULivePreviewRequest?
+    private var gpuPreviewTask: Task<Void, Never>?
+    private var gpuPreviewGeneration = 0
     private var interactiveProxyGeneration = 0
     private var autosaveTask: Task<Void, Never>?
     private var autosaveGeneration = 0
@@ -916,6 +922,10 @@ final class AppModel: ObservableObject {
             latestSkinMaskHeight = 0
             latestSkinMaskAlpha = []
             cancelPreviewForNavigation()
+            gpuPreviewGeneration &+= 1
+            pendingGPUPreview = nil
+            gpuPreviewTask?.cancel()
+            liveGPUFrame = nil
             gestureWorkingLook = nil
             activeEditBaseline = nil
             project.selectedImageID = id
@@ -1238,6 +1248,11 @@ final class AppModel: ObservableObject {
         gestureSettleBaselineBuffer = nil
         interactiveProxyTask?.cancel()
         interactiveProxyTask = nil
+        gpuPreviewGeneration &+= 1
+        pendingGPUPreview = nil
+        gpuPreviewTask?.cancel()
+        // Keep the cancelled task reference until its defer releases it.
+        // A new pointer gesture then remains coalesced behind the old GPU fence.
 
         guard let baselineLook, baselineLook != committedLook else { return }
         scheduleIdleRefinement(
@@ -3293,6 +3308,12 @@ final class AppModel: ObservableObject {
         lookOverride: RenderLook? = nil
     ) {
         guard let image = selectedImage, renderer != nil else { return }
+        if interactive && currentSourceSupportsGPULive &&
+           GPULiveFramePipeline.supports(lookOverride ?? gestureWorkingLook ?? selectedLook) {
+            // AppModel's live Metal queue supersedes the 720px CPU-packaged
+            // interactive exact render. The normal settled exact render remains.
+            return
+        }
         if interactive { cancelIdleRefinement() }
         renderGeneration += 1
         let request = PreviewRenderRequest(
@@ -3336,9 +3357,97 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private struct GPULivePreviewRequest: Sendable {
+        let generation: Int
+        let imageID: UUID
+        let url: URL
+        let look: RenderLook
+        let bypassImportTransform: Bool
+    }
+
+    private var currentSourceSupportsGPULive: Bool {
+        guard let image = selectedImage else { return false }
+        // JPEG/HEIC/TIFF cannot use the camera-space CIRAWFilter input path.
+        // Those images remain editable through their existing exact pipeline.
+        let rawExtensions: Set<String> = [
+            "arw", "nef", "raf", "rw2", "orf", "dng", "cr2", "cr3", "pef",
+            "srw", "iiq", "3fr", "fff", "erf", "mos", "mrw", "nrw"
+        ]
+        return rawExtensions.contains(URL(fileURLWithPath: image.sourcePath).pathExtension.lowercased())
+    }
+
+    private func scheduleGPULivePreview(look: RenderLook) {
+        guard let image = selectedImage else { return }
+        gpuPreviewGeneration &+= 1
+        pendingGPUPreview = GPULivePreviewRequest(
+            generation: gpuPreviewGeneration,
+            imageID: image.id,
+            url: effectiveSourceURL(for: image),
+            look: look,
+            bypassImportTransform: project.preferences.bypassImportTransform
+        )
+        if gpuPreviewTask == nil {
+            gpuPreviewTask = Task { [weak self] in
+                guard let self else { return }
+                await self.runGPULiveLoop()
+            }
+        }
+    }
+
+    private func runGPULiveLoop() async {
+        defer {
+            gpuPreviewTask = nil
+            if pendingGPUPreview != nil {
+                gpuPreviewTask = Task { [weak self] in
+                guard let self else { return }
+                await self.runGPULiveLoop()
+            }
+            }
+        }
+        while !Task.isCancelled, let request = pendingGPUPreview {
+            pendingGPUPreview = nil
+            // Coalesce pointer-rate input; at most one native live render is
+            // in progress, with only one replaceable pending slider state.
+            try? await Task.sleep(for: .milliseconds(16))
+            if Task.isCancelled { break }
+            if pendingGPUPreview != nil { continue }
+            do {
+                let frame = try await gpuLivePipeline.render(
+                    url: request.url,
+                    look: request.look,
+                    bypassImportTransform: request.bypassImportTransform,
+                    decoder: decoder, longEdge: AppPreferences.editProxyLongEdge
+                )
+                guard !Task.isCancelled, request.generation == gpuPreviewGeneration,
+                      request.imageID == project.selectedImageID,
+                      gestureWorkingLook == request.look else { continue }
+                liveGPUFrame = frame
+                status = "Live Metal film · \(frame.texture.width) × \(frame.texture.height)"
+                requestEditorScopeUpdate()
+            } catch is CancellationError {
+                break
+            } catch {
+                if request.generation == gpuPreviewGeneration {
+                    status = "Metal live unavailable: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
     /// Pointer-rate feedback never enters the native spectral renderer. RapidRAW/Alcedo-style
     /// responsiveness comes from decoupling interaction from the expensive accuracy pass.
     private func publishInteractiveProxy(changedParameter: String?, rawField: RawInteractiveField?) {
+        // The GPU path renders the actual film pipeline from cached camera RAW,
+        // not a CPU pixel-level visual guess. Unported advanced stages retain
+        // the existing exact pipeline until GPU parity is demonstrated.
+        // The Metal CI render cannot express "no color match" (nil), so bypass
+        // import transform keeps the existing exact interactive proxy.
+        if let look = gestureWorkingLook, currentSourceSupportsGPULive,
+           !project.preferences.bypassImportTransform,
+           GPULiveFramePipeline.supports(look) {
+            scheduleGPULivePreview(look: look)
+            return
+        }
         guard let baseline = gestureBaselineRenderedBuffer,
               let baselineLook = activeEditBaseline,
               let targetLook = gestureWorkingLook else {
@@ -3631,6 +3740,8 @@ final class AppModel: ObservableObject {
                     throw RendererError.renderFailed("Could not create preview image")
                 }
                 renderedPreview = newRenderedPreview
+                // The exact settled preview supersedes the transient GPU texture.
+                liveGPUFrame = nil
                 if !request.interactive {
                     updateCloudPreview(photoID: request.imageID, image: newRenderedPreview)
                 }

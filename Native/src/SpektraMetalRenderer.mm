@@ -3804,6 +3804,11 @@ MetalRenderer::MetalRenderer() : impl_(std::make_unique<Impl>()) {}
 
 MetalRenderer::~MetalRenderer() = default;
 
+// Caller must not release this non-owning pointer; native renderer owns device.
+void *MetalRenderer::metalDevice() const {
+  return impl_ ? (__bridge void *)impl_->device : nullptr;
+}
+
 bool MetalRenderer::isAvailable() const {
   return impl_ && impl_->device && impl_->commandQueue && impl_->enlargerResamplePipeline && impl_->grainPipeline &&
     impl_->halationRawExposurePipeline && impl_->halationScatterCoreBlurXPipeline &&

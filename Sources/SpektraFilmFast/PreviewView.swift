@@ -27,9 +27,9 @@ struct PreviewView: View {
                     ZStack {
                         // Redlamp-derived mask is composited in the image itself, not an
                         // independent translucent view whose size can drift after crop.
-                        Image(decorative: model.showingBefore ? image : (redlampCompositedFrame ?? image), scale: 1)
-                            .resizable()
-                            .scaledToFit()
+                        MetalPreviewCanvas(image: model.showingBefore ? image : (redlampCompositedFrame ?? image),
+                            liveFrame: model.showingBefore ? nil : model.liveGPUFrame)
+                            .aspectRatio(CGFloat(image.width) / CGFloat(max(1, image.height)), contentMode: .fit)
                             // Overlay follows exactly the displayed image's layout, not
                             // the size proposed by the outer viewer ZStack.
                             .overlay {
@@ -141,7 +141,7 @@ struct PreviewView: View {
                     ContentUnavailableView(
                         "No Preview",
                         systemImage: "photo",
-                        description: Text("Select a photo in Library or Filmstrip.")
+                        description: Text("Select a photo in Library or the Photos tab.")
                     )
                 }
 

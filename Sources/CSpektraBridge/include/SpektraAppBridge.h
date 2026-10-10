@@ -249,6 +249,7 @@ typedef struct SpektraAppParamDescriptor {
 } SpektraAppParamDescriptor;
 
 SpektraRendererRef SpektraRendererCreate(void);
+void *SpektraRendererMetalDevice(SpektraRendererRef renderer);
 void SpektraRendererReleaseTransientResources(SpektraRendererRef renderer);
 void SpektraRendererSetPerformanceOptions(SpektraRendererRef renderer, int32_t fastSpatial, int32_t stageCache);
 void SpektraRendererSetDensityLutsEnabled(SpektraRendererRef renderer, int32_t enabled);
@@ -260,6 +261,20 @@ int32_t SpektraRendererRender(
   SpektraRendererRef renderer,
   const SpektraImageBuffer *source,
   SpektraImageBuffer *destination,
+  const SpektraAppRenderParams *params,
+  double time
+);
+
+// Non-blocking Metal-buffer render, same pinned spectral processing and color math.
+// The caller retains source, destination and queue resources until its own
+// completion fence on this queue signals. Float RGBA compact layout (16 bytes/pixel).
+int32_t SpektraRendererRenderMetalBuffers(
+  SpektraRendererRef renderer,
+  void *sourceMTLBuffer,
+  void *destinationMTLBuffer,
+  void *commandQueue,
+  int32_t width,
+  int32_t height,
   const SpektraAppRenderParams *params,
   double time
 );

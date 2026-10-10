@@ -1,20 +1,28 @@
 import SwiftUI
 import AppKit
 
+// SPEKTRA_RAW_METAL_GPU_FILTERS_20261010
+
 // SFS-EDIT-LEFT-PHOTOS-LARGE-SCOPES-20261009
 
 struct EditWorkspaceView: View {
     @ObservedObject var model: AppModel
     // Photos now live alongside Presets in the left editor sidebar.
     @AppStorage("SpektraFilmStudio.ui.editLeftTab") private var editLeftTab = "photos"
-    // A real, resizable scope dock, independent of the adjustment rail.
-    @AppStorage("SpektraFilmStudio.ui.scopesDockHeight") private var scopesDockHeight = 356.0
-    @State private var scopesResizeOrigin: Double?
+    // Dedicated independent scope rail: always to the RIGHT of the viewer,
+    // before RAW/FILM/MASK controls. Photos rail yields first on small windows.
+    @AppStorage("SpektraFilmStudio.ui.scopesRailWidth") private var scopesRailWidth = 376.0
+    @State private var workspaceWidth: CGFloat = 1280
     @State private var inspectorMode: StudioInspectorMode = .adjust
     @AppStorage("SpektraFilmStudio.designA.showEditorInspector") private var showEditorInspector = true
     @AppStorage("SpektraFilmStudio.designA.showFilmstrip") private var showFilmstrip = true
     @AppStorage("SpektraFilmStudio.designA.showScopes") private var showScopes = false
     @State private var quickExportRequest: QuickExportRequest?
+    // These are EDIT VIEW preferences only. They never mutate Library/Cull scopes.
+    @AppStorage("SpektraFilmStudio.ui.editPhotosStatus") private var editPhotosStatus = "all"
+    @AppStorage("SpektraFilmStudio.ui.editPhotosMinRating") private var editPhotosMinRating = 0
+    @AppStorage("SpektraFilmStudio.ui.editPhotosSort") private var editPhotosSort = "library"
+    @State private var editPhotosSearch = ""
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -26,32 +34,17 @@ struct EditWorkspaceView: View {
             PreviewView(model: model)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.top, StudioLayout.paneInset)
-                .padding(.leading, model.isPresetSidebarVisible
+                .padding(.leading, sidebarActuallyVisible
                     ? StudioLayout.presetSidebarWidth + 2 * StudioLayout.paneInset
                     : StudioLayout.paneInset)
-                .padding(.trailing, showEditorInspector
+                .padding(.trailing, (showEditorInspector
                     ? StudioLayout.editorInspectorWidth + 2 * StudioLayout.paneInset
-                    : StudioLayout.paneInset)
-                .padding(.bottom, editorBottomInset)
+                    : StudioLayout.paneInset) + (showScopes ? CGFloat(scopesRailWidth) + StudioLayout.paneInset : 0))
+                .padding(.bottom, StudioLayout.paneInset)
 
-            VStack(spacing: 0) {
-                Spacer(minLength: 0)
-                if showScopes {
-                    scopeDock
-                        // The scope dock uses only the center stage, never the left browser
-                        // or the right RAW/FILM/MASK controls.
-                        .padding(.leading, model.isPresetSidebarVisible
-                            ? StudioLayout.presetSidebarWidth + 2 * StudioLayout.paneInset
-                            : StudioLayout.paneInset)
-                        .padding(.trailing, showEditorInspector
-                            ? StudioLayout.editorInspectorWidth + 2 * StudioLayout.paneInset
-                            : StudioLayout.paneInset)
-                        .padding(.bottom, StudioLayout.paneInset)
-                }
-            }
 
             HStack(alignment: .top, spacing: 0) {
-                if model.isPresetSidebarVisible {
+                if sidebarActuallyVisible {
                     VStack(spacing: 0) {
                         Picker("Left browser", selection: $editLeftTab) {
                             Text("Presets").tag("presets")
@@ -74,6 +67,13 @@ struct EditWorkspaceView: View {
                     .studioGlassPane()
                 }
                 Spacer(minLength: 0)
+                if showScopes {
+                    scopeRail
+                        .frame(width: CGFloat(scopesRailWidth))
+                        .frame(maxHeight: .infinity)
+                        .studioGlassPane()
+                        .padding(.trailing, StudioLayout.paneInset)
+                }
                 if showEditorInspector {
                     EditorInspectorView(model: model, mode: $inspectorMode)
                         .frame(width: StudioLayout.editorInspectorWidth)
@@ -88,6 +88,14 @@ struct EditWorkspaceView: View {
             .padding(.bottom, StudioLayout.paneInset)
         }
         .background(StudioPalette.canvas)
+        // Prefer keeping the viewer usable on narrower Intel displays: the
+        // Photos/Presets sidebar auto-collapses *visually* while Scopes is open.
+        // This does not overwrite the user's persisted sidebar preference.
+        .background(GeometryReader { proxy in
+            Color.clear
+                .onAppear { workspaceWidth = proxy.size.width }
+                .onChange(of: proxy.size.width) { _, width in workspaceWidth = width }
+        })
         .sheet(item: $quickExportRequest) { request in
             QuickExportSheet(model: model, imageID: request.id)
         }
@@ -111,9 +119,8 @@ struct EditWorkspaceView: View {
     // Edit actions now live in the macOS Workspace / Edit Look / File menus.
     // There is no duplicate toolbar between the global page picker and viewer.
 
-    /// Reserve the scope dock below the preview. The side panels stay full-height.
-    private var editorBottomInset: CGFloat {
-        showScopes ? CGFloat(scopesDockHeight) + 2 * StudioLayout.paneInset : StudioLayout.paneInset
+    private var sidebarActuallyVisible: Bool {
+        model.isPresetSidebarVisible && (!showScopes || workspaceWidth >= 1510)
     }
 
     private var filmstripThumbnailHeight: CGFloat { 106 }
@@ -121,31 +128,19 @@ struct EditWorkspaceView: View {
         (StudioLayout.presetSidebarWidth - 42) / 2
     }
 
-    // The full-width studio monitor is independently scalable (drag its grab bar).
-    // Scope calculations still run off the latest finalized display signal.
-    private var scopeDock: some View {
+    // The monitor has its own space and scroll position, independent of sliders.
+    // All images are measured from the existing latest-frame scope engine rather
+    // than recalculated from SwiftUI overlays.
+    private var scopeRail: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Capsule()
-                    .fill(StudioPalette.secondaryLabel)
-                    .frame(width: 38, height: 4)
-                    .frame(width: 56, height: 30)
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 2)
-                            .onChanged { drag in
-                                if scopesResizeOrigin == nil { scopesResizeOrigin = scopesDockHeight }
-                                let proposed = (scopesResizeOrigin ?? scopesDockHeight) - Double(drag.translation.height)
-                                scopesDockHeight = min(480, max(280, proposed))
-                            }
-                            .onEnded { _ in scopesResizeOrigin = nil }
-                    )
-                    .help("Drag vertically to resize scopes")
-                    .accessibilityLabel("Scope dock resize handle")
+            HStack(spacing: 8) {
+                Image(systemName: "waveform.path.ecg")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
                 Text("SCOPES")
                     .font(StudioType.section)
                     .tracking(StudioType.sectionTracking)
-                    .foregroundStyle(.secondary)
+                Spacer(minLength: 2)
                 Menu {
                     ForEach(ScopeMode.allCases) { mode in
                         Button {
@@ -153,54 +148,93 @@ struct EditWorkspaceView: View {
                         } label: {
                             if model.project.preferences.scopeMode == mode {
                                 Label(mode.rawValue, systemImage: "checkmark")
-                            } else {
-                                Text(mode.rawValue)
-                            }
+                            } else { Text(mode.rawValue) }
                         }
                     }
                 } label: {
-                    Label(model.project.preferences.scopeMode.rawValue, systemImage: "waveform.path.ecg")
+                    Text(model.project.preferences.scopeMode.rawValue)
+                        .font(.caption.weight(.medium))
                         .lineLimit(1)
                 }
                 .menuStyle(.borderlessButton)
-                Spacer(minLength: 4)
-                if model.isScopeAnalyzing { ProgressView().controlSize(.mini) }
-                Toggle(isOn: Binding(
-                    get: { model.project.preferences.clippingEnabled },
-                    set: { model.setClippingEnabled($0) }
-                )) { Label("Clipping", systemImage: "arrowtriangle.up.fill") }
-                .toggleStyle(.button)
-                .labelStyle(.iconOnly)
-                .controlSize(.mini)
-                .help("Show clipping warnings over the preview")
-                Toggle(isOn: Binding(
-                    get: { model.project.preferences.skinCheckEnabled },
-                    set: { model.setSkinCheckEnabled($0) }
-                )) { Label("Skin", systemImage: "hand.raised.fill") }
-                .toggleStyle(.button)
-                .labelStyle(.iconOnly)
-                .controlSize(.mini)
-                .help("Show skin diagnostic over the preview")
                 Button { showScopes = false } label: { Image(systemName: "xmark") }
-                    .help("Close scopes")
+                    .buttonStyle(.borderless)
+                    .help("Hide scope monitor")
             }
-            .controlSize(.small)
-            .padding(.trailing, 12)
-            .frame(height: 38)
-
+            .padding(.horizontal, 12)
+            .frame(height: 42)
             Rectangle().fill(StudioPalette.divider).frame(height: 1)
             ScrollView(.vertical) {
-                EditorScopePanelView(
-                    model: model,
-                    wellHeight: max(210, CGFloat(scopesDockHeight) - 145)
-                )
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 10)
+                VStack(spacing: 16) {
+                    EditorScopePanelView(
+                        model: model,
+                        wellHeight: scopeWellHeight
+                    )
+                    Divider()
+                    HStack(spacing: 8) {
+                        Toggle(isOn: Binding(
+                            get: { model.project.preferences.clippingEnabled },
+                            set: { model.setClippingEnabled($0) }
+                        )) { Label("Clipping", systemImage: "arrowtriangle.up.fill") }
+                        Toggle(isOn: Binding(
+                            get: { model.project.preferences.skinCheckEnabled },
+                            set: { model.setSkinCheckEnabled($0) }
+                        )) { Label("Skin", systemImage: "hand.raised.fill") }
+                    }
+                    .toggleStyle(.checkbox)
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Scope panel width")
+                            Spacer()
+                            Text("\(Int(scopesRailWidth)) pt")
+                                .monospacedDigit().foregroundStyle(.secondary)
+                        }
+                        Slider(value: $scopesRailWidth, in: 300...500, step: 8)
+                    }
+                    .font(.caption2)
+                    .padding(.horizontal, 8)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 14)
             }
-            .scrollIndicators(.automatic)
         }
-        .frame(height: CGFloat(scopesDockHeight))
-        .studioGlassPane()
+    }
+
+    private var scopeWellHeight: CGFloat {
+        switch model.project.preferences.scopeMode {
+        case .vectorscope, .skinVectorscope, .chromaticity:
+            return CGFloat(scopesRailWidth) - 35
+        default:
+            return max(200, min(310, CGFloat(scopesRailWidth) * 0.68))
+        }
+    }
+
+    private var filteredEditPhotos: [ProjectImageRecord] {
+        let query = editPhotosSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matching = model.visibleImages.filter { photo in
+            guard photo.rating >= editPhotosMinRating else { return false }
+            if !query.isEmpty && !photo.fileName.localizedStandardContains(query) { return false }
+            switch editPhotosStatus {
+            case "picks": return photo.flag == .picked
+            case "rejected": return photo.flag == .rejected
+            case "unflagged": return photo.flag == .unflagged
+            case "unrated": return photo.rating == 0
+            case "client": return photo.clientPicked
+            case "export": return photo.selectedForExport
+            case "review": return photo.cullAnalysis?.recommendation == .review
+            case "best": return photo.cullAnalysis?.recommendation == .keep
+            default: return true
+            }
+        }
+        switch editPhotosSort {
+        case "name": return matching.sorted { $0.fileName.localizedStandardCompare($1.fileName) == .orderedAscending }
+        case "rating": return matching.sorted { $0.rating == $1.rating ? $0.importedAt < $1.importedAt : $0.rating > $1.rating }
+        case "score": return matching.sorted { ($0.cullAnalysis?.score ?? -1) > ($1.cullAnalysis?.score ?? -1) }
+        case "newest": return matching.sorted { $0.importedAt > $1.importedAt }
+        default: return matching
+        }
     }
 
     private var filmstrip: some View {
@@ -208,7 +242,7 @@ struct EditWorkspaceView: View {
             HStack(spacing: 8) {
                 Text("Photos")
                     .font(.caption)
-                Text("\(model.visibleImages.count)")
+                Text("\(filteredEditPhotos.count) / \(model.visibleImages.count)")
                     .foregroundStyle(.secondary)
 
                 if model.librarySelection.count > 1 {
@@ -232,9 +266,70 @@ struct EditWorkspaceView: View {
             .frame(height: 30)
             .background(StudioPalette.panel)
 
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search filenames", text: $editPhotosSearch)
+                    .textFieldStyle(.plain)
+                    .font(.caption)
+                    .accessibilityLabel("Find photos in Edit sidebar")
+                if !editPhotosSearch.isEmpty {
+                    Button { editPhotosSearch = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear search")
+                }
+                Menu {
+                    Picker("Flag / status", selection: $editPhotosStatus) {
+                        Text("All Photos").tag("all")
+                        Text("Picked").tag("picks")
+                        Text("Rejected").tag("rejected")
+                        Text("Unflagged").tag("unflagged")
+                        Text("Unrated").tag("unrated")
+                        Text("Client Picks").tag("client")
+                        Text("Export Queue").tag("export")
+                        Text("AI Review").tag("review")
+                        Text("AI Keep").tag("best")
+                    }
+                    Picker("Minimum rating", selection: $editPhotosMinRating) {
+                        ForEach(0..<6, id: \.self) { stars in
+                            Text(stars == 0 ? "Any Rating" : "\(stars)★ and up").tag(stars)
+                        }
+                    }
+                    Picker("Sort", selection: $editPhotosSort) {
+                        Text("Library Order").tag("library")
+                        Text("Filename").tag("name")
+                        Text("Highest Rated").tag("rating")
+                        Text("Best AI Score").tag("score")
+                        Text("Newest Imported").tag("newest")
+                    }
+                    Divider()
+                    Button("Clear Photos Filters") {
+                        editPhotosStatus = "all"
+                        editPhotosMinRating = 0
+                        editPhotosSort = "library"
+                        editPhotosSearch = ""
+                    }
+                } label: {
+                    Image(systemName: (editPhotosStatus == "all" && editPhotosMinRating == 0) ?
+                        "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                }
+                .menuStyle(.borderlessButton)
+                .help("Filter by picks, rejection, rating, review, and sort")
+                .accessibilityLabel("Photos filter options")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+
+            if filteredEditPhotos.isEmpty {
+                ContentUnavailableView("No matching photos", systemImage: "line.3.horizontal.decrease.circle",
+                    description: Text("Try clearing the Edit photo filters."))
+                    .frame(maxHeight: .infinity)
+            } else {
             ScrollView(.vertical) {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 8) {
-                    ForEach(model.visibleImages) { image in
+                    ForEach(filteredEditPhotos) { image in
                         let highlighted = model.librarySelection.contains(image.id)
                         let active = model.project.selectedImageID == image.id
 
@@ -314,7 +409,8 @@ struct EditWorkspaceView: View {
                             model.selectLibraryImage(
                                 image.id,
                                 additive: flags.contains(.command),
-                                range: flags.contains(.shift)
+                                range: flags.contains(.shift),
+                                orderedIDs: filteredEditPhotos.map(\.id)
                             )
                         }
                         .contextMenu {
@@ -336,6 +432,7 @@ struct EditWorkspaceView: View {
                 .padding(.vertical, 8)
             }
             .background(StudioPalette.recessed)
+            }
         }
         .frame(maxHeight: .infinity)
     }

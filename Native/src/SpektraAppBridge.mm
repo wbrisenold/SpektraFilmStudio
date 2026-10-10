@@ -529,6 +529,14 @@ SpektraAppDiagnostics SpektraRendererLastDiagnostics(SpektraRendererRef renderer
   return out;
 }
 
+// The GPU chosen by the C++ film renderer is authoritative on dual-GPU Macs.
+// Borrowed MTLDevice pointer: its native renderer remains alive during use.
+void *SpektraRendererMetalDevice(SpektraRendererRef renderer) {
+  if (!renderer || !renderer->renderer) return nullptr;
+  auto *metal = dynamic_cast<spektrafilm::MetalRenderer *>(renderer->renderer.get());
+  return metal ? metal->metalDevice() : nullptr;
+}
+
 void SpektraRendererReleaseTransientResources(SpektraRendererRef renderer) {
   if(renderer && renderer->renderer) {
     auto *metal=dynamic_cast<spektrafilm::MetalRenderer*>(renderer->renderer.get());
@@ -589,6 +597,52 @@ int32_t SpektraRendererRender(
   if (!ok) {
     renderer->lastError = renderer->renderer->lastError();
   }
+  return ok ? 1 : 0;
+}
+
+// Host-owned MTLBuffers: this enqueues on the supplied Metal queue rather
+// than blocking for CPU readback. The native engine validates buffer layout.
+int32_t SpektraRendererRenderMetalBuffers(
+  SpektraRendererRef renderer,
+  void *sourceMTLBuffer,
+  void *destinationMTLBuffer,
+  void *commandQueue,
+  int32_t width,
+  int32_t height,
+  const SpektraAppRenderParams *params,
+  double time
+) {
+  if (!renderer || !renderer->renderer || !sourceMTLBuffer ||
+      !destinationMTLBuffer || !commandQueue || !params ||
+      width <= 0 || height <= 0) {
+    if (renderer) renderer->lastError = "Invalid GPU render arguments.";
+    return 0;
+  }
+  auto *metal = dynamic_cast<spektrafilm::MetalRenderer *>(renderer->renderer.get());
+  if (!metal) {
+    renderer->lastError = "Native renderer does not support Metal buffers.";
+    return 0;
+  }
+  const int64_t rowBytes = static_cast<int64_t>(width) * 4 * sizeof(float);
+  if (rowBytes > INT32_MAX) {
+    renderer->lastError = "GPU row stride exceeds int32 range.";
+    return 0;
+  }
+  spektrafilm::MetalBufferImageView source{};
+  source.buffer = sourceMTLBuffer;
+  source.x1 = 0; source.y1 = 0;
+  source.width = width; source.height = height;
+  source.rowBytes = static_cast<int32_t>(rowBytes);
+  source.components = 4; source.bytesPerComponent = sizeof(float);
+  spektrafilm::MetalBufferImageView destination = source;
+  destination.buffer = destinationMTLBuffer;
+  spektrafilm::RenderWindow window{};
+  window.x1 = 0; window.y1 = 0;
+  window.x2 = width; window.y2 = height;
+  const bool ok = metal->renderMetalBuffers(
+    source, destination, window, toRendererParams(*params), time, commandQueue
+  );
+  if (!ok) renderer->lastError = metal->lastError();
   return ok ? 1 : 0;
 }
 

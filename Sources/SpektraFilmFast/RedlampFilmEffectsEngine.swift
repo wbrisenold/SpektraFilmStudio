@@ -16,10 +16,12 @@ struct FilmEffectsSettings: Codable, Equatable, Hashable, Sendable {
 
 final class RedlampFilmEffectsEngine: @unchecked Sendable {
     static let shared = RedlampFilmEffectsEngine()
-    private let device = StudioGPUDevice.shared
+    private let device: (any MTLDevice)?
     private var queue: MTLCommandQueue?
     private var pipeline: MTLComputePipelineState?
-    private init() {
+    private convenience init() { self.init(device: StudioGPUDevice.shared) }
+    init(device: (any MTLDevice)?) {
+        self.device = device
         guard let device else { return }
         queue = device.makeCommandQueue()
         do {
@@ -27,6 +29,33 @@ final class RedlampFilmEffectsEngine: @unchecked Sendable {
             if let function = library.makeFunction(name: "filmEffects") { pipeline = try device.makeComputePipelineState(function: function) }
         } catch { GPUProcessingFailure.report("Film effects shader: \(error.localizedDescription)") }
     }
+    func encode(source: any MTLBuffer, destination: any MTLBuffer,
+                command: any MTLCommandBuffer, width: Int, height: Int,
+                look: RenderLook) throws {
+        guard let s = look.filmEffects, !s.isIdentity else {
+            throw GPULiveError.unavailable("inactive film effects should skip the GPU pass")
+        }
+        let space = SkinToneReference.outputSpaceIndex(look)
+        guard SkinToneReference.outputRoleIndex(look) == 0,
+              [14,15,16,17,18,22,23,24,25].contains(space),
+              let pipeline, let device,
+              command.device.registryID == device.registryID,
+              let encoder = command.makeComputeCommandEncoder() else {
+            throw GPULiveError.unavailable("film effects require SDR display signal")
+        }
+        var p: [Float] = [Float(width), Float(height), Float(space),
+            Float(s.leakAmount / 100), Float(s.leakWarmth / 100),
+            Float(s.leakVariation / 100), Float(s.dustAmount / 100),
+            Float(s.scratchAmount / 100), Float(s.frameStyle), Float(s.frameSize / 100)]
+        encoder.setComputePipelineState(pipeline)
+        encoder.setBuffer(source, offset: 0, index: 0)
+        encoder.setBuffer(destination, offset: 0, index: 1)
+        encoder.setBytes(&p, length: p.count * MemoryLayout<Float>.stride, index: 2)
+        encoder.dispatchThreads(MTLSize(width: width, height: height, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
+        encoder.endEncoding()
+    }
+
     func apply(_ input: PixelBufferF32, look: RenderLook) -> PixelBufferF32 {
         guard let s = look.filmEffects, !s.isIdentity else { return input }
         let space = SkinToneReference.outputSpaceIndex(look)
