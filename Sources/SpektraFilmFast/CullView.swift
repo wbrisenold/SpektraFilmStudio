@@ -23,8 +23,7 @@ struct CullWorkspaceView: View {
     @State private var bestPickFraction: Double = 0.25
     @State private var compareCount = 2
     @State private var zoom: CGFloat = 1
-    @AppStorage("cullFilmstripHeight") private var filmstripHeight = 138.0
-    @State private var resizeStart: Double?
+    @State private var cullSearch = ""
     @AppStorage("SpektraFilmStudio.designA.showCullInspector") private var showCullInspector = false
 
     init(model: AppModel, initialFiltersVisible: Bool = false) {
@@ -35,11 +34,14 @@ struct CullWorkspaceView: View {
     var body: some View {
         VStack(spacing: 0) {
             topBar
-            if showFilters { reviewFilters }
             Divider()
 
             HSplitView {
-                viewer.frame(minWidth: 500)
+                cullSidebar
+                    .frame(minWidth: 250, idealWidth: StudioLayout.presetSidebarWidth, maxWidth: 365)
+                    .padding(StudioLayout.paneInset)
+                    .studioGlassPane()
+                viewer.frame(minWidth: 360)
                 if showCullInspector {
                     inspector.frame(minWidth: StudioLayout.editorInspectorWidth, idealWidth: StudioLayout.editorInspectorWidth, maxWidth: 440)
                         .padding(StudioLayout.paneInset).studioGlassPane()
@@ -48,7 +50,6 @@ struct CullWorkspaceView: View {
 
             Divider()
             decisionBar
-            filmstrip
         }
         .background(StudioPalette.canvas)
     }
@@ -76,7 +77,32 @@ struct CullWorkspaceView: View {
             Spacer()
             Button { showFilters.toggle() } label: {
                 Label("Filter", systemImage: "line.3.horizontal.decrease")
-            }.buttonStyle(.borderless).fixedSize()
+            }
+            .buttonStyle(.borderless).fixedSize()
+            .popover(isPresented: $showFilters, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Cull filters").font(.headline)
+                    Picker("Show", selection: $reviewFilter) {
+                        ForEach(CullReviewFilter.allCases) { filter in
+                            Text(filter.rawValue).tag(filter)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    Toggle("Selected only", isOn: Binding(
+                        get: { navigationScope == .highlighted },
+                        set: { navigationScope = $0 ? .highlighted : .visible }
+                    ))
+                    .toggleStyle(.checkbox)
+                    Button("Show All") {
+                        reviewFilter = .all
+                        navigationScope = .visible
+                        cullSearch = ""
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(16)
+                .frame(width: 270)
+            }
             Menu {
                 Button("Analyze Photos") { model.analyzeVisibleForCull() }
                 ForEach([0.10, 0.25, 0.50], id: \.self) { fraction in
@@ -116,27 +142,6 @@ struct CullWorkspaceView: View {
             .padding(.horizontal, 10).padding(.vertical, 5)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
         }
-    }
-
-    private var reviewFilters: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Show").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Toggle("Selected only", isOn: Binding(get: { navigationScope == .highlighted }, set: { navigationScope = $0 ? .highlighted : .visible }))
-                    .toggleStyle(.checkbox).font(.caption)
-            }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 125), spacing: 6)], alignment: .leading, spacing: 6) {
-                ForEach(CullReviewFilter.allCases) { filter in
-                    Button(filter.rawValue) { reviewFilter = filter }
-                        .buttonStyle(.plain)
-                        .font(.caption.weight(reviewFilter == filter ? .semibold : .regular))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 9).padding(.vertical, 6)
-                        .background(reviewFilter == filter ? StudioPalette.selected : Color.clear, in: RoundedRectangle(cornerRadius: 5))
-                }
-            }
-        }.padding(.horizontal, 14).padding(.vertical, 8).background(StudioPalette.panel)
     }
 
     private var decisionBar: some View {
@@ -434,140 +439,79 @@ struct CullWorkspaceView: View {
         .background(StudioPalette.panel)
     }
 
-    private var filmstrip: some View {
+    // Same left-side film browser pattern as Edit; the viewer keeps its full height.
+    private var cullSidebar: some View {
         VStack(spacing: 0) {
-            ZStack {
-                StudioPalette.panel
-                Capsule()
-                    .fill(Color.secondary.opacity(0.42))
-                    .frame(width: 38, height: 3)
-            }
-            .frame(height: 8)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        if resizeStart == nil {
-                            resizeStart = filmstripHeight
-                        }
-                        let start = resizeStart ?? filmstripHeight
-                        filmstripHeight = min(
-                            280,
-                            max(112, start - Double(value.translation.height))
-                        )
-                    }
-                    .onEnded { _ in resizeStart = nil }
-            )
-            .help("Drag vertically to resize the Cull filmstrip.")
-
             HStack {
-                Text("\(cullPool.count) photos")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if navigationScope == .highlighted {
-                    Text("· highlighted Library set")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
+                Text("PHOTOS").font(StudioType.section)
+                    .tracking(StudioType.sectionTracking)
                 Spacer()
-
-                Slider(value: $filmstripHeight, in: 112...280)
-                    .frame(width: 100)
-                Button {
-                    filmstripHeight = 138
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                }
-                .buttonStyle(.plain)
+                Text("\(cullPool.count)").font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 10)
-            .frame(height: 28)
-            .background(StudioPalette.panel)
-
-            ScrollView(.horizontal) {
-                LazyHStack(spacing: 7) {
+            .padding(.horizontal, 12).frame(height: 34)
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search cull photos", text: $cullSearch)
+                    .textFieldStyle(.plain)
+                    .font(.caption)
+                if !cullSearch.isEmpty {
+                    Button { cullSearch = "" } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.plain)
+                }
+            }
+            .padding(8)
+            .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 7))
+            .padding(.horizontal, 9)
+            ScrollView(.vertical) {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 7) {
                     ForEach(cullPool) { image in
-                        VStack(spacing: 3) {
-                            ZStack(alignment: .topTrailing) {
-                                LocalThumbnail(
-                                    url: model.thumbnailURL(for: image),
-                                    contentMode: .fit
-                                )
-                                .frame(
-                                    width: max(
-                                        112,
-                                        CGFloat(filmstripHeight) * 1.20
-                                    ),
-                                    height: max(
-                                        58,
-                                        CGFloat(filmstripHeight) - 58
-                                    )
-                                )
-                                .background(Color.black.opacity(0.22))
-
-                                if let score = image.cullAnalysis?.score {
-                                    Text(String(format: "%.0f", score))
-                                        .font(
-                                            .caption2
-                                            .monospacedDigit()
-                                            .weight(.semibold)
-                                        )
-                                        .padding(4)
-                                        .background(
-                                            .regularMaterial,
-                                            in: Capsule()
-                                        )
-                                        .padding(4)
+                        Button { model.selectLibraryImage(image.id) } label: {
+                            VStack(spacing: 4) {
+                                LocalThumbnail(url: model.thumbnailURL(for: image), contentMode: .fit)
+                                    .frame(height: 105)
+                                    .frame(maxWidth: .infinity)
+                                    .background(StudioPalette.recessed)
+                                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                                    .overlay(alignment: .topLeading) {
+                                        if image.flag == .picked {
+                                            Image(systemName: "flag.fill").foregroundStyle(.green)
+                                                .padding(6)
+                                        } else if image.flag == .rejected {
+                                            Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+                                                .padding(6)
+                                        }
+                                    }
+                                HStack(spacing: 2) {
+                                    Text(image.fileName).lineLimit(1).truncationMode(.middle)
+                                    Spacer(minLength: 0)
+                                    if let score = image.cullAnalysis?.score {
+                                        Text(String(format: "%.0f", score)).monospacedDigit()
+                                    }
                                 }
+                                .font(.system(size: 9))
+                                .foregroundStyle(.secondary)
                             }
-
-                            HStack(spacing: 4) {
-                                if image.flag == .picked {
-                                    Image(systemName: "flag.fill")
-                                        .foregroundStyle(.green)
-                                } else if image.flag == .rejected {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundStyle(.red)
-                                }
-                                Text(
-                                    image.rating == 0
-                                        ? "" : "\(image.rating)★"
-                                )
-                                Spacer()
+                            .padding(5)
+                            .background(model.project.selectedImageID == image.id
+                                ? StudioPalette.selected : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 8))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 8)
+                                    .strokeBorder(model.project.selectedImageID == image.id
+                                        ? Color.accentColor : StudioPalette.subtleBorder,
+                                        lineWidth: model.project.selectedImageID == image.id ? 2 : 0.5)
                             }
-                            .font(.caption2)
                         }
-                        .padding(4)
-                        .background(
-                            model.project.selectedImageID == image.id
-                                ? Color.accentColor.opacity(0.15)
-                                : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 7)
-                        )
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 7)
-                                .stroke(
-                                    model.project.selectedImageID == image.id
-                                        ? Color.accentColor
-                                        : Color.secondary.opacity(0.12),
-                                    lineWidth:
-                                        model.project.selectedImageID == image.id
-                                        ? 2 : 0.5
-                                )
-                        }
-                        .onTapGesture {
-                            model.selectLibraryImage(image.id)
-                        }
+                        .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
+                .padding(8)
             }
-            .background(StudioPalette.recessed)
         }
-        .frame(height: CGFloat(filmstripHeight))
+        .frame(maxHeight: .infinity)
+        .background(StudioPalette.panel)
     }
 
     private static func folderPath(_ photo: ProjectImageRecord) -> String {
@@ -582,9 +526,9 @@ struct CullWorkspaceView: View {
         if navigationScope == .highlighted,
            model.librarySelection.count > 1 {
             let ids = model.librarySelection
-            return model.visibleImages.filter { ids.contains($0.id) && reviewFilter.includes($0) }
+            return model.visibleImages.filter { ids.contains($0.id) && reviewFilter.includes($0) && (cullSearch.isEmpty || $0.fileName.localizedStandardContains(cullSearch)) }
         }
-        return model.visibleImages.filter { reviewFilter.includes($0) }
+        return model.visibleImages.filter { reviewFilter.includes($0) && (cullSearch.isEmpty || $0.fileName.localizedStandardContains(cullSearch)) }
     }
 
     private var comparisonImages: [ProjectImageRecord] {

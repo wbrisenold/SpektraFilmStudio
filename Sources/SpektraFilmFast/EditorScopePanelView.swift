@@ -153,12 +153,13 @@ struct EditorScopePanelView: View {
                             .padding(8)
                             .allowsHitTesting(false)
                     } else {
-                        // Level/time plots can scale axes independently; never
-                        // crop out off-screen clipping or histogram bins.
+                        // Preserve the source raster's measured aspect ratio. The
+                        // old max-width/max-height path squeezed 768x320 waveforms
+                        // into portrait-shaped wells and distorted x/level axes.
                         Image(decorative: image, scale: 1)
                             .resizable()
                             .interpolation(model.project.preferences.scopeMode == .histogram ? .high : .none)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .aspectRatio(CGFloat(image.width) / CGFloat(max(1, image.height)), contentMode: .fit)
                             .padding(8)
                             .allowsHitTesting(false)
                     }

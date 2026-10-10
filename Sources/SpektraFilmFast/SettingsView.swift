@@ -13,6 +13,9 @@ struct SettingsView: View {
     @AppStorage("SpektraFilmStudio.designA.showFilmstrip") private var editorFilmstripVisible = true
     @AppStorage("SpektraFilmStudio.designA.showScopes") private var editorScopesVisible = false
     @AppStorage("SpektraFilmStudio.ui.scopesRailWidth") private var scopesRailWidth = 376.0
+    @AppStorage("SpektraFilmStudio.ui.floatingScopesHeight") private var floatingScopesHeight = 316.0
+    @AppStorage("SpektraFilmStudio.ui.floatingScopesX") private var floatingScopesX = 0.94
+    @AppStorage("SpektraFilmStudio.ui.floatingScopesY") private var floatingScopesY = 0.08
     @AppStorage("SpektraFilmStudio.designA.showCullInspector") private var cullInspectorVisible = false
     @AppStorage("SpektraFilmStudio.designA.showLibraryInspector") private var libraryInspectorVisible = false
     @AppStorage("SpektraFilmStudio.designA.v3.showExportBrowser") private var exportBrowserVisible = true
@@ -22,14 +25,29 @@ struct SettingsView: View {
     var body: some View {
         // Redlamp uses the macOS 26 `Tab` API ("Appearance", "Models") rather than
         // `.tabItem`. Same spelling, same icon placement, one row per section.
-        TabView {
-            Tab("Appearance", systemImage: "paintpalette") { uiTab }
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "command.square")
+                    .font(.system(size: 13)).foregroundStyle(.secondary)
+                Text("Settings").font(.system(size: 16, weight: .semibold))
+                Spacer()
+                Text("SpektraFilm Studio · ⌘,")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 20).padding(.vertical, 14)
+            Divider()
+            TabView {
+                Tab("Appearance", systemImage: "paintpalette") { uiTab }
             Tab("Color & Scopes", systemImage: "waveform.path.ecg") { studioTab }
             Tab("Models", systemImage: "cpu") { MaskModelsSettingsView() }
             Tab("Shortcuts", systemImage: "keyboard") { shortcutsTab }
             Tab("General", systemImage: "gear") { generalTab }
         }
-        .frame(width: 760, height: 610)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(width: 730, height: 610)
+        .studioOmniPane()
         .preferredColorScheme(appAppearance == "dark" ? .dark : (appAppearance == "light" ? .light : nil))
         .onAppear { model.refreshCacheStatus() }
     }
@@ -201,16 +219,27 @@ struct SettingsView: View {
             Section("Editor Scopes") {
                 Picker("Scopes appear", selection: $editorScopesVisible) {
                     Text("Hidden").tag(false)
-                    Text("Dedicated right scope panel").tag(true)
+                    Text("Floating contextual monitor").tag(true)
                 }
                 .pickerStyle(.segmented)
-                Text("Scopes are a separate adjustable-width panel immediately to the right of the viewer, before the RAW/FILM/MASK inspector. The photo stays full height. At narrower window sizes the Photos/Presets sidebar automatically folds away while scopes are open, without changing your saved preference.")
+                Text("Scopes float over the viewer in a movable, resizable glass panel. Drag its header or bottom corner to reposition and resize. The Photos and adjustments columns remain visible, and the scopes preserve their measured aspect ratio.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack {
-                    Text("Scope panel width")
+                    Text("Floating scopes width")
                     Slider(value: $scopesRailWidth, in: 300...500, step: 8)
                     Text("\(Int(scopesRailWidth)) pt").monospacedDigit().frame(width: 54)
+                }
+                HStack {
+                    Text("Floating scopes height")
+                    Slider(value: $floatingScopesHeight, in: 245...570, step: 5)
+                    Text("\(Int(floatingScopesHeight)) pt").monospacedDigit().frame(width: 54)
+                }
+                Button("Reset Scopes Position") {
+                    floatingScopesX = 0.94
+                    floatingScopesY = 0.08
+                    scopesRailWidth = 376
+                    floatingScopesHeight = 316
                 }
                 Picker("Default scope", selection: Binding(
                     get: { model.project.preferences.scopeMode },

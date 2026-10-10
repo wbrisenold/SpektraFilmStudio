@@ -72,179 +72,153 @@ struct LibraryWorkspaceView: View {
     }
 
     private var sidebar: some View {
-        ScrollView {
-          VStack(alignment: .leading, spacing: 6) {
-            Text("LIBRARY").font(.caption2.weight(.semibold)).foregroundStyle(.secondary).padding(.horizontal, 10).padding(.top, 10)
-            ForEach(LibraryFilter.allCases) { filter in
-                Button {
-                    model.resetLibraryFilters()
-                    model.libraryFilter = filter
-                } label: {
-                    HStack {
-                        Image(systemName: icon(filter)).frame(width: 18)
-                        Text(filter.rawValue)
-                        Spacer()
-                        Text("\(model.libraryCount(filter))").monospacedDigit().foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 9).padding(.vertical, 7)
-                    .background(model.libraryFilter == filter ? Color.primary.opacity(0.11) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Label("NAVIGATOR", systemImage: "square.dashed")
+                        .font(StudioType.section)
+                        .tracking(StudioType.sectionTracking)
+                    Spacer()
+                    Button("Edit") { model.page = .edit; model.workspaceDidChange(.edit) }
+                        .buttonStyle(.borderless).disabled(model.selectedImage == nil)
                 }
-                .buttonStyle(.plain)
-            }
-            Divider().padding(.vertical, 4)
-            HStack {
-                Text("COLLECTIONS").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                Spacer()
-                Button { showingNewAlbum = true } label: { Image(systemName: "plus") }
-                    .buttonStyle(.plain).help("New album from current selection")
-                Button { showingNewSmartCollection = true } label: { Image(systemName: "line.3.horizontal.decrease.circle") }
-                    .buttonStyle(.plain).help("Save current search/filter as smart collection")
-            }.padding(.horizontal, 10)
-            if !model.project.albums.isEmpty {
-                ForEach(model.project.albums) { album in
-                    Button {
-                        model.libraryAlbumFilter = album.id
-                        model.librarySmartCollectionFilter = nil
-                        model.libraryPeopleGroupFilter = nil
-                    } label: {
-                        HStack { Image(systemName: "rectangle.stack"); Text(album.name).lineLimit(1); Spacer(); Text("\(album.imageIDs.count)").foregroundStyle(.secondary) }
-                            .padding(.horizontal, 9).padding(.vertical, 5)
-                            .background(model.libraryAlbumFilter == album.id ? Color.primary.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
-                    }.buttonStyle(.plain)
-                }
-            }
-            if !model.project.smartCollections.isEmpty {
-                ForEach(model.project.smartCollections) { collection in
-                    Button {
-                        model.librarySmartCollectionFilter = collection.id
-                        model.libraryAlbumFilter = nil
-                        model.libraryPeopleGroupFilter = nil
-                    } label: {
-                        HStack { Image(systemName: "sparkle.magnifyingglass"); Text(collection.name).lineLimit(1); Spacer() }
-                            .padding(.horizontal, 9).padding(.vertical, 5)
-                            .background(model.librarySmartCollectionFilter == collection.id ? Color.primary.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
-                    }.buttonStyle(.plain)
-                }
-            }
-            if model.libraryAlbumFilter != nil || model.librarySmartCollectionFilter != nil {
-                Button("Clear Collection Filter") {
-                    model.libraryAlbumFilter = nil
-                    model.librarySmartCollectionFilter = nil
-                }.font(.caption).buttonStyle(.plain).padding(.horizontal, 10)
-            }
-            Divider().padding(.vertical, 4)
-            HStack {
-                Text("PEOPLE").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                Spacer()
-                if model.isGroupingPeople {
-                    ProgressView().controlSize(.small)
+                if let photo = model.selectedImage {
+                    LocalThumbnail(url: model.thumbnailURL(for: photo), contentMode: .fit)
+                        .aspectRatio(3.0 / 2.0, contentMode: .fit)
+                        .frame(maxWidth: .infinity)
+                        .background(StudioPalette.recessed)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    Text(photo.fileName).font(.caption2).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
                 } else {
-                    Button { model.rebuildPeopleGroups() } label: { Image(systemName: "person.2.badge.gearshape") }
-                        .buttonStyle(.plain)
-                        .help("Scan this project locally and group photos that appear to contain the same person. Face data never leaves this Mac.")
+                    Label("Select a photo", systemImage: "photo")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 80)
                 }
-            }.padding(.horizontal, 10)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
-                    if !model.project.peopleGroups.isEmpty {
-                        ForEach(model.project.peopleGroups) { group in
-                            Button {
-                                model.selectPeopleGroup(group)
-                            } label: {
-                                HStack {
-                                    Image(systemName: "person.crop.circle")
-                                    Text(group.name).lineLimit(1)
-                                    Spacer()
-                                    Text("\(group.imageIDs.count)").foregroundStyle(.secondary)
-                                }
-                                .padding(.horizontal, 9).padding(.vertical, 5)
-                                .background(model.libraryPeopleGroupFilter == group.id ? Color.primary.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
+            }
+            .padding(11)
+            Divider()
+            // Redlamp SidebarLists is a native sidebar List with grouped,
+            // expandable sections. Do not duplicate a grid-sized dashboard here.
+            List {
+                Section("Library") {
+                    ForEach(LibraryFilter.allCases) { filter in
+                        Button {
+                            model.resetLibraryFilters()
+                            model.libraryFilter = filter
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: icon(filter)).frame(width: 18)
+                                Text(filter.rawValue)
+                                Spacer()
+                                Text("\(model.libraryCount(filter))")
+                                    .foregroundStyle(.secondary).monospacedDigit()
                             }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                Menu("Merge Into Person…") {
-                                    ForEach(model.project.peopleGroups.filter { $0.id != group.id }) { other in
-                                        Button(other.name) { model.mergePeopleGroup(group.id, into: other.id) }
-                                    }
-                                }
-                                .disabled(model.project.peopleGroups.count < 2)
+                            .contentShape(Rectangle())
+                            .padding(.vertical, 2)
+                            .background(model.libraryFilter == filter ? StudioPalette.selected : Color.clear)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                Section {
+                    ForEach(model.project.albums) { album in
+                        Button {
+                            model.libraryAlbumFilter = album.id
+                            model.librarySmartCollectionFilter = nil
+                            model.libraryPeopleGroupFilter = nil
+                        } label: {
+                            Label(album.name, systemImage: "rectangle.stack")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    ForEach(model.project.smartCollections) { collection in
+                        Button {
+                            model.librarySmartCollectionFilter = collection.id
+                            model.libraryAlbumFilter = nil
+                            model.libraryPeopleGroupFilter = nil
+                        } label: {
+                            Label(collection.name, systemImage: "sparkle.magnifyingglass")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if model.libraryAlbumFilter != nil || model.librarySmartCollectionFilter != nil {
+                        Button("Clear Collection Filter") {
+                            model.libraryAlbumFilter = nil
+                            model.librarySmartCollectionFilter = nil
+                        }
+                    }
+                } header: {
+                    HStack {
+                        Text("Collections")
+                        Spacer()
+                        Button { showingNewAlbum = true } label: { Image(systemName: "plus") }
+                            .buttonStyle(.plain).help("New album")
+                        Button { showingNewSmartCollection = true } label: {
+                            Image(systemName: "line.3.horizontal.decrease.circle")
+                        }
+                        .buttonStyle(.plain).help("New smart collection")
+                    }
+                }
+                Section {
+                    ForEach(model.project.peopleGroups) { group in
+                        Button { model.selectPeopleGroup(group) } label: {
+                            HStack {
+                                Label(group.name, systemImage: "person.crop.circle")
+                                Spacer()
+                                Text("\(group.imageIDs.count)").foregroundStyle(.secondary)
                             }
                         }
-                    } else if !model.peopleGroupingStatus.isEmpty {
-                        Text(model.peopleGroupingStatus)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 10)
+                        .buttonStyle(.plain)
                     }
                     if model.libraryPeopleGroupFilter != nil {
                         Button("Show All People") { model.clearPeopleFilter() }
-                            .font(.caption).buttonStyle(.plain).padding(.horizontal, 10)
+                    }
+                    if !model.project.peopleGroups.isEmpty {
+                        Button("Clear People Groups", role: .destructive) { model.clearPeopleGroups() }
+                    }
+                } header: {
+                    HStack {
+                        Text("People")
+                        Spacer()
+                        if model.isGroupingPeople { ProgressView().controlSize(.mini) }
+                        else {
+                            Button { model.rebuildPeopleGroups() } label: {
+                                Image(systemName: "person.2.badge.gearshape")
+                            }
+                            .buttonStyle(.plain).help("Group faces locally")
+                        }
                     }
                 }
-            }
-            if !model.project.peopleGroups.isEmpty {
-                Button("Clear People Groups") { model.clearPeopleGroups() }
-                    .font(.caption).buttonStyle(.plain).padding(.horizontal, 10)
-            }
-
-            Divider().padding(.vertical, 4)
-            Text("FOLDERS").font(.caption2.weight(.semibold)).foregroundStyle(.secondary).padding(.horizontal, 10)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
+                Section("Folders") {
                     ForEach(model.libraryFolders, id: \.self) { folder in
-                        Button {
-                            model.libraryFolderFilter = folder
-                        } label: {
-                            HStack { Image(systemName: "folder"); Text(URL(fileURLWithPath: folder).lastPathComponent).lineLimit(1); Spacer() }
-                                .padding(.horizontal, 9).padding(.vertical, 5)
-                                .background(model.libraryFolderFilter == folder ? Color.primary.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
+                        Button { model.libraryFolderFilter = folder } label: {
+                            Label(URL(fileURLWithPath: folder).lastPathComponent, systemImage: "folder")
+                                .lineLimit(1)
                         }.buttonStyle(.plain)
                     }
+                    if model.libraryFolderFilter != nil {
+                        Button("Clear Folder Filter") { model.libraryFolderFilter = nil }
+                    }
+                }
+                Section("Import") {
+                    Button("Import Photos…") { model.importImages() }
+                    Button("Reference Folder…") { model.importFolder() }
+                    Button("Verified Card Ingest…") { model.beginManagedIngest() }
+                    if model.hasRecoverableIngest {
+                        Button("Resume Ingest") { model.resumeManagedIngest() }
+                    }
+                    Button("Import Lightroom…") { model.importLightroomCatalogToICloud() }
+                    Button("Open iCloud Library…") { model.openICloudLibrary() }
+                    CloudLibraryPanel(model: model)
                 }
             }
-            CloudLibraryPanel(model: model)
-                .padding(.horizontal, 8)
-                .padding(.bottom, 4)
-
-            Spacer(minLength: 8)
-            VStack(spacing: 8) {
-                if model.isIngesting {
-                    ProgressView(value: model.ingestProgress)
-                    Text(model.ingestStatus)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                    Button("Stop Import") { model.stopManagedIngest() }
-                        .buttonStyle(.bordered)
-                } else {
-                    Button {
-                        model.importImages()
-                    } label: {
-                        Label("Import Photos…", systemImage: "plus")
-                            .frame(maxWidth: .infinity, alignment: .center)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
-                    Menu {
-                        Button("Add Files…") { model.importImages() }
-                        Button("Reference Folder…") { model.importFolder() }
-                        Divider()
-                        Button("Verified Card Ingest…") { model.beginManagedIngest() }
-                        if model.hasRecoverableIngest {
-                            Button("Resume Ingest") { model.resumeManagedIngest() }
-                        }
-                        Button("Import Lightroom…") { model.importLightroomCatalogToICloud() }
-                        Button("Open iCloud Library…") { model.openICloudLibrary() }
-                    } label: {
-                        Label("More import options", systemImage: "ellipsis")
-                            .frame(maxWidth: .infinity, alignment: .center)
-                    }
-                    .buttonStyle(.borderless)
-                }
-            }
-            .padding(10)
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .font(StudioType.label)
         }
-          }
         .background(StudioPalette.panel)
     }
 

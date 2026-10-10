@@ -9,10 +9,8 @@ struct EditWorkspaceView: View {
     @ObservedObject var model: AppModel
     // Photos now live alongside Presets in the left editor sidebar.
     @AppStorage("SpektraFilmStudio.ui.editLeftTab") private var editLeftTab = "photos"
-    // Dedicated independent scope rail: always to the RIGHT of the viewer,
-    // before RAW/FILM/MASK controls. Photos rail yields first on small windows.
-    @AppStorage("SpektraFilmStudio.ui.scopesRailWidth") private var scopesRailWidth = 376.0
-    @State private var workspaceWidth: CGFloat = 1280
+    // A movable contextual-glass scope monitor overlays ONLY the photo stage.
+    // It never takes width from the photo, Photos tab or RAW/FILM/MASK rail.
     @State private var inspectorMode: StudioInspectorMode = .adjust
     @AppStorage("SpektraFilmStudio.designA.showEditorInspector") private var showEditorInspector = true
     @AppStorage("SpektraFilmStudio.designA.showFilmstrip") private var showFilmstrip = true
@@ -33,18 +31,23 @@ struct EditWorkspaceView: View {
             // resizing the renderer when they are shown or hidden.
             PreviewView(model: model)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Overlay before insets so it belongs to the viewer, not the
+                // overlaid RAW/FILM/MASK inspector or Photos sidebar.
+                .overlay {
+                    if showScopes { StudioFloatingScopes(model: model, onClose: { showScopes = false }) }
+                }
                 .padding(.top, StudioLayout.paneInset)
-                .padding(.leading, sidebarActuallyVisible
+                .padding(.leading, model.isPresetSidebarVisible
                     ? StudioLayout.presetSidebarWidth + 2 * StudioLayout.paneInset
                     : StudioLayout.paneInset)
-                .padding(.trailing, (showEditorInspector
+                .padding(.trailing, showEditorInspector
                     ? StudioLayout.editorInspectorWidth + 2 * StudioLayout.paneInset
-                    : StudioLayout.paneInset) + (showScopes ? CGFloat(scopesRailWidth) + StudioLayout.paneInset : 0))
+                    : StudioLayout.paneInset)
                 .padding(.bottom, StudioLayout.paneInset)
 
 
             HStack(alignment: .top, spacing: 0) {
-                if sidebarActuallyVisible {
+                if model.isPresetSidebarVisible {
                     VStack(spacing: 0) {
                         Picker("Left browser", selection: $editLeftTab) {
                             Text("Presets").tag("presets")
@@ -67,13 +70,6 @@ struct EditWorkspaceView: View {
                     .studioGlassPane()
                 }
                 Spacer(minLength: 0)
-                if showScopes {
-                    scopeRail
-                        .frame(width: CGFloat(scopesRailWidth))
-                        .frame(maxHeight: .infinity)
-                        .studioGlassPane()
-                        .padding(.trailing, StudioLayout.paneInset)
-                }
                 if showEditorInspector {
                     EditorInspectorView(model: model, mode: $inspectorMode)
                         .frame(width: StudioLayout.editorInspectorWidth)
@@ -88,14 +84,6 @@ struct EditWorkspaceView: View {
             .padding(.bottom, StudioLayout.paneInset)
         }
         .background(StudioPalette.canvas)
-        // Prefer keeping the viewer usable on narrower Intel displays: the
-        // Photos/Presets sidebar auto-collapses *visually* while Scopes is open.
-        // This does not overwrite the user's persisted sidebar preference.
-        .background(GeometryReader { proxy in
-            Color.clear
-                .onAppear { workspaceWidth = proxy.size.width }
-                .onChange(of: proxy.size.width) { _, width in workspaceWidth = width }
-        })
         .sheet(item: $quickExportRequest) { request in
             QuickExportSheet(model: model, imageID: request.id)
         }
@@ -119,96 +107,9 @@ struct EditWorkspaceView: View {
     // Edit actions now live in the macOS Workspace / Edit Look / File menus.
     // There is no duplicate toolbar between the global page picker and viewer.
 
-    private var sidebarActuallyVisible: Bool {
-        model.isPresetSidebarVisible && (!showScopes || workspaceWidth >= 1510)
-    }
-
     private var filmstripThumbnailHeight: CGFloat { 106 }
     private var filmstripThumbnailWidth: CGFloat {
         (StudioLayout.presetSidebarWidth - 42) / 2
-    }
-
-    // The monitor has its own space and scroll position, independent of sliders.
-    // All images are measured from the existing latest-frame scope engine rather
-    // than recalculated from SwiftUI overlays.
-    private var scopeRail: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: "waveform.path.ecg")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-                Text("SCOPES")
-                    .font(StudioType.section)
-                    .tracking(StudioType.sectionTracking)
-                Spacer(minLength: 2)
-                Menu {
-                    ForEach(ScopeMode.allCases) { mode in
-                        Button {
-                            model.setEditorScopeMode(mode)
-                        } label: {
-                            if model.project.preferences.scopeMode == mode {
-                                Label(mode.rawValue, systemImage: "checkmark")
-                            } else { Text(mode.rawValue) }
-                        }
-                    }
-                } label: {
-                    Text(model.project.preferences.scopeMode.rawValue)
-                        .font(.caption.weight(.medium))
-                        .lineLimit(1)
-                }
-                .menuStyle(.borderlessButton)
-                Button { showScopes = false } label: { Image(systemName: "xmark") }
-                    .buttonStyle(.borderless)
-                    .help("Hide scope monitor")
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 42)
-            Rectangle().fill(StudioPalette.divider).frame(height: 1)
-            ScrollView(.vertical) {
-                VStack(spacing: 16) {
-                    EditorScopePanelView(
-                        model: model,
-                        wellHeight: scopeWellHeight
-                    )
-                    Divider()
-                    HStack(spacing: 8) {
-                        Toggle(isOn: Binding(
-                            get: { model.project.preferences.clippingEnabled },
-                            set: { model.setClippingEnabled($0) }
-                        )) { Label("Clipping", systemImage: "arrowtriangle.up.fill") }
-                        Toggle(isOn: Binding(
-                            get: { model.project.preferences.skinCheckEnabled },
-                            set: { model.setSkinCheckEnabled($0) }
-                        )) { Label("Skin", systemImage: "hand.raised.fill") }
-                    }
-                    .toggleStyle(.checkbox)
-                    .font(.caption)
-                    .padding(.horizontal, 8)
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Scope panel width")
-                            Spacer()
-                            Text("\(Int(scopesRailWidth)) pt")
-                                .monospacedDigit().foregroundStyle(.secondary)
-                        }
-                        Slider(value: $scopesRailWidth, in: 300...500, step: 8)
-                    }
-                    .font(.caption2)
-                    .padding(.horizontal, 8)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 14)
-            }
-        }
-    }
-
-    private var scopeWellHeight: CGFloat {
-        switch model.project.preferences.scopeMode {
-        case .vectorscope, .skinVectorscope, .chromaticity:
-            return CGFloat(scopesRailWidth) - 35
-        default:
-            return max(200, min(310, CGFloat(scopesRailWidth) * 0.68))
-        }
     }
 
     private var filteredEditPhotos: [ProjectImageRecord] {

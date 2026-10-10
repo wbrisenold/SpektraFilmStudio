@@ -1,22 +1,6 @@
 import SwiftUI
 import AppKit
 
-private enum ExportSourceFilter: String, CaseIterable, Identifiable {
-    case all = "All"
-    case queued = "Queued"
-    case picks = "Picks"
-    case client = "Client"
-    case rated = "4+"
-    case rejected = "Rejected"
-    var id: String { rawValue }
-}
-
-private struct StudioExportUserPreset: Codable, Identifiable {
-    let id: UUID
-    var name: String
-    var settings: ExportSettings
-}
-
 struct ExportWorkspaceView: View {
     @ObservedObject var model: AppModel
     @State private var sourceFilter: ExportSourceFilter = .all
@@ -415,27 +399,17 @@ struct ExportWorkspaceView: View {
         VStack(spacing: 0) {
             inspectorHeader
             Divider()
-            ScrollView {
-                LazyVStack(spacing: 10) {
-                    // Redlamp's ExportSheet grouping (ExportSheetSections.swift):
-                    // Location -> File -> Size -> Metadata. Ours had six cards and
-                    // split destination from naming, so it never read like the
-                    // macOS Print dialog it is modelled on.
-                    section("Location") {
-                        destinationControls
-                        namingControls
-                    }
-                    section("File") {
-                        fileControls
-                        deliveryControls
-                    }
-                    section("Size") { sizeControls }
-                    section("Metadata") { metadataControls }
-                }
-                .padding(11)
-                .frame(maxWidth: .infinity)
+            StudioExportSectionLayout(disabled: model.isExporting) {
+                destinationControls
+                namingControls
+            } file: {
+                fileControls
+                deliveryControls
+            } size: {
+                sizeControls
+            } metadata: {
+                metadataControls
             }
-            .disabled(model.isExporting)
         }
         .background(StudioPalette.panel)
     }
@@ -510,26 +484,6 @@ struct ExportWorkspaceView: View {
         }
         .buttonStyle(.bordered)
         .controlSize(.mini)
-    }
-
-    /// A grouped-form section header, as `Form` sections render on macOS: a small
-    /// secondary label above the rows, with no card, no icon and no rounded panel.
-    private func section<Content: View>(
-        _ title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(title.uppercased())
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .kerning(0.4)
-            content()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay {
-            RoundedRectangle(cornerRadius: 11)
-                .strokeBorder(StudioPalette.subtleBorder, lineWidth: 0.5)
-        }
     }
 
     private var deliveryControls: some View {

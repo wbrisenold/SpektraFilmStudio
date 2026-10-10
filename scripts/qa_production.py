@@ -207,7 +207,8 @@ require("requestPreviewRefresh" in app and 'reason: "exact preview"' in app, "ex
 require("requestFullResolutionPreview" in app and "fullResolutionRequest: true" in app, "explicit full-resolution inspection missing")
 require("func resetLook()" in app and 'Label("Reset All"' in text("EditView.swift"), "Reset All Edits button/path missing")
 require("FaceGroupingEngine" in text("FaceGroupingEngine.swift") and "project.peopleGroups" in app, "People/Face Groups engine or project wiring missing")
-require("libraryPeopleGroupFilter" in app and 'Text("PEOPLE")' in text("LibraryView.swift"), "People groups are not exposed in Library")
+lv = text("LibraryView.swift")
+require("libraryPeopleGroupFilter" in app and ('Text("People")' in lv or 'Text("PEOPLE")' in lv), "People groups are not exposed in Library")
 
 # Edit-tab first frame must be a lifecycle event, never require a dummy slider move.
 content = text("ContentView.swift")
@@ -247,10 +248,13 @@ require("scopeTargetFPS" in models and "startEditorScopeLoop" in scope_support, 
 require("scopeTask == nil" in scope_support and "scopeGeneration" in scope_support, "scope latest-frame/backpressure guard missing")
 require("Histogram" in models and "Waveform" in models and "RGB Parade" in models and "Vectorscope" in models and "Skin Vector" in models, "scope modes missing")
 edit_view = text("EditView.swift")
-require("private var scopeRail" in edit_view and "EditorScopePanelView(" in edit_view and
-        "clippingEnabled" in scope_panel and "skinCheckEnabled" in scope_panel and "editorScopeImage" in scope_panel,
-        "independent viewer-right scopes rail or its clipping/skin readout missing")
-require("scopeRail" in text("EditView.swift") and "sidebarActuallyVisible" in text("EditView.swift"), "viewer must reserve width for separate scope rail")
+require("StudioFloatingScopes(model: model" in edit_view and
+        "EditorScopePanelView(model: model" in text("StudioFloatingScopes.swift") and
+        "clippingEnabled" in scope_panel and "skinCheckEnabled" in scope_panel and
+        "editorScopeImage" in scope_panel,
+        "floating contextual scopes lost or canonical scope readout missing")
+require("sidebarActuallyVisible" not in edit_view and "model.isPresetSidebarVisible" in edit_view,
+        "showing scopes must not auto-hide Photos/Presets sidebar")
 require("skinVectorscope" in scope_engine and "drawSkinReference" in scope_engine, "dedicated skin vectorscope missing")
 require(scope_engine.count("SkinToneReference.referenceAngleDegrees") >= 1, "skin vectorscope does not use the shared derived reference angle")
 require("static let referenceAngleDegrees" in text("SkinToneReference.swift"), "skin reference angle is not derived from a single shared constant")
@@ -432,7 +436,7 @@ require("minimumScaleToCoverCrop" in geometry and "effectiveSettings.scale = max
 require("minimumScaleToCoverCrop(" in app and "geometry.autoCrop = false" in app, "crop viewer does not preview the solved Auto Fill zoom")
 require('changedParameter == "crop" && isCropToolActive' in app and "objectWillChange.send()" in app, "crop overlay still forces an image resample on every drag event")
 require("skinMaskAlpha" in scope and "skinMaskAlpha[mi] > 64" in scope, "Skin Vector is not restricted to detected skin pixels")
-require("scopeEnabled = true" in models and "EditorScopePanelView(" in edit_view and "Dedicated right scope panel" in settings, "Edit scopes placement control or truthful settings description missing")
+require("scopeEnabled = true" in models and "StudioFloatingScopes(model: model" in edit_view and "Floating contextual monitor" in settings, "Edit scopes placement control or truthful settings description missing")
 
 print("v0.5 studio-workflow acceptance checks passed")
 
@@ -552,23 +556,21 @@ for _page in ("LibraryView.swift", "CullView.swift", "ProofsView.swift", "Export
             f"{_page} hardcodes a panel width instead of using StudioLayout (Redlamp PanelMetrics)")
 # Export must keep Redlamp's ExportSheetSections grouping (Location / File / Size /
 # Metadata). Six bespoke cards made it read like a different product entirely.
-require('section("Location")' in export_view and 'section("File")' in export_view and
-        'section("Size")' in export_view and 'section("Metadata")' in export_view,
-        "export inspector must use Redlamp's Location / File / Size / Metadata sections")
+require("StudioExportSectionLayout(" in export_view and
+        all(f'section("{name}")' in text("StudioExportSectionLayout.swift")
+            for name in ("Location", "File", "Size", "Metadata")),
+        "Redlamp modular export Location/File/Size/Metadata sections lost")
 require('section("Destination"' not in export_view and 'section("File Format"' not in export_view,
-        "export sections must not drift back to bespoke per-page names")
-require('Text(title.uppercased())' in export_view, "export section headers must render as grouped-form captions")
+        "Export reverted to bespoke grouping")
 # The requested layout is Photos / Presets tabs in the left browser; the bottom
 # floating filmstrip must stay removed. Scopes belong to a resizable center dock.
 _require = {
     'Text("Presets").tag("presets")' in edit_view,
     'Text("Photos").tag("photos")' in edit_view,
-    'ScrollView(.vertical)' in edit_view,
     'LazyVGrid(columns:' in edit_view,
     'ScrollView(.horizontal)' not in edit_view,
-    'private var scopeRail' in edit_view,
-    'Slider(value: $scopesRailWidth' in edit_view,
-    'sidebarActuallyVisible' in edit_view,
+    'StudioFloatingScopes(model: model' in edit_view,
+    'DragGesture(minimumDistance: 3)' in text("StudioFloatingScopes.swift"),
     'let width = 768' in scope_engine,
     'let size = 448' in scope_engine,
 }
@@ -618,7 +620,7 @@ print("REDLAMP WORKFLOW AND MASK SOURCE GATES PASS")
 # Edit should have a single global toolbar, not an extra 37pt filename/overflow row.
 _app_shell = text("ContentView.swift")
 _app_commands = text("SpektraFilmFastApp.swift")
-require("editorToolbar" not in edit_view and "private var scopeRail" in edit_view,
+require("editorToolbar" not in edit_view and "StudioFloatingScopes(model: model" in edit_view,
         "Edit reintroduced the redundant filename/ellipsis toolbar")
 require(".padding(.top, 45)" not in edit_view and
         ".padding(.top, 45 + StudioLayout.paneInset)" not in edit_view,
@@ -637,8 +639,9 @@ require("MetalPreviewCanvas(image:" in _preview and "MTKView" in _metal_canvas a
         "GPU-backed frame presentation and bounded latest-frame scheduling missing")
 require("enqueueMetalFilm" in _native and "SpektraRendererRenderMetalBuffers" in _native,
         "Metal-only native engine bridge not accessible from Swift")
-require("scopesRailWidth" in edit_view and "sidebarActuallyVisible" in edit_view,
-        "scope rail width/compact-window handling missing")
+require("StudioFloatingScopes(model: model" in edit_view and
+        "floatingScopesHeight" in text("StudioFloatingScopes.swift"),
+        "contextual scope overlay not connected to Edit canvas")
 
 # Latest Redlamp slider geometry + local Edit photo filtering regression.
 require("let thumbX = thumbRadius + usableWidth * fraction" in _ui and
@@ -652,3 +655,27 @@ require("private var filteredEditPhotos" in edit_view and
 require("orderedIDs: filteredEditPhotos.map" in edit_view and
         "orderedIDs: [UUID]? = nil" in text("LibraryCullSupport.swift"),
         "Shift selection includes filtered-out photos")
+
+# 2026-10-10 Redlamp source-linked layout audit gates.
+_cull = text("CullView.swift")
+_library = text("LibraryView.swift")
+_settings = text("SettingsView.swift")
+_scopes = text("StudioFloatingScopes.swift")
+require("private var cullSidebar" in _cull and "ScrollView(.vertical)" in _cull and
+        "filmstripHeight" not in _cull and ".popover(isPresented: $showFilters" in _cull,
+        "Cull regained its full-width filter ribbon or bottom filmstrip")
+require('Label("NAVIGATOR"' in _library and '.listStyle(.sidebar)' in _library and
+        'Section("Library")' in _library and 'Section("Folders")' in _library,
+        "Redlamp sidebar/navigator Library layout missing")
+require(".studioOmniPane()" in _settings and 'Text("Settings")' in _settings and
+        'Tab("Models"' in _settings,
+        "Settings lost Omni-style contextual glass or working Models tab")
+require(".studioOmniPane()" in _scopes and "DragGesture" in _scopes and
+        "floatingScopesHeight" in _scopes and "model.setEditorScopeMode" in _scopes and
+        'Image(systemName: "xmark")' in _scopes,
+        "scopes must remain draggable/resizable/selectable/closable contextual glass")
+require('.aspectRatio(CGFloat(image.width) / CGFloat(max(1, image.height)), contentMode: .fit)' in text("EditorScopePanelView.swift"),
+        "scope plots were stretched instead of aspect-fitted")
+require("StudioExportSectionLayout(" in export_view and 'exportActions' in export_view,
+        "modular export controls detached from the original export workflow")
+print("2026-10-10 REDLAMP UI REGRESSION GATES PASS")

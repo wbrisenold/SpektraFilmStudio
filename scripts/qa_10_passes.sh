@@ -95,7 +95,7 @@ grep -q 'import Vision' Sources/SpektraFilmFast/CullEngine.swift
 grep -q 'VNDetectFaceRectanglesRequest' Sources/SpektraFilmFast/CullEngine.swift
 ! grep -q 'YuNetFaceDetector' Sources/SpektraFilmFast/CullEngine.swift
 ! grep -q 'coremlcompiler compile' scripts/build_app.sh
-grep -q 'EditorScopePanelView' Sources/SpektraFilmFast/EditView.swift
+grep -q 'EditorScopePanelView' Sources/SpektraFilmFast/StudioFloatingScopes.swift
 grep -q 'ProofsWorkspaceView' Sources/SpektraFilmFast/ContentView.swift
 grep -q 'Finish Selection' Sources/SpektraFilmFast/ProofDockService.swift
 grep -q 'CropEditorOverlay' Sources/SpektraFilmFast/PreviewView.swift
