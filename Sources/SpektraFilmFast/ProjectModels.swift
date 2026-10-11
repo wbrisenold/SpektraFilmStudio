@@ -245,6 +245,9 @@ struct RawSettings: Codable, Equatable, Hashable, Sendable {
     var developShadowBoost: Double = 1
     var developHighlightHeadroom: Double = 0
     var developCurvePoints: [ToneCurvePoint] = [.init(x: 0, y: 0), .init(x: 1, y: 1)]
+    /// UI marker: last exposure change was a one-shot Auto Exposure button.
+    /// EV itself lives in developExposureEV; this does not alter encode paths.
+    var autoExposureApplied: Bool = false
 
     private enum CodingKeys: String, CodingKey {
         case whiteBalanceMode, temperature, tint, lensCorrection
@@ -252,6 +255,7 @@ struct RawSettings: Codable, Equatable, Hashable, Sendable {
         case denoiseMode, denoiseLuma, denoiseChroma, denoiseModel
         case developExposureEV, developGlobalTone, developShadowBoost
         case developHighlightHeadroom, developCurvePoints
+        case autoExposureApplied
     }
     init() {}
     init(from decoder: Decoder) throws {
@@ -271,6 +275,7 @@ struct RawSettings: Codable, Equatable, Hashable, Sendable {
         developShadowBoost=min(2,max(0,try c.decodeIfPresent(Double.self,forKey:.developShadowBoost) ?? 1))
         developHighlightHeadroom=min(2,max(0,try c.decodeIfPresent(Double.self,forKey:.developHighlightHeadroom) ?? 0))
         developCurvePoints=ToneCurveMath.normalize(try c.decodeIfPresent([ToneCurvePoint].self,forKey:.developCurvePoints) ?? [.init(x:0,y:0),.init(x:1,y:1)])
+        autoExposureApplied=try c.decodeIfPresent(Bool.self,forKey:.autoExposureApplied) ?? false
     }
     func encode(to encoder: Encoder) throws {
         var c=encoder.container(keyedBy:CodingKeys.self)
@@ -278,6 +283,7 @@ struct RawSettings: Codable, Equatable, Hashable, Sendable {
         try c.encodeIfPresent(temperatureOffsetMired,forKey:.temperatureOffsetMired);try c.encodeIfPresent(tintOffset,forKey:.tintOffsetMired)
         try c.encode(denoiseMode,forKey:.denoiseMode);try c.encode(denoiseLuma,forKey:.denoiseLuma);try c.encode(denoiseChroma,forKey:.denoiseChroma);try c.encode(denoiseModel,forKey:.denoiseModel)
         try c.encode(developExposureEV,forKey:.developExposureEV);try c.encode(developGlobalTone,forKey:.developGlobalTone);try c.encode(developShadowBoost,forKey:.developShadowBoost);try c.encode(developHighlightHeadroom,forKey:.developHighlightHeadroom);try c.encode(developCurvePoints,forKey:.developCurvePoints)
+        try c.encode(autoExposureApplied,forKey:.autoExposureApplied)
     }
 }
 
@@ -306,15 +312,39 @@ struct ToneSettings: Codable, Equatable, Hashable, Sendable {
     // are derived from the current developed image on every render; they are not copied
     // as fixed values between photographs.
     var autoContrast = false
+    /// One-shot resolved endpoints from Auto Contrast (or legacy resolve-on-first-render).
+    /// Non-nil means GPU encode can use concrete bounds without re-metering.
+    var resolvedAutoContrastBlack: Double? = nil
+    var resolvedAutoContrastWhite: Double? = nil
     var curvePoints: [ToneCurvePoint] = [
         ToneCurvePoint(x: 0, y: 0),
         ToneCurvePoint(x: 1, y: 1)
     ]
 
+    var isAutoContrastResolved: Bool {
+        resolvedAutoContrastBlack != nil && resolvedAutoContrastWhite != nil
+    }
+
+    func applyingResolvedAutoContrast(black: Double, white: Double) -> ToneSettings {
+        var s = self
+        s.autoContrast = true
+        s.resolvedAutoContrastBlack = black
+        s.resolvedAutoContrastWhite = white
+        return s
+    }
+
+    func clearingAutoContrast() -> ToneSettings {
+        var s = self
+        s.autoContrast = false
+        s.resolvedAutoContrastBlack = nil
+        s.resolvedAutoContrastWhite = nil
+        return s
+    }
+
     private enum CodingKeys: String, CodingKey {
         case exposureEV, brightness, contrast, midtones, highlights, shadows,
              highlightRecovery, shadowRecovery, whites, blacks, whitePoint, blackPoint,
-             autoContrast, curvePoints
+             autoContrast, resolvedAutoContrastBlack, resolvedAutoContrastWhite, curvePoints
     }
 
     init() {}
@@ -334,9 +364,19 @@ struct ToneSettings: Codable, Equatable, Hashable, Sendable {
         whitePoint = try c.decodeIfPresent(Double.self, forKey: .whitePoint) ?? 0
         blackPoint = try c.decodeIfPresent(Double.self, forKey: .blackPoint) ?? 0
         autoContrast = try c.decodeIfPresent(Bool.self, forKey: .autoContrast) ?? false
+        resolvedAutoContrastBlack = try c.decodeIfPresent(Double.self, forKey: .resolvedAutoContrastBlack)
+        resolvedAutoContrastWhite = try c.decodeIfPresent(Double.self, forKey: .resolvedAutoContrastWhite)
         curvePoints = try c.decodeIfPresent([ToneCurvePoint].self, forKey: .curvePoints) ?? [
             ToneCurvePoint(x: 0, y: 0), ToneCurvePoint(x: 1, y: 1)
         ]
+    }
+}
+
+extension RenderLook {
+    /// Manual edit: drop resolved auto-contrast bounds so the next gesture re-meters.
+    mutating func clearingAutoContrastResolution() {
+        if let t = tone { tone = t.clearingAutoContrast() }
+        if let f = filmTone { filmTone = f.clearingAutoContrast() }
     }
 }
 
@@ -595,6 +635,10 @@ struct RenderLook: Codable, Equatable, Hashable, Sendable {
     // Film-feed tonal shaping is independent of the scene host grade.
     // Optional preserves all previous project and preset JSON documents.
     var filmTone: ToneSettings? = nil
+    // Optional so old projects/presets remain decodable; nil = not analyzed.
+    var importCalibration: StudioImportCalibration? = nil
+    // Stable per-photo selection; old project JSON decodes absent optional IDs as nil.
+    var studioLookID: String? = nil
 
     static func defaults(catalog: BridgeCatalog = .shared) -> RenderLook {
         var look = RenderLook(flavor: .pro)

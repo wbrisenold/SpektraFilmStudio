@@ -208,7 +208,11 @@ actor ImageDecoder {
         let source = try Self.sourceImage(url: url, raw: raw,
                                           draft: longEdge <= 1024,
                                           autoNeutralLocation: autoNeutral)
-        guard source.cameraSpaceWhiteBalanceApplied else {
+        // Non-RAW as-shot images already carry a decoded color profile. The
+        // CIContext converts them to scene-linear Rec.2020 without asking a
+        // missing CIRAWFilter for camera-space WB. Custom/Auto WB still needs
+        // a separate proved working-space adaptation stage.
+        guard source.cameraSpaceWhiteBalanceApplied || raw.whiteBalanceMode == .asShot else {
             throw GPULiveError.unavailable("source requires unresolved working-space white balance")
         }
         let extent = source.image.extent.integral

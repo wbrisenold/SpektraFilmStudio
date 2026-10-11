@@ -25,13 +25,17 @@ struct PreviewView: View {
 
                 if let image = model.showingBefore ? frameState.sourcePreview :
                     (frameState.renderedPreview ??
-                     (StudioImportedCubeLUTSettings.isSelected ? frameState.sourcePreview : nil)) {
+                     ((StudioImportedCubeLUTSettings.isSelected || StudioLooksSettings.isSelected)
+                      ? frameState.sourcePreview : nil)) {
                     ZStack {
                         // Redlamp-derived mask is composited in the image itself, not an
                         // independent translucent view whose size can drift after crop.
                         MetalPreviewCanvas(image: model.showingBefore ? image : (redlampCompositedFrame ?? image),
                             liveFrame: model.showingBefore ? nil : model.liveGPUFrame)
-                            .aspectRatio(CGFloat(image.width) / CGFloat(max(1, image.height)), contentMode: .fit)
+                            .aspectRatio(CGFloat(model.showingBefore ? image.width
+                                : model.liveGPUFrame?.texture.width ?? image.width) /
+                                CGFloat(max(1, model.showingBefore ? image.height
+                                : model.liveGPUFrame?.texture.height ?? image.height)), contentMode: .fit)
                             // Overlay follows exactly the displayed image's layout, not
                             // the size proposed by the outer viewer ZStack.
                             .overlay {

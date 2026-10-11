@@ -69,6 +69,13 @@ enum StudioUXSmokeTest {
             panel.contentView = NSHostingView(rootView: ControlsView(model: model, mode: .film, initialSection: "film.film").background(StudioPalette.panel).preferredColorScheme(.dark))
             panel.setContentSize(NSSize(width: 360, height: 760))
             guard await capture(panel, to: root.appendingPathComponent("film-inspector.png")) else { return false }
+            // Auto buttons (Task 5): camera development/WB panel and the light panel.
+            panel.setContentSize(NSSize(width: 360, height: 960))
+            panel.contentView = NSHostingView(rootView: ControlsView(model: model, mode: .adjust, initialSection: "raw").background(StudioPalette.panel).preferredColorScheme(.dark))
+            guard await capture(panel, to: root.appendingPathComponent("camera-inspector.png")) else { return false }
+            panel.contentView = NSHostingView(rootView: ControlsView(model: model, mode: .adjust, initialSection: "tone").background(StudioPalette.panel).preferredColorScheme(.dark))
+            panel.setContentSize(NSSize(width: 360, height: 960))
+            guard await capture(panel, to: root.appendingPathComponent("light-inspector.png")) else { return false }
             panel.contentView = NSHostingView(rootView: FilmEffectsPanel(model: model).background(StudioPalette.panel).preferredColorScheme(.dark))
             panel.setContentSize(NSSize(width: 360, height: 580))
             guard await capture(panel, to: root.appendingPathComponent("film-finish.png")) else { return false }

@@ -194,6 +194,8 @@ final class AppModel: ObservableObject {
         return stored == 0 ? 15 : min(100, max(2, stored))
     }()
     @Published var autoWhiteBalanceStatus = ""
+    private var queuedImportCalibrations: [UUID] = []
+    private var importCalibrationWorker: Task<Void, Never>?
     @Published var isSkinWhiteBalanceRunning = false
     @Published var skinWhiteBalanceStatus = ""
     @Published var diagnosticStatus = ""
@@ -339,6 +341,9 @@ final class AppModel: ObservableObject {
     private var activeEditChangedParameter: String?
     private var gestureBaselineRenderedBuffer: PixelBufferF32?
     private var gestureSettleBaselineBuffer: PixelBufferF32?
+    // Task 7: legacy unresolved auto flags (old projects/presets) resolve once on the
+    // first settled frame after open or selection; later renders carry concrete values.
+    private var legacyAutoResolvePending = true
     private var latestInteractiveBaseBuffer: PixelBufferF32?
     private var latestInteractiveBaseLook: RenderLook?
     private var interactiveBaselineTask: Task<Void, Never>?
@@ -597,9 +602,10 @@ final class AppModel: ObservableObject {
         suppressDirtyTracking = true
         project = SpektraProjectDocument()
         project.migrateForV2()
-        suppressDirtyTracking = false
-        project.workspaceMode = .project
-        projectURL = nil
+                suppressDirtyTracking = false
+                project.workspaceMode = .project
+                projectURL = nil
+                legacyAutoResolvePending = true
         renderedPreview = nil
         sourcePreview = nil
         latestSourceBuffer = nil
@@ -646,6 +652,7 @@ final class AppModel: ObservableObject {
         project.images = [Self.makeImageRecord(url: url)]
         project.selectedImageID = project.images[0].id
         projectURL = nil
+        legacyAutoResolvePending = true
         page = .edit
         showProjectHome = false
         didStartProjectWorkflow = true
@@ -743,6 +750,7 @@ final class AppModel: ObservableObject {
         }
 
         project.images.append(contentsOf: additions)
+        scheduleImportCalibrations(for: additions)
         status = "Imported \(additions.count) image\(additions.count == 1 ? "" : "s") · indexing in background"
 
         let imported = additions.map { ($0.id, $0.url) }
@@ -902,6 +910,84 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // Darktable channelmixerrgb gray-edge illuminant inference and exposure.c
+    // percentile metering adapted to the per-image D65 linear Rec.2020 contract.
+    // Import analysis is deliberately low priority and never runs per slider tick.
+    private func scheduleImportCalibrations(for photos: [ProjectImageRecord]) {
+        for photo in photos where photo.look.importCalibration == nil {
+            if project.selectedImageID == photo.id {
+                queuedImportCalibrations.removeAll { $0 == photo.id }
+                queuedImportCalibrations.insert(photo.id, at: 0)
+            } else if !queuedImportCalibrations.contains(photo.id) {
+                queuedImportCalibrations.append(photo.id)
+            }
+        }
+        guard importCalibrationWorker == nil else { return }
+        let workspace = workspaceGeneration
+        // A single low-priority worker prevents 1,000 imported RAWs from
+        // spawning 1,000 simultaneous Core Image developments.
+        importCalibrationWorker = Task(priority: .utility) { [weak self] in
+            guard let self else { return }
+            defer {
+                importCalibrationWorker = nil
+                if !queuedImportCalibrations.isEmpty {
+                    scheduleImportCalibrations(for: [])
+                }
+            }
+            while !Task.isCancelled && workspaceGeneration == workspace &&
+                  !queuedImportCalibrations.isEmpty {
+                let id = queuedImportCalibrations.removeFirst()
+                guard let photo = project.images.first(where: { $0.id == id }),
+                      photo.look.importCalibration == nil,
+                      !project.preferences.bypassImportTransform,
+                      FileManager.default.fileExists(atPath: photo.sourcePath) else { continue }
+                do {
+                    let sample = try await decoder.decode(
+                        url: photo.url, longEdge: 320, raw: photo.look.raw,
+                        bypassImportTransform: project.preferences.bypassImportTransform,
+                        cacheMode: .conservative)
+                    var baseline = await Task.detached(priority: .utility) {
+                        StudioImportCalibrationEstimator.estimate(sample)
+                    }.value
+                    baseline.sourceRaw = photo.look.raw
+                    guard workspaceGeneration == workspace,
+                          let i = project.images.firstIndex(where: { $0.id == photo.id }),
+                          project.images[i].look.importCalibration == nil,
+                          project.images[i].look.raw == photo.look.raw else { continue }
+                    project.images[i].look.importCalibration = baseline
+                    isProjectDirty = true
+                    if project.selectedImageID == photo.id, page == .edit {
+                        requestPreviewRefresh()
+                    }
+                } catch {
+                    // Keep the camera's as-shot rendering on decode failures.
+                    if project.selectedImageID == photo.id {
+                        status = "Import auto calibration skipped: \(error.localizedDescription)"
+                    }
+                }
+            }
+        }
+    }
+
+    func setImportCalibrationEnabled(_ enabled: Bool) {
+        guard let index = selectedIndex,
+              project.images[index].look.importCalibration != nil else { return }
+        undoStack.append(project.images[index].look)
+        redoStack.removeAll()
+        project.images[index].look.importCalibration?.enabled = enabled
+        isProjectDirty = true
+        requestPreviewRefresh()
+    }
+
+    func reanalyzeImportCalibration() {
+        guard let index = selectedIndex else { return }
+        undoStack.append(project.images[index].look)
+        redoStack.removeAll()
+        project.images[index].look.importCalibration = nil
+        let photo = project.images[index]
+        scheduleImportCalibrations(for: [photo])
+    }
+
     func selectImage(_ id: UUID, renderPreview: Bool = true) {
         let changed = project.selectedImageID != id
         if changed {
@@ -952,12 +1038,16 @@ final class AppModel: ObservableObject {
             latestInteractiveBaseLook = nil
             gestureSettleBaselineBuffer = nil
             interactiveBaselineTask?.cancel()
+            legacyAutoResolvePending = true
             clearStudioAnalysis()
         }
 
         guard let image = selectedImage else { return }
         if deferPreviewForCloudOriginalIfNeeded(image, renderPreview: renderPreview) { return }
         refreshWhiteBalanceReference(for: image)
+        if image.look.importCalibration == nil {
+            scheduleImportCalibrations(for: [image])
+        }
         guard FileManager.default.fileExists(atPath: image.sourcePath) else {
             renderedPreview = nil
             sourcePreview = nil
@@ -1214,6 +1304,11 @@ final class AppModel: ObservableObject {
             } else {
                 gestureBaselineRenderedBuffer = gestureSettleBaselineBuffer
             }
+            // Resolve-once (Task 4): meter unresolved auto exposure/contrast once per
+            // gesture on the small proxy buffer, never on full-res or per-frame.
+            if let meterBuffer = gestureBaselineRenderedBuffer ?? gestureSettleBaselineBuffer {
+                gestureWorkingLook = resolveAutoOnce(in: meterBuffer, look: gestureWorkingLook)
+            }
         }
     }
 
@@ -1262,7 +1357,7 @@ final class AppModel: ObservableObject {
         // A new pointer gesture then remains coalesced behind the old GPU fence.
 
         guard let baselineLook, baselineLook != committedLook else { return }
-        if StudioImportedCubeLUTSettings.isSelected {
+        if (StudioImportedCubeLUTSettings.isSelected || StudioLooksSettings.isSelected) {
             // No exact/native settled render after a LUT slider gesture.
             // Keep using the same GPU-only imported LUT graph for the final value.
             scheduleGPULivePreview(look: committedLook)
@@ -1276,14 +1371,30 @@ final class AppModel: ObservableObject {
         )
     }
 
+    func setSelectedLooksPack(_ id: String) {
+        guard let i = selectedIndex,
+              id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }),
+              StudioLooksPack.discover(in: URL(fileURLWithPath: UserDefaults.standard.string(forKey: StudioLooksSettings.folderKey) ?? "")).contains(where: { $0.id == id }) else {
+            status = "Select a valid Look pack"
+            return
+        }
+        if project.images[i].look.studioLookID != id {
+            undoStack.append(project.images[i].look)
+            redoStack.removeAll()
+            project.images[i].look.studioLookID = id
+        }
+        UserDefaults.standard.set(id, forKey: StudioLooksSettings.selectedIDKey)
+        UserDefaults.standard.set("looks", forKey: StudioSpectralLUT.setting)
+        rendererPolicyDidChange()
+    }
+
     func setParameter(_ name: String, value: ParameterValue, interactive: Bool) {
         guard let i = selectedIndex else { return }
         if interactive {
             if gestureWorkingLook == nil { beginEditGesture() }
             gestureWorkingLook?.values[name] = value
             if name == "filmExposureEv" || name == "autoExposure" {
-                gestureWorkingLook?.tone?.autoContrast = false
-                gestureWorkingLook?.filmTone?.autoContrast = false
+                gestureWorkingLook?.clearingAutoContrastResolution()
             }
             activeEditChangedParameter = name
             // Proxy first. Native film exposure is not equivalent to a display gain, so
@@ -1310,8 +1421,7 @@ final class AppModel: ObservableObject {
         }
         project.images[i].look.values[name] = value
         if name == "filmExposureEv" || name == "autoExposure" {
-            project.images[i].look.tone?.autoContrast = false
-            project.images[i].look.filmTone?.autoContrast = false
+            project.images[i].look.clearingAutoContrastResolution()
         }
         project.images[i].look.normalizeForProOnly()
         propagateBatchEdit(from: project.images[i].look, activeIndex: i, changedParameter: name)
@@ -2566,7 +2676,125 @@ final class AppModel: ObservableObject {
         scheduleIdleRefinement(changedParameter: changedParameter, delayMilliseconds: 20)
     }
 
-    func setRawDevelopExposure(_ value: Double, interactive: Bool) { mutateRawDevelop(interactive: interactive, changedParameter: "rawDevelopExposure") { $0.developExposureEV=min(5,max(-5,value)) } }
+    func setRawDevelopExposure(_ value: Double, interactive: Bool) {
+        mutateRawDevelop(interactive: interactive, changedParameter: "rawDevelopExposure") {
+            $0.developExposureEV = min(5, max(-5, value))
+            $0.autoExposureApplied = false // manual drag invalidates the one-shot auto
+        }
+    }
+
+    /// One-shot auto meter (Task 4): turn still-unresolved auto exposure/contrast into
+    /// concrete values so no render path re-meters. Meters from the small proxy buffer.
+    @discardableResult
+    private func resolveAutoOnce(in buffer: PixelBufferF32, look: RenderLook?) -> RenderLook {
+        guard var working = look ?? (selectedIndex.flatMap { project.images[$0].look }) else {
+            return look ?? RenderLook()
+        }
+        var didMeter = false
+        // Legacy native auto-exposure flag: meter once, store the EV, clear the flag.
+        let nativeAutoExposure: Bool
+        switch working.values["autoExposure"] {
+        case .bool(let on): nativeAutoExposure = on
+        case .int(let v): nativeAutoExposure = v != 0
+        case .scalar(let x): nativeAutoExposure = x != 0
+        case .none, .vector2, .vector3: nativeAutoExposure = false
+        }
+        if !working.raw.autoExposureApplied, nativeAutoExposure {
+            let ev = AutoCalibrationMath.developExposureEV(pixels: buffer.pixels)
+            working.raw.developExposureEV = min(5, max(-5, ev))
+            working.raw.autoExposureApplied = true
+            working.values["autoExposure"] = .bool(false)
+            didMeter = true
+        }
+        // Host auto contrast: meter once into resolved bounds; film auto keeps its own
+        // log2-luma percentile meter, so only the host tone is resolved with linear bounds.
+        if working.tone?.autoContrast == true, working.tone?.isAutoContrastResolved != true,
+           let bounds = AutoCalibrationMath.resolveContrast(pixels: buffer.pixels) {
+            working.tone = (working.tone ?? ToneSettings())
+                .applyingResolvedAutoContrast(black: bounds.black, white: bounds.white)
+            didMeter = true
+        }
+        guard didMeter else { return working }
+        if gestureWorkingLook != nil {
+            gestureWorkingLook = working
+        } else if let i = selectedIndex {
+            project.images[i].look = working
+        }
+        return working
+    }
+
+    /// One-shot Auto Exposure button: meters EV from the latest small proxy buffer
+    /// (never full-res), writes concrete developExposureEV, flags autoExposureApplied.
+    func setRawDevelopAutoExposure() {
+        guard let i = selectedIndex else { return }
+        // Meter the pre-correction developed source: the rendered frame already
+        // contains the last auto correction, so re-metering it would ratchet.
+        guard let buffer = latestSourceBuffer ?? gestureSettleBaselineBuffer ?? gestureBaselineRenderedBuffer ?? latestRenderedBuffer else {
+            status = "Auto Exposure · waiting for a frame"
+            return
+        }
+        let ev = min(5, max(-5, AutoCalibrationMath.developExposureEV(pixels: buffer.pixels)))
+        // Same buffer + already applied = no-op (no undo push, no re-render).
+        guard ev != project.images[i].look.raw.developExposureEV
+                || !project.images[i].look.raw.autoExposureApplied else { return }
+        cancelIdleRefinement()
+        if activeEditBaseline == nil {
+            undoStack.append(project.images[i].look)
+            redoStack.removeAll()
+        }
+        project.images[i].look.raw.developExposureEV = ev
+        project.images[i].look.raw.autoExposureApplied = true
+        if project.images[i].look.values["autoExposure"] != nil {
+            project.images[i].look.values["autoExposure"] = .bool(false)
+        }
+        status = String(format: "Auto Exposure · %+.2f EV", ev)
+        scheduleIdleRefinement(changedParameter: "rawDevelopAutoExposure", delayMilliseconds: 20)
+    }
+
+    /// One-shot Auto WB button: works on any photo, including already-custom WB.
+    /// Meters neutral gains on the small proxy buffer and stores concrete temp/tint.
+    func setAutoWhiteBalanceOnce() {
+        guard let i = selectedIndex else { return }
+        // Pre-correction source: the rendered frame already carries the last
+        // correction, so re-metering it would drift the cast further each press.
+        guard let buffer = latestSourceBuffer ?? gestureSettleBaselineBuffer ?? gestureBaselineRenderedBuffer ?? latestRenderedBuffer else {
+            status = "Auto WB · waiting for a frame"
+            return
+        }
+        guard let gains = AutoCalibrationMath.whiteBalanceGains(
+            width: buffer.width, height: buffer.height, pixels: buffer.pixels
+        ) else {
+            status = "Auto WB · no neutral candidate"
+            return
+        }
+        let offsets = AutoCalibrationMath.whiteBalanceOffsets(gains: gains)
+        cancelIdleRefinement()
+        if activeEditBaseline == nil {
+            undoStack.append(project.images[i].look)
+            redoStack.removeAll()
+        }
+        if project.images[i].look.raw.whiteBalanceMode == .custom {
+            // Custom already holds absolute temp/tint: shift it by the measured offset.
+            project.images[i].look.raw.temperature = PixelBufferF32.kelvin(
+                baseKelvin: whiteBalanceBaseTemperature, miredOffset: offsets.mired
+            )
+            project.images[i].look.raw.tint = whiteBalanceBaseTint + offsets.tint
+            project.images[i].look.raw.temperatureOffsetMired = nil
+            project.images[i].look.raw.tintOffset = nil
+            whiteBalanceDisplayTemperature = project.images[i].look.raw.temperature
+            whiteBalanceDisplayTint = project.images[i].look.raw.tint
+        } else {
+            project.images[i].look.raw.temperatureOffsetMired = offsets.mired
+            project.images[i].look.raw.tintOffset = offsets.tint
+            whiteBalanceDisplayTemperature = PixelBufferF32.kelvin(
+                baseKelvin: whiteBalanceBaseTemperature, miredOffset: offsets.mired
+            )
+            whiteBalanceDisplayTint = whiteBalanceBaseTint + offsets.tint
+        }
+        status = String(format: "Auto WB · %+.0f mired, tint %+.0f", offsets.mired, offsets.tint)
+        refreshWhiteBalanceReference(for: project.images[i])
+        scheduleIdleRefinement(changedParameter: "rawWhiteBalance", delayMilliseconds: 20)
+    }
     func setRawDevelopGlobalTone(_ value: Double, interactive: Bool) { mutateRawDevelop(interactive: interactive, changedParameter: "rawDevelopGlobalTone") { $0.developGlobalTone=min(1,max(0,value)) } }
     func setRawDevelopShadowBoost(_ value: Double, interactive: Bool) { mutateRawDevelop(interactive: interactive, changedParameter: "rawDevelopShadowBoost") { $0.developShadowBoost=min(2,max(0,value)) } }
     func setRawDevelopHighlightHeadroom(_ value: Double, interactive: Bool) { mutateRawDevelop(interactive: interactive, changedParameter: "rawDevelopHeadroom") { $0.developHighlightHeadroom=min(2,max(0,value)) } }
@@ -2652,7 +2880,9 @@ final class AppModel: ObservableObject {
             case "blacks": tone.blacks = min(100, max(-100, value))
             case "contrast": tone.contrast = min(100, max(-100, value))
             case "brightness": tone.brightness = min(100, max(-100, value))
-            case "autoContrast": tone.autoContrast = value > 0.5
+            // Film auto keeps its own log2-luma meter: enabling drops any stale resolved
+            // bounds so the render path re-meters on the CPU film grade (never the GPU).
+            case "autoContrast": tone = tone.clearingAutoContrast(); tone.autoContrast = value > 0.5
             default: return
             }
         }
@@ -2661,8 +2891,8 @@ final class AppModel: ObservableObject {
             guard var working = gestureWorkingLook else { return }
             var film = working.filmTone ?? ToneSettings()
             change(&film)
-            if key != "autoContrast" { film.autoContrast = false; working.tone?.autoContrast = false }
             working.filmTone = film
+            if key != "autoContrast" { working.clearingAutoContrastResolution() }
             gestureWorkingLook = working
             activeEditChangedParameter = "filmStockShape." + key
             // Immediate proxy, followed by an accurate coalesced render through the same
@@ -2689,8 +2919,10 @@ final class AppModel: ObservableObject {
         }
         var film = project.images[i].look.filmTone ?? ToneSettings()
         change(&film)
-        if key != "autoContrast" { film.autoContrast = false; project.images[i].look.tone?.autoContrast = false }
-        project.images[i].look.filmTone = film
+        var look = project.images[i].look
+        look.filmTone = film
+        if key != "autoContrast" { look.clearingAutoContrastResolution() }
+        project.images[i].look = look
         scheduleIdleRefinement(changedParameter: "filmStockShape." + key, delayMilliseconds: 40)
     }
 
@@ -2710,9 +2942,23 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func setAutoContrast(_ enabled: Bool) {
-        mutateTone(interactive: false, changedParameter: "hostAutoContrast") {
-            $0.autoContrast = enabled
+    func setAutoContrast(_ enabled: Bool, interactive: Bool = false) {
+        guard enabled else {
+            mutateTone(interactive: interactive, changedParameter: "hostAutoContrast") { $0 = $0.clearingAutoContrast() }
+            status = "Auto Contrast off"
+            return
+        }
+        // Meter once on enable so the first render already carries concrete bounds.
+        // Pre-correction source keeps repeated presses idempotent.
+        if let buffer = latestSourceBuffer ?? gestureSettleBaselineBuffer ?? gestureBaselineRenderedBuffer ?? latestRenderedBuffer,
+           let bounds = AutoCalibrationMath.resolveContrast(pixels: buffer.pixels) {
+            mutateTone(interactive: interactive, changedParameter: "hostAutoContrast") {
+                $0 = $0.applyingResolvedAutoContrast(black: bounds.black, white: bounds.white)
+            }
+            status = String(format: "Auto Contrast · black %.3f white %.3f", bounds.black, bounds.white)
+        } else {
+            mutateTone(interactive: interactive, changedParameter: "hostAutoContrast") { $0.autoContrast = true }
+            status = "Auto Contrast · waiting for a frame"
         }
     }
 
@@ -2793,7 +3039,7 @@ final class AppModel: ObservableObject {
             guard var working = gestureWorkingLook else { return }
             var tone = working.tone ?? ToneSettings()
             mutate(&tone)
-            if changedParameter != "hostAutoContrast" { tone.autoContrast = false }
+            if changedParameter != "hostAutoContrast" { tone = tone.clearingAutoContrast() }
             working.tone = tone
             gestureWorkingLook = working
             activeEditChangedParameter = changedParameter
@@ -2821,7 +3067,7 @@ final class AppModel: ObservableObject {
         }
         var tone = project.images[i].look.tone ?? ToneSettings()
         mutate(&tone)
-        if changedParameter != "hostAutoContrast" { tone.autoContrast = false }
+        if changedParameter != "hostAutoContrast" { tone = tone.clearingAutoContrast() }
         project.images[i].look.tone = tone
         propagateBatchEdit(from: project.images[i].look, activeIndex: i, changedParameter: changedParameter)
         scheduleIdleRefinement(changedParameter: changedParameter, delayMilliseconds: 30)
@@ -3309,7 +3555,7 @@ final class AppModel: ObservableObject {
     // MARK: - Latest-render-wins preview scheduler
 
     private func scheduleLUTPrewarm(look: RenderLook, imageID: UUID, immediate: Bool = false) {
-        if StudioImportedCubeLUTSettings.isSelected {
+        if (StudioImportedCubeLUTSettings.isSelected || StudioLooksSettings.isSelected) {
             lutPrewarmTask?.cancel()
             lutIsPreparing = false
             lutPreparationStatus = "Imported .cube loaded by Metal on first use; no film LUT baking"
@@ -3402,8 +3648,10 @@ final class AppModel: ObservableObject {
         lastPreparedLUTSignature = nil
         preparingLUTSignature = nil
         cancelIdleRefinement()
-        if selectedImage != nil { requestPreviewRefresh() }
+        // Request after cancelling prior GPU work. The previous ordering
+        // scheduled a new frame and then cancelled that same request.
         if StudioImportedLUT.isSelected {
+            if selectedImage != nil { requestPreviewRefresh() }
             lutPreparationStatus = StudioImportedLUT.selectedURL() == nil
                 ? "Imported LUT missing: choose a file in Settings"
                 : "Imported LUT selected · active on next render"
@@ -3420,10 +3668,13 @@ final class AppModel: ObservableObject {
             lutPreparationStatus = "Select a photograph to prepare a LUT"
             return
         }
-        if StudioImportedCubeLUTSettings.isSelected {
-            lutPreparationStatus = StudioImportedCubeLUTSettings.selectedURL.map {
-                "Imported .cube · \($0.lastPathComponent) · resident after first GPU use"
-            } ?? "Choose a .cube file in General > LUT Library"
+        if (StudioImportedCubeLUTSettings.isSelected || StudioLooksSettings.isSelected) {
+            lutPreparationStatus = StudioLooksSettings.isSelected
+                ? (StudioLooksSettings.selectedPack(for: selectedLook).map { "Looks · \($0.name) · GPU resident after first use" }
+                    ?? "Select a Look pack from the left browser")
+                : (StudioImportedCubeLUTSettings.selectedURL.map {
+                    "Imported .cube · \($0.lastPathComponent) · resident after first GPU use"
+                  } ?? "Choose a .cube file in General > LUT Library")
             // The prior native CPU frame must not masquerade as the new GPU
             // output in scope/false-color monitors.
             editorScopeImage = nil
@@ -3464,12 +3715,22 @@ final class AppModel: ObservableObject {
     ) {
         guard let image = selectedImage, renderer != nil else { return }
         let previewLook = lookOverride ?? gestureWorkingLook ?? selectedLook
-        if StudioImportedCubeLUTSettings.isSelected && !fullResolutionRequest && page == .edit {
+        if (StudioImportedCubeLUTSettings.isSelected || StudioLooksSettings.isSelected) && !fullResolutionRequest && page == .edit {
             // A single GPU renderer owns BOTH live and settled 1080px previews.
             // Never run the native exact-preview queue behind the imported LUT.
             guard currentSourceSupportsGPULive, !project.preferences.bypassImportTransform,
                   GPULiveFramePipeline.supports(previewLook) else {
-                status = "Imported LUT needs supported RAW, Metal, and non-masked edit settings"
+                // Never leave a pre-edit LUT image on-screen after a rejected
+                // mask/denoise/Auto Contrast state. The ungraded source is a
+                // visible, explicitly labeled safety fallback, not a fake LUT.
+                gpuPreviewGeneration &+= 1
+                pendingGPUPreview = nil
+                gpuPreviewTask?.cancel()
+                liveGPUFrame = nil
+                renderedPreview = sourcePreview
+                editorScopeImage = nil
+                rendererPathStatus = "LOOK ERROR · unsupported GPU edit; original shown"
+                status = "This edit needs the exact Lab renderer; open in Lab"
                 return
             }
             renderGeneration &+= 1
@@ -3537,11 +3798,12 @@ final class AppModel: ObservableObject {
 
     private var currentSourceSupportsGPULive: Bool {
         guard let image = selectedImage else { return false }
-        // JPEG/HEIC/TIFF cannot use the camera-space CIRAWFilter input path.
-        // Those images remain editable through their existing exact pipeline.
+        // Core Image can decode RAW and ordinary image files to linear Rec.2020.
+        // Non-RAW camera-space WB is not silently approximated; see ImageDecoder.
         let rawExtensions: Set<String> = [
             "arw", "nef", "raf", "rw2", "orf", "dng", "cr2", "cr3", "pef",
-            "srw", "iiq", "3fr", "fff", "erf", "mos", "mrw", "nrw"
+            "srw", "iiq", "3fr", "fff", "erf", "mos", "mrw", "nrw",
+            "jpg", "jpeg", "tif", "tiff", "heic", "heif", "png"
         ]
         return rawExtensions.contains(URL(fileURLWithPath: image.sourcePath).pathExtension.lowercased())
     }
@@ -3602,7 +3864,7 @@ final class AppModel: ObservableObject {
                     liveGPUFrame = nil
                     rendererPathStatus = "LUT ERROR · \(error.localizedDescription)"
                     editorScopeImage = nil
-                    if StudioImportedCubeLUTSettings.isSelected, let sourcePreview {
+                    if (StudioImportedCubeLUTSettings.isSelected || StudioLooksSettings.isSelected), let sourcePreview {
                         renderedPreview = sourcePreview
                     }
                     status = "Metal live unavailable: \(error.localizedDescription)"
@@ -3754,7 +4016,7 @@ final class AppModel: ObservableObject {
     }
 
     func requestFullResolutionPreview() {
-        if StudioImportedCubeLUTSettings.isSelected {
+        if (StudioImportedCubeLUTSettings.isSelected || StudioLooksSettings.isSelected) {
             status = "Full-resolution imported LUT preview is not implemented; preserving the live Metal preview"
             return
         }
@@ -3854,7 +4116,9 @@ final class AppModel: ObservableObject {
                 let hostCheckpoint = GPUProcessingFailure.checkpoint()
                 let renderInput = try await Task.detached(priority: .userInitiated) {
                     let checkpoint = GPUProcessingFailure.checkpoint()
-                    let graded = input.applyingHostAndFilmGrade(tone: request.look.tone, density: request.look.colorDensity, film: request.look.filmTone)
+                    let auto = try await StudioImportCalibrationOffline.shared.render(
+                        input, calibration: request.look.importCalibration, raw: request.look.raw)
+                    let graded = auto.applyingHostAndFilmGrade(tone: request.look.tone, density: request.look.colorDensity, film: request.look.filmTone)
                     try GPUProcessingFailure.requireSuccess(after: checkpoint)
                     return graded
                 }.value
@@ -3977,6 +4241,17 @@ final class AppModel: ObservableObject {
                     latestWorkingRenderedBuffer = output
                     latestWorkingRenderedLook = request.look
                     prepareInteractiveBaseline(from: output, look: request.look)
+                    // Task 7: resolve legacy unresolved auto flags once here, on the
+                    // first settled proxy frame, so the next render (and the GPU live
+                    // path) sees concrete values instead of re-metering or blocking.
+                    if legacyAutoResolvePending, gestureWorkingLook == nil, let i = selectedIndex {
+                        legacyAutoResolvePending = false
+                        let before = project.images[i].look
+                        let resolved = resolveAutoOnce(in: output, look: before)
+                        if resolved != before {
+                            scheduleIdleRefinement(changedParameter: "legacyAutoResolve", delayMilliseconds: 20)
+                        }
+                    }
                 }
                 // Diagnostics update after the exact render settles. Transient pointer-rate
                 // frames feed the throttled scope loop but never own clipping/skin measurements.
@@ -4374,6 +4649,7 @@ final class AppModel: ObservableObject {
                 projectURL = nil
             }
             isProjectDirty = true
+            legacyAutoResolvePending = true
             page = .library
             if project.selectedImageID == nil { project.selectedImageID = project.images.first?.id }
             renderedPreview = nil
@@ -4868,6 +5144,7 @@ final class AppModel: ObservableObject {
                 project = opened
                 projectURL = url
                 RecentSpektraProjects.record(url)
+                legacyAutoResolvePending = true
                 isProjectDirty = false
                 suppressDirtyTracking = false
                 undoStack.removeAll()
@@ -4943,7 +5220,9 @@ final class AppModel: ObservableObject {
 
             let renderInput = try await Task.detached(priority: .utility) {
                 let checkpoint = GPUProcessingFailure.checkpoint()
-                let graded = input.applyingHostAndFilmGrade(
+                let auto = try await StudioImportCalibrationOffline.shared.render(
+                    input, calibration: look.importCalibration, raw: look.raw)
+                let graded = auto.applyingHostAndFilmGrade(
                     tone: look.tone,
                     density: look.colorDensity, film: look.filmTone)
                 try GPUProcessingFailure.requireSuccess(after: checkpoint)
@@ -5140,7 +5419,7 @@ final class AppModel: ObservableObject {
 
     func exportSelected() {
         guard !StudioImportedCubeLUTSettings.isSelected else {
-            status = "Export blocked: imported .cube has no matching full-resolution GPU export path yet"
+            status = "Export blocked: direct .cube export requires a verified output contract"
             return
         }
         guard !isExporting, exactRenderer != nil else { return }
@@ -5168,7 +5447,7 @@ final class AppModel: ObservableObject {
 
     func exportImage(_ id: UUID, settings: ExportSettings) {
         guard !StudioImportedCubeLUTSettings.isSelected else {
-            status = "Export blocked: imported .cube has no matching full-resolution GPU export path yet"
+            status = "Export blocked: direct .cube export requires a verified output contract"
             return
         }
         guard !isExporting, exactRenderer != nil,
@@ -5564,7 +5843,9 @@ final class AppModel: ObservableObject {
                 let gradeStarted = ProcessInfo.processInfo.systemUptime
                 let renderInput = try await Task.detached(priority: .userInitiated) {
                     let checkpoint = GPUProcessingFailure.checkpoint()
-                    let graded = decoded.buffer.applyingHostAndFilmGrade(
+                    let auto = try await StudioImportCalibrationOffline.shared.render(
+                        decoded.buffer, calibration: item.look.importCalibration, raw: item.look.raw)
+                    let graded = auto.applyingHostAndFilmGrade(
                         tone: item.look.tone,
                         density: item.look.colorDensity, film: item.look.filmTone)
                     try GPUProcessingFailure.requireSuccess(after: checkpoint)
@@ -5574,7 +5855,9 @@ final class AppModel: ObservableObject {
                 try Task.checkCancellation()
 
                 var exportLook = item.look
-                if job.settings.colorMode == .sRGB || StudioImportedLUT.isSelected {
+                // Looks is produced as encoded sRGB here; ImageIO must
+                // embed the corresponding sRGB ICC profile, not Rec.709 2.4.
+                if job.settings.colorMode == .sRGB || StudioImportedLUT.isSelected || StudioLooksSettings.isSelected {
                     exportLook.values["outputColorSpace"] = .int(17)
                     exportLook.values["outputRole"] = .int(0)
                 }
@@ -5583,12 +5866,23 @@ final class AppModel: ObservableObject {
                 let renderStarted = ProcessInfo.processInfo.systemUptime
                 let filmOutput: PixelBufferF32
                 let renderDiagnostics: RenderDiagnosticsView
-                if StudioImportedLUT.isSelected {
+                if StudioLooksSettings.isSelected {
+                    guard let file = StudioLooksSettings.selectedPack(for: item.look)?.cubeURL else {
+                        throw GPULiveError.unavailable("Look pack missing for exported photo")
+                    }
+                    let lutStarted = ProcessInfo.processInfo.systemUptime
+                    filmOutput = try await StudioImportedLUTOffline.shared.render(renderInput,
+                        file: file, looks: item.look, photoSRGB: true)
+                    renderDiagnostics = RenderDiagnosticsView(cpuSetupMs: 0, sourceCopyMs: 0,
+                        commandBufferMs: (ProcessInfo.processInfo.systemUptime - lutStarted) * 1000,
+                        outputCopyMs: 0, passCount: 3, uploadBytes: 0)
+                } else if StudioImportedLUT.isSelected {
                     guard let file = StudioImportedLUT.selectedURL() else {
                         throw StudioImportedLUT.Failure.invalid("Selected export LUT is missing.")
                     }
                     let lutStarted = ProcessInfo.processInfo.systemUptime
-                    filmOutput = try await StudioImportedLUTOffline.shared.render(renderInput, file: file)
+                    filmOutput = try await StudioImportedLUTOffline.shared.render(renderInput,
+                        file: file, photoSRGB: true)
                     renderDiagnostics = RenderDiagnosticsView(cpuSetupMs: 0, sourceCopyMs: 0,
                         commandBufferMs: (ProcessInfo.processInfo.systemUptime - lutStarted) * 1000,
                         outputCopyMs: 0, passCount: 1, uploadBytes: 0)

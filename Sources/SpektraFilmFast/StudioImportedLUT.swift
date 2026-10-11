@@ -147,6 +147,10 @@ enum StudioImportedLUT {
     }
 
     static func load(url: URL, contractOverride: Contract? = nil) throws -> Cube {
+        if url.pathExtension.lowercased() == "bin" {
+            guard contractOverride == nil else { throw Failure.invalid("Binary pack contract is manifest-owned") }
+            return try StudioLooksPack.loadPackedCube(url: url)
+        }
         let contractInfo: (Contract, Bool)
         if let contractOverride {
             try contractOverride.validate()
@@ -254,10 +258,14 @@ final class StudioImportedLUTMetal: @unchecked Sendable {
         let fileInfo = try file.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
         let sidecar = URL(fileURLWithPath: file.path + ".lut.json")
         let sideInfo = try? sidecar.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        let manifestPath = file.deletingLastPathComponent().appendingPathComponent("manifest.json")
+        let manifestStamp = file.pathExtension.lowercased() == "bin"
+            ? ((try? manifestPath.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate?.timeIntervalSince1970 ?? 0)
+            : 0
         let overrideIdentity = contractOverride.map {
             "\($0.input.rawValue)|\($0.output.rawValue)|\($0.shaper.rawValue)|\($0.role.rawValue)"
         } ?? "file-sidecar"
-        let stamp = "\(file.standardizedFileURL.path)|\(fileInfo.contentModificationDate?.timeIntervalSince1970 ?? 0)|\(fileInfo.fileSize ?? 0)|\(sideInfo?.contentModificationDate?.timeIntervalSince1970 ?? 0)|\(sideInfo?.fileSize ?? 0)|\(overrideIdentity)"
+        let stamp = "\(file.standardizedFileURL.path)|\(fileInfo.contentModificationDate?.timeIntervalSince1970 ?? 0)|\(fileInfo.fileSize ?? 0)|\(sideInfo?.contentModificationDate?.timeIntervalSince1970 ?? 0)|\(sideInfo?.fileSize ?? 0)|\(overrideIdentity)|\(manifestStamp)"
         let reused = cached?.key == stamp
         if !reused {
             let cube = try StudioImportedLUT.load(url: file, contractOverride: contractOverride)
@@ -380,7 +388,9 @@ final class StudioImportedLUTMetal: @unchecked Sendable {
         uint index=xy.y*dims.x+xy.x;
         float4 x=src[index];
         float3 v;
-        if (inputMode==0) v=rec2020ToSRGB(x.rgb);
+        // A linear-Rec.2020 LUT receives the declared linear shaper;
+        // only legacy encoded-sRGB LUTs get the Rec.2020 -> sRGB conversion.
+        if (inputMode==1) v=rec2020ToSRGB(x.rgb);
         else if (shaperMode==1) v=float3(signedLog(x.r),signedLog(x.g),signedLog(x.b));
         else v=x.rgb;
         v=(v-domainMin)/(domainMax-domainMin);
@@ -398,12 +408,17 @@ actor StudioImportedLUTOffline {
     static let shared = StudioImportedLUTOffline()
     private var gpu: GPULiveDevice?
     private var stage: StudioImportedLUTMetal?
+    private var looksGPU: StudioLooksGPU?
+    private var outputSRGBGPU: StudioLinear2020ToSRGB?
 
     func gpuCacheCounts() -> (uploads: Int, hits: Int) {
         (stage?.lutUploadCount ?? 0, stage?.lutCacheHitCount ?? 0)
     }
 
-    func render(_ input: PixelBufferF32, file: URL) async throws -> PixelBufferF32 {
+    func render(_ input: PixelBufferF32, file: URL,
+                looks look: RenderLook? = nil,
+                contractOverride: StudioImportedLUT.Contract? = nil,
+                photoSRGB: Bool = false) async throws -> PixelBufferF32 {
         try Task.checkCancellation()
         if gpu == nil {
             guard let device = StudioGPUDevice.shared else {
@@ -425,9 +440,26 @@ actor StudioImportedLUTOffline {
               let command = gpu.queue.makeCommandBuffer() else {
             throw StudioImportedLUT.Failure.invalid("Film LUT export buffer allocation failed.")
         }
-        _ = try stage.encode(source: source, destination: destination,
+        if let look {
+            if looksGPU == nil { looksGPU = try StudioLooksGPU(device: gpu.device) }
+            try looksGPU?.encodePre(source, width: input.width, height: input.height,
+                look: look, command: command)
+        }
+        let outputSpace = try stage.encode(source: source, destination: destination,
                              width: input.width, height: input.height,
-                             on: command, file: file)
+                             on: command, file: file, contractOverride: contractOverride)
+        if let look {
+            guard outputSpace == .linearRec2020 else {
+                throw StudioImportedLUT.Failure.invalid("Look pack must output linear Rec.2020")
+            }
+            try looksGPU?.encodePost(neutral: source, transformed: destination,
+                width: input.width, height: input.height, look: look, command: command)
+        }
+        if photoSRGB && outputSpace == .linearRec2020 {
+            if outputSRGBGPU == nil { outputSRGBGPU = try StudioLinear2020ToSRGB(device: gpu.device) }
+            try outputSRGBGPU?.encode(destination, width: input.width,
+                height: input.height, command: command)
+        }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void,Error>) in
             command.addCompletedHandler { completed in
                 withExtendedLifetime((source,destination)) {

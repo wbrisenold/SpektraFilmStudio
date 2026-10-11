@@ -136,6 +136,7 @@ find . -type f \
   -not -path './dist/*' \
   -not -path './.git/*' \
   -not -path './Vendor/*' \
+  -not -path './.superpowers/*' \
   -not -path './Resources/AIModels/*' \
   -not -name 'SOURCE_MANIFEST.sha256' \
   -not -name '.DS_Store' \

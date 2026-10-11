@@ -26,8 +26,25 @@ final class GPUHostGradeEngine: @unchecked Sendable {
                 on command: any MTLCommandBuffer, width: Int, height: Int,
                 tone: ToneSettings?, density: ColorDensitySettings?, film: ToneSettings?) throws {
         let t = tone ?? ToneSettings(), f = film ?? ToneSettings(), d = density ?? ColorDensitySettings()
-        guard !t.autoContrast && !f.autoContrast else {
-            throw GPULiveError.unavailable("Auto Contrast needs quantile analysis")
+        // Resolved auto contrast: concrete bounds already metered (one-shot / resolve-once).
+        // Unresolved auto still needs CPU quantile analysis — keep the old unavailable path.
+        let tBounds: (Float, Float)
+        if t.autoContrast {
+            guard let b = t.resolvedAutoContrastBlack, let w = t.resolvedAutoContrastWhite, w > b else {
+                throw GPULiveError.unavailable("Auto Contrast needs quantile analysis")
+            }
+            tBounds = (Float(b), Float(w))
+        } else {
+            tBounds = (0, 0)
+        }
+        let fBounds: (Float, Float)
+        if f.autoContrast {
+            guard let b = f.resolvedAutoContrastBlack, let w = f.resolvedAutoContrastWhite, w > b else {
+                throw GPULiveError.unavailable("Auto Contrast needs quantile analysis")
+            }
+            fBounds = (Float(b), Float(w))
+        } else {
+            fBounds = (0, 0)
         }
         guard let device, let pipeline, source.device.registryID == device.registryID,
               destination.device.registryID == device.registryID else {
@@ -41,12 +58,12 @@ final class GPUHostGradeEngine: @unchecked Sendable {
             Float(t.exposureEV), Float(t.brightness), Float(t.midtones), Float(t.contrast),
             Float(t.shadows), Float(t.highlights), Float(t.highlightRecovery), Float(t.shadowRecovery),
             Float(t.blacks), Float(t.whites), Float(t.blackPoint), Float(t.whitePoint),
-            0, 0, identity ? 0 : Float(points.count), d.isIdentity ? 0 : 1,
+            tBounds.0, tBounds.1, identity ? 0 : Float(points.count), d.isIdentity ? 0 : 1,
             Float(d.master), Float(d.red), Float(d.yellow), Float(d.green),
             Float(d.cyan), Float(d.blue), Float(d.magenta), film == nil ? 0 : 1,
             Float(f.blacks), Float(f.shadows), Float(f.brightness), Float(f.highlights),
             Float(f.whites), Float(f.highlightRecovery), Float(f.shadowRecovery),
-            Float(f.contrast), 0, 0, tone != nil || !d.isIdentity ? 1 : 0
+            Float(f.contrast), fBounds.0, fBounds.1, tone != nil || !d.isIdentity ? 1 : 0
         ]
         let knots = points.indices.map {
             SIMD4<Float>(Float(points[$0].x), Float(points[$0].y), Float(curve.m[$0]), 0)
@@ -80,18 +97,32 @@ final class GPUHostGradeEngine: @unchecked Sendable {
         }
         let points = ToneCurveMath.normalize(t.curvePoints), curve = ToneCurveMath.buildCache(points)
         let identity = points.count == 2 && points[0] == ToneCurvePoint(x: 0, y: 0) && points[1] == ToneCurvePoint(x: 1, y: 1)
-        let bounds = t.autoContrast ? AutoContrastMath.bounds(input.pixels) : nil
-        var p: [Float] = [Float(t.exposureEV),Float(t.brightness),Float(t.midtones),Float(t.contrast),Float(t.shadows),Float(t.highlights),Float(t.highlightRecovery),Float(t.shadowRecovery),Float(t.blacks),Float(t.whites),Float(t.blackPoint),Float(t.whitePoint),Float(bounds?.black ?? 0),Float(bounds?.white ?? 0),identity ? 0 : Float(points.count),d.isIdentity ? 0 : 1,Float(d.master),Float(d.red),Float(d.yellow),Float(d.green),Float(d.cyan),Float(d.blue),Float(d.magenta),film == nil ? 0 : 1,Float(f.blacks),Float(f.shadows),Float(f.brightness),Float(f.highlights),Float(f.whites),Float(f.highlightRecovery),Float(f.shadowRecovery),Float(f.contrast),0,0,tone != nil || !d.isIdentity ? 1 : 0]
+        // Prefer resolve-once bounds; only re-meter when unresolved (legacy dynamic path).
+        let tAutoBounds: (black: Double, white: Double)?
+        if t.autoContrast {
+            if let b = t.resolvedAutoContrastBlack, let w = t.resolvedAutoContrastWhite, w > b {
+                tAutoBounds = (b, w)
+            } else {
+                tAutoBounds = AutoContrastMath.bounds(input.pixels)
+            }
+        } else {
+            tAutoBounds = nil
+        }
+        var p: [Float] = [Float(t.exposureEV),Float(t.brightness),Float(t.midtones),Float(t.contrast),Float(t.shadows),Float(t.highlights),Float(t.highlightRecovery),Float(t.shadowRecovery),Float(t.blacks),Float(t.whites),Float(t.blackPoint),Float(t.whitePoint),Float(tAutoBounds?.black ?? 0),Float(tAutoBounds?.white ?? 0),identity ? 0 : Float(points.count),d.isIdentity ? 0 : 1,Float(d.master),Float(d.red),Float(d.yellow),Float(d.green),Float(d.cyan),Float(d.blue),Float(d.magenta),film == nil ? 0 : 1,Float(f.blacks),Float(f.shadows),Float(f.brightness),Float(f.highlights),Float(f.whites),Float(f.highlightRecovery),Float(f.shadowRecovery),Float(f.contrast),0,0,tone != nil || !d.isIdentity ? 1 : 0]
         if f.autoContrast {
-            var samples: [Double] = []
-            let step = max(1, Int(sqrt(Double(max(1,input.width * input.height / 4096)))))
-            for y in stride(from: 0,to: input.height,by: step) { for x in stride(from: 0,to: input.width,by: step) {
-                let i = (y * input.width + x) * 4
-                samples.append(log2(max(1e-8,0.2126 * Double(input.pixels[i]) + 0.7152 * Double(input.pixels[i+1]) + 0.0722 * Double(input.pixels[i+2]))))
-            } }
-            if samples.count >= 16 {
-                samples.sort(); let lo = samples[Int(Double(samples.count-1)*0.02)], hi = samples[Int(Double(samples.count-1)*0.98)]
-                if hi-lo > 0.5 { p[32] = Float(lo); p[33] = Float(hi) }
+            if let b = f.resolvedAutoContrastBlack, let w = f.resolvedAutoContrastWhite, w > b {
+                p[32] = Float(b); p[33] = Float(w)
+            } else {
+                var samples: [Double] = []
+                let step = max(1, Int(sqrt(Double(max(1,input.width * input.height / 4096)))))
+                for y in stride(from: 0,to: input.height,by: step) { for x in stride(from: 0,to: input.width,by: step) {
+                    let i = (y * input.width + x) * 4
+                    samples.append(log2(max(1e-8,0.2126 * Double(input.pixels[i]) + 0.7152 * Double(input.pixels[i+1]) + 0.0722 * Double(input.pixels[i+2]))))
+                } }
+                if samples.count >= 16 {
+                    samples.sort(); let lo = samples[Int(Double(samples.count-1)*0.02)], hi = samples[Int(Double(samples.count-1)*0.98)]
+                    if hi-lo > 0.5 { p[32] = Float(lo); p[33] = Float(hi) }
+                }
             }
         }
         let control = points.indices.map { SIMD4<Float>(Float(points[$0].x),Float(points[$0].y),Float(curve.m[$0]),0) }

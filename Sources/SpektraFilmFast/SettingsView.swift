@@ -101,7 +101,11 @@ struct SettingsView: View {
                 }
                 Picker("Live film renderer", selection: $spectralPreviewLUT) {
                     Text("Native spectral (exact)").tag("native")
+                    Text("Looks · finished assets").tag("looks")
                     Text("Imported .cube · GPU only").tag("imported-cube")
+                    // Generated whole-film 33/65 caches are kept for backwards
+                    // compatibility but are no longer offered as "fast" modes.
+                    // Fixed pre-baked Looks are the fast editing path.
                     Text("Cached film LUT 33³ (experimental)").tag("33")
                     Text("Cached film LUT 65³ (experimental)").tag("65")
                     Text("Imported film + print LUT").tag("imported")

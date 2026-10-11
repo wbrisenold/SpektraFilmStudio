@@ -20,7 +20,7 @@ extension AppModel {
     /// scope task. It samples the latest frame at execution time, so rapid slider traffic
     /// cannot build a scope queue and cannot delay the renderer.
     func requestEditorScopeUpdate() {
-        if StudioImportedCubeLUTSettings.isSelected {
+        if StudioImportedCubeLUTSettings.isSelected || StudioLooksSettings.isSelected {
             // These scopes currently sample latestRenderedBuffer (the native CPU
             // frame), NOT liveGPUFrame. Presenting them with an imported Metal
             // look creates a false-color/waveform lie. Disable until GPU scope

@@ -118,6 +118,12 @@ struct ProductionSelfTest {
                 fputs("SELFTEST FAIL: Auto WB did not reduce a synthetic color cast\n", stderr)
                 return 17
             }
+            do {
+                try AutoCalibrationMathSmoke.run()
+            } catch {
+                fputs("SELFTEST FAIL: \(error)\n", stderr)
+                return 23
+            }
             let renderer = try NativeRenderer()
             let width = 320
             let height = 200
@@ -179,6 +185,33 @@ struct ProductionSelfTest {
                 throw RendererError.renderFailed("Interactive grain changed saved export model")
             }
             print("STAGE CACHE / INTERACTIVE GRAIN PASS: exact reuse, print edits, export model preserved")
+            // Task 6: prefix-hash dirty-tail decision must be stable and ignore
+            // suffix-stage edits while staying sensitive to the prefix itself.
+            let prefixDecode = DecodeKey(path: "/tmp/prefix-smoke.raw", longEdge: 1080, raw: look.raw, bypassImportTransform: false)
+            let prefixA = GPULiveFramePipeline.prefixHash(decode: prefixDecode, calibration: nil)
+            guard prefixA == GPULiveFramePipeline.prefixHash(decode: prefixDecode, calibration: nil) else {
+                throw RendererError.renderFailed("Prefix hash not stable across calls")
+            }
+            var suffixLook = look
+            suffixLook.tone = (suffixLook.tone ?? ToneSettings())
+            suffixLook.tone?.curvePoints = [.init(x: 0, y: 0.2), .init(x: 1, y: 0.8)]
+            guard prefixA == GPULiveFramePipeline.prefixHash(
+                    decode: DecodeKey(path: prefixDecode.path, longEdge: 1080, raw: suffixLook.raw, bypassImportTransform: false),
+                    calibration: nil)
+            else {
+                throw RendererError.renderFailed("Prefix hash changed on a suffix-only edit (tone curve)")
+            }
+            var warmerRaw = look.raw
+            warmerRaw.temperature = 6200
+            let warmerDecode = DecodeKey(path: prefixDecode.path, longEdge: 1080, raw: warmerRaw, bypassImportTransform: false)
+            guard GPULiveFramePipeline.prefixHash(decode: warmerDecode, calibration: nil) != prefixA else {
+                throw RendererError.renderFailed("Prefix hash ignored a RAW/WB change")
+            }
+            let shorterDecode = DecodeKey(path: prefixDecode.path, longEdge: 720, raw: look.raw, bypassImportTransform: false)
+            guard GPULiveFramePipeline.prefixHash(decode: shorterDecode, calibration: nil) != prefixA else {
+                throw RendererError.renderFailed("Prefix hash ignored the preview long edge")
+            }
+            print("PREFIX HASH DIRTY TAIL PASS: stable, suffix-blind, raw/longEdge sensitive")
             var haloLook=look
             haloLook.values["halationEnabled"] = .bool(true)
             haloLook.values["halationScale"] = .scalar(14)

@@ -250,7 +250,9 @@ actor NativeRenderer {
             params.dirCouplersDiffusionUm = 0
             params.dirCouplersDiffusionTailUm = 0
         }
-        if params.autoExposure != 0 { return "auto exposure" }
+        // Resolved auto exposure: EV already baked into developExposureEV at gesture
+        // start (autoExposureApplied). Unresolved native autoExposure still blocks.
+        if params.autoExposure != 0 && !look.raw.autoExposureApplied { return "auto exposure" }
         if params.grainEnabled != 0 { return "film grain" }
         if params.halationEnabled != 0 { return "halation" }
         if params.cameraDiffusionEnabled != 0 { return "camera diffusion" }

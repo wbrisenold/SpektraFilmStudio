@@ -42,6 +42,21 @@ struct ControlsView: View {
             .padding(.horizontal, 9)
             .padding(.top, 9)
 
+            if mode == .adjust {
+                HStack(spacing: 8) {
+                    Toggle("Auto baseline", isOn: Binding(
+                        get: { model.selectedLook.importCalibration?.applies(to: model.selectedLook.raw) == true },
+                        set: { model.setImportCalibrationEnabled($0) }
+                    ))
+                    .disabled(model.selectedLook.importCalibration == nil)
+                    .help("Per-photo CAT16 color calibration and percentile-based auto exposure; starts from the camera's as-shot balance")
+                    Spacer()
+                    Button("Reanalyze") { model.reanalyzeImportCalibration() }
+                        .disabled(model.selectedImage == nil)
+                }
+                .controlSize(.small)
+                .padding(.horizontal, 12).padding(.top, 8)
+            }
             // One section at a time, chosen by a segmented tab. This is what keeps the
             // rail short: only the selected workflow's controls are in the stack.
             if mode == .adjust {
@@ -333,6 +348,15 @@ struct ControlsView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
+                    HStack(spacing: 8) {
+                        Button("Auto WB") { model.setAutoWhiteBalanceOnce() }
+                            .controlSize(.mini)
+                            .help("Measures the color cast once from the current frame and stores the temperature and tint that neutralize it.")
+                        if model.selectedLook.raw.temperatureOffsetMired != nil || model.selectedLook.raw.tintOffset != nil {
+                            Text(String(format: "Auto %dK %+.0f", Int(model.whiteBalanceDisplayTemperature), model.whiteBalanceDisplayTint))
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
                 }
 
                 WhiteBalanceTemperatureSlider(
@@ -534,6 +558,15 @@ struct ControlsView: View {
                         helpText:"CIRAWFilter exposure. Locked behavior.",resetValue:0,
                         onReset:{model.setRawDevelopExposure(0,interactive:false)},onBegin:{model.beginEditGesture()},
                         onChange:{model.setRawDevelopExposure($0,interactive:true)},onEnd:{model.endEditGesture()})
+                    HStack(spacing: 8) {
+                        Button("Auto Exposure") { model.setRawDevelopAutoExposure() }
+                            .controlSize(.mini)
+                            .help("Meters one exposure value from the current frame. Moving the exposure slider by hand clears it.")
+                        if raw.autoExposureApplied {
+                            Text(String(format: "Auto %+.2f EV", raw.developExposureEV))
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
                     DraftScalarSlider(label:"Global Tone",committedValue:raw.developGlobalTone*100,range:0...100,precision:0,
                         helpText:"Apple CIRAWFilter global tone. Locked behavior.",resetValue:100,
                         onReset:{model.setRawDevelopGlobalTone(1,interactive:false)},onBegin:{model.beginEditGesture()},
@@ -548,6 +581,17 @@ struct ControlsView: View {
 
                 Divider().opacity(0.5)
                 Text(active == nil ? "Light" : "Masked Light").font(.caption.weight(.semibold))
+                if active == nil {
+                    HStack(spacing: 8) {
+                        Button("Auto Contrast") { model.setAutoContrast(true) }
+                            .controlSize(.mini)
+                            .help("Places black and white once from the current frame. Changing any tone control by hand clears it.")
+                        if let black = tone.resolvedAutoContrastBlack, let white = tone.resolvedAutoContrastWhite {
+                            Text(String(format: "Auto %.2f–%.2f", black, white))
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                }
                 routedTone("Contrast",tone.contrast,-100...100,grade:active,key:"contrast"){model.setToneContrast($0,interactive:$1)}
                 routedTone("Midtones",tone.midtones,-100...100,grade:active,key:"midtones"){model.setToneMidtones($0,interactive:$1)}
                 routedTone("Highlights",tone.highlights,-100...100,grade:active,key:"highlights"){model.setToneHighlights($0,interactive:$1)}

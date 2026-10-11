@@ -92,10 +92,19 @@ struct MetalPreviewCanvas: NSViewRepresentable {
             let gpu = liveGPUFrame
             // The exact same content importer and aspect-fit composition
             // are exercised by the real-Metal smoke test. No silent nil CIImage.
-            let image = gpu.flatMap {
+            let imported = gpu.flatMap {
                 try? MetalPreviewComposition.content(texture: $0.texture, colorSpace: $0.colorSpace)
-            } ?? queuedCIImage
+            }
+            // A requested GPU texture must NEVER silently display an older CPU
+            // picture. Mark a presentation failure visibly with a red error frame.
+            let importFailed = gpu != nil && imported == nil
+            let image = importFailed ? CIImage(color: CIColor(red: 0.65, green: 0.02,
+                blue: 0.04, alpha: 1)).cropped(to: CGRect(x: 0, y: 0,
+                width: max(1, view.drawableSize.width),
+                height: max(1, view.drawableSize.height)))
+                : (imported ?? queuedCIImage)
             guard let image else { lock.unlock(); return }
+            if importFailed { NSLog("SPEKTRA_GPU_PRESENTATION_ERROR: Unable to import the current Metal frame") }
             if inFlight >= 2 {
                 needsLatest = true
                 lock.unlock()
@@ -118,9 +127,16 @@ struct MetalPreviewCanvas: NSViewRepresentable {
                 colorSpace: displayColorSpace
             )
             command.present(drawable)
-            command.addCompletedHandler { [weak self] _ in
-                guard let self else { return }
-                self.frameCompleted()
+            command.addCompletedHandler { [weak self, gpu] command in
+                // MTKView may switch to a newer frame before this GPU draw
+                // completes. Retain the old texture until Metal is finished.
+                withExtendedLifetime(gpu) {
+                    if command.status != .completed {
+                        NSLog("SPEKTRA_GPU_PRESENTATION_ERROR: %@",
+                              command.error?.localizedDescription ?? "GPU display failed")
+                    }
+                    self?.frameCompleted()
+                }
             }
             command.commit()
         }

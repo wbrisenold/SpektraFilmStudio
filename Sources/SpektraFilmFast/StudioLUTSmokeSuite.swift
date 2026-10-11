@@ -16,6 +16,7 @@ enum StudioLUTSmokeSuite {
     }
 
     static func run() async throws {
+        try await StudioLooksSmokeSuite.run()
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("SFS-LUT-SMOKE-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -40,7 +41,9 @@ enum StudioLUTSmokeSuite {
         let source = PixelBufferF32(width: 2, height: 1, pixels: [
             0.18, 0.18, 0.18, 1.0, 0.41, 0.12, 0.23, 1.0
         ])
-        let offline = StudioImportedLUTOffline.shared
+        // Fresh instance: the prepended Looks smoke shares `.shared` and its
+        // cumulative upload counters would break the absolute count assertions.
+        let offline = StudioImportedLUTOffline()
         let first = try await offline.render(source, file: srgb)
         let counts1 = await offline.gpuCacheCounts()
         let second = try await offline.render(source, file: srgb)
@@ -48,7 +51,9 @@ enum StudioLUTSmokeSuite {
         guard counts1.uploads == 1, counts2.uploads == 1, counts2.hits >= 1,
               first.pixels.count == source.pixels.count,
               first.pixels == second.pixels,
-              first.pixels[0].isFinite, first.pixels[0] > 0.15, first.pixels[0] < 0.22,
+              // Corrected shader converts linear Rec.2020 input to encoded
+              // sRGB before the LUT, so identity mid-gray ≈0.46 (not 0.18).
+              first.pixels[0].isFinite, first.pixels[0] > 0.40, first.pixels[0] < 0.52,
               first.pixels[3] == 1 else {
             throw Failure.failed("sRGB LUT Metal output/reuse/alpha validation failed")
         }
@@ -160,12 +165,12 @@ enum StudioLUTSmokeSuite {
         }
         // Verify the Metal texture has non-uniform content BEFORE Core Image.
         // This catches blank-frame regressions that the 2-pixel test missed.
-        var metalPixels = [UInt8](repeating: 0, count: width * height * 4)
-        let readbackDesc = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .rgba32Float, width: width, height: height, mipmapped: false)
-        readbackDesc.usage = [.shaderRead, .shaderWrite]
-        readbackDesc.storageMode = .shared
-        guard let readbackTex = device.makeTexture(descriptor: readbackDesc),
+        // Float32 RGBA is SIXTEEN bytes per pixel. The former [UInt8] array was
+        // only four bytes per pixel and the getBytes() call wrote out-of-bounds.
+        // A shared readback MTLBuffer is valid on discrete Intel/Radeon Macs.
+        let readbackBytesPerRow = width * MemoryLayout<SIMD4<Float>>.stride
+        guard let readbackBuffer = device.makeBuffer(
+                 length: readbackBytesPerRow * height, options: .storageModeShared),
               let readbackCmd = gpu.queue.makeCommandBuffer(),
               let blit = readbackCmd.makeBlitCommandEncoder() else {
             throw Failure.failed("GPU readback texture unavailable")
@@ -173,8 +178,9 @@ enum StudioLUTSmokeSuite {
         blit.copy(from: texture, sourceSlice: 0, sourceLevel: 0,
                   sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
                   sourceSize: MTLSize(width: width, height: height, depth: 1),
-                  to: readbackTex, destinationSlice: 0, destinationLevel: 0,
-                  destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0))
+                  to: readbackBuffer, destinationOffset: 0,
+                  destinationBytesPerRow: readbackBytesPerRow,
+                  destinationBytesPerImage: readbackBytesPerRow * height)
         blit.endEncoding()
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             readbackCmd.addCompletedHandler { finished in
@@ -184,8 +190,7 @@ enum StudioLUTSmokeSuite {
             }
             readbackCmd.commit()
         }
-        readbackTex.getBytes(&metalPixels, bytesPerRow: width * 16,
-            from: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0)
+        let metalPixels = readbackBuffer.contents().assumingMemoryBound(to: Float.self)
         func rgbaFloat(_ x: Int, _ y: Int) -> [Float] {
             let o = (y * width + x) * 4
             return [metalPixels[o+0], metalPixels[o+1], metalPixels[o+2], metalPixels[o+3]]
@@ -199,6 +204,35 @@ enum StudioLUTSmokeSuite {
               a.contains(where: { $0 > 0 }) else {
             throw Failure.failed("LUT_GPU_FRAME_BLANK: GPU LUT produced uniform/zero pixels (left=\(a), right=\(b), maxDiff=\(maxDiff))")
         }
+        // Cover the exact Core Image import + letterbox + display sRGB path.
+        let converted = try MetalPreviewComposition.content(
+            texture: texture, colorSpace: outputSpace.cgColorSpace)
+        let composed = MetalPreviewComposition.letterbox(converted,
+            width: width, height: height)
+        // CIContext.render(to:commandBuffer:) into a Metal texture silently
+        // writes zeros on Intel macOS (standalone repro: completed status,
+        // all-zero BGRA). The synchronous bitmap render exercises the same
+        // CI import + letterbox + sRGB conversion without that bug.
+        let ci = CIContext(mtlDevice: device, options: [.useSoftwareRenderer: false])
+        let displayBytesPerRow = width * 4
+        var displayStorage = [UInt8](repeating: 0, count: displayBytesPerRow * height)
+        displayStorage.withUnsafeMutableBytes { raw in
+            ci.render(composed, toBitmap: raw.baseAddress!, rowBytes: displayBytesPerRow,
+                      bounds: CGRect(x: 0, y: 0, width: width, height: height),
+                      format: .BGRA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
+        }
+        // BGRA8 with two different RGB vectors: not just a single luminance sample.
+        let displayBytes = displayStorage
+        func bgra(_ x: Int, _ y: Int) -> [Int] {
+            let o = (y * width + x) * 4
+            return (0..<4).map { Int(displayBytes[o+$0]) }
+        }
+        let left = bgra(8, 32), right = bgra(87, 32)
+        guard zip(left.prefix(3), right.prefix(3)).contains(where: { abs($0.0-$0.1) > 24 }),
+              left[3] == 255, right[3] == 255 else {
+            throw Failure.failed("LUT_GPU_DISPLAY_BLANK: BGRA8/sRGB presentation lost image detail (left=\(left), right=\(right))")
+        }
+        print("LUT_GPU_DISPLAY_PASS: real Core Image presentation has chroma and contrast")
         print("LUT_GPU_FRAME_PASS: Metal LUT output has detail (maxDiff=\(maxDiff))")
     }
 
