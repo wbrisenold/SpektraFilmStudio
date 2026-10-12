@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "skills": {
+    "swift-formatstyle": {
+      "source": "dpearson2699/swift-ios-skills",
+      "sourceType": "github",
+      "skillPath": "skills/swift-formatstyle/SKILL.md",
+      "computedHash": "0d98efd04eb9d39cf534ea1a127545dcdcd963eeee9cd7eade09708e9905e518"
+    },
+    "swift-language": {
+      "source": "dpearson2699/swift-ios-skills",
+      "sourceType": "github",
+      "skillPath": "skills/swift-language/SKILL.md",
+      "computedHash": "152bd68c83ed576cddbf7941fff335a76f3910532b72ce1ba893bceb4b227971"
+    },
+    "swift-style": {
+      "source": "johnrogers/claude-swift-engineering",
+      "sourceType": "github",
+      "skillPath": "plugins/swift-engineering/skills/swift-style/SKILL.md",
+      "computedHash": "f6244fc2dc917fb2a2eabb1c7158d39a062119010a129c24b5aec1b72200cbd4"
+    },
+    "swift-testing": {
+      "source": "dpearson2699/swift-ios-skills",
+      "sourceType": "github",
+      "skillPath": "skills/swift-testing/SKILL.md",
+      "computedHash": "a8cf4e7e76a04e41a361d342924c4d60674b64cebe5c85b752d67a447e443048"
+    },
+    "swiftlint": {
+      "source": "dpearson2699/swift-ios-skills",
+      "sourceType": "github",
+      "skillPath": "skills/swiftlint/SKILL.md",
+      "computedHash": "e2dfb4b34fb3d5051a9eb7842ce3f3db21f8caa43da395354383fcf6248c7aa1"
+    }
+  }
+}

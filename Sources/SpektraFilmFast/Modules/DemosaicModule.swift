@@ -1,6 +1,16 @@
-// Demosaic module - RCD (Ratio Corrected Demosaicing)
-// Exact port of Darktable's RCD algorithm (src/iop/demosaicing/rcd.c)
-// Original by Luis Sanz Rodríguez, optimized by Ingo Weyrich
+// Demosaic module - produces scene-linear RGB from a RAW Bayer/X-Trans mosaic.
+//
+// Current implementation: PPG (Patterned Pixel Guess) interpolation as the
+// demosaic path. This is an original approximation, NOT a port of Darktable's
+// RCD, AMaZE, or VNG4 algorithms.
+//
+// The RCD tile-processing code paths (processRCDTile, populateRedBlue,
+// populateRedBlueAtGreen, writeTileToOutput) are scaffolding stubs and are
+// NOT wired into the active render path. The rcdDemosaic entry point falls
+// back to PPG for any image.
+//
+// IMPORTANT: This module should NOT be described as "RCD" or attributed to
+// Darktable's RCD authors in user-facing UI until a verified port exists.
 
 import Foundation
 import Metal
@@ -85,36 +95,117 @@ final class DemosaicModule: PixelpipeModule {
             throw PipelineError.wrongBufferType
         }
         guard isEnabled else { throw PipelineError.unsupportedModule }
-        // Only RCD is implemented. Returning an empty buffer here would emit a
-        // blank image, so surface the limitation instead.
-        guard algorithm == .rcd else {
-            throw PipelineError.unsupportedModule
-        }
 
         let width = rawInput.width
         let height = rawInput.height
         let pixels = rawInput.pixels
         let filters = rawInput.filters
-        let xtrans = rawInput.xtrans ?? []
 
-        // Scale input
-        let scaler = 1.0 / (rawInput.whiteLevel > 0 ? rawInput.whiteLevel : 1.0)
-        let revscaler = 1.0 / scaler
-
-        // Process using RCD tile-based algorithm
-        let output = try rcdDemosaic(
+        // After RawPrepareModule has normalized the mosaic to [0,1+] scene-linear,
+        // run demosaic. Do NOT divide by white level again — that was already done
+        // in RawPrepare and doing it here would crush highlights.
+        let output = try ppgDemosaic(
             pixels: pixels,
             width: width,
             height: height,
-            filters: filters,
-            xtrans: xtrans,
-            revscaler: revscaler
+            filters: filters
         )
 
-        return PixelBufferF32(width: width, height: height, pixels: output)
+        // Convert from camera sensor color space to linear Rec.2020 working space.
+        // The demosaic output is in camera-native color coordinates.
+        // We apply the camera color matrix from LibRaw metadata to transform to
+        // a standard working space (linear Rec.2020 primaries).
+        //
+        // If no color matrix is available, the output stays in camera space and
+        // the NativeRenderer will treat it as unlabeled camera RGB (not Rec.2020).
+        var rgbBuffer = PixelBufferF32(width: width, height: height, pixels: output)
+        if let metadata = context.metadata, !metadata.colorMatrix.isEmpty {
+            rgbBuffer = try applyCameraToWorkingSpaceConversion(
+                rgbBuffer, colorMatrix: metadata.colorMatrix,
+                metadata: metadata
+            )
+        }
+
+        return rgbBuffer
     }
 
-    // MARK: - RCD Demosaicing (partial port of Darktable's rcd_demosaic)
+    /// Convert camera-space RGB to linear Rec.2020 working space using the
+    /// camera color matrix from LibRaw metadata.
+    ///
+    /// The LibRaw color matrix (cmatrix) maps camera RGB to XYZ (or linear sRGB).
+    /// We chain it with a conversion from linear sRGB/XYZ to linear Rec.2020.
+    ///
+    /// If the matrix is invalid (all zeros or degenerate), the conversion is skipped.
+    private func applyCameraToWorkingSpaceConversion(
+        _ buffer: PixelBufferF32,
+        colorMatrix: [Float],
+        metadata: RawSpeedMetadata
+    ) throws -> PixelBufferF32 {
+        // LibRaw's color matrix is a 3x4 matrix (cmatrix[3][4]) that maps
+        // camera RGB to XYZ. The last column is typically the offset.
+        // Layout: [rX, gX, bX, X0, rY, gY, bY, Y0, rZ, gZ, bZ, Z0]
+        guard colorMatrix.count == 12 else { return buffer }
+
+        // Extract the 3x3 color matrix (ignore the offset column)
+        let m00 = colorMatrix[0], m01 = colorMatrix[1], m02 = colorMatrix[2]
+        let m10 = colorMatrix[4], m11 = colorMatrix[5], m12 = colorMatrix[6]
+        let m20 = colorMatrix[8], m21 = colorMatrix[9], m22 = colorMatrix[10]
+
+        // Check for valid matrix (not all zeros)
+        guard abs(m00) > 1e-10 || abs(m01) > 1e-10 || abs(m02) > 1e-10,
+              abs(m10) > 1e-10 || abs(m11) > 1e-10 || abs(m12) > 1e-10,
+              abs(m20) > 1e-10 || abs(m21) > 1e-10 || abs(m22) > 1e-10
+        else { return buffer }
+
+        // Build the 3x3 camera-to-XYZ matrix
+        let camToXYZ = simd_matrix(
+            SIMD3<Float>(m00, m01, m02),
+            SIMD3<Float>(m10, m11, m12),
+            SIMD3<Float>(m20, m21, m22)
+        )
+
+        // XYZ to linear Rec.2020 conversion matrix
+        // Rec.2020 primaries: R=(0.708, 0.292), G=(0.170, 0.797), B=(0.131, 0.046)
+        // D65 white point: (0.3127, 0.3290)
+        //
+        // XYZ -> linear Rec.2020 matrix (from ITU-R BT.2020-2):
+        let xyzToRec2020 = simd_matrix(
+            SIMD3<Float>( 1.7166511879712674, -0.35567078377639233, -0.25336628137365974),
+            SIMD3<Float>(-0.6666843518324892,  1.6164812366349395,  0.01576854581391113),
+            SIMD3<Float>( 0.017639857445310783, -0.042770613368555052,  0.9421031212354738)
+        )
+
+        // Combined: camera -> XYZ -> Rec.2020
+        let camToRec2020 = xyzToRec2020 * camToXYZ
+
+        // Apply the matrix to each pixel
+        var output = buffer.pixels
+        let pixelCount = buffer.width * buffer.height
+        for i in 0..<pixelCount {
+            let idx = i * 4
+            let r = output[idx]
+            let g = output[idx + 1]
+            let b = output[idx + 2]
+
+            let cameraRGB = SIMD3<Float>(r, g, b)
+            let rec2020RGB = camToRec2020 * cameraRGB
+
+            output[idx] = rec2020RGB.x
+            output[idx + 1] = rec2020RGB.y
+            output[idx + 2] = rec2020RGB.z
+            // Alpha unchanged
+        }
+
+        return PixelBufferF32(width: buffer.width, height: buffer.height, pixels: output)
+    }
+
+    // MARK: - RCD scaffolding (NOT wired into the active render path)
+    //
+    // These functions are retained as scaffolding for a future verified RCD port.
+    // They are NOT called by process() — that path uses ppgDemosaic directly.
+    //
+    // populateRedBlue, populateRedBlueAtGreen, and writeTileToOutput are empty
+    // stubs. Any code path reaching them would produce incorrect output.
     private func rcdDemosaic(
         pixels: [Float],
         width: Int,
@@ -123,25 +214,17 @@ final class DemosaicModule: PixelpipeModule {
         xtrans: [[UInt8]],
         revscaler: Float
     ) throws -> [Float] {
-        // First, run PPG as initial interpolation for edge handling
-        let ppgResult = try ppgDemosaic(pixels: pixels, width: width, height: height, filters: filters)
-        let scaledPPG = ppgResult.map { $0 * (1.0 / revscaler) }
-
-        if width < 2 * 10 || height < 2 * 10 {
-            // Too small for RCD, return PPG result scaled
-            return scaledPPG
-        }
-
-        // shortcut: the tiled RCD path is not wired up — `populateRedBlue`,
-        // `populateRedBlueAtGreen` and `writeTileToOutput` are still empty stubs,
-        // so composing tiles produced an all-zero (black) buffer for any image at
-        // least 20px on a side. Return the completed PPG stage instead of emitting
-        // black pixels. Upgrade when the red/blue interpolation and tile write-back
-        // are implemented and verified against Darktable reference vectors.
-        return scaledPPG
+        // This function is kept for scaffolding purposes only.
+        // The active demosaic path uses ppgDemosaic directly.
+        fatalError("rcdDemosaic should not be called — use ppgDemosaic instead")
     }
 
-    // MARK: - Single Tile Processing (full RCD algorithm)
+    // MARK: - Single Tile Processing (RCD scaffolding — NOT wired in)
+    //
+    // This function is scaffolding for a future verified RCD port.
+    // It is NOT called by the active render path.
+    // The 256x256 hardcoded tile size and stub implementations mean this
+    // cannot produce correct output for any image.
     private func processRCDTile(
         pixels: [Float],
         width: Int,
@@ -156,97 +239,52 @@ final class DemosaicModule: PixelpipeModule {
         tileRows: Int,
         tileCols: Int
     ) throws -> [[Float]] {
-        // Allocate tile buffers
-        let _ = 256
-        var rgb = [[Float]](repeating: [Float](repeating: 0, count: 256 * 256), count: 3)
-        var cfa = [Float](repeating: 0, count: 256 * 256)
-        var VH_Dir = [Float](repeating: 0, count: 256 * 256)
-        let PQ_Dir = [Float](repeating: 0, count: 256 * 256 / 2)
-        let _ = [Float](repeating: 0, count: 256 * 256 / 2)
-        let _ = [Float](repeating: 0, count: 256 * 256 / 2)
-        var lpf = [Float](repeating: 0, count: 256 * 256 / 2)
+        // Scaffolding: would need proper tile buffer allocation, CFA fill,
+        // direction discrimination, green population, R/B population,
+        // and tile write-back. All currently stub.
+        let tileSize = 256
+        var rgb = [[Float]](repeating: [Float](repeating: 0, count: tileSize * tileSize), count: 3)
 
-        // Step 0: Fill data with safe input scaling
-        for row in 0..<tileRows {
-            let rowAbs = rowStart + row
-            _ = getCFAChannel(row: rowAbs, col: colStart, filters: filters)
-            _ = getCFAChannel(row: rowAbs, col: colStart + 1, filters: filters)
-
-            for col in 0..<tileCols {
-                _ = colStart + col
-                let idx = row * 256 + col
-                _ = (rowStart + row) * width + (colStart + col)
-
-                let val = max(0.0, pixels[(rowStart + row) * width + colStart + col])
-                cfa[idx] = val
-                rgb[0][idx] = val
-                rgb[1][idx] = val
-                rgb[2][idx] = val
+        // Fill CFA data (scaffold)
+        for row in 0..<min(tileRows, tileSize) {
+            for col in 0..<min(tileCols, tileSize) {
+                let srcIdx = (rowStart + row) * width + (colStart + col)
+                guard srcIdx < pixels.count else { continue }
+                let idx = row * tileSize + col
+                rgb[0][idx] = pixels[srcIdx]
+                rgb[1][idx] = pixels[srcIdx]
+                rgb[2][idx] = pixels[srcIdx]
             }
         }
-
-        // STEP 1: Find vertical and horizontal interpolation directions
-        try computeDirections(
-            cfa: &cfa,
-            VH_Dir: &VH_Dir,
-            tileRows: tileRows,
-            tileCols: tileCols,
-            filters: filters
-        )
-
-        // STEP 2: Calculate low pass filter
-        computeLowPassFilter(
-            cfa: cfa,
-            lpf: &lpf,
-            tileRows: tileRows,
-            tileCols: tileCols,
-            filters: filters
-        )
-
-        // STEP 3: Populate green channel at blue and red CFA positions
-        try populateGreen(
-            cfa: cfa,
-            lpf: lpf,
-            rgb: &rgb,
-            VH_Dir: VH_Dir,
-            tileRows: tileRows,
-            tileCols: tileCols,
-            filters: filters
-        )
-
-        // STEP 4: Populate red and blue channels
-        try populateRedBlue(
-            cfa: cfa,
-            rgb: &rgb,
-            PQ_Dir: PQ_Dir,
-            tileRows: tileRows,
-            tileCols: tileCols,
-            filters: filters
-        )
-
-        // STEP 5: Populate red and blue at green positions
-        try populateRedBlueAtGreen(
-            rgb: &rgb,
-            VH_Dir: VH_Dir,
-            tileRows: tileRows,
-            tileCols: tileCols,
-            filters: filters
-        )
 
         return rgb
     }
 
     // MARK: - PPG Initial Demosaicing (for edges)
+    ///
+    /// Produces a 4-channel interleaved RGBA buffer (PixelBufferF32 layout):
+    /// - R = red CFA samples (interpolated where missing)
+    /// - G = green CFA samples (combines G and G2 Bayer positions)
+    /// - B = blue CFA samples (interpolated where missing)
+    /// - A = 1.0 (fully opaque) everywhere
+    ///
+    /// The 4 CFA accumulators are mapped as: 0->R, 1->G, 2->B, 3->G2.
+    /// G and G2 are averaged into the single green channel.
     private func ppgDemosaic(pixels: [Float], width: Int, height: Int, filters: UInt32) throws -> [Float] {
         var output = [Float](repeating: 0, count: width * height * 4)
 
         for y in 0..<height {
             for x in 0..<width {
                 let idx = y * width + x
-                _ = getCFAChannel(row: y, col: x, filters: filters)
 
-                var sum: [Float] = [0, 0, 0, 0]
-                var cnt: [Float] = [0, 0, 0, 0]
+                var sumR: Float = 0
+                var sumG: Float = 0
+                var sumB: Float = 0
+                var sumG2: Float = 0
+                var cntR: Float = 0
+                var cntG: Float = 0
+                var cntB: Float = 0
+                var cntG2: Float = 0
 
                 for dy in -1...1 {
                     for dx in -1...1 {
@@ -255,16 +293,29 @@ final class DemosaicModule: PixelpipeModule {
                         if nx >= 0 && nx < width && ny >= 0 && ny < height {
                             let nIdx = ny * width + nx
                             let nColor = getCFAChannel(row: ny, col: nx, filters: filters)
-                            sum[nColor] += max(0, pixels[nIdx])
-                            cnt[nColor] += 1
+                            let val = max(0, pixels[nIdx])
+                            switch nColor {
+                            case 0: sumR += val; cntR += 1
+                            case 1: sumG += val; cntG += 1
+                            case 2: sumB += val; cntB += 1
+                            case 3: sumG2 += val; cntG2 += 1
+                            default: break
+                            }
                         }
                     }
                 }
 
                 let outIdx = idx * 4
-                for c in 0..<4 {
-                    output[outIdx + c] = sum[c] / max(1, cnt[c])
-                }
+                // R channel: average of red CFA samples
+                output[outIdx] = cntR > 0 ? sumR / cntR : 0
+                // G channel: combine green (1) and green2 (3) averages
+                let gAvg = cntG > 0 ? sumG / cntG : 0
+                let g2Avg = cntG2 > 0 ? sumG2 / cntG2 : 0
+                output[outIdx + 1] = (cntG > 0 && cntG2 > 0) ? (gAvg + g2Avg) * 0.5 : (cntG > 0 ? gAvg : (cntG2 > 0 ? g2Avg : 0))
+                // B channel: average of blue CFA samples
+                output[outIdx + 2] = cntB > 0 ? sumB / cntB : 0
+                // A channel: fully opaque
+                output[outIdx + 3] = 1.0
             }
         }
 
@@ -419,7 +470,7 @@ final class DemosaicModule: PixelpipeModule {
         }
     }
 
-    // STEP 4: Populate red/blue at blue/red positions
+    // STEP 4: Populate red/blue at blue/red positions (STUB)
     private func populateRedBlue(
         cfa: [Float],
         rgb: inout [[Float]],
@@ -428,11 +479,12 @@ final class DemosaicModule: PixelpipeModule {
         tileCols: Int,
         filters: UInt32
     ) throws {
-        // Step 4.0: P/Q diagonal color difference high pass
-        // ... (placeholder - full implementation needed)
+        // STUB: Not implemented. Would need P/Q diagonal color difference
+        // high-pass filter and directional red/blue interpolation.
+        throw PipelineError.unsupportedModule
     }
 
-    // Populate R/B at green positions
+    // Populate R/B at green positions (STUB)
     private func populateRedBlueAtGreen(
         rgb: inout [[Float]],
         VH_Dir: [Float],
@@ -440,7 +492,9 @@ final class DemosaicModule: PixelpipeModule {
         tileCols: Int,
         filters: UInt32
     ) throws {
-        // Implementation needed
+        // STUB: Not implemented. Would need directional R/B interpolation
+        // at green CFA positions using VH_Dir weighting.
+        throw PipelineError.unsupportedModule
     }
 
     // MARK: - Helper Functions
@@ -466,7 +520,7 @@ final class DemosaicModule: PixelpipeModule {
         return a + x * (b - a)
     }
 
-    // Tile output writing
+    // Tile output writing (STUB)
     private func writeTileToOutput(
         tileOutput: [[Float]],
         output: inout [Float],
@@ -478,6 +532,7 @@ final class DemosaicModule: PixelpipeModule {
         firstHorizontal: Int,
         lastHorizontal: Int
     ) {
-        // Write RGB output
+        // STUB: Not implemented. Would need to copy tile RGB data back
+        // to the output buffer at the correct position.
     }
 }

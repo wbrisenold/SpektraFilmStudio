@@ -4304,18 +4304,30 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Develop a RAW file through the scene-referred pixelpipe module chain.
+    /// Develop an image through the scene-referred pixelpipe for RAW files,
+    /// or fall back to the color-managed raster decoder for non-RAW images.
     ///
-    /// This replaces the RGBA-with-Bayer-in-R decode with a real single-channel
-    /// CFA mosaic so the RAW modules (hotpixels, denoise, demosaic) actually run.
+    /// This is the unified preview development entry point used by the render loop.
+    /// Sensor RAW files (CR2/NEF/ARW/RAF/DNG with Bayer/X-Trans mosaic) run through
+    /// the full pixelpipe. JPEG/PNG/TIFF/HEIC use the standard raster decode path.
     private func developSceneReferred(
         url: URL, longEdge: Int, raw: RawSettings, look: RenderLook
     ) async throws -> PixelBufferF32 {
-        let (mosaic, metadata) = try ImageDecoder.decodeRawSpeedMosaic(url: url, longEdge: longEdge)
-        let engine = PixelpipeEngine()
-        return try await engine.execute(
-            rawMosaic: mosaic, rawSettings: raw, look: look, metadata: metadata,
-            ciContext: ImageDecoder.sharedCIContext)
+        if ImageDecoder.isSensorRAW(url) {
+            let (mosaic, metadata) = try ImageDecoder.decodeRawSpeedMosaic(url: url, longEdge: longEdge)
+            let engine = PixelpipeEngine()
+            return try await engine.execute(
+                rawMosaic: mosaic, rawSettings: raw, look: look, metadata: metadata,
+                ciContext: ImageDecoder.sharedCIContext)
+        } else {
+            return try await decoder.decode(
+                url: url,
+                longEdge: longEdge,
+                raw: raw,
+                bypassImportTransform: project.preferences.bypassImportTransform,
+                cacheMode: .automatic
+            )
+        }
     }
 
     private func runRenderLoop(loopID: UUID) async {        defer {
@@ -4361,15 +4373,35 @@ final class AppModel: ObservableObject {
                         cacheMode: request.cacheMemoryMode
                     )
                 } else if useFull {
-                    input = try await decoder.fullResolution(
-                        url: request.url,
-                        raw: request.look.raw,
-                        bypassImportTransform: request.preferences.bypassImportTransform
-                    )
+                    // Full-resolution path: RAW through pixelpipe, raster through decoder.
+                    if ImageDecoder.isSensorRAW(request.url) {
+                        input = try await developSceneReferred(
+                            url: request.url, longEdge: Int.max,
+                            raw: request.look.raw, look: request.look)
+                    } else {
+                        input = try await decoder.fullResolution(
+                            url: request.url,
+                            raw: request.look.raw,
+                            bypassImportTransform: request.preferences.bypassImportTransform
+                        )
+                    }
                 } else {
-                    input = try await developSceneReferred(
-                        url: request.url, longEdge: longEdge,
-                        raw: request.look.raw, look: request.look)
+                    // Normal preview path: route by source type.
+                    // RAW sensor files → pixelpipe (scene-referred modules).
+                    // Non-RAW raster files → color-managed raster decoder.
+                    if ImageDecoder.isSensorRAW(request.url) {
+                        input = try await developSceneReferred(
+                            url: request.url, longEdge: longEdge,
+                            raw: request.look.raw, look: request.look)
+                    } else {
+                        input = try await decoder.decode(
+                            url: request.url,
+                            longEdge: longEdge,
+                            raw: request.look.raw,
+                            bypassImportTransform: request.preferences.bypassImportTransform,
+                            cacheMode: request.cacheMemoryMode
+                        )
+                    }
                 }
                 let decodeMs = (ProcessInfo.processInfo.systemUptime - decodeStarted) * 1000.0
 
@@ -5982,11 +6014,28 @@ final class AppModel: ObservableObject {
                     original = url
                 }
                 let renderURL = try await denoiseService.prepare(source: original, raw: raw, iso: nil)
-                let buffer = try await decoderActor.fullResolution(
-                    url: renderURL,
-                    raw: raw,
-                    bypassImportTransform: bypass
-                )
+                let buffer: PixelBufferF32
+                // For sensor RAW files, use the pixelpipe development path for
+                // full-resolution export to match the preview pipeline exactly.
+                // For non-RAW raster files, use the color-managed raster decoder.
+                if ImageDecoder.isSensorRAW(renderURL) {
+                    // Full-resolution RAW export through pixelpipe
+                    let (mosaic, metadata) = try ImageDecoder.decodeRawSpeedMosaic(url: renderURL)
+                    let engine = PixelpipeEngine()
+                    buffer = try await engine.execute(
+                        rawMosaic: mosaic,
+                        rawSettings: raw,
+                        look: item.look,
+                        metadata: metadata,
+                        ciContext: ImageDecoder.sharedCIContext
+                    )
+                } else {
+                    buffer = try await decoderActor.fullResolution(
+                        url: renderURL,
+                        raw: raw,
+                        bypassImportTransform: bypass
+                    )
+                }
                 return ExportDecodedFrame(
                     buffer: buffer,
                     decodeMs: Self.msSince(started),

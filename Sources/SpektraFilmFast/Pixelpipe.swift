@@ -156,18 +156,20 @@ extension ModuleOrder {
 
     // Color calibration (before tone mapping)
     static let unbreakProfile = ModuleOrder(value: 19.0, name: "unbreakinputprofile")
-    static let inputProfile = ModuleOrder(value: 20.0, name: "colorin")
-    static let colorCalibration = ModuleOrder(value: 21.0, name: "colorcalibration")
-    static let censorize = ModuleOrder(value: 22.0, name: "censorize")
-    static let negadoctor = ModuleOrder(value: 23.0, name: "negadoctor")
+    static let colorCalibration = ModuleOrder(value: 20.0, name: "colorcalibration")
+    static let censorize = ModuleOrder(value: 21.0, name: "censorize")
+    static let negadoctor = ModuleOrder(value: 22.0, name: "negadoctor")
 
-    // Tone mapping (scene-referred)
-    static let exposure = ModuleOrder(value: 24.0, name: "exposure")
-    static let toneEqualizer = ModuleOrder(value: 25.0, name: "toneequal")
-    static let contrastEqualizer = ModuleOrder(value: 26.0, name: "equalizer")
-    static let lowpass = ModuleOrder(value: 27.0, name: "lowpass")
-    static let highpass = ModuleOrder(value: 28.0, name: "highpass")
-    static let sharpen = ModuleOrder(value: 29.0, name: "sharpen")
+    // Tone mapping (scene-referred) — exposure is BEFORE colorin in Darktable v5
+    static let exposure = ModuleOrder(value: 23.0, name: "exposure")
+    static let toneEqualizer = ModuleOrder(value: 24.0, name: "toneequal")
+    static let contrastEqualizer = ModuleOrder(value: 25.0, name: "equalizer")
+    static let lowpass = ModuleOrder(value: 26.0, name: "lowpass")
+    static let highpass = ModuleOrder(value: 27.0, name: "highpass")
+    static let sharpen = ModuleOrder(value: 28.0, name: "sharpen")
+
+    // Input color profile (after exposure, before tone mappers)
+    static let inputProfile = ModuleOrder(value: 29.0, name: "colorin")
 
     // Creative color (scene-referred)
     static let colorBalance = ModuleOrder(value: 30.0, name: "colorbalance")
@@ -176,11 +178,11 @@ extension ModuleOrder {
     static let rgbLevels = ModuleOrder(value: 33.0, name: "rgblevels")
 
     // Tone mappers (transition to display-referred)
-    static let baseCurve = ModuleOrder(value: 44.0, name: "basecurve")
-    static let filmic = ModuleOrder(value: 45.0, name: "filmic")
-    static let sigmoid = ModuleOrder(value: 45.3, name: "sigmoid")
-    static let agx = ModuleOrder(value: 45.5, name: "agx")
-    static let filmicRGB = ModuleOrder(value: 46.0, name: "filmicrgb")
+    static let baseCurve = ModuleOrder(value: 40.0, name: "basecurve")
+    static let filmic = ModuleOrder(value: 41.0, name: "filmic")
+    static let sigmoid = ModuleOrder(value: 41.3, name: "sigmoid")
+    static let agx = ModuleOrder(value: 41.5, name: "agx")
+    static let filmicRGB = ModuleOrder(value: 42.0, name: "filmicrgb")
 
     // Post tone mapping (display-referred)
     static let lut3D = ModuleOrder(value: 36.0, name: "lut3d")
@@ -212,17 +214,22 @@ extension ModuleOrder {
 actor PixelpipeEngine {
     private let registry = PixelpipeRegistry.shared
 
+    /// Ensure modules are registered and configured for the current render request.
+    /// Module configuration is per-render-request, not a mutable global state.
+    /// This prevents workflow settings from leaking across concurrent renders.
     private func ensureModulesRegistered() {
         if registry.getAllModules().isEmpty {
             registry.registerBuiltinModules()
         }
-        let rawModules: Set<String> = [
-            "rawprepare", "whitebalance", "highlights", "cacorrect",
-            "hotpixels", "rawdenoise", "demosaic",
-        ]
-        for module in registry.getAllModules() {
-            registry.setEnabled(module.name, rawModules.contains(module.name))
-        }
+    }
+
+    /// Configure the pixelpipe module set for a specific workflow preset.
+    /// This must be called before execute() for each render request.
+    /// The configuration is derived from the saved rawSettings.workflowPreset
+    /// and selects exactly one display transform (or NONE).
+    func configureForWorkflow(_ workflow: WorkflowPreset) {
+        ensureModulesRegistered()
+        registry.applyWorkflowDefaults(workflow)
     }
 
     func execute(
@@ -235,7 +242,9 @@ actor PixelpipeEngine {
         metalQueue: MTLCommandQueue? = nil
     ) async throws -> PixelBufferF32 {
 
-        ensureModulesRegistered()
+        // Configure modules for the requested workflow preset.
+        // This is per-render-call, not global mutable state.
+        configureForWorkflow(rawSettings.workflowPreset)
 
         let enabledModules = registry.getEnabledModules()
 

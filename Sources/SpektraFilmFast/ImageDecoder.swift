@@ -444,9 +444,50 @@ actor ImageDecoder {
 
     /// Decode RAW to the single-channel CFA mosaic the pixelpipe modules operate on.
     ///
+    /// This function ONLY handles sensor RAW files (Bayer/X-Trans mosaics).
+    /// Non-RAW raster images (JPEG, PNG, TIFF, HEIC) must NOT be sent here —
+    /// they should go through the color-managed raster decoder path instead.
+    ///
+    /// Source classification:
+    /// - Sensor RAW: files that LibRaw can open as a raw sensor mosaic
+    /// - Raster: JPEG, PNG, TIFF, HEIC, and other standard image formats
+    /// - DNG: may be either sensor RAW or raster — LibRaw determines which
+    ///
     /// Unlike ``decodeRawSpeedSync`` this never expands to RGBA: the scene-referred
     /// modules need one sample per sensor site, and packing Bayer into the R channel
     /// of an RGBA buffer is what made the module chain dead code.
+    /// Returns true if the file at `url` is a sensor RAW file (Bayer/X-Trans mosaic)
+    /// that LibRaw/CIRAWFilter can decode as a raw sensor image.
+    ///
+    /// Non-RAW raster images (JPEG, PNG, TIFF, HEIC) return false.
+    /// DNG files are classified by what LibRaw finds inside — they may be
+    /// sensor RAW or raster TIFF.
+    nonisolated static func isSensorRAW(_ url: URL) -> Bool {
+        // CIRAWFilter is the authoritative Core Image RAW detector.
+        // It returns nil for non-RAW files.
+        guard CIRAWFilter(imageURL: url) != nil else { return false }
+        // Also verify LibRaw can open it as a sensor mosaic.
+        var error: RawSpeedError = RawSpeedError_None
+        guard let decoderRef = RawSpeedDecoderCreate(url.path, &error) else { return false }
+        defer { RawSpeedDecoderDestroy(decoderRef) }
+        var cMeta = RawSpeedBridge.RawSpeedMetadata()
+        guard RawSpeedDecoderGetMetadata(decoderRef, &cMeta) == RawSpeedError_None else { return false }
+        let meta = RawSpeedMetadata(from: cMeta)
+        return meta.cameraSupported
+    }
+
+    /// Classify the source image type for routing decisions.
+    /// - .sensorRAW: Bayer/X-Trans mosaic, goes through pixelpipe
+    /// - .raster: JPEG/PNG/TIFF/HEIC, goes through color-managed raster decoder
+    enum SourceClassification: Sendable {
+        case sensorRAW
+        case raster
+    }
+
+    nonisolated static func classifySource(_ url: URL) -> SourceClassification {
+        return isSensorRAW(url) ? .sensorRAW : .raster
+    }
+
     nonisolated static func decodeRawSpeedMosaic(
         url: URL,
         longEdge: Int = Int.max
@@ -485,37 +526,22 @@ actor ImageDecoder {
                 userInfo: [NSLocalizedDescriptionKey: "Invalid RAW dimensions"])
         }
 
-        // Nearest-neighbour downscaling keeps each output sample on the same CFA
-        // site as its source; bilinear would blend neighbouring photosites and
-        // corrupt the pattern the demosaic and hotpixel modules rely on.
-        let samples: [Float]
-        let outW: Int
-        let outH: Int
-        if longEdge != Int.max && max(width, height) > longEdge {
-            let scale = CGFloat(longEdge) / CGFloat(max(width, height))
-            outW = max(1, Int(CGFloat(width) * scale))
-            outH = max(1, Int(CGFloat(height) * scale))
-            var scaled = [Float](repeating: 0, count: outW * outH * channels)
-            for y in 0..<outH {
-                let sy = min(height - 1, Int(CGFloat(y) / scale))
-                for x in 0..<outW {
-                    let sx = min(width - 1, Int(CGFloat(x) / scale))
-                    for c in 0..<channels {
-                        scaled[(y * outW + x) * channels + c] =
-                            rawImage.data[(sy * width + sx) * channels + c]
-                    }
-                }
-            }
-            samples = scaled
-        } else {
-            samples = rawImage.data
-            outW = width
-            outH = height
-        }
-
+        // IMPORTANT: Do NOT downscale the CFA mosaic before demosaic.
+        // Nearest-neighbor resizing of raw sensor site values independently
+        // destroys the Bayer spatial color pattern — the output no longer
+        // has the original CFA layout even though no interpolation was done.
+        //
+        // Demosaic MUST run at full native sensor resolution. Any proxy/
+        // preview scaling happens AFTER demosaic in the working-space RGB
+        // domain, where bilinear/bicubic resampling is color-safe.
+        //
+        // If a smaller proxy is needed, the caller (ImageDecoder.decode)
+        // should use the developed RGB buffer and resize that instead.        let samples = rawImage.data
+        
+        let samples = rawImage.data
         let mosaic = RawMosaicF32(
-            width: outW, height: outH,
-            pixels: channels == 1 ? samples : Array(samples[0..<(outW * outH)]),
+            width: width, height: height,
+            pixels: channels == 1 ? samples : Array(samples[0..<(width * height)]),
             filters: meta.filters,
             xtrans: meta.xtrans.isEmpty ? nil : meta.xtrans,
             blackLevel: meta.rawBlackLevelSeparate,

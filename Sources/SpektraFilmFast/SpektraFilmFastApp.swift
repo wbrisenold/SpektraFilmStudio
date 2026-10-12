@@ -89,6 +89,13 @@ private enum SpektraStartup {
             }
         } else if CommandLine.arguments.contains("--mask-overlay-self-test") {
             exit(Int32(RedlampMaskSmokeTest.run()))
+        } else if CommandLine.arguments.contains("--image-load-smoke-test") {
+            Task { @MainActor in
+                let passed = await ProductionSelfTest.runImageLoadSmokeTest(model: model)
+                fflush(stdout)
+                fflush(stderr)
+                exit(passed ? 0 : 27)
+            }
         } else if CommandLine.arguments.contains("--self-test") || CommandLine.arguments.contains("--studio-soak-test") {
             Task {
                 let result =

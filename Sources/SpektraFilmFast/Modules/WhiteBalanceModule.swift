@@ -20,15 +20,20 @@ final class WhiteBalanceModule: PixelpipeModule {
         guard let rawInput = input.asRawMosaic else {
             throw PipelineError.wrongBufferType
         }
-        let wbMode = context.rawSettings.whiteBalanceMode
 
-        if wbMode == .asShot {
-            return rawInput
-        }
-
+        // All WB modes (including as-shot) apply camera multipliers.
+        // As-shot uses the camera's embedded WB coefficients; custom/auto
+        // use adjusted coefficients from RawSettings.
         guard let metadata = context.metadata else { return rawInput }
         let wbCoeffs = metadata.wbCoeffs
-        guard wbCoeffs.count == 4 else { return rawInput }
+        guard wbCoeffs.count == 4, wbCoeffs[1] > 0 else { return rawInput }
+
+        // Compute per-channel gains.
+        // For as-shot: use the camera's native multipliers directly.
+        // For custom/auto: the coefficients have already been adjusted
+        // by the caller (ImageDecoder) before entering the pixelpipe.
+        let greenCoeff = wbCoeffs[1]
+        let gains = wbCoeffs.map { $0 / greenCoeff }
 
         var output = rawInput
         let filters = rawInput.filters
@@ -37,19 +42,20 @@ final class WhiteBalanceModule: PixelpipeModule {
 
         guard rawInput.width > 0 else { return rawInput }
 
-        // Simple sequential processing
+        // Apply per-channel white balance gains.
+        // Each CFA site gets multiplied by the gain for its color channel.
         for idx in 0..<count {
             let y = idx / rawInput.width
             let x = idx % rawInput.width
 
             let channel: Int
-            if filters == 9 {
+            if filters == 9 {  // X-Trans
                 channel = Int(xtrans?[y % 6][x % 6] ?? 0)
-            } else {
+            } else {  // Bayer
                 channel = Int((filters >> ((y & 1) * 2 + (x & 1)) * 2) & 3)
             }
 
-            let gain = wbCoeffs[min(channel, wbCoeffs.count - 1)] / wbCoeffs[1]
+            let gain = gains[min(channel, gains.count - 1)]
             output.pixels[idx] *= gain
         }
 
