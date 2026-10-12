@@ -43,12 +43,16 @@ struct StudioImportWelcomeView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                         HStack(spacing: 10) {
-                            Button { model.newProject() } label: {
+                            Button {
+                                model.newProject()
+                            } label: {
                                 Label("New Project", systemImage: "plus.rectangle.on.rectangle")
                                     .frame(maxWidth: .infinity, minHeight: 30)
                             }
                             .buttonStyle(.borderedProminent)
-                            Button { model.openProject() } label: {
+                            Button {
+                                model.openProject()
+                            } label: {
                                 Label("Open Project…", systemImage: "folder")
                                     .frame(maxWidth: .infinity, minHeight: 30)
                             }
@@ -117,7 +121,9 @@ struct StudioImportWelcomeView: View {
                                     .frame(maxWidth: .infinity, minHeight: 30, alignment: .center)
                             }
                             .buttonStyle(.bordered)
-                            Button { model.openICloudLibrary() } label: {
+                            Button {
+                                model.openICloudLibrary()
+                            } label: {
                                 Label("Open iCloud Library…", systemImage: "icloud")
                                     .frame(maxWidth: .infinity, minHeight: 30, alignment: .center)
                             }
@@ -125,7 +131,12 @@ struct StudioImportWelcomeView: View {
                         }
                         .controlSize(.large)
                         HStack(spacing: 10) {
-                            Button { model.importFolder() } label: { Label("Import Folder or Card…", systemImage: "externaldrive").frame(maxWidth: .infinity, minHeight: 26) }.buttonStyle(.bordered)
+                            Button {
+                                model.importFolder()
+                            } label: {
+                                Label("Import Folder or Card…", systemImage: "externaldrive").frame(
+                                    maxWidth: .infinity, minHeight: 26)
+                            }.buttonStyle(.bordered)
                             quickOption("Lightroom Classic", icon: "square.stack.3d.up", source: "Lightroom Classic")
                         }
                         Button("Import with Backup or Cloud Setup…") {

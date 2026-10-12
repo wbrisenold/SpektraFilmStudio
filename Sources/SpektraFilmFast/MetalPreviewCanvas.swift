@@ -1,7 +1,7 @@
-import SwiftUI
 import AppKit
 import CoreImage
 import MetalKit
+import SwiftUI
 
 // GPL-3.0-or-later — SpektraFilm Studio.
 // GPU-backed presentation surface. Keeps a stable CAMetalLayer/MTKView alive across
@@ -47,21 +47,30 @@ struct MetalPreviewCanvas: NSViewRepresentable {
         private var ciContext: CIContext?
         private let displayColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
 
+        // AppKit view access (device, setNeedsDisplay, bounds) is main-actor isolated.
+        // Both methods are only invoked from makeNSView/updateNSView, which are
+        // themselves main-actor, so the annotation reflects existing call sites
+        // rather than introducing a new hop.
+        @MainActor
         func install(view: MTKView) {
             hostView = view
             guard let device = view.device else { return }
             queue = device.makeCommandQueue()
-            ciContext = CIContext(mtlDevice: device, options: [
-                .cacheIntermediates: true,
-                .useSoftwareRenderer: false
-            ])
+            ciContext = CIContext(
+                mtlDevice: device,
+                options: [
+                    .cacheIntermediates: true,
+                    .useSoftwareRenderer: false,
+                ])
         }
 
+        @MainActor
         func setImage(_ image: CGImage, liveFrame: GPULiveFrame?, view: MTKView) {
             // Intel dual-GPU: the draw device must match the native film engine's
             // output device. Otherwise a Core Image texture import can fail.
             if let liveFrame,
-               view.device?.registryID != liveFrame.texture.device.registryID {
+                view.device?.registryID != liveFrame.texture.device.registryID
+            {
                 view.device = liveFrame.texture.device
                 install(view: view)
             }
@@ -87,7 +96,8 @@ struct MetalPreviewCanvas: NSViewRepresentable {
 
         func draw(in view: MTKView) {
             guard let drawable = view.currentDrawable,
-                  let queue, let context = ciContext else { return }
+                let queue, let context = ciContext
+            else { return }
             lock.lock()
             let gpu = liveGPUFrame
             // The exact same content importer and aspect-fit composition
@@ -98,10 +108,17 @@ struct MetalPreviewCanvas: NSViewRepresentable {
             // A requested GPU texture must NEVER silently display an older CPU
             // picture. Mark a presentation failure visibly with a red error frame.
             let importFailed = gpu != nil && imported == nil
-            let image = importFailed ? CIImage(color: CIColor(red: 0.65, green: 0.02,
-                blue: 0.04, alpha: 1)).cropped(to: CGRect(x: 0, y: 0,
-                width: max(1, view.drawableSize.width),
-                height: max(1, view.drawableSize.height)))
+            let image =
+                importFailed
+                ? CIImage(
+                    color: CIColor(
+                        red: 0.65, green: 0.02,
+                        blue: 0.04, alpha: 1)
+                ).cropped(
+                    to: CGRect(
+                        x: 0, y: 0,
+                        width: max(1, view.drawableSize.width),
+                        height: max(1, view.drawableSize.height)))
                 : (imported ?? queuedCIImage)
             guard let image else { lock.unlock(); return }
             if importFailed { NSLog("SPEKTRA_GPU_PRESENTATION_ERROR: Unable to import the current Metal frame") }
@@ -119,7 +136,8 @@ struct MetalPreviewCanvas: NSViewRepresentable {
             }
 
             let tex = drawable.texture
-            let composition = MetalPreviewComposition.letterbox(image,
+            let composition = MetalPreviewComposition.letterbox(
+                image,
                 width: tex.width, height: tex.height)
             context.render(
                 composition, to: tex, commandBuffer: command,
@@ -132,8 +150,9 @@ struct MetalPreviewCanvas: NSViewRepresentable {
                 // completes. Retain the old texture until Metal is finished.
                 withExtendedLifetime(gpu) {
                     if command.status != .completed {
-                        NSLog("SPEKTRA_GPU_PRESENTATION_ERROR: %@",
-                              command.error?.localizedDescription ?? "GPU display failed")
+                        NSLog(
+                            "SPEKTRA_GPU_PRESENTATION_ERROR: %@",
+                            command.error?.localizedDescription ?? "GPU display failed")
                     }
                     self?.frameCompleted()
                 }

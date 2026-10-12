@@ -1,6 +1,6 @@
-import Foundation
 import CoreGraphics
 import CoreVideo
+import Foundation
 
 /// Compatibility adapter for saved semantic masks and diagnostic skin overlays.
 /// The editing UI uses RedlampMaskService and its replayable recipes directly.
@@ -10,28 +10,33 @@ actor SemanticMaskEngine {
     private var cache: [URL: CanonicalSemanticMaskSet] = [:]
     private var cachedStamp: Date?
 
-    func analyze(imageURL: URL, cgImage: CGImage, targetLongEdge: Int = 1080, requested: Set<SemanticMaskKind> = [.skin]) async throws -> CanonicalSemanticMaskSet {
+    func analyze(
+        imageURL: URL, cgImage: CGImage, targetLongEdge: Int = 1080, requested: Set<SemanticMaskKind> = [.skin]
+    ) async throws -> CanonicalSemanticMaskSet {
         let image = try await RedlampMaskService.shared.analysisImage(imageURL)
         let provider = VisionMaskProvider()
         let size = PixelSize(width: cgImage.width, height: cgImage.height)
         let stamp = try? imageURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
-        var alpha = cache[imageURL].flatMap { cached in
-            cached.width == size.width && cached.height == size.height && stamp == cachedStamp ? cached.alphaByKind : nil
-        } ?? [:]
+        var alpha =
+            cache[imageURL].flatMap { cached in
+                cached.width == size.width && cached.height == size.height && stamp == cachedStamp
+                    ? cached.alphaByKind : nil
+            } ?? [:]
         for (kind, request) in [
             (SemanticMaskKind.subject, MaskRequest(kind: .subject)),
             (.background, MaskRequest(kind: .background)),
             (.person, MaskRequest(kind: .people)),
             (.skin, MaskRequest(kind: .people, part: .faceSkin)),
             (.eyes, MaskRequest(kind: .people, part: .eyeSclera)),
-            (.lips, MaskRequest(kind: .people, part: .lips))
+            (.lips, MaskRequest(kind: .people, part: .lips)),
         ] where requested.contains(kind) && alpha[kind] == nil {
             guard let masks = try? provider.masks(for: request, in: image), let first = masks.first else { continue }
             let combined = masks.dropFirst().reduce(first.mask) { $0.union($1.mask) }
             alpha[kind] = combined.resized(to: size).pixels
         }
-        let result = CanonicalSemanticMaskSet(width: size.width, height: size.height, alphaByKind: alpha,
-                                              provenance: ["Apple Vision · Redlamp face parts · unedited original"])
+        let result = CanonicalSemanticMaskSet(
+            width: size.width, height: size.height, alphaByKind: alpha,
+            provenance: ["Apple Vision · Redlamp face parts · unedited original"])
         cache = [imageURL: result]
         cachedStamp = stamp
         return result
@@ -47,7 +52,9 @@ enum PixelMaskResize {
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
         let sw = CVPixelBufferGetWidth(pixelBuffer), sh = CVPixelBufferGetHeight(pixelBuffer)
         let stride = CVPixelBufferGetBytesPerRow(pixelBuffer)
-        guard sw > 0, sh > 0, let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return [UInt8](repeating: 0, count: width * height) }
+        guard sw > 0, sh > 0, let base = CVPixelBufferGetBaseAddress(pixelBuffer) else {
+            return [UInt8](repeating: 0, count: width * height)
+        }
         let format = CVPixelBufferGetPixelFormatType(pixelBuffer)
         func sample(_ x: Int, _ y: Int) -> Double {
             let xx = min(sw - 1, max(0, x)), yy = min(sh - 1, max(0, y))

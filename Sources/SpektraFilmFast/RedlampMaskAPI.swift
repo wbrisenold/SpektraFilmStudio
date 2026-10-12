@@ -1,7 +1,9 @@
+import CoreGraphics
+import CryptoKit
 // Adapted from pdcgomes/redlamp at 0ed3a59211e4128111f2c8ba11bc5d249b0cb8dd.
 // SPDX-License-Identifier: MPL-2.0. See Resources/Redlamp-MPL-2.0.txt.
 import Foundation
-import CryptoKit
+
 public struct ImagePoint: Codable, Sendable, Hashable {
     public var x: Double
     public var y: Double
@@ -263,8 +265,6 @@ public enum MaskKind: String, CaseIterable, Codable, Sendable, Hashable {
     }
 }
 
-import Foundation
-
 public struct PixelSize: Codable, Sendable, Hashable {
     public var width: Int
     public var height: Int
@@ -300,10 +300,6 @@ public struct PixelSize: Codable, Sendable, Hashable {
     }
 }
 
-import CoreGraphics
-import Foundation
-
-
 /// A rectangle in normalized image coordinates, after orientation: (0, 0) is the top-left
 /// corner of the photo as displayed and (1, 1) the bottom-right.
 public struct ImageRect: Codable, Sendable, Hashable {
@@ -321,7 +317,6 @@ public struct ImageRect: Codable, Sendable, Hashable {
 
     public static let full = ImageRect(x: 0, y: 0, width: 1, height: 1)
 }
-
 
 public struct MaskBitmap: Sendable, Hashable {
     public var png: Data

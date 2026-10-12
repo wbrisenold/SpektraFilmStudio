@@ -1,10 +1,12 @@
-import Foundation
 import AppKit
+import Foundation
 
 @MainActor
 extension AppModel {
     var selectedProofGallery: ProofGallerySnapshot? {
-        if let id = selectedProofGalleryID, let gallery = proofGalleries.first(where: { $0.id == id }) { return gallery }
+        if let id = selectedProofGalleryID, let gallery = proofGalleries.first(where: { $0.id == id }) {
+            return gallery
+        }
         return proofGalleries.first
     }
 
@@ -17,7 +19,8 @@ extension AppModel {
                 selectedProofGalleryID = values.first?.id
             }
             if let gallery = selectedProofGallery {
-                proofStatus = gallery.finished
+                proofStatus =
+                    gallery.finished
                     ? "Client finished · \(gallery.selectedCount) selected"
                     : "\(gallery.photos.count) proofs · \(gallery.selectedCount) selected"
             } else {
@@ -92,13 +95,14 @@ extension AppModel {
                         destination: destination,
                         settings: settings
                     )
-                    seeds.append(ProofGalleryPhotoSeed(
-                        id: proofID,
-                        sourceImageID: image.id,
-                        sourcePath: image.sourcePath,
-                        proofPath: destination.path,
-                        originalFilename: image.fileName
-                    ))
+                    seeds.append(
+                        ProofGalleryPhotoSeed(
+                            id: proofID,
+                            sourceImageID: image.id,
+                            sourcePath: image.sourcePath,
+                            proofPath: destination.path,
+                            originalFilename: image.fileName
+                        ))
                     proofGenerationProgress = Double(index + 1) / Double(chosen.count)
                     proofStatus = "Preparing \(index + 1) / \(chosen.count) proofs…"
                 }

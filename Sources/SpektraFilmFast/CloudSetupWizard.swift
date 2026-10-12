@@ -27,9 +27,10 @@ struct CloudSetupWizard: View {
     @State private var confirmedRemoteCredentialStorage = false
 
     private var config: NativeCloudTransferRunner.Configuration {
-        .init(host: host, username: username, sshKey: sshKeyPath,
-              workerDirectory: workerPath, manifest: manifestPath,
-              allowedCDNHost: allowedHost, isBulk: transferMode == "bulk")
+        .init(
+            host: host, username: username, sshKey: sshKeyPath,
+            workerDirectory: workerPath, manifest: manifestPath,
+            allowedCDNHost: allowedHost, isBulk: transferMode == "bulk")
     }
 
     var body: some View {
@@ -42,7 +43,9 @@ struct CloudSetupWizard: View {
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 16)
-                Button("Close") { terminal.stop(); dismiss() }
+                Button("Close") {
+                    terminal.stop(); dismiss()
+                }
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
@@ -86,12 +89,19 @@ struct CloudSetupWizard: View {
 
     private var localICloudStep: some View {
         VStack(alignment: .leading, spacing: 12) {
-            title("Your iCloud Drive on this Mac", caption: "Apple signs you in through macOS. There is no separate iCloud Drive API token for an ordinary personal Drive folder.")
-            Label(FileManager.default.ubiquityIdentityToken == nil
-                  ? "No macOS iCloud identity detected. Sign in under System Settings → Apple Account → iCloud."
-                  : "macOS iCloud account detected.",
-                  systemImage: FileManager.default.ubiquityIdentityToken == nil ? "exclamationmark.circle" : "checkmark.circle")
-                .foregroundStyle(.secondary)
+            title(
+                "Your iCloud Drive on this Mac",
+                caption:
+                    "Apple signs you in through macOS. There is no separate iCloud Drive API token for an ordinary personal Drive folder."
+            )
+            Label(
+                FileManager.default.ubiquityIdentityToken == nil
+                    ? "No macOS iCloud identity detected. Sign in under System Settings → Apple Account → iCloud."
+                    : "macOS iCloud account detected.",
+                systemImage: FileManager.default.ubiquityIdentityToken == nil
+                    ? "exclamationmark.circle" : "checkmark.circle"
+            )
+            .foregroundStyle(.secondary)
             HStack {
                 Button("Open iCloud Library…") { model.openICloudLibrary() }
                 Button("Move Current Library…") { model.moveCurrentLibraryToICloud() }
@@ -102,25 +112,38 @@ struct CloudSetupWizard: View {
             Text(model.cloudLibraryStatus).font(.caption).foregroundStyle(.secondary)
             Divider()
             Text("Temporary RAW editing files").font(.headline)
-            Text("Select an external drive for RAW scratch. macOS may still cache iCloud File Provider originals on the internal disk; this cannot be guaranteed away by an app preference.")
-                .font(.caption).foregroundStyle(.secondary)
+            Text(
+                "Select an external drive for RAW scratch. macOS may still cache iCloud File Provider originals on the internal disk; this cannot be guaranteed away by an app preference."
+            )
+            .font(.caption).foregroundStyle(.secondary)
             Button("Choose External Scratch Drive…") { model.chooseExternalOriginalScratch() }
-            Text("For a direct server-side Lightroom migration, continue to Oracle. The originals do not have to transfer through your Mac.")
-                .font(.caption).foregroundStyle(.secondary)
+            Text(
+                "For a direct server-side Lightroom migration, continue to Oracle. The originals do not have to transfer through your Mac."
+            )
+            .font(.caption).foregroundStyle(.secondary)
         }
     }
 
     private var oracleStep: some View {
         VStack(alignment: .leading, spacing: 12) {
-            title("Connect your Oracle transfer server", caption: "The server downloads authorized originals and uploads them to iCloud Drive. Your Mac only controls the transfer.")
+            title(
+                "Connect your Oracle transfer server",
+                caption:
+                    "The server downloads authorized originals and uploads them to iCloud Drive. Your Mac only controls the transfer."
+            )
             instructions([
                 "Create an Oracle Cloud account and choose an Always Free eligible compute instance in your home region.",
                 "During VM creation, add your SSH public key. Allow SSH (TCP 22) only from trusted networks where possible.",
                 "Copy its public IP/hostname and select the matching SSH private key below.",
-                "Install a current rclone release and Python 3 on the VM before configuring iCloud."
+                "Install a current rclone release and Python 3 on the VM before configuring iCloud.",
             ])
             Link("Open Oracle Cloud Console", destination: URL(string: "https://cloud.oracle.com/")!)
-            Link("Oracle Always Free guide", destination: URL(string: "https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm")!)
+            Link(
+                "Oracle Always Free guide",
+                destination: URL(
+                    string:
+                        "https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm")!
+            )
             VStack(alignment: .leading, spacing: 8) {
                 field("VM public IP or hostname", text: $host)
                 field("SSH username", text: $username)
@@ -138,9 +161,11 @@ struct CloudSetupWizard: View {
                 Text(hostKey.fingerprint)
                     .font(.system(size: 12, design: .monospaced))
                     .textSelection(.enabled)
-                Toggle("I compared this SHA256 fingerprint with the VM in Oracle Console.",
-                       isOn: $hostKey.independentlyVerified)
-                    .font(.caption)
+                Toggle(
+                    "I compared this SHA256 fingerprint with the VM in Oracle Console.",
+                    isOn: $hostKey.independentlyVerified
+                )
+                .font(.caption)
                 Button("Trust Verified SSH Key") { hostKey.trust() }
                     .disabled(!hostKey.independentlyVerified)
             }
@@ -151,29 +176,39 @@ struct CloudSetupWizard: View {
                 Button("Deploy Transfer Worker") { runner.run(.deploy, configuration: config) }
                     .buttonStyle(.borderedProminent)
             }
-            Text("Install rclone downloads and runs the official rclone.org installer on the Oracle VM with non-interactive sudo. This requires Python 3, curl and sudo privileges; select it only if you trust the VM and installer.")
-                .font(.caption).foregroundStyle(.secondary)
+            Text(
+                "Install rclone downloads and runs the official rclone.org installer on the Oracle VM with non-interactive sudo. This requires Python 3, curl and sudo privileges; select it only if you trust the VM and installer."
+            )
+            .font(.caption).foregroundStyle(.secondary)
             .disabled(runner.running)
-            Text("SSH strictly verifies the server's host key. Verify the VM fingerprint before accepting it; this app will not silently disable host-key checks.")
-                .font(.caption).foregroundStyle(.secondary)
+            Text(
+                "SSH strictly verifies the server's host key. Verify the VM fingerprint before accepting it; this app will not silently disable host-key checks."
+            )
+            .font(.caption).foregroundStyle(.secondary)
             jobLog
         }
     }
 
     private var remoteICloudStep: some View {
         VStack(alignment: .leading, spacing: 12) {
-            title("Sign in to iCloud on Oracle", caption: "Use rclone's existing iCloud backend, not an invented Apple API. Authentication includes Apple ID, password and trusted-device 2FA.")
+            title(
+                "Sign in to iCloud on Oracle",
+                caption:
+                    "Use rclone's existing iCloud backend, not an invented Apple API. Authentication includes Apple ID, password and trusted-device 2FA."
+            )
             Text("Option A · Guided sign-in without leaving SpektraFilm")
                 .font(.headline)
             instructions([
                 "Confirm the Oracle SSH connection works and rclone 1.69 or newer is installed.",
                 "Start the secure setup session below. Respond to rclone's prompts: create a remote named icloud, choose iclouddrive and the drive service.",
                 "When asked, enter your Apple ID and password using the fields below. Then enter the 2FA code from your trusted device.",
-                "Finish the remote configuration, then select Test iCloud."
+                "Finish the remote configuration, then select Test iCloud.",
             ])
-            Text("Security: your Apple credentials will be processed by rclone on your own Oracle VM. rclone's configuration obfuscates its saved password; this is not equivalent to strong encryption. Use a VM you control and protect its disk and SSH access.")
-                .font(.caption).foregroundStyle(.orange)
-                .fixedSize(horizontal: false, vertical: true)
+            Text(
+                "Security: your Apple credentials will be processed by rclone on your own Oracle VM. rclone's configuration obfuscates its saved password; this is not equivalent to strong encryption. Use a VM you control and protect its disk and SSH access."
+            )
+            .font(.caption).foregroundStyle(.orange)
+            .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Button(terminal.running ? "End Sign-in" : "Begin iCloud Sign-in") {
                     if terminal.running { terminal.stop() } else { terminal.start(configuration: config) }
@@ -183,10 +218,13 @@ struct CloudSetupWizard: View {
                     .disabled(runner.running)
             }
             ScrollView {
-                Text(terminal.output.isEmpty ? "Rclone's setup questions will appear here after you start sign-in." : terminal.output)
-                    .font(.system(size: 11, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
+                Text(
+                    terminal.output.isEmpty
+                        ? "Rclone's setup questions will appear here after you start sign-in." : terminal.output
+                )
+                .font(.system(size: 11, design: .monospaced))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
             }
             .frame(minHeight: 140, maxHeight: 190)
             .padding(9)
@@ -211,11 +249,16 @@ struct CloudSetupWizard: View {
             Divider()
             Text("Option B · Import an existing rclone configuration")
                 .font(.headline)
-            Text("If you already authenticated an icloud remote in rclone, choose its rclone.conf. It contains sensitive session credentials. Importing transfers it over SSH and installs it with 0600 permissions for your Oracle user.")
-                .font(.caption).foregroundStyle(.secondary)
+            Text(
+                "If you already authenticated an icloud remote in rclone, choose its rclone.conf. It contains sensitive session credentials. Importing transfers it over SSH and installs it with 0600 permissions for your Oracle user."
+            )
+            .font(.caption).foregroundStyle(.secondary)
             fileChoice("rclone.conf", current: rcloneConfigPath) { selectSetupFile("rclone") }
-            Toggle("I understand this copies iCloud session credentials onto my Oracle VM.", isOn: $confirmedRemoteCredentialStorage)
-                .font(.caption)
+            Toggle(
+                "I understand this copies iCloud session credentials onto my Oracle VM.",
+                isOn: $confirmedRemoteCredentialStorage
+            )
+            .font(.caption)
             Button("Install iCloud Credentials on Oracle") {
                 importer.install(localPath: rcloneConfigPath, configuration: config)
             }
@@ -228,33 +271,50 @@ struct CloudSetupWizard: View {
 
     private var lightroomStep: some View {
         VStack(alignment: .leading, spacing: 12) {
-            title("Choose your Lightroom source", caption: "A Lightroom Cloud partner API registration alone does not give unrestricted access to RAW originals.")
+            title(
+                "Choose your Lightroom source",
+                caption:
+                    "A Lightroom Cloud partner API registration alone does not give unrestricted access to RAW originals."
+            )
             Picker("Transfer source", selection: $transferMode) {
                 Text("Adobe Download All (ZIP archives)").tag("bulk")
                 Text("Partner-authorized original URLs").tag("originals")
             }
             .pickerStyle(.radioGroup)
             if transferMode == "bulk" {
-                Text("Use Adobe's Download All Synced Files process, then create a JSON manifest containing the authorized archive URLs. Those URLs expire and should never enter your repository.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Link("Adobe Lightroom download", destination: URL(string: "https://lightroom.adobe.com/lightroom-library-download")!)
+                Text(
+                    "Use Adobe's Download All Synced Files process, then create a JSON manifest containing the authorized archive URLs. Those URLs expire and should never enter your repository."
+                )
+                .font(.caption).foregroundStyle(.secondary)
+                Link(
+                    "Adobe Lightroom download",
+                    destination: URL(string: "https://lightroom.adobe.com/lightroom-library-download")!)
             } else {
-                Text("Only select this mode if Adobe has approved your application for Lightroom Partner APIs and you have valid, authorized original-download URLs. Ordinary API keys do not grant entitlement.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Link("Adobe entitlement requirements", destination: URL(string: "https://developer.adobe.com/lightroom/lightroom-api-docs/getting-started/")!)
+                Text(
+                    "Only select this mode if Adobe has approved your application for Lightroom Partner APIs and you have valid, authorized original-download URLs. Ordinary API keys do not grant entitlement."
+                )
+                .font(.caption).foregroundStyle(.secondary)
+                Link(
+                    "Adobe entitlement requirements",
+                    destination: URL(
+                        string: "https://developer.adobe.com/lightroom/lightroom-api-docs/getting-started/")!)
             }
             fileChoice("Authorized JSON transfer manifest", current: manifestPath) {
                 selectSetupFile("manifest")
             }
             field("Approved Adobe download hostname (optional)", text: $allowedHost)
-            Text("The app transfers only the small manifest over SSH. Full RAW data flows directly from Adobe through Oracle to iCloud.")
-                .font(.caption).foregroundStyle(.secondary)
+            Text(
+                "The app transfers only the small manifest over SSH. Full RAW data flows directly from Adobe through Oracle to iCloud."
+            )
+            .font(.caption).foregroundStyle(.secondary)
         }
     }
 
     private var transferStep: some View {
         VStack(alignment: .leading, spacing: 12) {
-            title("Validate, pilot, then migrate", caption: "Test one small batch before starting a multi-terabyte transfer.")
+            title(
+                "Validate, pilot, then migrate",
+                caption: "Test one small batch before starting a multi-terabyte transfer.")
             HStack {
                 Button("Validate Manifest") { runner.run(.validate, configuration: config) }
                 Button("Pilot Batch") { runner.run(.pilot, configuration: config) }
@@ -262,8 +322,10 @@ struct CloudSetupWizard: View {
                     .buttonStyle(.borderedProminent)
             }
             .disabled(runner.running || manifestPath.isEmpty)
-            Text("Do not delete originals from Lightroom until you verify full-resolution RAW files at the destination and have an independent backup. The existing transfer scripts compare sizes but do not establish destination SHA-256 equality.")
-                .font(.caption).foregroundStyle(.secondary)
+            Text(
+                "Do not delete originals from Lightroom until you verify full-resolution RAW files at the destination and have an independent backup. The existing transfer scripts compare sizes but do not establish destination SHA-256 equality."
+            )
+            .font(.caption).foregroundStyle(.secondary)
             jobLog
             HStack {
                 Button("Open SpektraFilm iCloud Library…") { model.openICloudLibrary() }
@@ -275,10 +337,13 @@ struct CloudSetupWizard: View {
 
     private var jobLog: some View {
         ScrollView {
-            Text(runner.output.isEmpty ? "Connection, authentication and transfer test results appear here." : runner.output)
-                .font(.system(size: 11, design: .monospaced))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
+            Text(
+                runner.output.isEmpty
+                    ? "Connection, authentication and transfer test results appear here." : runner.output
+            )
+            .font(.system(size: 11, design: .monospaced))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .textSelection(.enabled)
         }
         .padding(8).frame(height: 105)
         .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 8))
@@ -332,8 +397,10 @@ struct CloudSetupWizard: View {
             return
         }
         // SSH keys and rclone.conf may not have registered macOS content types.
-        SpektraFilePanel.chooseFiles(title: target == "ssh" ? "Choose SSH Key" :
-                                     target == "rclone" ? "Choose rclone.conf" : "Choose Transfer Manifest") { urls in
+        SpektraFilePanel.chooseFiles(
+            title: target == "ssh"
+                ? "Choose SSH Key" : target == "rclone" ? "Choose rclone.conf" : "Choose Transfer Manifest"
+        ) { urls in
             guard let url = urls.first else { return }
             switch target {
             case "ssh": sshKeyPath = url.path

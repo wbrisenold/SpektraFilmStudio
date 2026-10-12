@@ -258,7 +258,7 @@ require("sidebarActuallyVisible" not in edit_view and "model.isPresetSidebarVisi
 require("skinVectorscope" in scope_engine and "drawSkinReference" in scope_engine, "dedicated skin vectorscope missing")
 require(scope_engine.count("SkinToneReference.referenceAngleDegrees") >= 1, "skin vectorscope does not use the shared derived reference angle")
 require("static let referenceAngleDegrees" in text("SkinToneReference.swift"), "skin reference angle is not derived from a single shared constant")
-require("Picker(\"Scope\"" in scope_panel and "rectangle.split.3x1" in scope_panel and "contextMenu" in scope_panel, "scope mode must be selectable (context menu) rather than a permanent strip")
+require(re.search(r'Picker\(\s*"Scope"', scope_panel) and "rectangle.split.3x1" in scope_panel and "contextMenu" in scope_panel, "scope mode must be selectable (context menu) rather than a permanent strip")
 require("Task.detached(priority: .utility)" in scope_engine, "scope analysis is not off the UI actor")
 
 # Autosave/recovery/dirty protection.
@@ -305,7 +305,7 @@ require("sourceFileSize" in models and "sourceModificationTime" in models, "sour
 require("Exposure Warning" in settings and "final rendered image" in settings and "SpektraFilm stock/print processing" in settings, "settings do not disclose final-render diagnostic semantics")
 
 # Regression gates for v0.6.8 live-render/mask/export failures.
-require("applyingHostAndFilmGrade(tone: request.look.tone" in app, "settled preview drops RAW Develop host tone")
+require(re.search(r'applyingHostAndFilmGrade\(\s*tone:\s*request\.look\.tone', app), "settled preview drops RAW Develop host tone")
 require("applyingHostGrade(tone: nil" not in app, "settled preview still discards RAW Develop host tone")
 proxy_block = app.split("private func publishInteractiveProxy",1)[1].split("private func schedulePreviewRenderAfterIdle",1)[0]
 require("requestEditorScopeUpdate()" in proxy_block, "false color/scopes do not follow the live slider proxy")
@@ -480,7 +480,7 @@ require(
     "settled RAW WB is not owned by the CIRAWFilter path"
 )
 require(
-    "exactLinear = try await decoder.decode" in app,
+    "exactLinear = try await developSceneReferred(" in app,
     "Skin WB still chooses its correction from the interactive RGB proxy"
 )
 require(
@@ -567,7 +567,7 @@ require('section("Destination"' not in export_view and 'section("File Format"' n
 _require = {
     'Text("Presets").tag("presets")' in edit_view,
     'Text("Photos").tag("photos")' in edit_view,
-    'LazyVGrid(columns:' in edit_view,
+    re.search(r'LazyVGrid\(\s*columns:', edit_view),
     'ScrollView(.horizontal)' not in edit_view,
     'StudioFloatingScopes(model: model' in edit_view,
     'DragGesture(minimumDistance: 3)' in text("StudioFloatingScopes.swift"),
@@ -596,7 +596,7 @@ print("PRODUCTION STATIC QA PASS")
 
 # User-facing workflow regressions from the Redlamp design audit.
 require(export_view.count("model.chooseExportDestination()") == 1, "Export must have one destination chooser")
-require('Picker("RAW workflow"' in controls and 'Picker("Film workflow"' in controls and "DisclosureGroup" not in controls, "RAW and Film controls must preserve tabs, without accordions")
+require(re.search(r'Picker\(\s*"RAW workflow"', controls) and re.search(r'Picker\(\s*"Film workflow"', controls) and "DisclosureGroup" not in controls, "RAW and Film controls must preserve tabs, without accordions")
 # Regression guard: each RAW tab must render exactly one section. Rendering all four
 # on every tab and expanding a different one is what "all sections in every tab" means.
 require('switch openAdjustment ?? "tone"' in controls, "RAW tabs must filter sections instead of rendering all of them")
@@ -635,7 +635,7 @@ require("CommandMenu(\"Workspace\")" in _app_commands and
 _preview = text("PreviewView.swift")
 _native = text("NativeRenderer.swift")
 _metal_canvas = text("MetalPreviewCanvas.swift")
-require("MetalPreviewCanvas(image:" in _preview and "MTKView" in _metal_canvas and "inFlight >= 2" in _metal_canvas,
+require(re.search(r'MetalPreviewCanvas\(\s*image:', _preview) and "MTKView" in _metal_canvas and "inFlight >= 2" in _metal_canvas,
         "GPU-backed frame presentation and bounded latest-frame scheduling missing")
 require("enqueueMetalFilm" in _native and "SpektraRendererRenderMetalBuffers" in _native,
         "Metal-only native engine bridge not accessible from Swift")

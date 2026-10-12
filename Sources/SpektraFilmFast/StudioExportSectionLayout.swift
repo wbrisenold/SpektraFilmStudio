@@ -10,11 +10,13 @@ struct StudioExportSectionLayout<Location: View, File: View, Size: View, Metadat
     let size: Size
     let metadata: Metadata
 
-    init(disabled: Bool,
-         @ViewBuilder location: () -> Location,
-         @ViewBuilder file: () -> File,
-         @ViewBuilder size: () -> Size,
-         @ViewBuilder metadata: () -> Metadata) {
+    init(
+        disabled: Bool,
+        @ViewBuilder location: () -> Location,
+        @ViewBuilder file: () -> File,
+        @ViewBuilder size: () -> Size,
+        @ViewBuilder metadata: () -> Metadata
+    ) {
         self.disabled = disabled
         self.location = location()
         self.file = file()

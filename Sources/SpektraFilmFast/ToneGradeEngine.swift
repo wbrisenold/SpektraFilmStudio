@@ -1,5 +1,5 @@
-import Foundation
 import Dispatch
+import Foundation
 
 private struct RowAccess: @unchecked Sendable {
     let base: UnsafeMutablePointer<Float>
@@ -61,7 +61,7 @@ enum ToneCurvePreset: String, CaseIterable, Identifiable, Sendable {
         case .filmNegativeSoft, .filmNegativeClassic, .filmSlidePunch, .filmBWClassic:
             return .filmResponse
         case .cinematicSoft, .cinematicPunch, .matteFade, .airy, .dreamy,
-             .softHighlights, .deepBlacks, .noir, .highKey, .lowKey, .fadedPrint:
+            .softHighlights, .deepBlacks, .noir, .highKey, .lowKey, .fadedPrint:
             return .creative
         }
     }
@@ -203,7 +203,8 @@ enum ToneCurveMath {
             }
         }
         guard deduped.count >= 2,
-              deduped.last!.x - deduped.first!.x > minimumPointSpacing else {
+            deduped.last!.x - deduped.first!.x > minimumPointSpacing
+        else {
             return ToneCurvePreset.linear.points
         }
 
@@ -211,7 +212,8 @@ enum ToneCurveMath {
         if deduped.count > 2 {
             for point in deduped.dropFirst().dropLast() {
                 guard point.x > normalized.last!.x + minimumPointSpacing,
-                      point.x < deduped.last!.x - minimumPointSpacing else { continue }
+                    point.x < deduped.last!.x - minimumPointSpacing
+                else { continue }
                 normalized.append(point)
                 if normalized.count >= maximumControlPoints - 1 { break }
             }
@@ -251,7 +253,9 @@ enum ToneCurveMath {
         return HermiteCache(h: h, m: m)
     }
 
-    static func evaluate(_ value: Double, points source: [ToneCurvePoint], cache supplied: HermiteCache? = nil) -> Double {
+    static func evaluate(
+        _ value: Double, points source: [ToneCurvePoint], cache supplied: HermiteCache? = nil
+    ) -> Double {
         let points = normalize(source)
         guard points.count >= 2 else { return value }
         let cache = supplied ?? buildCache(points)
@@ -277,12 +281,12 @@ enum ToneCurveMath {
         let dx = cache.h[index]
         guard abs(dx) > epsilon else { return points[index].y }
         let t = (value - points[index].x) / dx
-        let h00 = 2*t*t*t - 3*t*t + 1
-        let h10 = t*t*t - 2*t*t + t
-        let h01 = -2*t*t*t + 3*t*t
-        let h11 = t*t*t - t*t
+        let h00 = 2 * t * t * t - 3 * t * t + 1
+        let h10 = t * t * t - 2 * t * t + t
+        let h01 = -2 * t * t * t + 3 * t * t
+        let h11 = t * t * t - t * t
         return h00 * points[index].y + h10 * dx * cache.m[index]
-             + h01 * points[index + 1].y + h11 * dx * cache.m[index + 1]
+            + h01 * points[index + 1].y + h11 * dx * cache.m[index + 1]
     }
 }
 
@@ -355,7 +359,7 @@ private enum SourcedToneMath {
     private static func sourcedShadows(r: Double, g: Double, b: Double, value: Double) -> (Double, Double, Double) {
         let amount = max(-1.0, min(1.0, value / 100.0))
         guard abs(amount) > 1e-12 else { return (r, g, b) }
-        let y = max(0.0, 0.2126*r + 0.7152*g + 0.0722*b)
+        let y = max(0.0, 0.2126 * r + 0.7152 * g + 0.0722 * b)
         guard y > 1e-6 else { return (r, g, b) }
         let t = pow(y, 1.0 / 2.2)
         let lift = amount * t * pow(max(1.0 - t, 0.0), 4.5)
@@ -374,7 +378,7 @@ private enum SourcedToneMath {
     private static func sourcedHighlights(r: Double, g: Double, b: Double, value: Double) -> (Double, Double, Double) {
         let amount = max(-1.0, min(1.0, value / 100.0))
         guard abs(amount) > 1e-12 else { return (r, g, b) }
-        let y = max(0.0, 0.2126*r + 0.7152*g + 0.0722*b)
+        let y = max(0.0, 0.2126 * r + 0.7152 * g + 0.0722 * b)
         let pivot = 0.10
         guard y > pivot else { return (r, g, b) }
         let delta = max(y - pivot, 0.0)
@@ -421,25 +425,25 @@ private enum SourcedToneMath {
     private static func computeTangents(_ curve: inout SharedCurve) {
         var d = [Double](repeating: 0, count: 3)
         for i in 0..<3 {
-            d[i] = abs(curve.h[i]) > 1e-8 ? (curve.y[i+1] - curve.y[i]) / curve.h[i] : 0
+            d[i] = abs(curve.h[i]) > 1e-8 ? (curve.y[i + 1] - curve.y[i]) / curve.h[i] : 0
         }
         curve.m[0] = d[0]
         curve.m[3] = d[2]
         for i in 1..<3 {
-            curve.m[i] = d[i-1] * d[i] <= 0 ? 0 : 0.5 * (d[i-1] + d[i])
+            curve.m[i] = d[i - 1] * d[i] <= 0 ? 0 : 0.5 * (d[i - 1] + d[i])
         }
         for i in 0..<3 {
             if abs(d[i]) <= 1e-8 {
-                curve.m[i] = 0; curve.m[i+1] = 0
+                curve.m[i] = 0; curve.m[i + 1] = 0
                 continue
             }
             let a = curve.m[i] / d[i]
-            let b = curve.m[i+1] / d[i]
-            let sum = a*a + b*b
+            let b = curve.m[i + 1] / d[i]
+            let sum = a * a + b * b
             if sum > 9 {
                 let tau = 3 / sqrt(sum)
                 curve.m[i] = tau * a * d[i]
-                curve.m[i+1] = tau * b * d[i]
+                curve.m[i + 1] = tau * b * d[i]
             }
         }
         for i in 0..<4 { curve.m[i] = max(0.05, min(2.85, curve.m[i])) }
@@ -449,16 +453,16 @@ private enum SourcedToneMath {
         if value <= curve.x[0] { return curve.y[0] }
         if value >= curve.x[3] { return curve.y[3] + (value - curve.x[3]) * curve.m[3] }
         var index = 2
-        for i in 0..<3 where value < curve.x[i+1] { index = i; break }
+        for i in 0..<3 where value < curve.x[i + 1] { index = i; break }
         let dx = curve.h[index]
         guard abs(dx) > 1e-8 else { return curve.y[index] }
         let t = (value - curve.x[index]) / dx
-        let h00 = 2*t*t*t - 3*t*t + 1
-        let h10 = t*t*t - 2*t*t + t
-        let h01 = -2*t*t*t + 3*t*t
-        let h11 = t*t*t - t*t
-        return h00*curve.y[index] + h10*dx*curve.m[index]
-             + h01*curve.y[index+1] + h11*dx*curve.m[index+1]
+        let h00 = 2 * t * t * t - 3 * t * t + 1
+        let h10 = t * t * t - 2 * t * t + t
+        let h01 = -2 * t * t * t + 3 * t * t
+        let h11 = t * t * t - t * t
+        return h00 * curve.y[index] + h10 * dx * curve.m[index]
+            + h01 * curve.y[index + 1] + h11 * dx * curve.m[index + 1]
     }
 
     // RapidRAW v1.6.4 filmic Brightness: a rational luma reshape that favors midtones
@@ -468,7 +472,7 @@ private enum SourcedToneMath {
     ) -> (Double, Double, Double) {
         let amount = max(-1, min(1, value / 100.0))
         guard abs(amount) > 1e-12 else { return (r, g, b) }
-        let originalLuma = 0.2126*r + 0.7152*g + 0.0722*b
+        let originalLuma = 0.2126 * r + 0.7152 * g + 0.0722 * b
         guard abs(originalLuma) > 1e-5 else { return (r, g, b) }
 
         let midtoneStrength = 1.2
@@ -483,14 +487,14 @@ private enum SourcedToneMath {
             shapedAbs = topAnchor + (lumaAbs - topAnchor) * k
         }
         let newLuma = originalLuma.sign == .minus ? -shapedAbs : shapedAbs
-        let chroma = (r-originalLuma, g-originalLuma, b-originalLuma)
+        let chroma = (r - originalLuma, g - originalLuma, b - originalLuma)
         let totalScale = shapedAbs / max(lumaAbs, 1e-12)
         let lumaWeight = min(2.0, max(0.0, shapedAbs)) * 0.5
         let dynamicExponent = 0.95 + (0.65 - 0.95) * lumaWeight
         let baseChromaScale = pow(max(totalScale, 1e-12), dynamicExponent)
-        let rolloff = min(1.0, max(0.0, (1.05-shapedAbs) / max(1.05-originalLuma, 1e-4)))
+        let rolloff = min(1.0, max(0.0, (1.05 - shapedAbs) / max(1.05 - originalLuma, 1e-4)))
         let mixAmount = min(1.0, abs(amount))
-        let chromaScale = baseChromaScale * (1.0 + (rolloff-1.0) * mixAmount)
+        let chromaScale = baseChromaScale * (1.0 + (rolloff - 1.0) * mixAmount)
         return (
             newLuma + chroma.0 * chromaScale,
             newLuma + chroma.1 * chromaScale,
@@ -506,7 +510,7 @@ private enum SourcedToneMath {
     ) -> (Double, Double, Double) {
         let amount = max(-1, min(1, value / 100.0))
         guard abs(amount) > 1e-12 else { return (r, g, b) }
-        let luma = max(0.0, 0.2126*r + 0.7152*g + 0.0722*b)
+        let luma = max(0.0, 0.2126 * r + 0.7152 * g + 0.0722 * b)
         let shadowMask = 1.0 - smoothstep(-0.1, 0.3, luma)
         let highlightMask = smoothstep(0.3, 0.7, luma)
         let midMask = max(0.0, 1.0 - shadowMask - highlightMask)
@@ -526,7 +530,7 @@ private enum SourcedToneMath {
     ) -> (Double, Double, Double) {
         let amount = max(0, min(1, value / 100.0))
         guard amount > 1e-12 else { return (r, g, b) }
-        let luma = max(0.0, 0.2126*r + 0.7152*g + 0.0722*b)
+        let luma = max(0.0, 0.2126 * r + 0.7152 * g + 0.0722 * b)
         let pivot = 0.10
         guard luma > pivot else { return (r, g, b) }
         let delta = max(luma - pivot, 0.0)
@@ -554,19 +558,19 @@ private enum SourcedToneMath {
     ) -> (Double, Double, Double) {
         let amount = max(0, min(1, value / 100.0))
         guard amount > 1e-12 else { return (r, g, b) }
-        let luma = max(0.0, 0.2126*r + 0.7152*g + 0.0722*b)
+        let luma = max(0.0, 0.2126 * r + 0.7152 * g + 0.0722 * b)
         guard luma > 1e-6 else { return (r, g, b) }
-        let t = pow(luma, 1.0/2.2)
-        let lift = amount * t * pow(max(1.0-t, 0.0), 4.5)
+        let t = pow(luma, 1.0 / 2.2)
+        let lift = amount * t * pow(max(1.0 - t, 0.0), 4.5)
         let curvedT = max(t + lift, 0.0)
         let targetLuma = pow(curvedT, 2.2)
         let ratio = targetLuma / max(luma, 1e-12)
-        let desat = min(0.40, max(0.0, (ratio-1.0) * 0.15))
+        let desat = min(0.40, max(0.0, (ratio - 1.0) * 0.15))
         let rr = r * ratio, gg = g * ratio, bb = b * ratio
         return (
-            rr + (targetLuma-rr)*desat,
-            gg + (targetLuma-gg)*desat,
-            bb + (targetLuma-bb)*desat
+            rr + (targetLuma - rr) * desat,
+            gg + (targetLuma - gg) * desat,
+            bb + (targetLuma - bb) * desat
         )
     }
 
@@ -582,8 +586,8 @@ private enum SourcedToneMath {
 
     private static func smoothstep(_ edge0: Double, _ edge1: Double, _ x: Double) -> Double {
         guard edge1 > edge0 else { return x < edge0 ? 0 : 1 }
-        let t = min(1.0, max(0.0, (x-edge0)/(edge1-edge0)))
-        return t*t*(3.0-2.0*t)
+        let t = min(1.0, max(0.0, (x - edge0) / (edge1 - edge0)))
+        return t * t * (3.0 - 2.0 * t)
     }
 
     static func whiteGain(_ value: Double) -> Double {
@@ -654,7 +658,7 @@ enum MEDesatchMath {
             (0.3330, settings.green),
             (0.4999, settings.cyan),
             (0.6660, settings.blue),
-            (0.8333, settings.magenta)
+            (0.8333, settings.magenta),
         ]
         for (center, rawAmount) in bands {
             let amount = control(rawAmount)
@@ -808,7 +812,8 @@ extension PixelBufferF32 {
         let tone = tone ?? ToneSettings()
         let points = ToneCurveMath.normalize(tone.curvePoints)
         let cache = ToneCurveMath.buildCache(points)
-        let identityCurve = points.count == 2
+        let identityCurve =
+            points.count == 2
             && abs(points[0].x) < 1e-9 && abs(points[0].y) < 1e-9
             && abs(points[1].x - 1) < 1e-9 && abs(points[1].y - 1) < 1e-9
 
@@ -816,7 +821,8 @@ extension PixelBufferF32 {
         let exposureScale = pow(2.0, max(-10, min(10, tone.exposureEV)))
         let whiteGain = SourcedToneMath.whiteGain(tone.whites)
         let blackOffset = SourcedToneMath.blackOffset(tone.blacks)
-        let toneIdentity = abs(tone.exposureEV) < 1e-12 && abs(tone.brightness) < 1e-12
+        let toneIdentity =
+            abs(tone.exposureEV) < 1e-12 && abs(tone.brightness) < 1e-12
             && abs(tone.contrast) < 1e-12 && abs(tone.midtones) < 1e-12
             && abs(tone.highlights) < 1e-12 && abs(tone.shadows) < 1e-12
             && abs(tone.highlightRecovery) < 1e-12 && abs(tone.shadowRecovery) < 1e-12
@@ -836,45 +842,45 @@ extension PixelBufferF32 {
                 let rowEnd = min(rowStart + rowStride, access.count)
                 for p in stride(from: rowStart, to: rowEnd, by: 4) {
                     var r = Double(access.base[p])
-                    var g = Double(access.base[p+1])
-                    var b = Double(access.base[p+2])
-            if let autoContrastBounds {
-                (r, g, b) = AutoContrastMath.apply(r: r, g: g, b: b, bounds: autoContrastBounds)
-            }
-            r *= exposureScale
-            g *= exposureScale
-            b *= exposureScale
-            (r,g,b) = SourcedToneMath.filmicBrightness(r: r, g: g, b: b, value: tone.brightness)
-            (r,g,b) = SourcedToneMath.midtones(r: r, g: g, b: b, value: tone.midtones)
-            (r,g,b) = SourcedToneMath.applyLinearTone(
-                r: r, g: g, b: b,
-                contrast: tone.contrast, shadows: tone.shadows, highlights: tone.highlights
-            )
-            (r,g,b) = SourcedToneMath.highlightRecovery(r: r, g: g, b: b, value: tone.highlightRecovery)
-            (r,g,b) = SourcedToneMath.shadowRecovery(r: r, g: g, b: b, value: tone.shadowRecovery)
+                    var g = Double(access.base[p + 1])
+                    var b = Double(access.base[p + 2])
+                    if let autoContrastBounds {
+                        (r, g, b) = AutoContrastMath.apply(r: r, g: g, b: b, bounds: autoContrastBounds)
+                    }
+                    r *= exposureScale
+                    g *= exposureScale
+                    b *= exposureScale
+                    (r, g, b) = SourcedToneMath.filmicBrightness(r: r, g: g, b: b, value: tone.brightness)
+                    (r, g, b) = SourcedToneMath.midtones(r: r, g: g, b: b, value: tone.midtones)
+                    (r, g, b) = SourcedToneMath.applyLinearTone(
+                        r: r, g: g, b: b,
+                        contrast: tone.contrast, shadows: tone.shadows, highlights: tone.highlights
+                    )
+                    (r, g, b) = SourcedToneMath.highlightRecovery(r: r, g: g, b: b, value: tone.highlightRecovery)
+                    (r, g, b) = SourcedToneMath.shadowRecovery(r: r, g: g, b: b, value: tone.shadowRecovery)
 
-            var er = AlcedoACEScc.encode(r)
-            var eg = AlcedoACEScc.encode(g)
-            var eb = AlcedoACEScc.encode(b)
+                    var er = AlcedoACEScc.encode(r)
+                    var eg = AlcedoACEScc.encode(g)
+                    var eb = AlcedoACEScc.encode(b)
 
-            er = SourcedToneMath.remapPoints(er, blackPoint: tone.blackPoint, whitePoint: tone.whitePoint)
-            eg = SourcedToneMath.remapPoints(eg, blackPoint: tone.blackPoint, whitePoint: tone.whitePoint)
-            eb = SourcedToneMath.remapPoints(eb, blackPoint: tone.blackPoint, whitePoint: tone.whitePoint)
+                    er = SourcedToneMath.remapPoints(er, blackPoint: tone.blackPoint, whitePoint: tone.whitePoint)
+                    eg = SourcedToneMath.remapPoints(eg, blackPoint: tone.blackPoint, whitePoint: tone.whitePoint)
+                    eb = SourcedToneMath.remapPoints(eb, blackPoint: tone.blackPoint, whitePoint: tone.whitePoint)
 
-            er = er * whiteGain + blackOffset
-            eg = eg * whiteGain + blackOffset
-            eb = eb * whiteGain + blackOffset
+                    er = er * whiteGain + blackOffset
+                    eg = eg * whiteGain + blackOffset
+                    eb = eb * whiteGain + blackOffset
 
-            if !identityCurve {
-                er = ToneCurveMath.evaluate(er, points: points, cache: cache)
-                eg = ToneCurveMath.evaluate(eg, points: points, cache: cache)
-                eb = ToneCurveMath.evaluate(eb, points: points, cache: cache)
-            }
+                    if !identityCurve {
+                        er = ToneCurveMath.evaluate(er, points: points, cache: cache)
+                        eg = ToneCurveMath.evaluate(eg, points: points, cache: cache)
+                        eb = ToneCurveMath.evaluate(eb, points: points, cache: cache)
+                    }
 
-            (er,eg,eb) = MEDesatchMath.apply((er,eg,eb), settings: density)
+                    (er, eg, eb) = MEDesatchMath.apply((er, eg, eb), settings: density)
                     access.base[p] = Float(AlcedoACEScc.decode(er))
-                    access.base[p+1] = Float(AlcedoACEScc.decode(eg))
-                    access.base[p+2] = Float(AlcedoACEScc.decode(eb))
+                    access.base[p + 1] = Float(AlcedoACEScc.decode(eg))
+                    access.base[p + 2] = Float(AlcedoACEScc.decode(eb))
                 }
             }
         }

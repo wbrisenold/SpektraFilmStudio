@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 // SPEKTRA_RAW_METAL_GPU_FILTERS_20261010
 
@@ -38,14 +38,19 @@ struct EditWorkspaceView: View {
                     if showScopes { StudioFloatingScopes(model: model, onClose: { showScopes = false }) }
                 }
                 .padding(.top, StudioLayout.paneInset)
-                .padding(.leading, model.isPresetSidebarVisible
-                    ? StudioLayout.presetSidebarWidth + 2 * StudioLayout.paneInset
-                    : StudioLayout.paneInset)
-                .padding(.trailing, showEditorInspector
-                    ? StudioLayout.editorInspectorWidth + 2 * StudioLayout.paneInset
-                    : StudioLayout.paneInset)
+                .padding(
+                    .leading,
+                    model.isPresetSidebarVisible
+                        ? StudioLayout.presetSidebarWidth + 2 * StudioLayout.paneInset
+                        : StudioLayout.paneInset
+                )
+                .padding(
+                    .trailing,
+                    showEditorInspector
+                        ? StudioLayout.editorInspectorWidth + 2 * StudioLayout.paneInset
+                        : StudioLayout.paneInset
+                )
                 .padding(.bottom, StudioLayout.paneInset)
-
 
             HStack(alignment: .top, spacing: 0) {
                 if model.isPresetSidebarVisible {
@@ -94,7 +99,8 @@ struct EditWorkspaceView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: StudioOmniEvents.focusAdjustment)) { note in
             guard let name = note.object as? String,
-                  let item = BridgeCatalog.shared.parameters.first(where: { $0.name == name }) else { return }
+                let item = BridgeCatalog.shared.parameters.first(where: { $0.name == name })
+            else { return }
             inspectorMode = ["raw", "tone", "geometry", "lens"].contains(item.group) ? .adjust : .film
             showEditorInspector = true
         }
@@ -139,7 +145,8 @@ struct EditWorkspaceView: View {
         }
         switch editPhotosSort {
         case "name": return matching.sorted { $0.fileName.localizedStandardCompare($1.fileName) == .orderedAscending }
-        case "rating": return matching.sorted { $0.rating == $1.rating ? $0.importedAt < $1.importedAt : $0.rating > $1.rating }
+        case "rating":
+            return matching.sorted { $0.rating == $1.rating ? $0.importedAt < $1.importedAt : $0.rating > $1.rating }
         case "score": return matching.sorted { ($0.cullAnalysis?.score ?? -1) > ($1.cullAnalysis?.score ?? -1) }
         case "newest": return matching.sorted { $0.importedAt > $1.importedAt }
         default: return matching
@@ -164,7 +171,9 @@ struct EditWorkspaceView: View {
 
                 Spacer()
 
-                Button { model.isPresetSidebarVisible = false } label: {
+                Button {
+                    model.isPresetSidebarVisible = false
+                } label: {
                     Image(systemName: "sidebar.left")
                 }
                 .buttonStyle(.borderless)
@@ -183,7 +192,9 @@ struct EditWorkspaceView: View {
                     .font(.caption)
                     .accessibilityLabel("Find photos in Edit sidebar")
                 if !editPhotosSearch.isEmpty {
-                    Button { editPhotosSearch = "" } label: {
+                    Button {
+                        editPhotosSearch = ""
+                    } label: {
                         Image(systemName: "xmark.circle.fill")
                     }
                     .buttonStyle(.plain)
@@ -221,8 +232,9 @@ struct EditWorkspaceView: View {
                         editPhotosSearch = ""
                     }
                 } label: {
-                    Image(systemName: (editPhotosStatus == "all" && editPhotosMinRating == 0) ?
-                        "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                    Image(
+                        systemName: (editPhotosStatus == "all" && editPhotosMinRating == 0)
+                            ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
                 }
                 .menuStyle(.borderlessButton)
                 .help("Filter by picks, rejection, rating, review, and sort")
@@ -232,115 +244,121 @@ struct EditWorkspaceView: View {
             .padding(.vertical, 8)
 
             if filteredEditPhotos.isEmpty {
-                ContentUnavailableView("No matching photos", systemImage: "line.3.horizontal.decrease.circle",
-                    description: Text("Try clearing the Edit photo filters."))
-                    .frame(maxHeight: .infinity)
+                ContentUnavailableView(
+                    "No matching photos", systemImage: "line.3.horizontal.decrease.circle",
+                    description: Text("Try clearing the Edit photo filters.")
+                )
+                .frame(maxHeight: .infinity)
             } else {
-            ScrollView(.vertical) {
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 8) {
-                    ForEach(filteredEditPhotos) { image in
-                        let highlighted = model.librarySelection.contains(image.id)
-                        let active = model.project.selectedImageID == image.id
+                ScrollView(.vertical) {
+                    LazyVGrid(
+                        columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 8
+                    ) {
+                        ForEach(filteredEditPhotos) { image in
+                            let highlighted = model.librarySelection.contains(image.id)
+                            let active = model.project.selectedImageID == image.id
 
-                        VStack(spacing: 4) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 7)
-                                    .fill(Color.black.opacity(0.28))
+                            VStack(spacing: 4) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 7)
+                                        .fill(Color.black.opacity(0.28))
 
-                                LocalThumbnail(url: model.thumbnailURL(for: image), contentMode: .fit)
-                                    .padding(4)
-                                    .frame(width: filmstripThumbnailWidth, height: filmstripThumbnailHeight)
+                                    LocalThumbnail(url: model.thumbnailURL(for: image), contentMode: .fit)
+                                        .padding(4)
+                                        .frame(width: filmstripThumbnailWidth, height: filmstripThumbnailHeight)
 
-                                VStack {
-                                    HStack {
-                                        if image.flag == .picked {
-                                            Image(systemName: "flag.fill")
-                                                .foregroundStyle(.green)
-                                        } else if image.flag == .rejected {
-                                            Image(systemName: "xmark.circle.fill")
-                                                .foregroundStyle(.red)
-                                        }
-
-                                        if image.rating > 0 {
-                                            Text("\(image.rating)★")
-                                                .font(.caption2.monospacedDigit().weight(.semibold))
-                                                .padding(.horizontal, 5)
-                                                .frame(height: 18)
-                                                .background(.regularMaterial, in: Capsule())
-                                        }
-
-                                        Spacer()
-
-                                        if highlighted {
-                                            Image(systemName: "checkmark.circle.fill")
-                                                .font(.system(size: 15, weight: .semibold))
-                                                .symbolRenderingMode(.hierarchical)
-                                        }
-                                    }
-                                    Spacer()
-                                    if active {
+                                    VStack {
                                         HStack {
-                                            Circle()
-                                                .fill(Color.accentColor)
-                                                .frame(width: 7, height: 7)
-                                            Text("ACTIVE")
-                                                .font(.system(size: 8, weight: .bold))
-                                            Spacer()
-                                        }
-                                        .foregroundStyle(.primary)
-                                    }
-                                }
-                                .padding(6)
-                            }
-                            .frame(width: filmstripThumbnailWidth, height: filmstripThumbnailHeight)
-                            .clipShape(RoundedRectangle(cornerRadius: 7))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 7)
-                                    .stroke(
-                                        active ? Color.accentColor :
-                                            (highlighted ? Color.accentColor.opacity(0.58) : Color.white.opacity(0.10)),
-                                        lineWidth: active ? 2.5 : (highlighted ? 1.5 : 1)
-                                    )
-                            }
+                                            if image.flag == .picked {
+                                                Image(systemName: "flag.fill")
+                                                    .foregroundStyle(.green)
+                                            } else if image.flag == .rejected {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .foregroundStyle(.red)
+                                            }
 
-                            Text(image.fileName)
-                                .font(.caption2)
-                                .foregroundStyle(active ? .primary : .secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .frame(width: filmstripThumbnailWidth)
-                        }
-                        .padding(4)
-                        .studioSelection(highlighted)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            let flags = NSEvent.modifierFlags
-                            model.selectLibraryImage(
-                                image.id,
-                                additive: flags.contains(.command),
-                                range: flags.contains(.shift),
-                                orderedIDs: filteredEditPhotos.map(\.id)
-                            )
-                        }
-                        .contextMenu {
-                            Button("Select Only") { model.selectLibraryImage(image.id) }
-                            Button("Export This Photo…") {
-                                quickExportRequest = QuickExportRequest(id: image.id)
+                                            if image.rating > 0 {
+                                                Text("\(image.rating)★")
+                                                    .font(.caption2.monospacedDigit().weight(.semibold))
+                                                    .padding(.horizontal, 5)
+                                                    .frame(height: 18)
+                                                    .background(.regularMaterial, in: Capsule())
+                                            }
+
+                                            Spacer()
+
+                                            if highlighted {
+                                                Image(systemName: "checkmark.circle.fill")
+                                                    .font(.system(size: 15, weight: .semibold))
+                                                    .symbolRenderingMode(.hierarchical)
+                                            }
+                                        }
+                                        Spacer()
+                                        if active {
+                                            HStack {
+                                                Circle()
+                                                    .fill(Color.accentColor)
+                                                    .frame(width: 7, height: 7)
+                                                Text("ACTIVE")
+                                                    .font(.system(size: 8, weight: .bold))
+                                                Spacer()
+                                            }
+                                            .foregroundStyle(.primary)
+                                        }
+                                    }
+                                    .padding(6)
+                                }
+                                .frame(width: filmstripThumbnailWidth, height: filmstripThumbnailHeight)
+                                .clipShape(RoundedRectangle(cornerRadius: 7))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 7)
+                                        .stroke(
+                                            active
+                                                ? Color.accentColor
+                                                : (highlighted
+                                                    ? Color.accentColor.opacity(0.58) : Color.white.opacity(0.10)),
+                                            lineWidth: active ? 2.5 : (highlighted ? 1.5 : 1)
+                                        )
+                                }
+
+                                Text(image.fileName)
+                                    .font(.caption2)
+                                    .foregroundStyle(active ? .primary : .secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .frame(width: filmstripThumbnailWidth)
                             }
-                            .disabled(model.isExporting)
-                            Divider()
-                            Button("Copy Selected Edits") { model.copyLook() }
-                            Button("Paste to Highlighted") { model.pasteLook() }
-                            if model.librarySelection.count > 1 {
-                                Button("Clear Multi-Selection") { model.clearLibrarySelection() }
+                            .padding(4)
+                            .studioSelection(highlighted)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                let flags = NSEvent.modifierFlags
+                                model.selectLibraryImage(
+                                    image.id,
+                                    additive: flags.contains(.command),
+                                    range: flags.contains(.shift),
+                                    orderedIDs: filteredEditPhotos.map(\.id)
+                                )
+                            }
+                            .contextMenu {
+                                Button("Select Only") { model.selectLibraryImage(image.id) }
+                                Button("Export This Photo…") {
+                                    quickExportRequest = QuickExportRequest(id: image.id)
+                                }
+                                .disabled(model.isExporting)
+                                Divider()
+                                Button("Copy Selected Edits") { model.copyLook() }
+                                Button("Paste to Highlighted") { model.pasteLook() }
+                                if model.librarySelection.count > 1 {
+                                    Button("Clear Multi-Selection") { model.clearLibrarySelection() }
+                                }
                             }
                         }
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 8)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 8)
-            }
-            .background(StudioPalette.recessed)
+                .background(StudioPalette.recessed)
             }
         }
         .frame(maxHeight: .infinity)
@@ -434,7 +452,9 @@ private struct EditorInspectorView: View {
                 .disabled(model.previousLookTargetID == nil)
                 .help("Copy this photo's settings to the previously viewed photo")
             Spacer()
-            Button(role: .destructive) { model.resetLook() } label: {
+            Button(role: .destructive) {
+                model.resetLook()
+            } label: {
                 Label("Reset All", systemImage: "arrow.counterclockwise")
             }
             .disabled(model.selectedImage == nil)

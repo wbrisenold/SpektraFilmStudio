@@ -1,5 +1,5 @@
-import Foundation
 import CoreGraphics
+import Foundation
 import Vision
 
 struct DetectedFace: Sendable {
@@ -53,27 +53,38 @@ actor CullEngine {
             score = max(0, min(100, score))
 
             var reasons: [String] = []
-            if focus >= 0.72 { reasons.append("Strong subject focus") }
-            else if focus < 0.32 { reasons.append("Soft focus") }
+            if focus >= 0.72 {
+                reasons.append("Strong subject focus")
+            } else if focus < 0.32 {
+                reasons.append("Soft focus")
+            }
             if metrics.highlightClip > 0.025 { reasons.append("Heavy highlight clipping") }
             if metrics.shadowClip > 0.20 { reasons.append("Deep shadow clipping") }
             if face.count > 0 { reasons.append("\(face.count) face\(face.count == 1 ? "" : "s") detected") }
             if face.possibleBlink { reasons.append("Possible blink") }
             if let faceCaptureQuality, face.count > 0 {
-                reasons.append(faceCaptureQuality >= 0.65 ? "Strong Vision face capture" :
-                    (faceCaptureQuality < 0.35 ? "Weak Vision face capture" : "Moderate Vision face capture"))
+                reasons.append(
+                    faceCaptureQuality >= 0.65
+                        ? "Strong Vision face capture"
+                        : (faceCaptureQuality < 0.35 ? "Weak Vision face capture" : "Moderate Vision face capture"))
             }
             if let aestheticScore {
-                reasons.append(aestheticScore >= 0.30 ? "Strong aesthetic composition" :
-                    (aestheticScore < -0.30 ? "Lower aesthetic model score" : "Moderate aesthetic model score"))
+                reasons.append(
+                    aestheticScore >= 0.30
+                        ? "Strong aesthetic composition"
+                        : (aestheticScore < -0.30 ? "Lower aesthetic model score" : "Moderate aesthetic model score"))
             }
             if metrics.noise > 0.42 { reasons.append("High fine-detail noise") }
             if reasons.isEmpty { reasons.append("Balanced technical quality") }
 
             let recommendation: CullRecommendation
-            if score >= 76, !face.possibleBlink { recommendation = .keep }
-            else if score < 44 || (face.count > 0 && face.sharpness < 0.18) { recommendation = .reject }
-            else { recommendation = .review }
+            if score >= 76, !face.possibleBlink {
+                recommendation = .keep
+            } else if score < 44 || (face.count > 0 && face.sharpness < 0.18) {
+                recommendation = .reject
+            } else {
+                recommendation = .review
+            }
 
             let record = CullAnalysisRecord(
                 score: score,
@@ -115,7 +126,9 @@ actor CullEngine {
 
     private nonisolated static func imageMetrics(_ payload: ThumbnailPayload) -> BasicMetrics {
         let w = payload.width, h = payload.height
-        guard w > 2, h > 2 else { return BasicMetrics(sharpness: 0, highlightClip: 0, shadowClip: 0, noise: 0, contrast: 0) }
+        guard w > 2, h > 2 else {
+            return BasicMetrics(sharpness: 0, highlightClip: 0, shadowClip: 0, noise: 0, contrast: 0)
+        }
         let target = 420
         let step = max(1, max(w, h) / target)
         var gradientSum = 0.0
@@ -153,7 +166,9 @@ actor CullEngine {
             }
             y += step
         }
-        guard samples > 0 else { return BasicMetrics(sharpness: 0, highlightClip: 0, shadowClip: 0, noise: 0, contrast: 0) }
+        guard samples > 0 else {
+            return BasicMetrics(sharpness: 0, highlightClip: 0, shadowClip: 0, noise: 0, contrast: 0)
+        }
         let n = Double(samples)
         let grad = gradientSum / n
         let lapMean = lapSum / n
@@ -190,7 +205,8 @@ actor CullEngine {
         guard let image = payload.makeCGImage() else { return nil }
         let request = VNCalculateImageAestheticsScoresRequest()
         guard (try? VNImageRequestHandler(cgImage: image, options: [:]).perform([request])) != nil,
-              let result = request.results?.first else { return nil }
+            let result = request.results?.first
+        else { return nil }
         return Double(result.overallScore)
     }
 
@@ -221,15 +237,16 @@ actor CullEngine {
                     let nose = CGPoint(x: rect.midX, y: rect.minY + rect.height * 0.55)
                     let rightMouth = CGPoint(x: rect.minX + rect.width * 0.35, y: rect.minY + rect.height * 0.75)
                     let leftMouth = CGPoint(x: rect.minX + rect.width * 0.65, y: rect.minY + rect.height * 0.75)
-                    faces.append(DetectedFace(
-                        bounds: rect,
-                        rightEye: rightEye,
-                        leftEye: leftEye,
-                        nose: nose,
-                        rightMouth: rightMouth,
-                        leftMouth: leftMouth,
-                        confidence: 1.0
-                    ))
+                    faces.append(
+                        DetectedFace(
+                            bounds: rect,
+                            rightEye: rightEye,
+                            leftEye: leftEye,
+                            nose: nose,
+                            rightMouth: rightMouth,
+                            leftMouth: leftMouth,
+                            confidence: 1.0
+                        ))
                 }
             }
         } catch {
@@ -265,7 +282,9 @@ actor CullEngine {
         return FaceMetrics(count: faces.count, sharpness: min(1, sharpness), possibleBlink: possibleBlink)
     }
 
-    private nonisolated static func eyeRegionDetail(_ payload: ThumbnailPayload, center: CGPoint, radius: Double) -> Double {
+    private nonisolated static func eyeRegionDetail(
+        _ payload: ThumbnailPayload, center: CGPoint, radius: Double
+    ) -> Double {
         let x0 = max(1, Int(center.x - radius))
         let x1 = min(payload.width - 2, Int(center.x + radius))
         let y0 = max(1, Int(center.y - radius))

@@ -1,6 +1,6 @@
+import CoreGraphics
 import Foundation
 import ImageIO
-import CoreGraphics
 import Vision
 
 /// Analyzes only the locally materialized proxy/thumbnail; never opens a RAW original.
@@ -52,8 +52,10 @@ actor StudioSceneIntelligence {
 
     /// Grouping is conservative: visual evidence must support capture-session proximity.
     /// Similar outfits shot weeks apart are not silently treated as the same studio session.
-    func group(_ photos: [StudioSceneInput], similarity: Float,
-               films: [String], papers: [String]) async throws -> [StudioSceneSet] {
+    func group(
+        _ photos: [StudioSceneInput], similarity: Float,
+        films: [String], papers: [String]
+    ) async throws -> [StudioSceneSet] {
         let ordered = photos.sorted {
             if $0.captureTime == $1.captureTime { return $0.id.uuidString < $1.id.uuidString }
             return $0.captureTime < $1.captureTime
@@ -73,7 +75,8 @@ actor StudioSceneIntelligence {
                 guard let first = groups[index].first else { continue }
                 // Complete-link witness: must be close to the first and the latest sample.
                 guard let firstD = distance(descriptor, first.1),
-                      let lastD = distance(descriptor, latest.1) else { continue }
+                    let lastD = distance(descriptor, latest.1)
+                else { continue }
                 let difference = max(firstD, lastD)
                 let sameFaceType = (descriptor.faces > 0) == (first.1.faces > 0)
                 // Studio outfit/pose variations may have higher visual distance; nearby
@@ -82,8 +85,7 @@ actor StudioSceneIntelligence {
                 guard difference <= tolerance else { continue }
                 if difference < bestDistance { bestDistance = difference; bestIndex = index }
             }
-            if let i = bestIndex { groups[i].append((item, descriptor)) }
-            else { groups.append([(item, descriptor)]) }
+            if let i = bestIndex { groups[i].append((item, descriptor)) } else { groups.append([(item, descriptor)]) }
         }
         return groups.map { group in
             let representative = group[group.count / 2]
@@ -94,12 +96,15 @@ actor StudioSceneIntelligence {
             let faceRatio = Double(group.filter { $0.1.faces > 0 }.count) / Double(max(group.count, 1))
             let luminance = group.map { $0.1.luma }.reduce(0, +) / Double(group.count)
             let label = Self.sceneTitle(tags: tags, faces: faceRatio, luma: luminance)
-            let candidatePairs = Self.recommend(films: films, papers: papers, title: label,
-                                                tags: tags, faceRatio: faceRatio, luma: luminance)
-            let why = "\(group.count) photo\(group.count == 1 ? "" : "s") grouped by Vision image similarity, capture proximity and session folder. Review grouping before applying a look."
-            return StudioSceneSet(id: representative.0.id,
-                                  imageIDs: group.map { $0.0.id }, label: label,
-                                  explanation: why, suggested: candidatePairs, topTags: tags)
+            let candidatePairs = Self.recommend(
+                films: films, papers: papers, title: label,
+                tags: tags, faceRatio: faceRatio, luma: luminance)
+            let why =
+                "\(group.count) photo\(group.count == 1 ? "" : "s") grouped by Vision image similarity, capture proximity and session folder. Review grouping before applying a look."
+            return StudioSceneSet(
+                id: representative.0.id,
+                imageIDs: group.map { $0.0.id }, label: label,
+                explanation: why, suggested: candidatePairs, topTags: tags)
         }
     }
 
@@ -118,11 +123,14 @@ actor StudioSceneIntelligence {
         let key = "\(url.standardizedFileURL.path)|\(bytes)|\(modified)"
         if let old = cache[key] { return old }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: 384
-              ] as CFDictionary) else { return nil }
+            let image = CGImageSourceCreateThumbnailAtIndex(
+                source, 0,
+                [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceThumbnailMaxPixelSize: 384,
+                ] as CFDictionary)
+        else { return nil }
         let feature = VNGenerateImageFeaturePrintRequest()
         feature.imageCropAndScaleOption = .scaleFit
         let classifier = VNClassifyImageRequest()
@@ -130,16 +138,16 @@ actor StudioSceneIntelligence {
         // Feature-print similarity is essential, but classification and face detection
         // are optional enrichment. Older Intel systems should still be able to group
         // photos even when one of those auxiliary Vision requests is unavailable.
-        do { try VNImageRequestHandler(cgImage: image, options: [:]).perform([feature]) }
-        catch { return nil }
+        do { try VNImageRequestHandler(cgImage: image, options: [:]).perform([feature]) } catch { return nil }
         guard let observation = feature.results?.first else { return nil }
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
         try? handler.perform([classifier])
         try? handler.perform([faces])
         let labels = (classifier.results ?? []).prefix(8).map { ($0.identifier, $0.confidence) }
-        let description = Descriptor(feature: observation, labels: labels,
-                                     faces: faces.results?.count ?? 0,
-                                     luma: Self.estimatedLuminance(image))
+        let description = Descriptor(
+            feature: observation, labels: labels,
+            faces: faces.results?.count ?? 0,
+            luma: Self.estimatedLuminance(image))
         cache[key] = description
         cacheOrder.append(key)
         if cacheOrder.count > maxCache {
@@ -155,9 +163,11 @@ actor StudioSceneIntelligence {
         var pixels = [UInt8](repeating: 0, count: 16 * 16 * 4)
         let okay = pixels.withUnsafeMutableBytes { raw -> Bool in
             guard let ptr = raw.baseAddress,
-                  let context = CGContext(data: ptr, width: 16, height: 16, bitsPerComponent: 8,
-                                          bytesPerRow: 16 * 4, space: space,
-                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+                let context = CGContext(
+                    data: ptr, width: 16, height: 16, bitsPerComponent: 8,
+                    bytesPerRow: 16 * 4, space: space,
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return false }
             context.draw(image, in: CGRect(x: 0, y: 0, width: 16, height: 16))
             return true
         }
@@ -176,16 +186,26 @@ actor StudioSceneIntelligence {
             return "Studio / portraits"
         }
         if labels.contains("night") || labels.contains("dark") || luma < 0.20 { return "Night / low light" }
-        if labels.contains("landscape") || labels.contains("mountain") || labels.contains("forest") || labels.contains("nature") { return "Outdoor / landscape" }
-        if labels.contains("street") || labels.contains("city") || labels.contains("building") { return "City / street" }
-        if labels.contains("product") || labels.contains("food") || labels.contains("still life") { return "Product / still life" }
+        if labels.contains("landscape") || labels.contains("mountain") || labels.contains("forest")
+            || labels.contains("nature")
+        {
+            return "Outdoor / landscape"
+        }
+        if labels.contains("street") || labels.contains("city") || labels.contains("building") {
+            return "City / street"
+        }
+        if labels.contains("product") || labels.contains("food") || labels.contains("still life") {
+            return "Product / still life"
+        }
         return "Mixed scene"
     }
 
     /// Style ranking, NOT a supervised film-stock model. Values are native catalog indices.
     /// Stock/paper names are taken from the pinned Spektrafilm core, never hard-coded as IDs.
-    private nonisolated static func recommend(films: [String], papers: [String], title: String,
-                                             tags: [String], faceRatio: Double, luma: Double) -> [StudioSceneSuggestion] {
+    private nonisolated static func recommend(
+        films: [String], papers: [String], title: String,
+        tags: [String], faceRatio: Double, luma: Double
+    ) -> [StudioSceneSuggestion] {
         guard !films.isEmpty, !papers.isEmpty else { return [] }
         let studio = title.contains("Studio")
         let night = title.contains("Night")
@@ -245,11 +265,16 @@ actor StudioSceneIntelligence {
             if outdoor && (value.contains("gloss") || value.contains("vivid")) { s += 3 }
             return (s, reason)
         }
-        let sceneReason = studio ? "scene reads as a studio portrait (\(Int((faceRatio * 100).rounded()))% with faces)"
-                  : night ? "scene reads as low light (mean luma \(String(format: "%.2f", luma)))"
-                  : outdoor ? "scene reads as outdoor daylight"
-                  : city ? "scene reads as an urban/subject environment"
-                  : "no dominant scene cues; ranked neutrally"
+        let sceneReason =
+            studio
+            ? "scene reads as a studio portrait (\(Int((faceRatio * 100).rounded()))% with faces)"
+            : night
+                ? "scene reads as low light (mean luma \(String(format: "%.2f", luma)))"
+                : outdoor
+                    ? "scene reads as outdoor daylight"
+                    : city
+                        ? "scene reads as an urban/subject environment"
+                        : "no dominant scene cues; ranked neutrally"
         let filmOrder = films.indices.sorted { a, b in
             let lhs = filmScore(films[a]).score, rhs = filmScore(films[b]).score
             return lhs == rhs ? a < b : lhs > rhs
@@ -264,11 +289,14 @@ actor StudioSceneIntelligence {
             let paperWhy = paperScore(papers[paperIndex]).reason
             // Say what actually drove this pick. "General starting point" told the
             // user nothing they could not have guessed.
-            let why = "\(sceneReason). " + (evidence.isEmpty
-                ? "No strong match — this is catalog order, not a match."
-                : evidence.joined(separator: "; ")) + ". " + (paperWhy ?? "paired paper by catalog order")
-            return StudioSceneSuggestion(filmIndex: filmIndex, paperIndex: paperIndex,
-                                         filmName: films[filmIndex], paperName: papers[paperIndex], why: why)
+            let why =
+                "\(sceneReason). "
+                + (evidence.isEmpty
+                    ? "No strong match — this is catalog order, not a match."
+                    : evidence.joined(separator: "; ")) + ". " + (paperWhy ?? "paired paper by catalog order")
+            return StudioSceneSuggestion(
+                filmIndex: filmIndex, paperIndex: paperIndex,
+                filmName: films[filmIndex], paperName: papers[paperIndex], why: why)
         }
     }
 }

@@ -59,11 +59,12 @@ struct ExportItemTimings: Codable, Sendable, Equatable {
             String(format: "%d", sourceHeight),
             String(format: "%d", outputWidth),
             String(format: "%d", outputHeight),
-            String(format: "%lld", outputBytes)
+            String(format: "%lld", outputBytes),
         ].joined(separator: ",")
     }
 
-    static let csvHeader = "source_file,destination_file,wall_ms,decode_ms,decode_source,grade_ms,render_ms,render_gpu_ms,render_passes,geometry_resize_ms,write_ms,source_w,source_h,output_w,output_h,output_bytes"
+    static let csvHeader =
+        "source_file,destination_file,wall_ms,decode_ms,decode_source,grade_ms,render_ms,render_gpu_ms,render_passes,geometry_resize_ms,write_ms,source_w,source_h,output_w,output_h,output_bytes"
 }
 
 struct ExportQueueItem: Identifiable, Codable, Sendable, Equatable {
@@ -136,8 +137,7 @@ struct ExportJob: Identifiable, Codable, Sendable, Equatable {
             samples.map { $0.gradeMs + $0.renderMs }
         )
         let postLaneMs =
-            mean(samples.map { $0.geometryResizeMs + $0.writeMs }) /
-            Double(Self.postProcessWorkerCount)
+            mean(samples.map { $0.geometryResizeMs + $0.writeMs }) / Double(Self.postProcessWorkerCount)
 
         let throughputMs = max(
             1,
@@ -149,8 +149,7 @@ struct ExportJob: Identifiable, Codable, Sendable, Equatable {
 
         let drainMs =
             unfinished > 0
-            ? mean(samples.map { $0.geometryResizeMs + $0.writeMs }) /
-              Double(Self.postProcessWorkerCount)
+            ? mean(samples.map { $0.geometryResizeMs + $0.writeMs }) / Double(Self.postProcessWorkerCount)
             : 0
 
         return (throughputMs * Double(unfinished) + drainMs) / 1000.0
@@ -185,8 +184,9 @@ struct ExportJob: Identifiable, Codable, Sendable, Equatable {
                 // destination before the job began. A non-empty final file therefore means the
                 // atomic commit completed before the crash even if the next journal write did not.
                 if let attrs = try? fm.attributesOfItem(atPath: items[index].destinationPath),
-                   let size = attrs[.size] as? NSNumber,
-                   size.int64Value > 0 {
+                    let size = attrs[.size] as? NSNumber,
+                    size.int64Value > 0
+                {
                     items[index].state = .completed
                     items[index].outputBytes = size.int64Value
                     items[index].errorMessage = nil
@@ -227,7 +227,8 @@ enum ExportJobPlanner {
         guard !settings.destinationPath.isEmpty else { throw ExportPlanningError.noDestination }
 
         guard settings.sequenceStart >= 1,
-              !settings.sequenceStart.addingReportingOverflow(images.count - 1).overflow else {
+            !settings.sequenceStart.addingReportingOverflow(images.count - 1).overflow
+        else {
             throw ExportPlanningError.invalidSequence
         }
         let directory = URL(fileURLWithPath: settings.destinationPath, isDirectory: true)
@@ -239,7 +240,8 @@ enum ExportJobPlanner {
         for (offset, image) in images.enumerated() {
             let sequence = settings.sequenceStart + offset
             let stem = safeStem(image: image, sequence: sequence, settings: settings, batchCount: images.count)
-            var destination = directory
+            var destination =
+                directory
                 .appendingPathComponent(stem)
                 .appendingPathExtension(settings.format.fileExtension)
 
@@ -247,7 +249,8 @@ enum ExportJobPlanner {
             var collision = 2
 
             while reserved.contains(normalized(destination)) || fm.fileExists(atPath: destination.path) {
-                destination = directory
+                destination =
+                    directory
                     .appendingPathComponent("\(originalStem)_\(collision)")
                     .appendingPathExtension(settings.format.fileExtension)
                 collision += 1
@@ -264,11 +267,13 @@ enum ExportJobPlanner {
     }
 
     static func previewNames(images: [ProjectImageRecord], settings: ExportSettings, limit: Int = 5) -> [String] {
-        guard let job = try? makeJob(
-            images: images,
-            settings: settings,
-            bypassImportTransform: false
-        ) else { return [] }
+        guard
+            let job = try? makeJob(
+                images: images,
+                settings: settings,
+                bypassImportTransform: false
+            )
+        else { return [] }
         return Array(job.items.prefix(max(0, limit))).map {
             URL(fileURLWithPath: $0.destinationPath).lastPathComponent
         }
@@ -287,7 +292,8 @@ enum ExportJobPlanner {
 
         let hasName = effective.contains("{name}") || effective.contains("{original_filename}")
         let hasSequence = effective.contains("{sequence}")
-        var expanded = effective
+        var expanded =
+            effective
             .replacingOccurrences(of: "{name}", with: base)
             .replacingOccurrences(of: "{original_filename}", with: base)
             .replacingOccurrences(of: "{sequence}", with: sequenceText)
@@ -320,7 +326,9 @@ actor ExportJobJournal {
     private var directory: URL {
         // A real-queue smoke test must never replace the user's recovery journal.
         let args = CommandLine.arguments
-        if args.contains("--export-smoke-test"), let index = args.firstIndex(of: "--export-output"), index + 1 < args.count {
+        if args.contains("--export-smoke-test"), let index = args.firstIndex(of: "--export-output"),
+            index + 1 < args.count
+        {
             return URL(fileURLWithPath: args[index + 1], isDirectory: true)
                 .appendingPathComponent(".export-smoke-journal", isDirectory: true)
         }
@@ -367,7 +375,7 @@ actor ExportTimingLog {
         let row = [
             Self.csvField(item.sourceFileName),
             Self.csvField((item.destinationPath as NSString).lastPathComponent),
-            timings.csvRow
+            timings.csvRow,
         ].joined(separator: ",")
 
         let fm = FileManager.default

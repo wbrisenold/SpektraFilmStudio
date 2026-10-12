@@ -15,7 +15,8 @@ enum DiagnosticColorError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedOutputSpace(let index):
-            return "Skin diagnostics are not calibrated for output color-space index \(index). Use sRGB, Display P3, Linear Rec.709/2020/P3, P3-D65 Gamma, Adobe RGB, or Rec.709 Gamma."
+            return
+                "Skin diagnostics are not calibrated for output color-space index \(index). Use sRGB, Display P3, Linear Rec.709/2020/P3, P3-D65 Gamma, Adobe RGB, or Rec.709 Gamma."
         case .unsupportedOutputRole(let role):
             return "Skin diagnostics require the SDR display-output role. Current output role is \(role)."
         }
@@ -36,39 +37,39 @@ enum DiagnosticColorError: LocalizedError {
 /// P3/Rec.709 transfer choices from silently moving the diagnostic line.
 enum SkinToneReference {
     private static let p3ToSRGB: [Double] = [
-         1.224940176, -0.224940176,  0.0,
-        -0.042056955,  1.042056955,  0.0,
-        -0.019637555, -0.078636046,  1.098273601
+        1.224940176, -0.224940176, 0.0,
+        -0.042056955, 1.042056955, 0.0,
+        -0.019637555, -0.078636046, 1.098273601,
     ]
 
     private static let rec2020ToXYZD65: [Double] = [
         0.6369580483, 0.1446169036, 0.1688809752,
         0.2627002120, 0.6779980715, 0.0593017165,
-        0.0000000000, 0.0280726930, 1.0609850577
+        0.0000000000, 0.0280726930, 1.0609850577,
     ]
 
     private static let adobeToXYZD65: [Double] = [
         0.5767309, 0.1855540, 0.1881852,
         0.2973769, 0.6273491, 0.0752741,
-        0.0270343, 0.0706872, 0.9911085
+        0.0270343, 0.0706872, 0.9911085,
     ]
 
     private static let proPhotoToXYZD50: [Double] = [
         0.7976749, 0.1351917, 0.0313534,
         0.2880402, 0.7118741, 0.0000857,
-        0.0000000, 0.0000000, 0.8252100
+        0.0000000, 0.0000000, 0.8252100,
     ]
 
     private static let d50ToD65: [Double] = [
-         0.9555766, -0.0230393, 0.0631636,
-        -0.0282895,  1.0099416, 0.0210077,
-         0.0122982, -0.0204830, 1.3299098
+        0.9555766, -0.0230393, 0.0631636,
+        -0.0282895, 1.0099416, 0.0210077,
+        0.0122982, -0.0204830, 1.3299098,
     ]
 
     private static let xyzD65ToSRGB: [Double] = [
-         3.2404542, -1.5371385, -0.4985314,
-        -0.9692660,  1.8760108,  0.0415560,
-         0.0556434, -0.2040259,  1.0572252
+        3.2404542, -1.5371385, -0.4985314,
+        -0.9692660, 1.8760108, 0.0415560,
+        0.0556434, -0.2040259, 1.0572252,
     ]
 
     static let referenceAngleDegrees: Double = {
@@ -93,7 +94,7 @@ enum SkinToneReference {
     }
 
     private static let supportedOutputSpaces: Set<Int> = [
-        14, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25
+        14, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25,
     ]
 
     static func canonicalLinearSRGBUnclamped(
@@ -108,55 +109,64 @@ enum SkinToneReference {
         let linearSRGB: (Double, Double, Double)
 
         switch index {
-        case 14: // Linear Rec.2020
+        case 14:  // Linear Rec.2020
             linearSRGB = xyzToSRGB(mul(rec2020ToXYZD65, (rr, gg, bb)))
-        case 15: // Linear Rec.709
+        case 15:  // Linear Rec.709
             linearSRGB = (rr, gg, bb)
-        case 16: // Linear P3-D65
+        case 16:  // Linear P3-D65
             linearSRGB = mul(p3ToSRGB, (rr, gg, bb))
-        case 17: // sRGB
+        case 17:  // sRGB
             linearSRGB = (
                 srgbDecode(rr),
                 srgbDecode(gg),
                 srgbDecode(bb)
             )
-        case 18: // Display P3, sRGB transfer
-            linearSRGB = mul(p3ToSRGB, (
-                srgbDecode(rr), srgbDecode(gg), srgbDecode(bb)
-            ))
-        case 19: // ProPhoto RGB, D50
+        case 18:  // Display P3, sRGB transfer
+            linearSRGB = mul(
+                p3ToSRGB,
+                (
+                    srgbDecode(rr), srgbDecode(gg), srgbDecode(bb)
+                ))
+        case 19:  // ProPhoto RGB, D50
             let pro = (
                 proPhotoDecode(rr), proPhotoDecode(gg), proPhotoDecode(bb)
             )
             let xyzD50 = mul(proPhotoToXYZD50, pro)
             let xyzD65 = mul(d50ToD65, xyzD50)
             linearSRGB = xyzToSRGB(xyzD65)
-        case 20: // Adobe RGB (1998)
+        case 20:  // Adobe RGB (1998)
             let gamma = 563.0 / 256.0
-            linearSRGB = xyzToSRGB(mul(adobeToXYZD65, (
-                signedPowerDecode(rr, gamma),
-                signedPowerDecode(gg, gamma),
-                signedPowerDecode(bb, gamma)
-            )))
-        case 22: // P3-D65 Gamma 2.2
-            linearSRGB = mul(p3ToSRGB, (
-                signedPowerDecode(rr, 2.2),
-                signedPowerDecode(gg, 2.2),
-                signedPowerDecode(bb, 2.2)
-            ))
-        case 23: // P3-D65 Gamma 2.6
-            linearSRGB = mul(p3ToSRGB, (
-                signedPowerDecode(rr, 2.6),
-                signedPowerDecode(gg, 2.6),
-                signedPowerDecode(bb, 2.6)
-            ))
-        case 24: // Rec.709 Gamma 2.2
+            linearSRGB = xyzToSRGB(
+                mul(
+                    adobeToXYZD65,
+                    (
+                        signedPowerDecode(rr, gamma),
+                        signedPowerDecode(gg, gamma),
+                        signedPowerDecode(bb, gamma)
+                    )))
+        case 22:  // P3-D65 Gamma 2.2
+            linearSRGB = mul(
+                p3ToSRGB,
+                (
+                    signedPowerDecode(rr, 2.2),
+                    signedPowerDecode(gg, 2.2),
+                    signedPowerDecode(bb, 2.2)
+                ))
+        case 23:  // P3-D65 Gamma 2.6
+            linearSRGB = mul(
+                p3ToSRGB,
+                (
+                    signedPowerDecode(rr, 2.6),
+                    signedPowerDecode(gg, 2.6),
+                    signedPowerDecode(bb, 2.6)
+                ))
+        case 24:  // Rec.709 Gamma 2.2
             linearSRGB = (
                 signedPowerDecode(rr, 2.2),
                 signedPowerDecode(gg, 2.2),
                 signedPowerDecode(bb, 2.2)
             )
-        case 25: // Rec.709 Gamma 2.4
+        case 25:  // Rec.709 Gamma 2.4
             linearSRGB = (
                 signedPowerDecode(rr, 2.4),
                 signedPowerDecode(gg, 2.4),

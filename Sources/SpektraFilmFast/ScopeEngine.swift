@@ -31,7 +31,8 @@ actor ScopeEngine {
             case .parade:
                 return Self.waveform(buffer, look: look, parade: true)
             case .vectorscope:
-                return Self.vectorscope(buffer, look: look, skinReference: false, toleranceDegrees: skinToleranceDegrees)
+                return Self.vectorscope(
+                    buffer, look: look, skinReference: false, toleranceDegrees: skinToleranceDegrees)
             case .saturation:
                 return Self.saturationScope(buffer, look: look)
             case .falseColor:
@@ -81,7 +82,7 @@ actor ScopeEngine {
         let channels: [([UInt32], (UInt8, UInt8, UInt8))] = [
             (red, (255, 90, 99)),
             (green, (83, 221, 153)),
-            (blue, (97, 153, 255))
+            (blue, (97, 153, 255)),
         ]
         // Three translucent filled curves, a neutral white envelope, and gentle
         // three-bin smoothing. This remains data-driven (not a decorative chart).
@@ -113,7 +114,7 @@ actor ScopeEngine {
                     }
                 }
                 if let prior {
-                    drawLine(&out, width, height, prior, (x,top), color.0, color.1, color.2, 216)
+                    drawLine(&out, width, height, prior, (x, top), color.0, color.1, color.2, 216)
                 }
                 prior = (x, top)
             }
@@ -121,7 +122,7 @@ actor ScopeEngine {
         for x in 1..<width {
             let y0 = height - 3 - Int(envelope[x - 1] * Double(height - 17))
             let y1 = height - 3 - Int(envelope[x] * Double(height - 17))
-            drawLine(&out, width, height, (x-1,y0), (x,y1), 233, 235, 241, 85)
+            drawLine(&out, width, height, (x - 1, y0), (x, y1), 233, 235, 241, 85)
         }
 
         drawTopBottomRules(&out, width, height)
@@ -177,7 +178,7 @@ actor ScopeEngine {
         let primaryVectors: [(Double, Double, Double)] = [
             (1.00, 0.18, 0.22),
             (0.18, 1.00, 0.42),
-            (0.18, 0.42, 1.00)
+            (0.18, 0.42, 1.00),
         ]
 
         for y in 0..<height {
@@ -218,55 +219,68 @@ actor ScopeEngine {
     }
 
     private nonisolated static func saturationScope(_ buffer: PixelBufferF32, look: RenderLook) -> ScopePayload {
-        let width=384, height=max(150,Int((Double(384)*Double(buffer.height)/Double(max(1,buffer.width))).rounded()))
-        var out=[UInt8](repeating:0,count:width*height*4)
-        for y in 0..<height { for x in 0..<width {
-            let sx=min(buffer.width-1,x*buffer.width/width)
-            let sy=min(buffer.height-1,y*buffer.height/height)
-            let p=(sy*buffer.width+sx)*4
-            let monitor = DisplayMonitorSignal.sample(r: buffer.pixels[p], g: buffer.pixels[p+1], b: buffer.pixels[p+2], look: look)
-            let mx=monitor.peak
-            let saturation=monitor.saturation
-            let luma=monitor.luma
-            let intensity=min(0.8,max(0.07,luma))*155
-            var color:(UInt8,UInt8,UInt8)=(UInt8(clamping:Int(intensity)),UInt8(clamping:Int(intensity)),UInt8(clamping:Int(intensity)))
-            // Black and near-white pixels have unreliable/noisy HSV saturation.
-            if mx >= 0.12 && luma <= 0.94 {
-                switch saturation {
-                case ..<0.50: break
-                case ..<0.70: color=(58,160,144)  // moderately colorful
-                case ..<0.85: color=(236,184,72)  // strong color
-                case ..<0.95: color=(244,107,72)  // caution
-                default: color=(230,54,102)      // very high HSV saturation
+        let width = 384,
+            height = max(150, Int((Double(384) * Double(buffer.height) / Double(max(1, buffer.width))).rounded()))
+        var out = [UInt8](repeating: 0, count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let sx = min(buffer.width - 1, x * buffer.width / width)
+                let sy = min(buffer.height - 1, y * buffer.height / height)
+                let p = (sy * buffer.width + sx) * 4
+                let monitor = DisplayMonitorSignal.sample(
+                    r: buffer.pixels[p], g: buffer.pixels[p + 1], b: buffer.pixels[p + 2], look: look)
+                let mx = monitor.peak
+                let saturation = monitor.saturation
+                let luma = monitor.luma
+                let intensity = min(0.8, max(0.07, luma)) * 155
+                var color: (UInt8, UInt8, UInt8) = (
+                    UInt8(clamping: Int(intensity)), UInt8(clamping: Int(intensity)), UInt8(clamping: Int(intensity))
+                )
+                // Black and near-white pixels have unreliable/noisy HSV saturation.
+                if mx >= 0.12 && luma <= 0.94 {
+                    switch saturation {
+                    case ..<0.50: break
+                    case ..<0.70: color = (58, 160, 144)  // moderately colorful
+                    case ..<0.85: color = (236, 184, 72)  // strong color
+                    case ..<0.95: color = (244, 107, 72)  // caution
+                    default: color = (230, 54, 102)  // very high HSV saturation
+                    }
                 }
+                let o = (y * width + x) * 4; out[o] = color.0; out[o + 1] = color.1; out[o + 2] = color.2;
+                out[o + 3] = 255
             }
-            let o=(y*width+x)*4;out[o]=color.0;out[o+1]=color.1;out[o+2]=color.2;out[o+3]=255
-        }}
-        return ScopePayload(width:width,height:height,rgba:out)
+        }
+        return ScopePayload(width: width, height: height, rgba: out)
     }
 
     private nonisolated static func falseColor(_ buffer: PixelBufferF32, look: RenderLook) -> ScopePayload {
-        let width=384, height=max(150,Int((Double(384)*Double(buffer.height)/Double(max(1,buffer.width))).rounded()))
-        var out=[UInt8](repeating:0,count:width*height*4)
-        for y in 0..<height { for x in 0..<width {
-            let sx=min(buffer.width-1,x*buffer.width/width), sy=min(buffer.height-1,y*buffer.height/height), p=(sy*buffer.width+sx)*4
-            let monitor = DisplayMonitorSignal.sample(r: buffer.pixels[p], g: buffer.pixels[p+1], b: buffer.pixels[p+2], look: look)
-            let yPrime=monitor.luma
-            let color:(UInt8,UInt8,UInt8)
-            switch yPrime {
-            case ..<0.03: color=(30,29,91)     // deepest shadows
-            case ..<0.10: color=(51,75,158)
-            case ..<0.20: color=(53,147,198)
-            case ..<0.40: color=(70,171,121)
-            case ..<0.60: color=(135,145,138)  // gray around expected middle
-            case ..<0.75: color=(227,190,79)
-            case ..<0.88: color=(246,124,57)
-            case ..<0.97: color=(224,69,87)
-            default: color=(255,242,240)
+        let width = 384,
+            height = max(150, Int((Double(384) * Double(buffer.height) / Double(max(1, buffer.width))).rounded()))
+        var out = [UInt8](repeating: 0, count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let sx = min(buffer.width - 1, x * buffer.width / width),
+                    sy = min(buffer.height - 1, y * buffer.height / height), p = (sy * buffer.width + sx) * 4
+                let monitor = DisplayMonitorSignal.sample(
+                    r: buffer.pixels[p], g: buffer.pixels[p + 1], b: buffer.pixels[p + 2], look: look)
+                let yPrime = monitor.luma
+                let color: (UInt8, UInt8, UInt8)
+                switch yPrime {
+                case ..<0.03: color = (30, 29, 91)  // deepest shadows
+                case ..<0.10: color = (51, 75, 158)
+                case ..<0.20: color = (53, 147, 198)
+                case ..<0.40: color = (70, 171, 121)
+                case ..<0.60: color = (135, 145, 138)  // gray around expected middle
+                case ..<0.75: color = (227, 190, 79)
+                case ..<0.88: color = (246, 124, 57)
+                case ..<0.97: color = (224, 69, 87)
+                default: color = (255, 242, 240)
+                }
+                let o = (y * width + x) * 4; out[o] = color.0; out[o + 1] = color.1; out[o + 2] = color.2;
+                out[o + 3] = 255
             }
-            let o=(y*width+x)*4;out[o]=color.0;out[o+1]=color.1;out[o+2]=color.2;out[o+3]=255
-        }}
-        return ScopePayload(width:width,height:height,rgba:out)
+        }
+        return ScopePayload(width: width, height: height, rgba: out)
     }
 
     // MARK: - Vectorscopes
@@ -311,9 +325,11 @@ actor ScopeEngine {
                 let py: Int
 
                 if skinReference {
-                    guard let canonical = SkinToneReference.canonicalDisplayRGB(
-                        r: rawR, g: rawG, b: rawB, look: look
-                    ) else { continue }
+                    guard
+                        let canonical = SkinToneReference.canonicalDisplayRGB(
+                            r: rawR, g: rawG, b: rawB, look: look
+                        )
+                    else { continue }
                     r = canonical.0; g = canonical.1; b = canonical.2
                     let chroma = SkinToneReference.position(displayR: r, displayG: g, displayB: b)
                     px = min(size - 1, max(0, Int(((chroma.uNormalized * 0.5 + 0.5) * Float(size - 1)).rounded())))
@@ -338,7 +354,9 @@ actor ScopeEngine {
         var out = background(size, size)
         drawVectorGrid(&out, size)
         if skinReference {
-            drawSkinReference(&out, size, referenceDegrees: SkinToneReference.referenceAngleDegrees, toleranceDegrees: toleranceDegrees)
+            drawSkinReference(
+                &out, size, referenceDegrees: SkinToneReference.referenceAngleDegrees,
+                toleranceDegrees: toleranceDegrees)
         }
         drawVectorTargets(&out, size)
 
@@ -436,11 +454,11 @@ actor ScopeEngine {
 
         let stateColor: (UInt8, UInt8, UInt8)
         if deviationDegrees < -toleranceDegrees {
-            stateColor = (210, 92, 136)     // too magenta
+            stateColor = (210, 92, 136)  // too magenta
         } else if deviationDegrees > toleranceDegrees {
-            stateColor = (72, 184, 136)     // too green
+            stateColor = (72, 184, 136)  // too green
         } else {
-            stateColor = (230, 186, 104)    // on target
+            stateColor = (230, 186, 104)  // on target
         }
 
         // Target = compact champagne crosshair.
@@ -455,8 +473,9 @@ actor ScopeEngine {
                 if rr >= 16 && rr <= 26 {
                     blend(&out, size, measured.0 + ox, measured.1 + oy, 244, 244, 246, 230)
                 } else if rr <= 9 {
-                    blend(&out, size, measured.0 + ox, measured.1 + oy,
-                          stateColor.0, stateColor.1, stateColor.2, 242)
+                    blend(
+                        &out, size, measured.0 + ox, measured.1 + oy,
+                        stateColor.0, stateColor.1, stateColor.2, 242)
                 }
             }
         }
@@ -606,7 +625,7 @@ actor ScopeEngine {
             (0, 1, 0, (76, 226, 132)),
             (0, 1, 1, (78, 214, 226)),
             (0, 0, 1, (82, 150, 255)),
-            (1, 0, 1, (221, 91, 226))
+            (1, 0, 1, (221, 91, 226)),
         ]
         for (r, g, b, color) in targets {
             let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
@@ -648,7 +667,7 @@ actor ScopeEngine {
             (red, (255, 76, 90)),
             (green, (76, 226, 132)),
             (blue, (82, 150, 255)),
-            (white, (232, 232, 232))
+            (white, (232, 232, 232)),
         ]
         for (point, color) in markers {
             for oy in -2...2 {

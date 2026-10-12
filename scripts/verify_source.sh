@@ -20,10 +20,12 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     -Xcc -ISources/CSpektraStudioCore/include \
     -Xcc -fmodule-map-file=Sources/SemanticMaskNative/module.modulemap \
     -Xcc -ISources/SemanticMaskNative/include \
-    Sources/SpektraFilmFast/*.swift
+    -Xcc -fmodule-map-file=Sources/RawSpeedBridge/module.modulemap \
+    -Xcc -ISources/RawSpeedBridge \
+    Sources/SpektraFilmFast/*.swift Sources/SpektraFilmFast/Modules/*.swift
 else
   echo "Non-macOS host: syntax-parsing Swift sources. The final compile/link gate is a local macOS 26 SDK build."
-  swiftc -frontend -parse Sources/SpektraFilmFast/*.swift
+  swiftc -frontend -parse Sources/SpektraFilmFast/*.swift Sources/SpektraFilmFast/Modules/*.swift
 fi
 
 echo "Checking SwiftPM manifest..."
@@ -137,6 +139,7 @@ find . -type f \
   -not -path './.git/*' \
   -not -path './Vendor/*' \
   -not -path './.superpowers/*' \
+  -not -path './.opencode/*' \
   -not -path './Resources/AIModels/*' \
   -not -name 'SOURCE_MANIFEST.sha256' \
   -not -name '.DS_Store' \

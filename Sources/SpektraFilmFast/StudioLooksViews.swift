@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 // Looks is deliberately small. Lab keeps the full native inspector and physics.
 struct StudioLooksBrowserView: View {
@@ -16,8 +16,12 @@ struct StudioLooksBrowserView: View {
                 Text("Looks").font(.headline)
                 Spacer()
                 Button("Folder…") { choose() }
-                Button { rescan() } label: { Image(systemName: "arrow.clockwise") }
-                    .help("Refresh Looks")
+                Button {
+                    rescan()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .help("Refresh Looks")
             }.padding(.horizontal, 12)
             if packs.isEmpty {
                 Text("Choose a folder containing Look packs. Each pack has manifest.json and cube.bin.")
@@ -29,7 +33,9 @@ struct StudioLooksBrowserView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     ForEach(packs) { pack in
-                        Button { select(pack) } label: {
+                        Button {
+                            select(pack)
+                        } label: {
                             HStack(spacing: 10) {
                                 thumbnail(pack)
                                 VStack(alignment: .leading, spacing: 3) {
@@ -41,9 +47,10 @@ struct StudioLooksBrowserView: View {
                                     Image(systemName: "checkmark.circle.fill")
                                 }
                             }.padding(7)
-                              .background((model.selectedLook.studioLookID ?? selected) == pack.id && mode == "looks"
-                                  ? Color.accentColor.opacity(0.16) : Color.clear,
-                                  in: RoundedRectangle(cornerRadius: 9))
+                                .background(
+                                    (model.selectedLook.studioLookID ?? selected) == pack.id && mode == "looks"
+                                        ? Color.accentColor.opacity(0.16) : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 9))
                         }.buttonStyle(.plain)
                     }
                 }.padding(.horizontal, 8)
@@ -55,7 +62,8 @@ struct StudioLooksBrowserView: View {
 
     @ViewBuilder private func thumbnail(_ pack: StudioLooksPack.Manifest) -> some View {
         if let folder = pack.folder, let name = pack.thumbnail,
-           !name.contains("/") && !name.contains("..") {
+            !name.contains("/") && !name.contains("..")
+        {
             AsyncThumbnail(url: folder.appendingPathComponent(name))
         } else {
             Image(systemName: "camera.filters")
@@ -111,8 +119,11 @@ struct StudioLooksInspectorView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text(StudioLooksSettings.selectedPack(for: model.selectedLook)?.name ?? "Choose a Look from the left browser")
-                    .font(.headline)
+                Text(
+                    StudioLooksSettings.selectedPack(for: model.selectedLook)?.name
+                        ?? "Choose a Look from the left browser"
+                )
+                .font(.headline)
                 Text("Live · Scene-linear Rec.2020")
                     .font(.caption).foregroundStyle(.secondary)
                 if StudioLooksSettings.selectedPack(for: model.selectedLook) != nil {
@@ -122,24 +133,33 @@ struct StudioLooksInspectorView: View {
                     slider("Warmth", key: "temperature", initial: 0, range: -1...1)
                     slider("Tint", key: "tint", initial: 0, range: -1...1)
                 }
-                Text("Looks use a finished color asset. Exact grain, halation, masks, and full-resolution Looks export remain in Lab until their GPU paths pass fidelity tests.")
-                    .font(.caption2).foregroundStyle(.secondary)
+                Text(
+                    "Looks use a finished color asset. Exact grain, halation, masks, and full-resolution Looks export remain in Lab until their GPU paths pass fidelity tests."
+                )
+                .font(.caption2).foregroundStyle(.secondary)
             }.padding(12)
         }
     }
-    private func slider(_ title: String, key: String, initial: Double,
-                        range: ClosedRange<Double>) -> some View {
+    private func slider(
+        _ title: String, key: String, initial: Double,
+        range: ClosedRange<Double>
+    ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(title).font(.caption)
                 Spacer()
-                Text(String(format: "%.2f", Double(StudioLooksSettings.scalar(model.selectedLook, key, default: initial))))
-                    .monospacedDigit().font(.caption)
+                Text(
+                    String(
+                        format: "%.2f", Double(StudioLooksSettings.scalar(model.selectedLook, key, default: initial)))
+                )
+                .monospacedDigit().font(.caption)
             }
-            Slider(value: Binding(
-                get: { Double(StudioLooksSettings.scalar(model.selectedLook, key, default: initial)) },
-                set: { model.setParameter("looks." + key, value: .scalar($0), interactive: true) }),
-                in: range, onEditingChanged: { editing in
+            Slider(
+                value: Binding(
+                    get: { Double(StudioLooksSettings.scalar(model.selectedLook, key, default: initial)) },
+                    set: { model.setParameter("looks." + key, value: .scalar($0), interactive: true) }),
+                in: range,
+                onEditingChanged: { editing in
                     if editing { model.beginEditGesture() } else { model.endEditGesture() }
                 })
         }

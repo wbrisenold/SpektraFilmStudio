@@ -123,9 +123,11 @@ struct RedlampPaletteQueryField: NSViewRepresentable {
         field.textColor = textColor
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = alignment
-        field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
-            .font: font, .foregroundColor: placeholderColor, .paragraphStyle: paragraph,
-        ])
+        field.placeholderAttributedString = NSAttributedString(
+            string: placeholder,
+            attributes: [
+                .font: font, .foregroundColor: placeholderColor, .paragraphStyle: paragraph,
+            ])
         if field.stringValue != text {
             field.stringValue = text
         }
@@ -155,10 +157,10 @@ struct RedlampPaletteQueryField: NSViewRepresentable {
             case #selector(NSResponder.moveDown(_:)), #selector(NSResponder.moveDownAndModifySelection(_:)):
                 return parent.onKey(.down)
             case #selector(NSResponder.moveLeft(_:)), #selector(NSResponder.moveLeftAndModifySelection(_:)),
-                 #selector(NSResponder.moveWordLeft(_:)), #selector(NSResponder.moveWordLeftAndModifySelection(_:)):
+                #selector(NSResponder.moveWordLeft(_:)), #selector(NSResponder.moveWordLeftAndModifySelection(_:)):
                 return parent.onKey(.left(modifiers))
             case #selector(NSResponder.moveRight(_:)), #selector(NSResponder.moveRightAndModifySelection(_:)),
-                 #selector(NSResponder.moveWordRight(_:)), #selector(NSResponder.moveWordRightAndModifySelection(_:)):
+                #selector(NSResponder.moveWordRight(_:)), #selector(NSResponder.moveWordRightAndModifySelection(_:)):
                 return parent.onKey(.right(modifiers))
             case #selector(NSResponder.insertNewline(_:)):
                 return parent.onKey(.submit)

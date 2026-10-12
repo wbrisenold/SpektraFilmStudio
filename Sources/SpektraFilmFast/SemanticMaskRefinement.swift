@@ -1,5 +1,5 @@
-import Foundation
 import Accelerate
+import Foundation
 
 /// Small native feather pass used after semantic masks. This replaces the old
 /// PhotoCraft feather bridge and keeps mask refinement inside SpektraFilm.

@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 struct ExportWorkspaceView: View {
     @ObservedObject var model: AppModel
@@ -30,28 +30,34 @@ struct ExportWorkspaceView: View {
             } else {
                 VStack(spacing: 0) {
                     workspaceHeader
-            // "Build Set" (What) then "Settings" (How) is the only ordering that
-            // makes sense. Photos/Settings used to sit in that order and read as
-            // if the browser changed the output settings.
-            Divider()
-            HSplitView {
-                if showExportBrowser {
-                    sourceBrowser.frame(minWidth: StudioLayout.presetSidebarWidth, idealWidth: StudioLayout.presetSidebarWidth, maxWidth: 380)
-                        .padding(StudioLayout.paneInset).studioGlassPane()
-                }
-                previewAndQueue.frame(minWidth: 420)
-                if showExportInspector {
-                    inspector.frame(minWidth: StudioLayout.editorInspectorWidth, idealWidth: StudioLayout.editorInspectorWidth, maxWidth: 440)
-                        .padding(StudioLayout.paneInset).studioGlassPane()
-                }
-            }
-            Divider()
-            // Progress only. The footer used to restate the photo count, format and
-            // size that the preview already showed, then repeat the same two buttons
-            // — a whole bar of duplication. When idle it collapses to nothing.
-            if model.isExporting || model.activeExportJob != nil {
-                actionFooter
-            }
+                    // "Build Set" (What) then "Settings" (How) is the only ordering that
+                    // makes sense. Photos/Settings used to sit in that order and read as
+                    // if the browser changed the output settings.
+                    Divider()
+                    HSplitView {
+                        if showExportBrowser {
+                            sourceBrowser.frame(
+                                minWidth: StudioLayout.presetSidebarWidth, idealWidth: StudioLayout.presetSidebarWidth,
+                                maxWidth: 380
+                            )
+                            .padding(StudioLayout.paneInset).studioGlassPane()
+                        }
+                        previewAndQueue.frame(minWidth: 420)
+                        if showExportInspector {
+                            inspector.frame(
+                                minWidth: StudioLayout.editorInspectorWidth,
+                                idealWidth: StudioLayout.editorInspectorWidth, maxWidth: 440
+                            )
+                            .padding(StudioLayout.paneInset).studioGlassPane()
+                        }
+                    }
+                    Divider()
+                    // Progress only. The footer used to restate the photo count, format and
+                    // size that the preview already showed, then repeat the same two buttons
+                    // — a whole bar of duplication. When idle it collapses to nothing.
+                    if model.isExporting || model.activeExportJob != nil {
+                        actionFooter
+                    }
                 }
             }
         }
@@ -59,7 +65,7 @@ struct ExportWorkspaceView: View {
         .alert("Save Export Preset", isPresented: $showingSavePreset) {
             TextField("Preset name", text: $presetName)
             Button("Save") { saveCustomPreset() }
-            Button("Cancel", role: .cancel) { }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("Save the current format, size, color, naming, metadata and destination settings.")
         }
@@ -135,7 +141,9 @@ struct ExportWorkspaceView: View {
     @ViewBuilder
     private var exportActions: some View {
         if model.isExporting {
-            Button(role: .destructive) { model.stopExport() } label: {
+            Button(role: .destructive) {
+                model.stopExport()
+            } label: {
                 Label(model.isStoppingExport ? "Stopping…" : "Stop Export", systemImage: "stop.fill")
             }
             .disabled(model.isStoppingExport)
@@ -265,8 +273,7 @@ struct ExportWorkspaceView: View {
             case .rated: categoryMatch = image.rating >= 4
             case .rejected: categoryMatch = image.flag == .rejected
             }
-            return categoryMatch &&
-                (needle.isEmpty || image.fileName.localizedCaseInsensitiveContains(needle))
+            return categoryMatch && (needle.isEmpty || image.fileName.localizedCaseInsensitiveContains(needle))
         }
     }
 
@@ -312,7 +319,8 @@ struct ExportWorkspaceView: View {
                     RoundedRectangle(cornerRadius: 11).fill(Color.black.opacity(0.92))
                     if let image = previewImage {
                         if model.isCropToolActive,
-                           model.project.selectedImageID == image.id {
+                            model.project.selectedImageID == image.id
+                        {
                             PreviewView(model: model)
                                 .padding(4)
                         } else {
@@ -488,7 +496,8 @@ struct ExportWorkspaceView: View {
                 showingSavePreset = true
             }
             if let id = selectedCustomPreset,
-               let preset = savedPresets.first(where: { $0.id == id }) {
+                let preset = savedPresets.first(where: { $0.id == id })
+            {
                 Button("Update \(preset.name)") { updateCustomPreset(id) }
                 Button("Delete \(preset.name)", role: .destructive) { deleteCustomPreset(id) }
             }
@@ -539,8 +548,7 @@ struct ExportWorkspaceView: View {
                 .frame(width: 145)
             }
 
-            if model.project.exportSettings.format == .jpeg ||
-               model.project.exportSettings.format == .heic {
+            if model.project.exportSettings.format == .jpeg || model.project.exportSettings.format == .heic {
                 HStack {
                     fieldLabel("Quality")
                     Spacer()
@@ -599,11 +607,17 @@ struct ExportWorkspaceView: View {
                 numericField("Target width", value: $model.project.exportSettings.resizeWidth)
                 numericField("Target height", value: $model.project.exportSettings.resizeHeight)
                 if model.project.exportSettings.resizeMode == .fitBox {
-                    Label("Fit keeps the whole photo. The target is a maximum box; no padding is exported.", systemImage: "arrow.down.right.and.arrow.up.left")
-                        .font(.caption2).foregroundStyle(.secondary)
+                    Label(
+                        "Fit keeps the whole photo. The target is a maximum box; no padding is exported.",
+                        systemImage: "arrow.down.right.and.arrow.up.left"
+                    )
+                    .font(.caption2).foregroundStyle(.secondary)
                 } else {
-                    Label("Fill never stretches the photo. It center-crops edges until the target aspect is filled.", systemImage: "crop")
-                        .font(.caption2).foregroundStyle(.orange)
+                    Label(
+                        "Fill never stretches the photo. It center-crops edges until the target aspect is filled.",
+                        systemImage: "crop"
+                    )
+                    .font(.caption2).foregroundStyle(.orange)
                 }
             }
 
@@ -713,11 +727,13 @@ struct ExportWorkspaceView: View {
             HStack {
                 fieldLabel("Folder")
                 Spacer()
-                Text(model.project.exportSettings.destinationPath.isEmpty
-                     ? "—" : model.project.exportSettings.destinationPath)
-                    .font(.caption).foregroundStyle(.secondary)
-                    .lineLimit(1).truncationMode(.middle)
-                    .textSelection(.enabled)
+                Text(
+                    model.project.exportSettings.destinationPath.isEmpty
+                        ? "—" : model.project.exportSettings.destinationPath
+                )
+                .font(.caption).foregroundStyle(.secondary)
+                .lineLimit(1).truncationMode(.middle)
+                .textSelection(.enabled)
             }
             Label("Existing files are never silently overwritten.", systemImage: "checkmark.shield")
                 .font(.caption2)
@@ -751,9 +767,12 @@ struct ExportWorkspaceView: View {
                         Label(issue, systemImage: "info.circle")
                             .font(.caption).foregroundStyle(.secondary)
                     } else {
-                        Text(model.isExporting ? model.exportCurrentFileName : model.project.exportSettings.destinationPath)
-                            .font(.caption).foregroundStyle(.secondary)
-                            .lineLimit(1).truncationMode(.middle)
+                        Text(
+                            model.isExporting
+                                ? model.exportCurrentFileName : model.project.exportSettings.destinationPath
+                        )
+                        .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
                     }
                 }
                 Spacer(minLength: 8)
@@ -800,7 +819,8 @@ struct ExportWorkspaceView: View {
 
     private var selectedPresetTitle: String {
         guard let id = selectedCustomPreset,
-              let preset = savedPresets.first(where: { $0.id == id }) else {
+            let preset = savedPresets.first(where: { $0.id == id })
+        else {
             return "Custom Export"
         }
         return preset.settings == model.project.exportSettings ? preset.name : "\(preset.name) (edited)"
@@ -840,7 +860,8 @@ struct ExportWorkspaceView: View {
     private var formatSummary: String {
         switch model.project.exportSettings.format {
         case .jpeg, .heic:
-            return "\(model.project.exportSettings.format.rawValue) \(Int((model.project.exportSettings.jpegQuality * 100).rounded()))"
+            return
+                "\(model.project.exportSettings.format.rawValue) \(Int((model.project.exportSettings.jpegQuality * 100).rounded()))"
         case .tiff:
             return model.project.exportSettings.tiff16Bit ? "TIFF 16-bit" : "TIFF 8-bit"
         }

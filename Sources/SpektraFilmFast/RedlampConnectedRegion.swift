@@ -1,5 +1,6 @@
 // Redlamp RemovalRegion.largestPiece, MPL-2.0; see Resources/Redlamp-MPL-2.0.txt.
 import Foundation
+
 enum RemovalRegion {
     static func dilated(_ region: [Bool], width: Int, height: Int, radius: Int) -> [Bool] {
         let share = 0.5 / Float((2 * radius + 1) * (2 * radius + 1))
@@ -18,8 +19,8 @@ enum RemovalRegion {
             while let index = stack.popLast() {
                 count += 1
                 let (x, y) = (index % width, index / width)
-                for ny in max(y - 1, 0) ... min(y + 1, height - 1) {
-                    for nx in max(x - 1, 0) ... min(x + 1, width - 1) where region[ny * width + nx] {
+                for ny in max(y - 1, 0)...min(y + 1, height - 1) {
+                    for nx in max(x - 1, 0)...min(x + 1, width - 1) where region[ny * width + nx] {
                         let neighbour = ny * width + nx
                         guard label[neighbour] < 0 else { continue }
                         label[neighbour] = next

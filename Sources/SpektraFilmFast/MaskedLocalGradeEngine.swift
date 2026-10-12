@@ -17,8 +17,9 @@ enum MaskedLocalGradeEngine {
             var adjustmentInput = current
             let enabled = grade.masks.sources.filter(\.enabled)
             if enabled.count == 1, let source = enabled.first, source.aiRecipe?.kind == .sky,
-               source.aiRecipe?.feather == 0, !source.inverted,
-               coverage.contains(where: { $0 >= 0.98 * Float(source.opacity) }) {
+                source.aiRecipe?.feather == 0, !source.inverted,
+                coverage.contains(where: { $0 >= 0.98 * Float(source.opacity) })
+            {
                 let colours = (0..<(width * height)).map { i in
                     SIMD3(current.pixels[i * 4], current.pixels[i * 4 + 1], current.pixels[i * 4 + 2])
                 }
@@ -84,10 +85,13 @@ enum MaskedLocalGradeEngine {
     /// sources means zero coverage, so disabling a mask never silently grades globally.
     // Redlamp-derived coverage is the only evaluator used by local edit AND overlay.
     static func coverageForGrade(_ grade: LocalGradeRecord, width: Int, height: Int) -> [Float] {
-        guard let gpu = MaskMetalEngine.shared?.renderCoverage(
-            grade: grade, width: width, height: height
-        ), gpu.count == width * height else {
-            GPUProcessingFailure.report("Mask Metal pipeline failed. Local mask processing stopped; no CPU fallback is running.")
+        guard
+            let gpu = MaskMetalEngine.shared?.renderCoverage(
+                grade: grade, width: width, height: height
+            ), gpu.count == width * height
+        else {
+            GPUProcessingFailure.report(
+                "Mask Metal pipeline failed. Local mask processing stopped; no CPU fallback is running.")
             return []
         }
         return gpu

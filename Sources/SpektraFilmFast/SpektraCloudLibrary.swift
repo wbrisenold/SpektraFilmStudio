@@ -166,7 +166,8 @@ actor SpektraCloudLibrary {
             case .sourceMissing(let path): return "Source file is missing: \(path)"
             case .streamOpenFailed(let path): return "Could not open cloud transfer stream: \(path)"
             case .readFailed(let path): return "Cloud read failed: \(path)"
-            case .destinationConflict(let path): return "Existing cloud file differs from the source; preserved without overwriting: \(path)"
+            case .destinationConflict(let path):
+                return "Existing cloud file differs from the source; preserved without overwriting: \(path)"
             case .writeFailed(let path): return "Cloud write failed: \(path)"
             case .downloadTimedOut(let path): return "Timed out waiting for iCloud to download: \(path)"
             }
@@ -402,7 +403,8 @@ actor SpektraCloudLibrary {
         progress: (@Sendable (_ completed: Int, _ total: Int, _ fileName: String) -> Void)?
     ) async throws -> (SpektraProjectDocument, LightroomCloudMigrationReport) {
         let fm = FileManager.default
-        let migrationRoot = rootURL
+        let migrationRoot =
+            rootURL
             .appendingPathComponent("Migration/Lightroom", isDirectory: true)
             .appendingPathComponent(Self.timestampString(Date()), isDirectory: true)
         try fm.createDirectory(at: migrationRoot, withIntermediateDirectories: true)
@@ -483,7 +485,8 @@ actor SpektraCloudLibrary {
 
                 let xmp = source.deletingPathExtension().appendingPathExtension("xmp")
                 if fm.fileExists(atPath: xmp.path) {
-                    try? Self.streamCopy(from: xmp, to: destination.deletingPathExtension().appendingPathExtension("xmp"))
+                    try? Self.streamCopy(
+                        from: xmp, to: destination.deletingPathExtension().appendingPathExtension("xmp"))
                     report.copiedSidecars += 1
                 }
             } else {
@@ -500,14 +503,16 @@ actor SpektraCloudLibrary {
                     previewRelative = generatedPreviewRelative
                 } catch {
                     previewRelative = nil
-                    report.warnings.append("Preview could not be generated for \(lrPhoto.fileName): \(error.localizedDescription)")
+                    report.warnings.append(
+                        "Preview could not be generated for \(lrPhoto.fileName): \(error.localizedDescription)")
                 }
             }
 
             var look = RenderLook.defaults()
-            let sidecarURL = fm.fileExists(
-                atPath: source.deletingPathExtension().appendingPathExtension("xmp").path
-            ) ? source.deletingPathExtension().appendingPathExtension("xmp") : nil
+            let sidecarURL =
+                fm.fileExists(
+                    atPath: source.deletingPathExtension().appendingPathExtension("xmp").path
+                ) ? source.deletingPathExtension().appendingPathExtension("xmp") : nil
 
             let mapping = LightroomDevelopMapper.map(
                 catalogText: lrPhoto.latestDevelopText,
@@ -533,7 +538,9 @@ actor SpektraCloudLibrary {
                 report.virtualCopies += 1
             }
             if !mapping.unmappedKeys.isEmpty {
-                noteParts.append("Lightroom fields preserved but not mapped: \(mapping.unmappedKeys.sorted().joined(separator: ", "))")
+                noteParts.append(
+                    "Lightroom fields preserved but not mapped: \(mapping.unmappedKeys.sorted().joined(separator: ", "))"
+                )
             }
 
             let record = ProjectImageRecord(
@@ -569,12 +576,13 @@ actor SpektraCloudLibrary {
         for collection in snapshot.collections {
             let members = collectionMembers[collection.id, default: []]
             guard !members.isEmpty else { continue }
-            albums.append(PhotoAlbum(
-                id: UUID(),
-                name: collection.name,
-                imageIDs: members,
-                createdAt: Date()
-            ))
+            albums.append(
+                PhotoAlbum(
+                    id: UUID(),
+                    name: collection.name,
+                    imageIDs: members,
+                    createdAt: Date()
+                ))
         }
         project.albums = albums
         report.collections = albums.count
@@ -593,16 +601,20 @@ actor SpektraCloudLibrary {
         let url = rootURL.appendingPathComponent(relativePath)
         let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey])
         guard values?.isUbiquitousItem == true else { return }
-        if values?.ubiquitousItemDownloadingStatus == .current ||
-            values?.ubiquitousItemDownloadingStatus == .downloaded { return }
+        if values?.ubiquitousItemDownloadingStatus == .current || values?.ubiquitousItemDownloadingStatus == .downloaded {
+            return
+        }
 
         try FileManager.default.startDownloadingUbiquitousItem(at: url)
         let deadline = Date().addingTimeInterval(120)
         while Date() < deadline {
             try Task.checkCancellation()
             let current = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
-            if current?.ubiquitousItemDownloadingStatus == .current ||
-                current?.ubiquitousItemDownloadingStatus == .downloaded { return }
+            if current?.ubiquitousItemDownloadingStatus == .current
+                || current?.ubiquitousItemDownloadingStatus == .downloaded
+            {
+                return
+            }
             try await Task.sleep(for: .milliseconds(180))
         }
         throw CloudError.downloadTimedOut(url.path)
@@ -610,12 +622,14 @@ actor SpektraCloudLibrary {
 
     func isDownloaded(relativePath: String) -> Bool {
         let url = rootURL.appendingPathComponent(relativePath)
-        guard let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]) else {
+        guard
+            let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey])
+        else {
             return FileManager.default.fileExists(atPath: url.path)
         }
         guard values.isUbiquitousItem == true else { return FileManager.default.fileExists(atPath: url.path) }
-        return values.ubiquitousItemDownloadingStatus == .current ||
-               values.ubiquitousItemDownloadingStatus == .downloaded
+        return values.ubiquitousItemDownloadingStatus == .current
+            || values.ubiquitousItemDownloadingStatus == .downloaded
     }
 
     func evict(relativePath: String) throws {
@@ -650,7 +664,8 @@ actor SpektraCloudLibrary {
                 operations.append(makeOperation(kind: .lookUpdate, photoID: image.id, look: image.look))
             }
             if CloudPhotoState(old) != CloudPhotoState(image) {
-                operations.append(makeOperation(kind: .photoStateUpdate, photoID: image.id, photoState: CloudPhotoState(image)))
+                operations.append(
+                    makeOperation(kind: .photoStateUpdate, photoID: image.id, photoState: CloudPhotoState(image)))
             }
         }
 
@@ -746,12 +761,14 @@ actor SpektraCloudLibrary {
 
         case .lookUpdate:
             guard let id = operation.photoID, let look = operation.look,
-                  let i = project.images.firstIndex(where: { $0.id == id }) else { return }
+                let i = project.images.firstIndex(where: { $0.id == id })
+            else { return }
             project.images[i].look = look
 
         case .photoStateUpdate:
             guard let id = operation.photoID, let state = operation.photoState,
-                  let i = project.images.firstIndex(where: { $0.id == id }) else { return }
+                let i = project.images.firstIndex(where: { $0.id == id })
+            else { return }
             state.apply(to: &project.images[i])
 
         case .projectMetadataUpdate:
@@ -794,11 +811,13 @@ actor SpektraCloudLibrary {
 
     private func unreadOperations(after heads: [String: UInt64]) throws -> [CloudLibraryOperation] {
         let fm = FileManager.default
-        guard let devices = try? fm.contentsOfDirectory(
-            at: journalURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) else { return [] }
+        guard
+            let devices = try? fm.contentsOfDirectory(
+                at: journalURL,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )
+        else { return [] }
 
         var result: [CloudLibraryOperation] = []
         for deviceDir in devices {
@@ -808,11 +827,13 @@ actor SpektraCloudLibrary {
             let after = heads[device, default: 0]
             let remoteHead = try readDeviceHead(device)
             guard remoteHead > after else { continue }
-            guard let files = try? fm.contentsOfDirectory(
-                at: deviceDir,
-                includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
-            ) else { continue }
+            guard
+                let files = try? fm.contentsOfDirectory(
+                    at: deviceDir,
+                    includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                )
+            else { continue }
 
             for file in files where file.pathExtension == "sfop" {
                 guard let counter = Self.counter(from: file.lastPathComponent), counter > after else { continue }
@@ -847,18 +868,20 @@ actor SpektraCloudLibrary {
 
     private func bestSnapshotURL() throws -> URL? {
         let fm = FileManager.default
-        let files = (try? fm.contentsOfDirectory(
-            at: snapshotsURL,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ))?.filter { $0.pathExtension == "sfsnapshot" } ?? []
+        let files =
+            (try? fm.contentsOfDirectory(
+                at: snapshotsURL,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            ))?.filter { $0.pathExtension == "sfsnapshot" } ?? []
         if files.isEmpty { return nil }
 
         var best: (url: URL, score: UInt64, created: Date)?
         for file in files {
             guard let data = try? Self.coordinatedRead(file),
-                  let snapshot = try? Self.decoder.decode(CloudLibrarySnapshot.self, from: data),
-                  snapshot.libraryID == manifest.libraryID else { continue }
+                let snapshot = try? Self.decoder.decode(CloudLibrarySnapshot.self, from: data),
+                snapshot.libraryID == manifest.libraryID
+            else { continue }
             let score = snapshot.heads.values.reduce(UInt64(0), +)
             if best == nil || score > best!.score || (score == best!.score && snapshot.createdAt > best!.created) {
                 best = (file, score, snapshot.createdAt)
@@ -869,17 +892,20 @@ actor SpektraCloudLibrary {
 
     private func readAllHeads() throws -> [String: UInt64] {
         let fm = FileManager.default
-        guard let files = try? fm.contentsOfDirectory(
-            at: headsURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) else { return seenHeads }
+        guard
+            let files = try? fm.contentsOfDirectory(
+                at: headsURL,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )
+        else { return seenHeads }
 
         var result = seenHeads
         for file in files where file.pathExtension == "json" {
             struct Head: Codable { var deviceID: String; var counter: UInt64 }
             guard let data = try? Self.coordinatedRead(file),
-                  let head = try? Self.decoder.decode(Head.self, from: data) else { continue }
+                let head = try? Self.decoder.decode(Head.self, from: data)
+            else { continue }
             result[head.deviceID] = max(result[head.deviceID, default: 0], head.counter)
         }
         return result
@@ -975,29 +1001,35 @@ actor SpektraCloudLibrary {
 
     private static func fileSize(_ url: URL) -> Int64? {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let value = attrs[.size] as? NSNumber else { return nil }
+            let value = attrs[.size] as? NSNumber
+        else { return nil }
         return value.int64Value
     }
 
     private static func modificationTime(_ url: URL) -> TimeInterval? {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let value = attrs[.modificationDate] as? Date else { return nil }
+            let value = attrs[.modificationDate] as? Date
+        else { return nil }
         return value.timeIntervalSince1970
     }
 
     static func materializeIfNeeded(_ url: URL, timeout: TimeInterval = 180) async throws {
         let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey])
         guard values?.isUbiquitousItem == true else { return }
-        if values?.ubiquitousItemDownloadingStatus == .current ||
-            values?.ubiquitousItemDownloadingStatus == .downloaded { return }
+        if values?.ubiquitousItemDownloadingStatus == .current || values?.ubiquitousItemDownloadingStatus == .downloaded {
+            return
+        }
 
         try FileManager.default.startDownloadingUbiquitousItem(at: url)
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             try Task.checkCancellation()
             let current = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
-            if current?.ubiquitousItemDownloadingStatus == .current ||
-                current?.ubiquitousItemDownloadingStatus == .downloaded { return }
+            if current?.ubiquitousItemDownloadingStatus == .current
+                || current?.ubiquitousItemDownloadingStatus == .downloaded
+            {
+                return
+            }
             try await Task.sleep(for: .milliseconds(200))
         }
         throw CloudError.downloadTimedOut(url.path)
@@ -1017,7 +1049,10 @@ actor SpektraCloudLibrary {
             let sourceSize = fileSize(source)
             let destinationSize = fileSize(destination)
             if sourceSize != nil, sourceSize == destinationSize,
-               FileManager.default.contentsEqual(atPath: source.path, andPath: destination.path) { return }
+                FileManager.default.contentsEqual(atPath: source.path, andPath: destination.path)
+            {
+                return
+            }
             throw CloudError.destinationConflict(destination.path)
         }
 
@@ -1028,7 +1063,8 @@ actor SpektraCloudLibrary {
         }
 
         guard let input = InputStream(url: source),
-              let output = OutputStream(url: temp, append: false) else {
+            let output = OutputStream(url: temp, append: false)
+        else {
             try? FileManager.default.removeItem(at: temp)
             throw CloudError.streamOpenFailed(source.path)
         }
@@ -1063,7 +1099,8 @@ actor SpektraCloudLibrary {
             input.close()
             output.close()
             guard let expected = fileSize(source), expected == copied,
-                  fileSize(temp) == copied else { throw CloudError.writeFailed(destination.path) }
+                fileSize(temp) == copied
+            else { throw CloudError.writeFailed(destination.path) }
             try FileManager.default.moveItem(at: temp, to: destination)
         } catch {
             try? FileManager.default.removeItem(at: temp)
@@ -1080,8 +1117,7 @@ actor SpektraCloudLibrary {
             options: .forReplacing,
             error: &coordinationError
         ) { coordinatedURL in
-            do { try data.write(to: coordinatedURL, options: .atomic) }
-            catch { writeError = error }
+            do { try data.write(to: coordinatedURL, options: .atomic) } catch { writeError = error }
         }
         if let coordinationError { throw coordinationError }
         if let writeError { throw writeError }

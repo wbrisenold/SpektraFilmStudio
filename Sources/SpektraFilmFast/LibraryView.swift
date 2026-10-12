@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 enum LibraryFilter: String, CaseIterable, Identifiable {
     case all = "All Photos"
@@ -28,7 +28,8 @@ struct LibraryWorkspaceView: View {
     var body: some View {
         Group {
             if (model.project.images.isEmpty && !model.isIngesting) || model.showProjectHome {
-                StudioImportWelcomeView(model: model, showingWizard: $showingImportWizard, preferredSource: $preferredImportSource)
+                StudioImportWelcomeView(
+                    model: model, showingWizard: $showingImportWizard, preferredSource: $preferredImportSource)
             } else {
                 HSplitView {
                     sidebar.frame(minWidth: 170, idealWidth: 190, maxWidth: 235)
@@ -39,8 +40,11 @@ struct LibraryWorkspaceView: View {
                         gallery
                     }
                     if showLibraryInspector {
-                        inspector.frame(minWidth: StudioLayout.editorInspectorWidth, idealWidth: StudioLayout.editorInspectorWidth, maxWidth: 440)
-                            .padding(StudioLayout.paneInset).studioFloatingPane()
+                        inspector.frame(
+                            minWidth: StudioLayout.editorInspectorWidth, idealWidth: StudioLayout.editorInspectorWidth,
+                            maxWidth: 440
+                        )
+                        .padding(StudioLayout.paneInset).studioFloatingPane()
                     }
                 }
             }
@@ -79,8 +83,10 @@ struct LibraryWorkspaceView: View {
                         .font(StudioType.section)
                         .tracking(StudioType.sectionTracking)
                     Spacer()
-                    Button("Edit") { model.page = .edit; model.workspaceDidChange(.edit) }
-                        .buttonStyle(.borderless).disabled(model.selectedImage == nil)
+                    Button("Edit") {
+                        model.page = .edit; model.workspaceDidChange(.edit)
+                    }
+                    .buttonStyle(.borderless).disabled(model.selectedImage == nil)
                 }
                 if let photo = model.selectedImage {
                     LocalThumbnail(url: model.thumbnailURL(for: photo), contentMode: .fit)
@@ -154,9 +160,15 @@ struct LibraryWorkspaceView: View {
                     HStack {
                         Text("Collections")
                         Spacer()
-                        Button { showingNewAlbum = true } label: { Image(systemName: "plus") }
-                            .buttonStyle(.plain).help("New album")
-                        Button { showingNewSmartCollection = true } label: {
+                        Button {
+                            showingNewAlbum = true
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(.plain).help("New album")
+                        Button {
+                            showingNewSmartCollection = true
+                        } label: {
                             Image(systemName: "line.3.horizontal.decrease.circle")
                         }
                         .buttonStyle(.plain).help("New smart collection")
@@ -164,7 +176,9 @@ struct LibraryWorkspaceView: View {
                 }
                 Section {
                     ForEach(model.project.peopleGroups) { group in
-                        Button { model.selectPeopleGroup(group) } label: {
+                        Button {
+                            model.selectPeopleGroup(group)
+                        } label: {
                             HStack {
                                 Label(group.name, systemImage: "person.crop.circle")
                                 Spacer()
@@ -183,9 +197,12 @@ struct LibraryWorkspaceView: View {
                     HStack {
                         Text("People")
                         Spacer()
-                        if model.isGroupingPeople { ProgressView().controlSize(.mini) }
-                        else {
-                            Button { model.rebuildPeopleGroups() } label: {
+                        if model.isGroupingPeople {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            Button {
+                                model.rebuildPeopleGroups()
+                            } label: {
                                 Image(systemName: "person.2.badge.gearshape")
                             }
                             .buttonStyle(.plain).help("Group faces locally")
@@ -194,7 +211,9 @@ struct LibraryWorkspaceView: View {
                 }
                 Section("Folders") {
                     ForEach(model.libraryFolders, id: \.self) { folder in
-                        Button { model.libraryFolderFilter = folder } label: {
+                        Button {
+                            model.libraryFolderFilter = folder
+                        } label: {
                             Label(URL(fileURLWithPath: folder).lastPathComponent, systemImage: "folder")
                                 .lineLimit(1)
                         }.buttonStyle(.plain)
@@ -224,138 +243,145 @@ struct LibraryWorkspaceView: View {
 
     private var toolbar: some View {
         VStack(spacing: 8) {
-          HStack(spacing: 10) {
-            TextField("Search filename, camera metadata, notes…", text: $model.librarySearch)
-                .textFieldStyle(.roundedBorder)
-                .frame(minWidth: 180, maxWidth: .infinity)
-            Picker("Sort", selection: $model.project.sortMode) { ForEach(ProjectSortMode.allCases) { Text($0.rawValue).tag($0) } }
+            HStack(spacing: 10) {
+                TextField("Search filename, camera metadata, notes…", text: $model.librarySearch)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(minWidth: 180, maxWidth: .infinity)
+                Picker("Sort", selection: $model.project.sortMode) {
+                    ForEach(ProjectSortMode.allCases) { Text($0.rawValue).tag($0) }
+                }
                 .frame(width: 180)
-          }
-          HStack(spacing: 10) {
-            if !model.librarySelection.isEmpty {
-                let exportCount = model.librarySelectedImages.filter(\.selectedForExport).count
+            }
+            HStack(spacing: 10) {
+                if !model.librarySelection.isEmpty {
+                    let exportCount = model.librarySelectedImages.filter(\.selectedForExport).count
+                    HStack(spacing: 5) {
+                        Text("\(model.librarySelection.count) selected · \(exportCount) queued").lineLimit(1)
+                    }
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+
+                    Menu("Batch") {
+                        Menu("Rating") {
+                            ForEach(0...5, id: \.self) { n in
+                                Button(n == 0 ? "Clear rating  (0)" : "\(n) star\(n == 1 ? "" : "s")  (\(n))") {
+                                    model.batchSetRating(n)
+                                }
+                            }
+                        }
+                        Menu("Flag") {
+                            Button("Pick") { model.batchSetFlag(.picked) }
+                            Button("Reject") { model.batchSetFlag(.rejected) }
+                            Button("Unflag") { model.batchSetFlag(.unflagged) }
+                        }
+                        Menu("Color Label") {
+                            Button("None") { model.batchSetColorLabel(nil) }
+                            ForEach(PhotoColorLabel.allCases) { label in
+                                Button(label.rawValue) { model.batchSetColorLabel(label) }
+                            }
+                        }
+                        Menu("Client Pick") {
+                            Button("Mark as Client Pick") { model.batchSetClientPicked(true) }
+                            Button("Clear Client Pick") { model.batchSetClientPicked(false) }
+                        }
+
+                        Divider()
+
+                        Button("Analyze Highlighted Photos") {
+                            model.analyzeForCull(ids: Array(model.librarySelection))
+                        }
+
+                        if !model.project.albums.isEmpty {
+                            Menu("Add to Album") {
+                                ForEach(model.project.albums) { album in
+                                    Button(album.name) { model.addSelection(toAlbum: album.id) }
+                                }
+                            }
+                        }
+
+                        if model.libraryAlbumFilter != nil {
+                            Button("Remove from Album") { model.removeSelectionFromCurrentAlbum() }
+                        }
+                        Button("Write XMP Sidecars") { model.writeSelectionXMP() }
+                        Button("Read XMP Sidecars") { model.readSelectionXMP() }
+
+                        Divider()
+
+                        Menu("Sync Active Look") {
+                            Button("Tone + Film · keep each photo WB & crop") {
+                                model.syncActiveLookToHighlighted(copyWhiteBalance: false, copyGeometry: false)
+                            }
+                            Button("Include White Balance · keep each crop") {
+                                model.syncActiveLookToHighlighted(copyWhiteBalance: true, copyGeometry: false)
+                            }
+                            Button("Everything · include WB & crop") {
+                                model.syncActiveLookToHighlighted(copyWhiteBalance: true, copyGeometry: true)
+                            }
+                        }
+
+                        Divider()
+
+                        Button("Queue for Export") { model.batchSetExportSelection(true) }
+                        Button("Remove from Export Queue") { model.batchSetExportSelection(false) }
+
+                        Divider()
+
+                        Button("Open in Cull") {
+                            model.page = .cull
+                            model.workspaceDidChange(.cull)
+                        }
+                        Button("Open Active Photo in Edit") {
+                            model.page = .edit
+                            model.workspaceDidChange(.edit)
+                        }
+                        Button("Go to Proofs") {
+                            model.page = .proofs
+                            model.workspaceDidChange(.proofs)
+                        }
+
+                        Divider()
+                        Button("Clear Highlighted Selection") { model.clearLibrarySelection() }
+                    }
+                    .help("Batch actions apply to every highlighted photo.")
+                }
+                Spacer()
+                Button {
+                    showLibraryInspector.toggle()
+                } label: {
+                    Label("Info", systemImage: "sidebar.right")
+                }
+                .controlSize(.small)
+                .help(showLibraryInspector ? "Hide photo details" : "Show photo details")
+                if model.isCullAnalyzing {
+                    ProgressView(value: model.cullAnalysisProgress).frame(width: 110)
+                    Text("\(Int(model.cullAnalysisProgress * 100))%").font(.caption.monospacedDigit()).foregroundStyle(
+                        .secondary)
+                    Button("Cancel") { model.cancelCullAnalysis() }
+                } else {
+                    Button("Smart Cull", systemImage: "sparkles") { model.analyzeVisibleForCull() }
+                }
                 HStack(spacing: 5) {
-                    Text("\(model.librarySelection.count) selected · \(exportCount) queued").lineLimit(1)
-                }
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-
-                Menu("Batch") {
-                    Menu("Rating") {
-                        ForEach(0...5, id: \.self) { n in
-                            Button(n == 0 ? "Clear rating  (0)" : "\(n) star\(n == 1 ? "" : "s")  (\(n))") {
-                                model.batchSetRating(n)
-                            }
+                    Slider(
+                        value: $thumbnailSizeDraft,
+                        in: 120...280,
+                        onEditingChanged: { editing in
+                            if !editing { model.libraryThumbnailSize = thumbnailSizeDraft }
                         }
-                    }
-                    Menu("Flag") {
-                        Button("Pick") { model.batchSetFlag(.picked) }
-                        Button("Reject") { model.batchSetFlag(.rejected) }
-                        Button("Unflag") { model.batchSetFlag(.unflagged) }
-                    }
-                    Menu("Color Label") {
-                        Button("None") { model.batchSetColorLabel(nil) }
-                        ForEach(PhotoColorLabel.allCases) { label in
-                            Button(label.rawValue) { model.batchSetColorLabel(label) }
-                        }
-                    }
-                    Menu("Client Pick") {
-                        Button("Mark as Client Pick") { model.batchSetClientPicked(true) }
-                        Button("Clear Client Pick") { model.batchSetClientPicked(false) }
-                    }
-
-                    Divider()
-
-                    Button("Analyze Highlighted Photos") {
-                        model.analyzeForCull(ids: Array(model.librarySelection))
-                    }
-
-                    if !model.project.albums.isEmpty {
-                        Menu("Add to Album") {
-                            ForEach(model.project.albums) { album in
-                                Button(album.name) { model.addSelection(toAlbum: album.id) }
-                            }
-                        }
-                    }
-
-                    if model.libraryAlbumFilter != nil {
-                        Button("Remove from Album") { model.removeSelectionFromCurrentAlbum() }
-                    }
-                    Button("Write XMP Sidecars") { model.writeSelectionXMP() }
-                    Button("Read XMP Sidecars") { model.readSelectionXMP() }
-
-                    Divider()
-
-                    Menu("Sync Active Look") {
-                        Button("Tone + Film · keep each photo WB & crop") {
-                            model.syncActiveLookToHighlighted(copyWhiteBalance: false, copyGeometry: false)
-                        }
-                        Button("Include White Balance · keep each crop") {
-                            model.syncActiveLookToHighlighted(copyWhiteBalance: true, copyGeometry: false)
-                        }
-                        Button("Everything · include WB & crop") {
-                            model.syncActiveLookToHighlighted(copyWhiteBalance: true, copyGeometry: true)
-                        }
-                    }
-
-                    Divider()
-
-                    Button("Queue for Export") { model.batchSetExportSelection(true) }
-                    Button("Remove from Export Queue") { model.batchSetExportSelection(false) }
-
-                    Divider()
-
-                    Button("Open in Cull") {
-                        model.page = .cull
-                        model.workspaceDidChange(.cull)
-                    }
-                    Button("Open Active Photo in Edit") {
-                        model.page = .edit
-                        model.workspaceDidChange(.edit)
-                    }
-                    Button("Go to Proofs") {
-                        model.page = .proofs
-                        model.workspaceDidChange(.proofs)
-                    }
-
-                    Divider()
-                    Button("Clear Highlighted Selection") { model.clearLibrarySelection() }
-                }
-                .help("Batch actions apply to every highlighted photo.")
-            }
-            Spacer()
-            Button {
-                showLibraryInspector.toggle()
-            } label: {
-                Label("Info", systemImage: "sidebar.right")
-            }
-            .controlSize(.small)
-            .help(showLibraryInspector ? "Hide photo details" : "Show photo details")
-            if model.isCullAnalyzing {
-                ProgressView(value: model.cullAnalysisProgress).frame(width: 110)
-                Text("\(Int(model.cullAnalysisProgress * 100))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                Button("Cancel") { model.cancelCullAnalysis() }
-            } else {
-                Button("Smart Cull", systemImage: "sparkles") { model.analyzeVisibleForCull() }
-            }
-            HStack(spacing: 5) {
-                Slider(
-                    value: $thumbnailSizeDraft,
-                    in: 120...280,
-                    onEditingChanged: { editing in
-                        if !editing { model.libraryThumbnailSize = thumbnailSizeDraft }
-                    }
-                )
+                    )
                     .frame(width: 110)
-                    .help("Changes how large photos appear in the Library grid. Move left to fit more photos on screen; move right to make each thumbnail easier to inspect.")
-                Button { model.libraryThumbnailSize = 176 } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 9, weight: .medium))
+                    .help(
+                        "Changes how large photos appear in the Library grid. Move left to fit more photos on screen; move right to make each thumbnail easier to inspect."
+                    )
+                    Button {
+                        model.libraryThumbnailSize = 176
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 9, weight: .medium))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Reset Library thumbnail size.")
                 }
-                .buttonStyle(.plain)
-                .help("Reset Library thumbnail size.")
             }
-        }
         }
         .padding(.horizontal, 12).padding(.vertical, 9)
     }
@@ -373,8 +399,9 @@ struct LibraryWorkspaceView: View {
         .overlay {
             if model.visibleImages.isEmpty {
                 VStack(spacing: 12) {
-                    ContentUnavailableView("No matching photos", systemImage: "line.3.horizontal.decrease.circle",
-                                           description: Text("Your photos are still in the library. Reset filters to see them."))
+                    ContentUnavailableView(
+                        "No matching photos", systemImage: "line.3.horizontal.decrease.circle",
+                        description: Text("Your photos are still in the library. Reset filters to see them."))
                     Button("Show All Photos") { model.resetLibraryFilters() }.buttonStyle(.borderedProminent)
                 }
             }
@@ -386,50 +413,81 @@ struct LibraryWorkspaceView: View {
             if let image = model.selectedImage {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        LocalThumbnail(url: model.thumbnailURL(for: image)).aspectRatio(3/2, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 7))
+                        LocalThumbnail(url: model.thumbnailURL(for: image)).aspectRatio(3 / 2, contentMode: .fit)
+                            .clipShape(RoundedRectangle(cornerRadius: 7))
                         Text(image.fileName).font(.headline).lineLimit(2)
                         HStack {
-                            Button("Cull") { model.page = .cull; model.workspaceDidChange(.cull) }
-                            Button("Edit") { model.page = .edit; model.workspaceDidChange(.edit) }.buttonStyle(.borderedProminent)
+                            Button("Cull") {
+                                model.page = .cull; model.workspaceDidChange(.cull)
+                            }
+                            Button("Edit") {
+                                model.page = .edit; model.workspaceDidChange(.edit)
+                            }.buttonStyle(.borderedProminent)
                         }
                         Divider()
                         metadataRow("Rating", image.rating == 0 ? "Unrated" : "\(image.rating) / 5")
                         metadataRow("Flag", image.flag.label)
-                        metadataRow("Capture", image.captureDate?.formatted(date: .abbreviated, time: .shortened) ?? "—")
+                        metadataRow(
+                            "Capture", image.captureDate?.formatted(date: .abbreviated, time: .shortened) ?? "—")
                         if let metadata = image.metadata {
                             if !metadata.cameraDisplay.isEmpty { metadataRow("Camera", metadata.cameraDisplay) }
                             if let lens = metadata.lensModel { metadataRow("Lens", lens) }
-                            if let focal = metadata.focalLengthMM { metadataRow("Focal", String(format: "%.0f mm", focal)) }
-                            if let aperture = metadata.aperture { metadataRow("Aperture", String(format: "f/%.1f", aperture)) }
-                            if let shutter = metadata.shutterSeconds { metadataRow("Shutter", Self.shutterString(shutter)) }
+                            if let focal = metadata.focalLengthMM {
+                                metadataRow("Focal", String(format: "%.0f mm", focal))
+                            }
+                            if let aperture = metadata.aperture {
+                                metadataRow("Aperture", String(format: "f/%.1f", aperture))
+                            }
+                            if let shutter = metadata.shutterSeconds {
+                                metadataRow("Shutter", Self.shutterString(shutter))
+                            }
                             if let iso = metadata.iso { metadataRow("ISO", "ISO \(iso)") }
-                            if let width = metadata.pixelWidth, let height = metadata.pixelHeight { metadataRow("Dimensions", "\(width) × \(height)") }
+                            if let width = metadata.pixelWidth, let height = metadata.pixelHeight {
+                                metadataRow("Dimensions", "\(width) × \(height)")
+                            }
                         }
                         metadataRow("Folder", image.url.deletingLastPathComponent().lastPathComponent)
                         if let cull = image.cullAnalysis {
                             Divider()
                             Text("SMART CULL").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
                             HStack(alignment: .firstTextBaseline) {
-                                Text(String(format: "%.0f", cull.score)).font(.system(size: 30, weight: .semibold, design: .rounded))
+                                Text(String(format: "%.0f", cull.score)).font(
+                                    .system(size: 30, weight: .semibold, design: .rounded))
                                 Text(cull.recommendation.rawValue).font(.headline)
                             }
                             metadataRow("Focus", String(format: "%.0f%%", cull.sharpness * 100))
-                            if cull.faceCount > 0 { metadataRow("Face focus", String(format: "%.0f%%", cull.faceSharpness * 100)) }
+                            if cull.faceCount > 0 {
+                                metadataRow("Face focus", String(format: "%.0f%%", cull.faceSharpness * 100))
+                            }
                             metadataRow("Faces", "\(cull.faceCount)")
                             metadataRow("Highlights", String(format: "%.1f%%", cull.highlightClipPercent))
-                            if cull.possibleBlink { Label("Possible blink", systemImage: "eye.slash").foregroundStyle(.orange) }
-                            ForEach(cull.reasons, id: \.self) { Text("• \($0)").font(.caption).foregroundStyle(.secondary) }
+                            if cull.possibleBlink {
+                                Label("Possible blink", systemImage: "eye.slash").foregroundStyle(.orange)
+                            }
+                            ForEach(cull.reasons, id: \.self) {
+                                Text("• \($0)").font(.caption).foregroundStyle(.secondary)
+                            }
                         } else {
                             Divider()
                             Button("Analyze Photo", systemImage: "sparkles") { model.analyzeSelectedForCull() }
                         }
                         Divider()
                         HStack {
-                            Button("Write XMP") { model.librarySelection = [image.id]; model.writeSelectionXMP() }
-                            Button("Read XMP") { model.librarySelection = [image.id]; model.readSelectionXMP() }
+                            Button("Write XMP") {
+                                model.librarySelection = [image.id]; model.writeSelectionXMP()
+                            }
+                            Button("Read XMP") {
+                                model.librarySelection = [image.id]; model.readSelectionXMP()
+                            }
                         }
                         if !model.project.albums.isEmpty {
-                            Menu("Add to Album") { ForEach(model.project.albums) { album in Button(album.name) { model.librarySelection = [image.id]; model.addSelection(toAlbum: album.id) } } }
+                            Menu("Add to Album") {
+                                ForEach(model.project.albums) { album in
+                                    Button(album.name) {
+                                        model.librarySelection = [image.id]; model.addSelection(toAlbum: album.id)
+                                    }
+                                }
+                            }
                         }
                         if let note = image.note, !note.isEmpty { Divider(); Text(note).font(.caption) }
                     }.padding(12)
@@ -441,20 +499,27 @@ struct LibraryWorkspaceView: View {
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.45))
     }
 
-    private func namingSheet(title: String, placeholder: String, text: Binding<String>, onCreate: @escaping () -> Void) -> some View {
+    private func namingSheet(
+        title: String, placeholder: String, text: Binding<String>, onCreate: @escaping () -> Void
+    ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(title).font(.headline)
             TextField(placeholder, text: text).textFieldStyle(.roundedBorder).frame(width: 320)
             HStack {
                 Spacer()
-                Button("Cancel") { showingNewAlbum = false; showingNewSmartCollection = false }
-                Button("Create", action: onCreate).keyboardShortcut(.defaultAction).disabled(text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Cancel") {
+                    showingNewAlbum = false; showingNewSmartCollection = false
+                }
+                Button("Create", action: onCreate).keyboardShortcut(.defaultAction).disabled(
+                    text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }.padding(20)
     }
 
     private func metadataRow(_ label: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) { Text(label).foregroundStyle(.secondary); Spacer(); Text(value).multilineTextAlignment(.trailing) }.font(.caption)
+        HStack(alignment: .firstTextBaseline) {
+            Text(label).foregroundStyle(.secondary); Spacer(); Text(value).multilineTextAlignment(.trailing)
+        }.font(.caption)
     }
 
     private static func shutterString(_ seconds: Double) -> String {
@@ -488,7 +553,7 @@ private struct LibraryPhotoCard: View {
         return VStack(alignment: .leading, spacing: 5) {
             ZStack {
                 LocalThumbnail(url: model.thumbnailURL(for: image))
-                    .aspectRatio(3/2, contentMode: .fit)
+                    .aspectRatio(3 / 2, contentMode: .fit)
 
                 VStack {
                     HStack(alignment: .top) {
@@ -552,7 +617,9 @@ private struct LibraryPhotoCard: View {
         .overlay {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(
-                    highlighted ? Color.accentColor.opacity(0.95) : (active ? Color.primary.opacity(0.55) : Color.secondary.opacity(0.12)),
+                    highlighted
+                        ? Color.accentColor.opacity(0.95)
+                        : (active ? Color.primary.opacity(0.55) : Color.secondary.opacity(0.12)),
                     lineWidth: highlighted ? 2 : (active ? 1 : 0.5)
                 )
         }
@@ -561,7 +628,9 @@ private struct LibraryPhotoCard: View {
             let flags = NSEvent.modifierFlags
             model.selectLibraryImage(image.id, additive: flags.contains(.command), range: flags.contains(.shift))
         }
-        .onTapGesture(count: 2) { model.selectLibraryImage(image.id); model.page = .edit; model.workspaceDidChange(.edit) }
+        .onTapGesture(count: 2) {
+            model.selectLibraryImage(image.id); model.page = .edit; model.workspaceDidChange(.edit)
+        }
         .contextMenu {
             Button("Open in Edit") {
                 prepareContextSelection()
@@ -586,13 +655,21 @@ private struct LibraryPhotoCard: View {
             }
 
             Menu("Flag") {
-                Button("Pick") { prepareContextSelection(); model.batchSetFlag(.picked) }
-                Button("Reject") { prepareContextSelection(); model.batchSetFlag(.rejected) }
-                Button("Unflag") { prepareContextSelection(); model.batchSetFlag(.unflagged) }
+                Button("Pick") {
+                    prepareContextSelection(); model.batchSetFlag(.picked)
+                }
+                Button("Reject") {
+                    prepareContextSelection(); model.batchSetFlag(.rejected)
+                }
+                Button("Unflag") {
+                    prepareContextSelection(); model.batchSetFlag(.unflagged)
+                }
             }
 
             Menu("Color Label") {
-                Button("None") { prepareContextSelection(); model.batchSetColorLabel(nil) }
+                Button("None") {
+                    prepareContextSelection(); model.batchSetColorLabel(nil)
+                }
                 ForEach(PhotoColorLabel.allCases) { label in
                     Button(label.rawValue) {
                         prepareContextSelection()
@@ -673,6 +750,12 @@ private struct LibraryPhotoCard: View {
     }
 
     private func color(_ label: PhotoColorLabel) -> Color {
-        switch label { case .red: .red; case .yellow: .yellow; case .green: .green; case .blue: .blue; case .purple: .purple }
+        switch label {
+        case .red: .red;
+        case .yellow: .yellow;
+        case .green: .green;
+        case .blue: .blue;
+        case .purple: .purple
+        }
     }
 }

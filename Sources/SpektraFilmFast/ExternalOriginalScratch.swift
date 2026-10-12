@@ -9,9 +9,12 @@ actor ExternalOriginalScratch {
         case notConfigured, internalVolume, unavailable(String), missingOriginal(String)
         var errorDescription: String? {
             switch self {
-            case .notConfigured: "Choose an external scratch drive in iCloud Library before editing or exporting cloud originals."
-            case .internalVolume: "Scratch originals require a mounted external or network volume. The internal startup disk is not allowed."
-            case .unavailable(let path): "Scratch drive is unavailable or not writable: \(path). Reconnect it and retry."
+            case .notConfigured:
+                "Choose an external scratch drive in iCloud Library before editing or exporting cloud originals."
+            case .internalVolume:
+                "Scratch originals require a mounted external or network volume. The internal startup disk is not allowed."
+            case .unavailable(let path):
+                "Scratch drive is unavailable or not writable: \(path). Reconnect it and retry."
             case .missingOriginal(let path): "Cloud original is unavailable: \(path)"
             }
         }
@@ -27,9 +30,9 @@ actor ExternalOriginalScratch {
         let parent = parent.standardizedFileURL
         let fm = FileManager.default
         guard fm.fileExists(atPath: parent.path),
-              let values = try? parent.resourceValues(forKeys: [
-                .volumeIsInternalKey, .volumeIsLocalKey, .isUbiquitousItemKey
-              ]), values.volumeIsInternal == false, values.isUbiquitousItem != true
+            let values = try? parent.resourceValues(forKeys: [
+                .volumeIsInternalKey, .volumeIsLocalKey, .isUbiquitousItemKey,
+            ]), values.volumeIsInternal == false, values.isUbiquitousItem != true
         else { throw ScratchError.internalVolume }
         let root = parent.appendingPathComponent("SpektraFilm Studio Scratch", isDirectory: true)
         do {
@@ -56,16 +59,17 @@ actor ExternalOriginalScratch {
 
     func releaseExport(_ id: UUID) {
         let count = exportHolds[id, default: 0]
-        if count <= 1 { exportHolds.removeValue(forKey: id) }
-        else { exportHolds[id] = count - 1 }
+        if count <= 1 { exportHolds.removeValue(forKey: id) } else { exportHolds[id] = count - 1 }
         pruneUnprotected()
     }
 
     /// File Provider downloads will first materialize in iCloud's own managed local cache.
     /// This copy is then placed on the external scratch drive and the iCloud source evicted.
     /// Strict internal-disk-free transfer requires a separate direct-download cloud API.
-    func stage(photoID: UUID, fileName: String, original: URL,
-               relativePath: String, library: SpektraCloudLibrary, parent: URL) async throws -> URL {
+    func stage(
+        photoID: UUID, fileName: String, original: URL,
+        relativePath: String, library: SpektraCloudLibrary, parent: URL
+    ) async throws -> URL {
         let root = try Self.validatedRoot(parent)
         roots.insert(root)
         let safeName = URL(fileURLWithPath: fileName).lastPathComponent
@@ -76,8 +80,9 @@ actor ExternalOriginalScratch {
             staged.removeValue(forKey: photoID)
         }
         if FileManager.default.fileExists(atPath: target.path),
-           let a = try? FileManager.default.attributesOfItem(atPath: target.path),
-           (a[.size] as? NSNumber)?.int64Value ?? 0 > 0 {
+            let a = try? FileManager.default.attributesOfItem(atPath: target.path),
+            (a[.size] as? NSNumber)?.int64Value ?? 0 > 0
+        {
             staged[photoID] = target
             return target
         }

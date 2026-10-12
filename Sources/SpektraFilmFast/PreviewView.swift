@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 struct PreviewView: View {
     @ObservedObject var model: AppModel
@@ -23,46 +23,59 @@ struct PreviewView: View {
             ZStack {
                 viewerBackground
 
-                if let image = model.showingBefore ? frameState.sourcePreview :
-                    (frameState.renderedPreview ??
-                     ((StudioImportedCubeLUTSettings.isSelected || StudioLooksSettings.isSelected)
-                      ? frameState.sourcePreview : nil)) {
+                if let image = model.showingBefore
+                    ? frameState.sourcePreview
+                    : (frameState.renderedPreview
+                        ?? ((StudioImportedCubeLUTSettings.isSelected || StudioLooksSettings.isSelected)
+                            ? frameState.sourcePreview : nil))
+                {
                     ZStack {
                         // Redlamp-derived mask is composited in the image itself, not an
                         // independent translucent view whose size can drift after crop.
-                        MetalPreviewCanvas(image: model.showingBefore ? image : (redlampCompositedFrame ?? image),
-                            liveFrame: model.showingBefore ? nil : model.liveGPUFrame)
-                            .aspectRatio(CGFloat(model.showingBefore ? image.width
-                                : model.liveGPUFrame?.texture.width ?? image.width) /
-                                CGFloat(max(1, model.showingBefore ? image.height
-                                : model.liveGPUFrame?.texture.height ?? image.height)), contentMode: .fit)
-                            // Overlay follows exactly the displayed image's layout, not
-                            // the size proposed by the outer viewer ZStack.
-                            .overlay {
-                                if !model.showingBefore {
-                                    MaskOverlayView(model: model)
-                                }
+                        MetalPreviewCanvas(
+                            image: model.showingBefore ? image : (redlampCompositedFrame ?? image),
+                            liveFrame: model.showingBefore ? nil : model.liveGPUFrame
+                        )
+                        .aspectRatio(
+                            CGFloat(
+                                model.showingBefore
+                                    ? image.width
+                                    : model.liveGPUFrame?.texture.width ?? image.width)
+                                / CGFloat(
+                                    max(
+                                        1,
+                                        model.showingBefore
+                                            ? image.height
+                                            : model.liveGPUFrame?.texture.height ?? image.height)), contentMode: .fit
+                        )
+                        // Overlay follows exactly the displayed image's layout, not
+                        // the size proposed by the outer viewer ZStack.
+                        .overlay {
+                            if !model.showingBefore {
+                                MaskOverlayView(model: model)
                             }
-                            // Reflect the actually completed frame, not a setting.
-                            // No extra CGImage renders or scope computations.
-                            .overlay(alignment: .topLeading) {
-                                if !model.showingBefore {
-                                    Text(model.rendererPathStatus)
-                                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                                        .lineLimit(1)
-                                        .foregroundStyle(.primary)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 5)
-                                        .background(.regularMaterial, in: Capsule())
-                                        .padding(10)
-                                        .allowsHitTesting(false)
-                                        .help(model.lutPreparationStatus)
-                                }
+                        }
+                        // Reflect the actually completed frame, not a setting.
+                        // No extra CGImage renders or scope computations.
+                        .overlay(alignment: .topLeading) {
+                            if !model.showingBefore {
+                                Text(model.rendererPathStatus)
+                                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                    .lineLimit(1)
+                                    .foregroundStyle(.primary)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 5)
+                                    .background(.regularMaterial, in: Capsule())
+                                    .padding(10)
+                                    .allowsHitTesting(false)
+                                    .help(model.lutPreparationStatus)
                             }
+                        }
 
                         if !model.showingBefore,
-                           let overlay = model.analysisOverlay,
-                           model.project.preferences.clippingEnabled || model.project.preferences.skinCheckEnabled {
+                            let overlay = model.analysisOverlay,
+                            model.project.preferences.clippingEnabled || model.project.preferences.skinCheckEnabled
+                        {
                             Image(decorative: overlay, scale: 1)
                                 .resizable()
                                 .scaledToFit()
@@ -89,8 +102,9 @@ struct PreviewView: View {
                         redlampCompositedFrame = nil
                         maskOverlayError = nil
                         guard !model.showingBefore, maskOverlayEnabled,
-                              let grade = model.activeLocalGrade,
-                              !grade.masks.sources.isEmpty else { return }
+                            let grade = model.activeLocalGrade,
+                            !grade.masks.sources.isEmpty
+                        else { return }
                         // Never invent pre-geometry dimensions from a transformed CGImage.
                         guard let dims = model.maskSourceDimensions else {
                             maskOverlayError = "Waiting for untransformed mask source"
@@ -119,16 +133,19 @@ struct PreviewView: View {
                             task.cancel()
                         }
                         guard !Task.isCancelled, model.activeLocalGradeID == grade.id,
-                              model.project.selectedImageID == expectedPhotoID,
-                              model.selectedLook.geometry == expectedGeometry else { return }
+                            model.project.selectedImageID == expectedPhotoID,
+                            model.selectedLook.geometry == expectedGeometry
+                        else { return }
                         guard let output else {
                             maskOverlayError = "Mask overlay Metal/geometry evaluation failed"
                             return
                         }
-                        guard let composed = RedlampMaskDisplay.image(
-                            width: width, height: height, rgba: output,
-                            colorSpace: image.colorSpace
-                        ) else {
+                        guard
+                            let composed = RedlampMaskDisplay.image(
+                                width: width, height: height, rgba: output,
+                                colorSpace: image.colorSpace
+                            )
+                        else {
                             maskOverlayError = "Mask overlay display image could not be created"
                             return
                         }
@@ -146,14 +163,20 @@ struct PreviewView: View {
                     .simultaneousGesture(
                         DragGesture()
                             .onChanged { value in
-                                guard !model.isCropToolActive && !model.isObjectMaskPicking && !model.isGradientMaskEditing && !model.isLensCenterEditing else { return }
+                                guard
+                                    !model.isCropToolActive && !model.isObjectMaskPicking
+                                        && !model.isGradientMaskEditing && !model.isLensCenterEditing
+                                else { return }
                                 offset = CGSize(
                                     width: committedOffset.width + value.translation.width,
                                     height: committedOffset.height + value.translation.height
                                 )
                             }
                             .onEnded { _ in
-                                guard !model.isCropToolActive && !model.isObjectMaskPicking && !model.isGradientMaskEditing && !model.isLensCenterEditing else { return }
+                                guard
+                                    !model.isCropToolActive && !model.isObjectMaskPicking
+                                        && !model.isGradientMaskEditing && !model.isLensCenterEditing
+                                else { return }
                                 committedOffset = offset
                             }
                     )
@@ -227,7 +250,6 @@ struct PreviewView: View {
         .ignoresSafeArea()
     }
 
-
     private var skinOverlayLegend: some View {
         HStack(spacing: 10) {
             legendSwatch(Color(red: 44.0 / 255.0, green: 214.0 / 255.0, blue: 174.0 / 255.0), "TOO GREEN")
@@ -299,7 +321,9 @@ struct PreviewView: View {
 
     private var skinViewerStatusColor: Color {
         let metrics = model.analysisMetrics
-        guard metrics.skinCandidatePercent > 0.01, metrics.skinMeasurementConfidencePercent > 2 else { return .secondary }
+        guard metrics.skinCandidatePercent > 0.01, metrics.skinMeasurementConfidencePercent > 2 else {
+            return .secondary
+        }
         let tolerance = model.project.preferences.skinToleranceDegrees
         if metrics.skinMeanDeviationDegrees < -tolerance { return Color(red: 0.86, green: 0.36, blue: 0.54) }
         if metrics.skinMeanDeviationDegrees > tolerance { return Color(red: 0.28, green: 0.72, blue: 0.50) }
@@ -334,8 +358,9 @@ struct PreviewView: View {
                 Button {
                     maskOverlayEnabled.toggle()
                 } label: {
-                    Label(maskOverlayEnabled ? "Overlay On" : "Overlay Off",
-                          systemImage: maskOverlayEnabled ? "eye.fill" : "eye.slash")
+                    Label(
+                        maskOverlayEnabled ? "Overlay On" : "Overlay Off",
+                        systemImage: maskOverlayEnabled ? "eye.fill" : "eye.slash")
                 }
                 .buttonStyle(.borderless)
                 .help("Show or hide the active mask overlay on the photo")
@@ -354,7 +379,9 @@ struct PreviewView: View {
                 Text(model.project.preferences.fullResolutionPreview ? "Exit 100% Check" : "100% Check")
             }
             .buttonStyle(.borderless)
-            .help("Full-resolution inspection is explicit. Exit 100% Check to return to the configured exact preview resolution.")
+            .help(
+                "Full-resolution inspection is explicit. Exit 100% Check to return to the configured exact preview resolution."
+            )
 
             Spacer()
 
@@ -373,7 +400,9 @@ struct PreviewView: View {
                 }
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
-                .help("Over/Under use the same final display-referred signal as False Color. Parentheses show the hottest / deepest subset.")
+                .help(
+                    "Over/Under use the same final display-referred signal as False Color. Parentheses show the hottest / deepest subset."
+                )
             }
 
             Text("\(Int(zoom * 100))%")
@@ -542,10 +571,26 @@ private struct CropEditorOverlay: View {
 
     private func drawShade(context: inout GraphicsContext, imageRect: CGRect, cropRect: CGRect) {
         let shade = Color.black.opacity(0.58)
-        context.fill(Path(CGRect(x: imageRect.minX, y: imageRect.minY, width: imageRect.width, height: max(0, cropRect.minY - imageRect.minY))), with: .color(shade))
-        context.fill(Path(CGRect(x: imageRect.minX, y: cropRect.maxY, width: imageRect.width, height: max(0, imageRect.maxY - cropRect.maxY))), with: .color(shade))
-        context.fill(Path(CGRect(x: imageRect.minX, y: cropRect.minY, width: max(0, cropRect.minX - imageRect.minX), height: cropRect.height)), with: .color(shade))
-        context.fill(Path(CGRect(x: cropRect.maxX, y: cropRect.minY, width: max(0, imageRect.maxX - cropRect.maxX), height: cropRect.height)), with: .color(shade))
+        context.fill(
+            Path(
+                CGRect(
+                    x: imageRect.minX, y: imageRect.minY, width: imageRect.width,
+                    height: max(0, cropRect.minY - imageRect.minY))), with: .color(shade))
+        context.fill(
+            Path(
+                CGRect(
+                    x: imageRect.minX, y: cropRect.maxY, width: imageRect.width,
+                    height: max(0, imageRect.maxY - cropRect.maxY))), with: .color(shade))
+        context.fill(
+            Path(
+                CGRect(
+                    x: imageRect.minX, y: cropRect.minY, width: max(0, cropRect.minX - imageRect.minX),
+                    height: cropRect.height)), with: .color(shade))
+        context.fill(
+            Path(
+                CGRect(
+                    x: cropRect.maxX, y: cropRect.minY, width: max(0, imageRect.maxX - cropRect.maxX),
+                    height: cropRect.height)), with: .color(shade))
         context.stroke(Path(cropRect), with: .color(.white.opacity(0.92)), lineWidth: 1.1)
     }
 
@@ -562,7 +607,7 @@ private struct CropEditorOverlay: View {
         }
         switch guide {
         case .thirds:
-            vertical(1/3); vertical(2/3); horizontal(1/3); horizontal(2/3)
+            vertical(1 / 3); vertical(2 / 3); horizontal(1 / 3); horizontal(2 / 3)
         case .golden:
             vertical(0.382); vertical(0.618); horizontal(0.382); horizontal(0.618)
         case .center:
@@ -572,8 +617,10 @@ private struct CropEditorOverlay: View {
             let inner = cropRect.insetBy(dx: cropRect.width * 0.10, dy: cropRect.height * 0.10)
             lines.addRect(outer); lines.addRect(inner)
         case .diagonal:
-            lines.move(to: CGPoint(x: cropRect.minX, y: cropRect.minY)); lines.addLine(to: CGPoint(x: cropRect.maxX, y: cropRect.maxY))
-            lines.move(to: CGPoint(x: cropRect.maxX, y: cropRect.minY)); lines.addLine(to: CGPoint(x: cropRect.minX, y: cropRect.maxY))
+            lines.move(to: CGPoint(x: cropRect.minX, y: cropRect.minY));
+            lines.addLine(to: CGPoint(x: cropRect.maxX, y: cropRect.maxY))
+            lines.move(to: CGPoint(x: cropRect.maxX, y: cropRect.minY));
+            lines.addLine(to: CGPoint(x: cropRect.minX, y: cropRect.maxY))
         case .none:
             break
         }

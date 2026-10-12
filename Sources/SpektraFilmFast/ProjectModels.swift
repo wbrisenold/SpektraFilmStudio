@@ -1,11 +1,10 @@
 import Foundation
+import UniformTypeIdentifiers
 
 extension UTTypeNames {
     static let projectExtension = "spektrafilm"
     static let presetExtension = "sfpreset"
 }
-
-import UniformTypeIdentifiers
 
 extension UTType {
     static var spektrafilmProject: UTType {
@@ -43,8 +42,6 @@ enum WorkspaceMode: String, Codable, CaseIterable, Identifiable, Sendable {
     case standalone = "Standalone Photo Mode"
     var id: String { rawValue }
 }
-
-
 
 enum PhotoColorLabel: String, Codable, CaseIterable, Identifiable, Sendable {
     case red = "Red", yellow = "Yellow", green = "Green", blue = "Blue", purple = "Purple"
@@ -160,61 +157,86 @@ struct WhiteBalanceQuickPreset: Identifiable, Hashable, Sendable {
             temperatureOffsetMired: 0,
             tintOffset: -10,
             help: "Adds a small green correction to reduce a magenta color cast."
-        )
+        ),
     ]
 
     /// SpektraFilm creative WB recipes. These are intentionally original creative recipes rather
     /// than pretending there is a standardized open-source numeric definition for moods such as
     /// Golden Hour or Blue Hour. They remain scene-relative by applying offsets to As Shot/Auto.
     static let creativePresets: [WhiteBalanceQuickPreset] = [
-        .init(id: "golden-hour", name: "Golden Hour", temperatureOffsetMired: -25, tintOffset: 4,
-              help: "Adds a rich warm glow with a small magenta lift while keeping this photo's own neutral underneath."),
-        .init(id: "sunset", name: "Sunset", temperatureOffsetMired: -38, tintOffset: 8,
-              help: "Pushes the image noticeably warmer and slightly magenta for deeper sunset color."),
-        .init(id: "sunrise", name: "Sunrise", temperatureOffsetMired: -22, tintOffset: 6,
-              help: "A softer warm-magenta shift for early-morning light without going as orange as Sunset."),
-        .init(id: "blue-hour", name: "Blue Hour", temperatureOffsetMired: 28, tintOffset: 1,
-              help: "Cools the image strongly while keeping a slight magenta bias so twilight does not look green."),
-        .init(id: "moonlight", name: "Moonlight", temperatureOffsetMired: 36, tintOffset: 4,
-              help: "Creates a cooler night feel with enough magenta to keep the result from becoming cyan-green."),
-        .init(id: "candlelight", name: "Candlelight", temperatureOffsetMired: -45, tintOffset: 8,
-              help: "Adds a strong warm amber feel with a gentle magenta correction for intimate interior light."),
-        .init(id: "overcast-warmth", name: "Overcast Warmth", temperatureOffsetMired: -14, tintOffset: 4,
-              help: "Takes the cool edge off cloudy light while keeping the scene natural."),
-        .init(id: "open-shade", name: "Open Shade", temperatureOffsetMired: -10, tintOffset: 5,
-              help: "Warms cool shaded portraits and adds a little magenta to counter the green cast often found in shade."),
-        .init(id: "warm-interior", name: "Warm Interior", temperatureOffsetMired: -20, tintOffset: 7,
-              help: "Keeps indoor light inviting with a controlled warm-magenta bias."),
-        .init(id: "cool-interior", name: "Cool Interior", temperatureOffsetMired: 16, tintOffset: 3,
-              help: "Gives interiors a cleaner, cooler feel without pushing neutral surfaces toward green."),
-        .init(id: "winter-cool", name: "Winter Cool", temperatureOffsetMired: 24, tintOffset: 2,
-              help: "Adds a crisp cool cast suited to snow, winter scenes, and clean modern edits."),
-        .init(id: "neon-night", name: "Neon Night", temperatureOffsetMired: 14, tintOffset: 12,
-              help: "Cools the scene while adding a visible magenta bias for neon and nightlife color."),
-        .init(id: "desert-heat", name: "Desert Heat", temperatureOffsetMired: -32, tintOffset: 3,
-              help: "Pushes dry outdoor scenes toward warm amber without making skin excessively pink."),
-        .init(id: "forest-cool", name: "Forest Cool", temperatureOffsetMired: 12, tintOffset: -5,
-              help: "Adds a cool-green environmental feel for foliage-heavy scenes. Use carefully on skin."),
-        .init(id: "film-warm", name: "Film Warm", temperatureOffsetMired: -18, tintOffset: 6,
-              help: "A restrained warm-magenta bias designed to sit naturally under the selected film stock."),
-        .init(id: "clean-editorial", name: "Clean Editorial", temperatureOffsetMired: 5, tintOffset: 3,
-              help: "A very slight cool-magenta correction for a clean, modern neutral look."),
-        .init(id: "skin-friendly-warm", name: "Skin-Friendly Warmth", temperatureOffsetMired: -10, tintOffset: 5,
-              help: "A gentle warm-magenta shift intended for portraits without heavily changing the environment."),
-        .init(id: "snow-day", name: "Snow Day", temperatureOffsetMired: 18, tintOffset: 2,
-              help: "Keeps snow and bright winter scenes crisp and cool while avoiding a green cast."),
-        .init(id: "late-afternoon", name: "Late Afternoon", temperatureOffsetMired: -18, tintOffset: 2,
-              help: "Adds moderate warmth for late-day outdoor light without the stronger Sunset treatment."),
-        .init(id: "warm-neutral", name: "Warm Neutral", temperatureOffsetMired: -8, tintOffset: 2,
-              help: "A subtle everyday warm shift that works well across a large set of images."),
-        .init(id: "cool-neutral", name: "Cool Neutral", temperatureOffsetMired: 8, tintOffset: 2,
-              help: "A subtle everyday cool shift that stays close to the image's original neutral."),
-        .init(id: "magenta-glow", name: "Magenta Glow", temperatureOffsetMired: -8, tintOffset: 14,
-              help: "Adds a creative pink-magenta bias while only slightly warming the image."),
-        .init(id: "cyan-night", name: "Cyan Night", temperatureOffsetMired: 30, tintOffset: -6,
-              help: "Pushes night scenes cooler with a cyan-green bias for a stylized urban look. Use carefully on skin."),
-        .init(id: "amber-room", name: "Amber Room", temperatureOffsetMired: -34, tintOffset: 3,
-              help: "Leans strongly warm for lamps, restaurants, receptions, and ambient tungsten interiors.")
+        .init(
+            id: "golden-hour", name: "Golden Hour", temperatureOffsetMired: -25, tintOffset: 4,
+            help: "Adds a rich warm glow with a small magenta lift while keeping this photo's own neutral underneath."),
+        .init(
+            id: "sunset", name: "Sunset", temperatureOffsetMired: -38, tintOffset: 8,
+            help: "Pushes the image noticeably warmer and slightly magenta for deeper sunset color."),
+        .init(
+            id: "sunrise", name: "Sunrise", temperatureOffsetMired: -22, tintOffset: 6,
+            help: "A softer warm-magenta shift for early-morning light without going as orange as Sunset."),
+        .init(
+            id: "blue-hour", name: "Blue Hour", temperatureOffsetMired: 28, tintOffset: 1,
+            help: "Cools the image strongly while keeping a slight magenta bias so twilight does not look green."),
+        .init(
+            id: "moonlight", name: "Moonlight", temperatureOffsetMired: 36, tintOffset: 4,
+            help: "Creates a cooler night feel with enough magenta to keep the result from becoming cyan-green."),
+        .init(
+            id: "candlelight", name: "Candlelight", temperatureOffsetMired: -45, tintOffset: 8,
+            help: "Adds a strong warm amber feel with a gentle magenta correction for intimate interior light."),
+        .init(
+            id: "overcast-warmth", name: "Overcast Warmth", temperatureOffsetMired: -14, tintOffset: 4,
+            help: "Takes the cool edge off cloudy light while keeping the scene natural."),
+        .init(
+            id: "open-shade", name: "Open Shade", temperatureOffsetMired: -10, tintOffset: 5,
+            help:
+                "Warms cool shaded portraits and adds a little magenta to counter the green cast often found in shade."),
+        .init(
+            id: "warm-interior", name: "Warm Interior", temperatureOffsetMired: -20, tintOffset: 7,
+            help: "Keeps indoor light inviting with a controlled warm-magenta bias."),
+        .init(
+            id: "cool-interior", name: "Cool Interior", temperatureOffsetMired: 16, tintOffset: 3,
+            help: "Gives interiors a cleaner, cooler feel without pushing neutral surfaces toward green."),
+        .init(
+            id: "winter-cool", name: "Winter Cool", temperatureOffsetMired: 24, tintOffset: 2,
+            help: "Adds a crisp cool cast suited to snow, winter scenes, and clean modern edits."),
+        .init(
+            id: "neon-night", name: "Neon Night", temperatureOffsetMired: 14, tintOffset: 12,
+            help: "Cools the scene while adding a visible magenta bias for neon and nightlife color."),
+        .init(
+            id: "desert-heat", name: "Desert Heat", temperatureOffsetMired: -32, tintOffset: 3,
+            help: "Pushes dry outdoor scenes toward warm amber without making skin excessively pink."),
+        .init(
+            id: "forest-cool", name: "Forest Cool", temperatureOffsetMired: 12, tintOffset: -5,
+            help: "Adds a cool-green environmental feel for foliage-heavy scenes. Use carefully on skin."),
+        .init(
+            id: "film-warm", name: "Film Warm", temperatureOffsetMired: -18, tintOffset: 6,
+            help: "A restrained warm-magenta bias designed to sit naturally under the selected film stock."),
+        .init(
+            id: "clean-editorial", name: "Clean Editorial", temperatureOffsetMired: 5, tintOffset: 3,
+            help: "A very slight cool-magenta correction for a clean, modern neutral look."),
+        .init(
+            id: "skin-friendly-warm", name: "Skin-Friendly Warmth", temperatureOffsetMired: -10, tintOffset: 5,
+            help: "A gentle warm-magenta shift intended for portraits without heavily changing the environment."),
+        .init(
+            id: "snow-day", name: "Snow Day", temperatureOffsetMired: 18, tintOffset: 2,
+            help: "Keeps snow and bright winter scenes crisp and cool while avoiding a green cast."),
+        .init(
+            id: "late-afternoon", name: "Late Afternoon", temperatureOffsetMired: -18, tintOffset: 2,
+            help: "Adds moderate warmth for late-day outdoor light without the stronger Sunset treatment."),
+        .init(
+            id: "warm-neutral", name: "Warm Neutral", temperatureOffsetMired: -8, tintOffset: 2,
+            help: "A subtle everyday warm shift that works well across a large set of images."),
+        .init(
+            id: "cool-neutral", name: "Cool Neutral", temperatureOffsetMired: 8, tintOffset: 2,
+            help: "A subtle everyday cool shift that stays close to the image's original neutral."),
+        .init(
+            id: "magenta-glow", name: "Magenta Glow", temperatureOffsetMired: -8, tintOffset: 14,
+            help: "Adds a creative pink-magenta bias while only slightly warming the image."),
+        .init(
+            id: "cyan-night", name: "Cyan Night", temperatureOffsetMired: 30, tintOffset: -6,
+            help: "Pushes night scenes cooler with a cyan-green bias for a stylized urban look. Use carefully on skin."),
+        .init(
+            id: "amber-room", name: "Amber Room", temperatureOffsetMired: -34, tintOffset: 3,
+            help: "Leans strongly warm for lamps, restaurants, receptions, and ambient tungsten interiors."),
     ]
 
     static let relativePresets: [WhiteBalanceQuickPreset] = technicalPresets + creativePresets
@@ -228,6 +250,7 @@ enum RawDenoiseMode: String, Codable, CaseIterable, Identifiable, Sendable {
 }
 
 struct RawSettings: Codable, Equatable, Hashable, Sendable {
+    var workflowPreset: WorkflowPreset = .sceneReferredFilmic
     var whiteBalanceMode: RawWhiteBalanceMode = .asShot
     var temperature: Double = 5500
     var tint: Double = 0
@@ -250,7 +273,7 @@ struct RawSettings: Codable, Equatable, Hashable, Sendable {
     var autoExposureApplied: Bool = false
 
     private enum CodingKeys: String, CodingKey {
-        case whiteBalanceMode, temperature, tint, lensCorrection
+        case workflowPreset, whiteBalanceMode, temperature, tint, lensCorrection
         case temperatureOffsetMired, tintOffsetMired = "tintOffset"
         case denoiseMode, denoiseLuma, denoiseChroma, denoiseModel
         case developExposureEV, developGlobalTone, developShadowBoost
@@ -259,31 +282,53 @@ struct RawSettings: Codable, Equatable, Hashable, Sendable {
     }
     init() {}
     init(from decoder: Decoder) throws {
-        let c=try decoder.container(keyedBy:CodingKeys.self)
-        whiteBalanceMode=try c.decodeIfPresent(RawWhiteBalanceMode.self,forKey:.whiteBalanceMode) ?? .asShot
-        temperature=try c.decodeIfPresent(Double.self,forKey:.temperature) ?? 5500
-        tint=try c.decodeIfPresent(Double.self,forKey:.tint) ?? 0
-        lensCorrection=try c.decodeIfPresent(Bool.self,forKey:.lensCorrection) ?? false
-        temperatureOffsetMired=try c.decodeIfPresent(Double.self,forKey:.temperatureOffsetMired)
-        tintOffset=try c.decodeIfPresent(Double.self,forKey:.tintOffsetMired)
-        denoiseMode=try c.decodeIfPresent(RawDenoiseMode.self,forKey:.denoiseMode) ?? .off
-        denoiseLuma=min(1,max(0,try c.decodeIfPresent(Double.self,forKey:.denoiseLuma) ?? 0.22))
-        denoiseChroma=min(1,max(0,try c.decodeIfPresent(Double.self,forKey:.denoiseChroma) ?? 0.16))
-        denoiseModel=try c.decodeIfPresent(String.self,forKey:.denoiseModel) ?? "TreeNetDenoiseHeavy"
-        developExposureEV=min(5,max(-5,try c.decodeIfPresent(Double.self,forKey:.developExposureEV) ?? 0))
-        developGlobalTone=min(1,max(0,try c.decodeIfPresent(Double.self,forKey:.developGlobalTone) ?? 1))
-        developShadowBoost=min(2,max(0,try c.decodeIfPresent(Double.self,forKey:.developShadowBoost) ?? 1))
-        developHighlightHeadroom=min(2,max(0,try c.decodeIfPresent(Double.self,forKey:.developHighlightHeadroom) ?? 0))
-        developCurvePoints=ToneCurveMath.normalize(try c.decodeIfPresent([ToneCurvePoint].self,forKey:.developCurvePoints) ?? [.init(x:0,y:0),.init(x:1,y:1)])
-        autoExposureApplied=try c.decodeIfPresent(Bool.self,forKey:.autoExposureApplied) ?? false
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // Resolve String-backed enums from their raw value rather than decoding the enum
+        // directly: a synthesized Codable init throws on an unrecognised value, so
+        // a project written by another build version would fail to open instead of
+        // falling back to the default. `decodeIfPresent` only falls back when the key
+        // is absent, so the case lookup has to happen here.
+        workflowPreset =
+            WorkflowPreset(rawValue: try c.decodeIfPresent(String.self, forKey: .workflowPreset) ?? "")
+            ?? .sceneReferredFilmic
+        whiteBalanceMode =
+            RawWhiteBalanceMode(rawValue: try c.decodeIfPresent(String.self, forKey: .whiteBalanceMode) ?? "")
+            ?? .asShot
+        temperature = try c.decodeIfPresent(Double.self, forKey: .temperature) ?? 5500
+        tint = try c.decodeIfPresent(Double.self, forKey: .tint) ?? 0
+        lensCorrection = try c.decodeIfPresent(Bool.self, forKey: .lensCorrection) ?? false
+        temperatureOffsetMired = try c.decodeIfPresent(Double.self, forKey: .temperatureOffsetMired)
+        tintOffset = try c.decodeIfPresent(Double.self, forKey: .tintOffsetMired)
+        denoiseMode = RawDenoiseMode(rawValue: try c.decodeIfPresent(String.self, forKey: .denoiseMode) ?? "") ?? .off
+        denoiseLuma = min(1, max(0, try c.decodeIfPresent(Double.self, forKey: .denoiseLuma) ?? 0.22))
+        denoiseChroma = min(1, max(0, try c.decodeIfPresent(Double.self, forKey: .denoiseChroma) ?? 0.16))
+        denoiseModel = try c.decodeIfPresent(String.self, forKey: .denoiseModel) ?? "TreeNetDenoiseHeavy"
+        developExposureEV = min(5, max(-5, try c.decodeIfPresent(Double.self, forKey: .developExposureEV) ?? 0))
+        developGlobalTone = min(1, max(0, try c.decodeIfPresent(Double.self, forKey: .developGlobalTone) ?? 1))
+        developShadowBoost = min(2, max(0, try c.decodeIfPresent(Double.self, forKey: .developShadowBoost) ?? 1))
+        developHighlightHeadroom = min(
+            2, max(0, try c.decodeIfPresent(Double.self, forKey: .developHighlightHeadroom) ?? 0))
+        developCurvePoints = ToneCurveMath.normalize(
+            try c.decodeIfPresent([ToneCurvePoint].self, forKey: .developCurvePoints) ?? [
+                .init(x: 0, y: 0), .init(x: 1, y: 1),
+            ])
+        autoExposureApplied = try c.decodeIfPresent(Bool.self, forKey: .autoExposureApplied) ?? false
     }
     func encode(to encoder: Encoder) throws {
-        var c=encoder.container(keyedBy:CodingKeys.self)
-        try c.encode(whiteBalanceMode,forKey:.whiteBalanceMode);try c.encode(temperature,forKey:.temperature);try c.encode(tint,forKey:.tint);try c.encode(lensCorrection,forKey:.lensCorrection)
-        try c.encodeIfPresent(temperatureOffsetMired,forKey:.temperatureOffsetMired);try c.encodeIfPresent(tintOffset,forKey:.tintOffsetMired)
-        try c.encode(denoiseMode,forKey:.denoiseMode);try c.encode(denoiseLuma,forKey:.denoiseLuma);try c.encode(denoiseChroma,forKey:.denoiseChroma);try c.encode(denoiseModel,forKey:.denoiseModel)
-        try c.encode(developExposureEV,forKey:.developExposureEV);try c.encode(developGlobalTone,forKey:.developGlobalTone);try c.encode(developShadowBoost,forKey:.developShadowBoost);try c.encode(developHighlightHeadroom,forKey:.developHighlightHeadroom);try c.encode(developCurvePoints,forKey:.developCurvePoints)
-        try c.encode(autoExposureApplied,forKey:.autoExposureApplied)
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(workflowPreset.rawValue, forKey: .workflowPreset);
+        try c.encode(whiteBalanceMode, forKey: .whiteBalanceMode); try c.encode(temperature, forKey: .temperature);
+        try c.encode(tint, forKey: .tint); try c.encode(lensCorrection, forKey: .lensCorrection)
+        try c.encodeIfPresent(temperatureOffsetMired, forKey: .temperatureOffsetMired);
+        try c.encodeIfPresent(tintOffset, forKey: .tintOffsetMired)
+        try c.encode(denoiseMode, forKey: .denoiseMode); try c.encode(denoiseLuma, forKey: .denoiseLuma);
+        try c.encode(denoiseChroma, forKey: .denoiseChroma); try c.encode(denoiseModel, forKey: .denoiseModel)
+        try c.encode(developExposureEV, forKey: .developExposureEV);
+        try c.encode(developGlobalTone, forKey: .developGlobalTone);
+        try c.encode(developShadowBoost, forKey: .developShadowBoost);
+        try c.encode(developHighlightHeadroom, forKey: .developHighlightHeadroom);
+        try c.encode(developCurvePoints, forKey: .developCurvePoints)
+        try c.encode(autoExposureApplied, forKey: .autoExposureApplied)
     }
 }
 
@@ -318,7 +363,7 @@ struct ToneSettings: Codable, Equatable, Hashable, Sendable {
     var resolvedAutoContrastWhite: Double? = nil
     var curvePoints: [ToneCurvePoint] = [
         ToneCurvePoint(x: 0, y: 0),
-        ToneCurvePoint(x: 1, y: 1)
+        ToneCurvePoint(x: 1, y: 1),
     ]
 
     var isAutoContrastResolved: Bool {
@@ -343,8 +388,8 @@ struct ToneSettings: Codable, Equatable, Hashable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case exposureEV, brightness, contrast, midtones, highlights, shadows,
-             highlightRecovery, shadowRecovery, whites, blacks, whitePoint, blackPoint,
-             autoContrast, resolvedAutoContrastBlack, resolvedAutoContrastWhite, curvePoints
+            highlightRecovery, shadowRecovery, whites, blacks, whitePoint, blackPoint,
+            autoContrast, resolvedAutoContrastBlack, resolvedAutoContrastWhite, curvePoints
     }
 
     init() {}
@@ -366,9 +411,10 @@ struct ToneSettings: Codable, Equatable, Hashable, Sendable {
         autoContrast = try c.decodeIfPresent(Bool.self, forKey: .autoContrast) ?? false
         resolvedAutoContrastBlack = try c.decodeIfPresent(Double.self, forKey: .resolvedAutoContrastBlack)
         resolvedAutoContrastWhite = try c.decodeIfPresent(Double.self, forKey: .resolvedAutoContrastWhite)
-        curvePoints = try c.decodeIfPresent([ToneCurvePoint].self, forKey: .curvePoints) ?? [
-            ToneCurvePoint(x: 0, y: 0), ToneCurvePoint(x: 1, y: 1)
-        ]
+        curvePoints =
+            try c.decodeIfPresent([ToneCurvePoint].self, forKey: .curvePoints) ?? [
+                ToneCurvePoint(x: 0, y: 0), ToneCurvePoint(x: 1, y: 1),
+            ]
     }
 }
 
@@ -464,7 +510,6 @@ struct GeometrySettings: Codable, Equatable, Hashable, Sendable {
     var lastAspectPresetID: String? = nil
 }
 
-
 enum LensCharacterPreset: String, Codable, CaseIterable, Identifiable, Sendable {
     case custom = "Custom"
     case spherical35 = "35mm Spherical"
@@ -526,8 +571,8 @@ struct LensEffectsSettings: Codable, Equatable, Hashable, Sendable {
     // Explicit defaults are necessary for saved projects written before this upgrade.
     private enum CodingKeys: String, CodingKey {
         case enabled, preset, distortion, chromaticAberration, highlightChromaticAberration,
-             sphericalAberration, petzvalSwirl, edgeSoftness, vignette, lensShape,
-             blurThickness, swirlRadius, vignetteRadius, vignetteFalloff, centerX, centerY, caChannel
+            sphericalAberration, petzvalSwirl, edgeSoftness, vignette, lensShape,
+            blurThickness, swirlRadius, vignetteRadius, vignetteFalloff, centerX, centerY, caChannel
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -552,29 +597,51 @@ struct LensEffectsSettings: Codable, Equatable, Hashable, Sendable {
 
     var resolved: LensEffectsResolved {
         if preset == .custom {
-            return .init(distortion: distortion, chromaticAberration: chromaticAberration,
-                         highlightChromaticAberration: highlightChromaticAberration,
-                         sphericalAberration: sphericalAberration, petzvalSwirl: petzvalSwirl,
-                         edgeSoftness: edgeSoftness, vignette: vignette, lensShape: lensShape,
-                         blurThickness: blurThickness, swirlRadius: swirlRadius,
-                         vignetteRadius: vignetteRadius, vignetteFalloff: vignetteFalloff,
-                         caChannel: caChannel)
+            return .init(
+                distortion: distortion, chromaticAberration: chromaticAberration,
+                highlightChromaticAberration: highlightChromaticAberration,
+                sphericalAberration: sphericalAberration, petzvalSwirl: petzvalSwirl,
+                edgeSoftness: edgeSoftness, vignette: vignette, lensShape: lensShape,
+                blurThickness: blurThickness, swirlRadius: swirlRadius,
+                vignetteRadius: vignetteRadius, vignetteFalloff: vignetteFalloff,
+                caChannel: caChannel)
         }
         switch preset {
         case .spherical35:
-            return .init(distortion: 0.016, chromaticAberration: 0.42, highlightChromaticAberration: 0.8, sphericalAberration: 0.26, petzvalSwirl: 0.10, edgeSoftness: 0.18, vignette: 0.24, lensShape: 1.0, blurThickness: 1.1, swirlRadius: 0.27, vignetteRadius: 0.46, vignetteFalloff: 1.8)
+            return .init(
+                distortion: 0.016, chromaticAberration: 0.42, highlightChromaticAberration: 0.8,
+                sphericalAberration: 0.26, petzvalSwirl: 0.10, edgeSoftness: 0.18, vignette: 0.24, lensShape: 1.0,
+                blurThickness: 1.1, swirlRadius: 0.27, vignetteRadius: 0.46, vignetteFalloff: 1.8)
         case .standard50:
-            return .init(distortion: 0.004, chromaticAberration: 0.30, highlightChromaticAberration: 0.5, sphericalAberration: 0.12, petzvalSwirl: 0.03, edgeSoftness: 0.09, vignette: 0.17, lensShape: 1.0, blurThickness: 0.9, swirlRadius: 0.34, vignetteRadius: 0.50, vignetteFalloff: 1.8)
+            return .init(
+                distortion: 0.004, chromaticAberration: 0.30, highlightChromaticAberration: 0.5,
+                sphericalAberration: 0.12, petzvalSwirl: 0.03, edgeSoftness: 0.09, vignette: 0.17, lensShape: 1.0,
+                blurThickness: 0.9, swirlRadius: 0.34, vignetteRadius: 0.50, vignetteFalloff: 1.8)
         case .portrait85:
-            return .init(distortion: -0.004, chromaticAberration: 0.28, highlightChromaticAberration: 0.55, sphericalAberration: 0.32, petzvalSwirl: 0.07, edgeSoftness: 0.20, vignette: 0.27, lensShape: 1.0, blurThickness: 1.2, swirlRadius: 0.38, vignetteRadius: 0.50, vignetteFalloff: 1.7)
+            return .init(
+                distortion: -0.004, chromaticAberration: 0.28, highlightChromaticAberration: 0.55,
+                sphericalAberration: 0.32, petzvalSwirl: 0.07, edgeSoftness: 0.20, vignette: 0.27, lensShape: 1.0,
+                blurThickness: 1.2, swirlRadius: 0.38, vignetteRadius: 0.50, vignetteFalloff: 1.7)
         case .wide28:
-            return .init(distortion: 0.043, chromaticAberration: 1.0, highlightChromaticAberration: 1.55, sphericalAberration: 0.08, petzvalSwirl: 0.04, edgeSoftness: 0.18, vignette: 0.35, lensShape: 1.0, blurThickness: 1.05, swirlRadius: 0.25, vignetteRadius: 0.36, vignetteFalloff: 1.4)
+            return .init(
+                distortion: 0.043, chromaticAberration: 1.0, highlightChromaticAberration: 1.55,
+                sphericalAberration: 0.08, petzvalSwirl: 0.04, edgeSoftness: 0.18, vignette: 0.35, lensShape: 1.0,
+                blurThickness: 1.05, swirlRadius: 0.25, vignetteRadius: 0.36, vignetteFalloff: 1.4)
         case .anamorphic2x:
-            return .init(distortion: 0.018, chromaticAberration: 0.85, highlightChromaticAberration: 1.6, sphericalAberration: 0.34, petzvalSwirl: 0.36, edgeSoftness: 0.38, vignette: 0.26, lensShape: 1.8, blurThickness: 1.6, swirlRadius: 0.16, vignetteRadius: 0.48, vignetteFalloff: 1.5)
+            return .init(
+                distortion: 0.018, chromaticAberration: 0.85, highlightChromaticAberration: 1.6,
+                sphericalAberration: 0.34, petzvalSwirl: 0.36, edgeSoftness: 0.38, vignette: 0.26, lensShape: 1.8,
+                blurThickness: 1.6, swirlRadius: 0.16, vignetteRadius: 0.48, vignetteFalloff: 1.5)
         case .petzval:
-            return .init(distortion: 0.008, chromaticAberration: 0.65, highlightChromaticAberration: 1.05, sphericalAberration: 0.65, petzvalSwirl: 0.95, edgeSoftness: 0.85, vignette: 0.42, lensShape: 1.05, blurThickness: 2.3, swirlRadius: 0.19, vignetteRadius: 0.32, vignetteFalloff: 1.4)
+            return .init(
+                distortion: 0.008, chromaticAberration: 0.65, highlightChromaticAberration: 1.05,
+                sphericalAberration: 0.65, petzvalSwirl: 0.95, edgeSoftness: 0.85, vignette: 0.42, lensShape: 1.05,
+                blurThickness: 2.3, swirlRadius: 0.19, vignetteRadius: 0.32, vignetteFalloff: 1.4)
         case .vintage58:
-            return .init(distortion: 0.009, chromaticAberration: 0.82, highlightChromaticAberration: 1.25, sphericalAberration: 0.60, petzvalSwirl: 0.32, edgeSoftness: 0.60, vignette: 0.37, lensShape: 1.0, blurThickness: 1.85, swirlRadius: 0.22, vignetteRadius: 0.40, vignetteFalloff: 1.5)
+            return .init(
+                distortion: 0.009, chromaticAberration: 0.82, highlightChromaticAberration: 1.25,
+                sphericalAberration: 0.60, petzvalSwirl: 0.32, edgeSoftness: 0.60, vignette: 0.37, lensShape: 1.0,
+                blurThickness: 1.85, swirlRadius: 0.22, vignetteRadius: 0.40, vignetteFalloff: 1.5)
         case .custom:
             return .init()
         }
@@ -608,9 +675,8 @@ struct LensEffectsSettings: Codable, Equatable, Hashable, Sendable {
     }
     var isIdentity: Bool {
         let r = resolved
-        return abs(r.distortion) < 1e-9 && r.chromaticAberration < 1e-9 &&
-            r.highlightChromaticAberration < 1e-9 && r.sphericalAberration < 1e-9 &&
-            r.petzvalSwirl < 1e-9 && r.edgeSoftness < 1e-9 && r.vignette < 1e-9
+        return abs(r.distortion) < 1e-9 && r.chromaticAberration < 1e-9 && r.highlightChromaticAberration < 1e-9
+            && r.sphericalAberration < 1e-9 && r.petzvalSwirl < 1e-9 && r.edgeSoftness < 1e-9 && r.vignette < 1e-9
     }
 }
 
@@ -716,8 +782,6 @@ struct ProjectImageRecord: Identifiable, Codable, Equatable, Hashable, Sendable 
     var url: URL { URL(fileURLWithPath: sourcePath) }
 }
 
-
-
 extension ProjectImageRecord {
     private enum CodingKeys: String, CodingKey {
         case id, sourcePath, sourceFileSize, sourceModificationTime, importedAt, captureDate, metadata
@@ -782,7 +846,11 @@ enum ExportFormat: String, Codable, CaseIterable, Identifiable, Sendable {
     case tiff = "TIFF"
     var id: String { rawValue }
     var fileExtension: String {
-        switch self { case .jpeg: "jpg"; case .heic: "heic"; case .tiff: "tif" }
+        switch self {
+        case .jpeg: "jpg";
+        case .heic: "heic";
+        case .tiff: "tif"
+        }
     }
 }
 
@@ -961,17 +1029,22 @@ struct AppPreferences: Codable, Equatable, Hashable, Sendable {
         writeXMPAutomatically = try c.decodeIfPresent(Bool.self, forKey: .writeXMPAutomatically) ?? false
 
         clippingEnabled = try c.decodeIfPresent(Bool.self, forKey: .clippingEnabled) ?? false
-        clippingPreviewMode = try c.decodeIfPresent(ClippingPreviewMode.self, forKey: .clippingPreviewMode) ?? .fullGamut
-        exposureHighlightRiskThreshold = try c.decodeIfPresent(Double.self, forKey: .exposureHighlightRiskThreshold) ?? 0.95
+        clippingPreviewMode =
+            try c.decodeIfPresent(ClippingPreviewMode.self, forKey: .clippingPreviewMode) ?? .fullGamut
+        exposureHighlightRiskThreshold =
+            try c.decodeIfPresent(Double.self, forKey: .exposureHighlightRiskThreshold) ?? 0.95
         exposureShadowRiskThreshold = try c.decodeIfPresent(Double.self, forKey: .exposureShadowRiskThreshold) ?? 0.02
 
         let decodedHighlightClip = try c.decodeIfPresent(Double.self, forKey: .clippingHighlightThreshold) ?? 0.9999
-        clippingHighlightThreshold = abs(decodedHighlightClip - 0.998) < 1.0e-12
+        clippingHighlightThreshold =
+            abs(decodedHighlightClip - 0.998) < 1.0e-12
             ? 0.9999
             : decodedHighlightClip
 
-        let decodedShadowClip = try c.decodeIfPresent(Double.self, forKey: .clippingShadowThreshold) ?? 0.00015133150634020836
-        clippingShadowThreshold = abs(decodedShadowClip - 0.002) < 1.0e-12
+        let decodedShadowClip =
+            try c.decodeIfPresent(Double.self, forKey: .clippingShadowThreshold) ?? 0.00015133150634020836
+        clippingShadowThreshold =
+            abs(decodedShadowClip - 0.002) < 1.0e-12
             ? 0.00015133150634020836
             : decodedShadowClip
         skinCheckEnabled = try c.decodeIfPresent(Bool.self, forKey: .skinCheckEnabled) ?? false
@@ -1016,7 +1089,8 @@ struct SpektraProjectDocument: Codable, Equatable, Sendable {
         workspaceMode = try c.decodeIfPresent(WorkspaceMode.self, forKey: .workspaceMode) ?? .project
         images = try c.decodeIfPresent([ProjectImageRecord].self, forKey: .images) ?? []
         guard Set(images.map(\.id)).count == images.count else {
-            throw DecodingError.dataCorruptedError(forKey: .images, in: c, debugDescription: "Duplicate photo identities in project")
+            throw DecodingError.dataCorruptedError(
+                forKey: .images, in: c, debugDescription: "Duplicate photo identities in project")
         }
         selectedImageID = try c.decodeIfPresent(UUID.self, forKey: .selectedImageID)
         sortMode = try c.decodeIfPresent(ProjectSortMode.self, forKey: .sortMode) ?? .importDate
@@ -1039,7 +1113,9 @@ struct SpektraProjectDocument: Codable, Equatable, Sendable {
                 let oldTone = images[index].look.tone ?? ToneSettings()
                 images[index].look.raw.developExposureEV = min(5, max(-5, oldTone.exposureEV))
                 let oldCurve = ToneCurveMath.normalize(oldTone.curvePoints)
-                let identity = oldCurve.count == 2 && abs(oldCurve[0].x) < 1e-9 && abs(oldCurve[0].y) < 1e-9 && abs(oldCurve[1].x - 1) < 1e-9 && abs(oldCurve[1].y - 1) < 1e-9
+                let identity =
+                    oldCurve.count == 2 && abs(oldCurve[0].x) < 1e-9 && abs(oldCurve[0].y) < 1e-9
+                    && abs(oldCurve[1].x - 1) < 1e-9 && abs(oldCurve[1].y - 1) < 1e-9
                 if !identity { images[index].look.raw.developCurvePoints = oldCurve }
                 images[index].look.tone = ToneSettings()
             }

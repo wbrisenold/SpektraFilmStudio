@@ -22,7 +22,8 @@ enum CullReviewFilter: String, CaseIterable, Identifiable {
         case .best: return image.flag == .picked || (a?.recommendation == .keep && (a?.score ?? 0) >= 75)
         case .aesthetics: return (a?.aestheticScore ?? -1) >= 0.30
         case .faces: return (a?.faceCount ?? 0) > 0
-        case .sharpFaces: return (a?.faceCount ?? 0) > 0 && (a?.faceSharpness ?? 0) >= 0.65 && !(a?.possibleBlink ?? false)
+        case .sharpFaces:
+            return (a?.faceCount ?? 0) > 0 && (a?.faceSharpness ?? 0) >= 0.65 && !(a?.possibleBlink ?? false)
         case .possibleBlink: return a?.possibleBlink == true
         case .soft: return (a?.sharpness ?? 1) < 0.36 || ((a?.faceCount ?? 0) > 0 && (a?.faceSharpness ?? 1) < 0.38)
         case .exposure: return (a?.highlightClipPercent ?? 0) > 2.5 || (a?.shadowClipPercent ?? 0) > 20
@@ -54,11 +55,15 @@ struct CullBestPicksEngine {
         for candidate in ordered {
             let overlaps = winners.contains { other in
                 if let stack = candidate.cullAnalysis?.stackID,
-                   stack == other.cullAnalysis?.stackID { return true }
+                    stack == other.cullAnalysis?.stackID
+                {
+                    return true
+                }
                 guard let a = candidate.captureDate, let b = other.captureDate,
-                      abs(a.timeIntervalSince(b)) <= 4.0,
-                      let h1 = candidate.cullAnalysis?.perceptualHash,
-                      let h2 = other.cullAnalysis?.perceptualHash else { return false }
+                    abs(a.timeIntervalSince(b)) <= 4.0,
+                    let h1 = candidate.cullAnalysis?.perceptualHash,
+                    let h2 = other.cullAnalysis?.perceptualHash
+                else { return false }
                 return (h1 ^ h2).nonzeroBitCount <= 16
             }
             if !overlaps { winners.append(candidate) }
@@ -78,7 +83,7 @@ struct CullBestPicksEngine {
         }
         score -= max(0, cull.highlightClipPercent - 1) * 0.8
         score -= max(0, cull.shadowClipPercent - 10) * 0.15
-        if image.flag == .picked { score += 5 } // do not override photographer judgment
+        if image.flag == .picked { score += 5 }  // do not override photographer judgment
         return score
     }
 }

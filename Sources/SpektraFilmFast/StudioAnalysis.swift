@@ -1,5 +1,5 @@
-import Foundation
 import CoreGraphics
+import Foundation
 
 struct StudioAnalysisPayload: Sendable {
     var overlayWidth: Int
@@ -18,7 +18,6 @@ actor StudioAnalysisEngine {
     static let skinReferenceDegrees = SkinToneReference.referenceAngleDegrees
     static let scopeSize = 256
     private let subjectMaskEngine = SubjectSkinMaskEngine()
-
 
     // Independent Swift adaptation of darktable's final-view overexposure tests.
     private static func clippingFlags(
@@ -97,12 +96,14 @@ actor StudioAnalysisEngine {
                 let x = min(width - 1, ox * analysisStep)
                 let sourceIndex = (y * width + x) * 4
                 let p = (oy * overlayWidth + ox) * 4
-                guard let rgb = SkinToneReference.canonicalDisplayRGB(
-                    r: output.pixels[sourceIndex],
-                    g: output.pixels[sourceIndex + 1],
-                    b: output.pixels[sourceIndex + 2],
-                    look: look
-                ) else {
+                guard
+                    let rgb = SkinToneReference.canonicalDisplayRGB(
+                        r: output.pixels[sourceIndex],
+                        g: output.pixels[sourceIndex + 1],
+                        b: output.pixels[sourceIndex + 2],
+                        look: look
+                    )
+                else {
                     throw DiagnosticColorError.unsupportedOutputSpace(SkinToneReference.outputSpaceIndex(look))
                 }
                 diagnosticPixels[p] = rgb.0
@@ -127,8 +128,11 @@ actor StudioAnalysisEngine {
             pixels: diagnosticPixels
         )
 
-        let wantsSkinOverlay = preferences.skinCheckEnabled && (preferences.skinCheckMode == .overlay || preferences.skinCheckMode == .both)
-        let wantsScope = preferences.skinCheckEnabled && (preferences.skinCheckMode == .scope || preferences.skinCheckMode == .both)
+        let wantsSkinOverlay =
+            preferences.skinCheckEnabled
+            && (preferences.skinCheckMode == .overlay || preferences.skinCheckMode == .both)
+        let wantsScope =
+            preferences.skinCheckEnabled && (preferences.skinCheckMode == .scope || preferences.skinCheckMode == .both)
         let wantsSkinAnalysis = preferences.skinCheckEnabled || preferences.scopeMode == .skinVectorscope
         let wantsImageOverlay = preferences.clippingEnabled || wantsSkinOverlay
         var overlay = wantsImageOverlay ? [UInt8](repeating: 0, count: sampledPixels * 4) : []
@@ -139,7 +143,8 @@ actor StudioAnalysisEngine {
         let subjectMask: SubjectMaskPayload
         if wantsSkinAnalysis && canonicalSkinMask == nil {
             // Fallback only. Once available, every consumer uses the same canonical AI mask.
-            subjectMask = try await subjectMaskEngine.subjectMask(from: diagnosticBuffer, width: overlayWidth, height: overlayHeight)
+            subjectMask = try await subjectMaskEngine.subjectMask(
+                from: diagnosticBuffer, width: overlayWidth, height: overlayHeight)
         } else {
             subjectMask = .empty(width: overlayWidth, height: overlayHeight)
         }
@@ -193,10 +198,14 @@ actor StudioAnalysisEngine {
                 let risk = Self.clippingFlags(
                     r: monitor.r, g: monitor.g, b: monitor.b,
                     mode: preferences.clippingPreviewMode,
-                    upper: Float(min(preferences.clippingHighlightThreshold,
-                                     preferences.exposureHighlightRiskThreshold)),
-                    lower: Float(max(preferences.clippingShadowThreshold,
-                                     preferences.exposureShadowRiskThreshold))
+                    upper: Float(
+                        min(
+                            preferences.clippingHighlightThreshold,
+                            preferences.exposureHighlightRiskThreshold)),
+                    lower: Float(
+                        max(
+                            preferences.clippingShadowThreshold,
+                            preferences.exposureShadowRiskThreshold))
                 )
                 let isHardHighlight = hard.highlight
                 let isHardShadow = hard.shadow
@@ -213,14 +222,16 @@ actor StudioAnalysisEngine {
                 let skin = OpenSourceSkinClassifier.classify(
                     displayR: outR, displayG: outG, displayB: outB, inFaceRegion: insideFace
                 )
-                let candidate = wantsSkinAnalysis && canonicalSkinMask == nil
+                let candidate =
+                    wantsSkinAnalysis && canonicalSkinMask == nil
                     && personConfidence >= (insideFace ? 0.18 : 0.42)
                     && skin.matches
                     && chroma.luma > 0.015 && chroma.luma < 0.995
                     && chroma.radius > 0.012
 
                 if candidate {
-                    let alpha = UInt8(clamping: Int((max(0.30, min(1.0, skin.confidence * personConfidence)) * 255.0).rounded()))
+                    let alpha = UInt8(
+                        clamping: Int((max(0.30, min(1.0, skin.confidence * personConfidence)) * 255.0).rounded()))
                     skinMask[maskIndex] = alpha
                 }
 
@@ -261,8 +272,8 @@ actor StudioAnalysisEngine {
                 )
             }
 
-// The false-color overlay, percentages, centroid and skin vectorscope
-              // must all use the SAME FINAL refined mask. A pre-refinement centroid
+            // The false-color overlay, percentages, centroid and skin vectorscope
+            // must all use the SAME FINAL refined mask. A pre-refinement centroid
             // could previously report On Target while the visible skin overlay was
             // clearly split between green-side and magenta-side regions.
             skinCount = 0
@@ -286,8 +297,9 @@ actor StudioAnalysisEngine {
                 let chroma = chromaPosition(r: r, g: g, b: b)
 
                 guard chroma.luma > 0.01,
-                      chroma.luma < 0.995,
-                      chroma.radius > 0.008 else { continue }
+                    chroma.luma < 0.995,
+                    chroma.radius > 0.008
+                else { continue }
 
                 skinCount += 1
                 let deviation = angularDifferenceDegrees(
@@ -312,12 +324,10 @@ actor StudioAnalysisEngine {
 
                 if wantsScope {
                     let sx = Int(
-                        ((chroma.uNormalized * 0.5 + 0.5) *
-                         Float(scopeSize - 1)).rounded()
+                        ((chroma.uNormalized * 0.5 + 0.5) * Float(scopeSize - 1)).rounded()
                     )
                     let sy = Int(
-                        (((-chroma.vNormalized) * 0.5 + 0.5) *
-                         Float(scopeSize - 1)).rounded()
+                        (((-chroma.vNormalized) * 0.5 + 0.5) * Float(scopeSize - 1)).rounded()
                     )
                     if sx >= 0 && sx < scopeSize && sy >= 0 && sy < scopeSize {
                         let si = sy * scopeSize + sx
@@ -342,19 +352,22 @@ actor StudioAnalysisEngine {
             drawSkinBoundary(mask: skinMask, overlay: &overlay, width: overlayWidth, height: overlayHeight)
         }
 
-        let scope = wantsScope ? makeScopeRGBA(
-            density: density,
-            skinDensity: skinDensity,
-            skinDeviationByBin: skinDeviationByBin,
-            tolerance: tolerance,
-            size: scopeSize
-        ) : []
+        let scope =
+            wantsScope
+            ? makeScopeRGBA(
+                density: density,
+                skinDensity: skinDensity,
+                skinDeviationByBin: skinDeviationByBin,
+                tolerance: tolerance,
+                size: scopeSize
+            ) : []
         let centroidCb = skinWeightSum > 0 ? skinCbWeightedSum / skinWeightSum : 0.0
         let centroidCr = skinWeightSum > 0 ? skinCrWeightedSum / skinWeightSum : 0.0
         let centroidRadius = hypot(centroidCb, centroidCr)
         var centroidAngle = atan2(centroidCr, centroidCb) * 180.0 / .pi
         if centroidAngle < 0 { centroidAngle += 360.0 }
-        let centroidDeviation = skinWeightSum > 0
+        let centroidDeviation =
+            skinWeightSum > 0
             ? angularDifferenceDegrees(centroidAngle, Self.skinReferenceDegrees)
             : 0.0
         let weightedDenominator = max(1.0e-9, skinWeightSum)
@@ -397,7 +410,6 @@ actor StudioAnalysisEngine {
         SkinToneReference.angularDifferenceDegrees(lhs, rhs)
     }
 
-
     /// Primera Skin-inspired spatial pooling / soft-union for a cleaner, more robust mask.
     private func refineSkinMask(
         mask: [UInt8],
@@ -411,7 +423,7 @@ actor StudioAnalysisEngine {
         let radius = max(1, min(3, max(width, height) / 500))
         let offsets = [
             (-radius, 0), (radius, 0), (0, -radius), (0, radius),
-            (-radius, -radius), (radius, -radius), (-radius, radius), (radius, radius)
+            (-radius, -radius), (radius, -radius), (-radius, radius), (radius, radius),
         ]
         let sigmaChroma = 0.060
         let inv2SigmaChroma2 = 1.0 / (2.0 * sigmaChroma * sigmaChroma)
@@ -529,9 +541,10 @@ actor StudioAnalysisEngine {
                 alphaScale = 0.90
             }
 
-            let alpha = UInt8(clamping: Int(
-                (255.0 * visibleOpacity * alphaScale * sqrt(strength)).rounded()
-            ))
+            let alpha = UInt8(
+                clamping: Int(
+                    (255.0 * visibleOpacity * alphaScale * sqrt(strength)).rounded()
+                ))
             setRGBA(
                 &overlay,
                 p,
@@ -570,12 +583,16 @@ actor StudioAnalysisEngine {
             let p = i * 4
             if skinDensity[i] > 0 {
                 let d = skinDeviationByBin[i] / Double(skinDensity[i])
-                if d < -tolerance { out[p] = 229; out[p+1] = 65; out[p+2] = 177 }
-                else if d > tolerance { out[p] = 44; out[p+1] = 214; out[p+2] = 174 }
-                else { out[p] = 238; out[p+1] = 184; out[p+2] = 72 }
-                out[p+3] = max(alpha, 118)
+                if d < -tolerance {
+                    out[p] = 229; out[p + 1] = 65; out[p + 2] = 177
+                } else if d > tolerance {
+                    out[p] = 44; out[p + 1] = 214; out[p + 2] = 174
+                } else {
+                    out[p] = 238; out[p + 1] = 184; out[p + 2] = 72
+                }
+                out[p + 3] = max(alpha, 118)
             } else {
-                out[p] = 154; out[p+1] = 174; out[p+2] = 196; out[p+3] = alpha
+                out[p] = 154; out[p + 1] = 174; out[p + 2] = 196; out[p + 3] = alpha
             }
         }
         return out
@@ -585,23 +602,24 @@ actor StudioAnalysisEngine {
 
     private func setRGBA(_ bytes: inout [UInt8], _ p: Int, _ r: UInt8, _ g: UInt8, _ b: UInt8, _ a: UInt8) {
         guard p + 3 < bytes.count else { return }
-        bytes[p] = r; bytes[p+1] = g; bytes[p+2] = b; bytes[p+3] = a
+        bytes[p] = r; bytes[p + 1] = g; bytes[p + 2] = b; bytes[p + 3] = a
     }
 
     private func blendRGBA(_ bytes: inout [UInt8], _ p: Int, _ r: UInt8, _ g: UInt8, _ b: UInt8, _ a: UInt8) {
         guard p + 3 < bytes.count else { return }
         let af = Double(a) / 255.0, inv = 1.0 - af
         bytes[p] = UInt8(clamping: Int(Double(bytes[p]) * inv + Double(r) * af))
-        bytes[p+1] = UInt8(clamping: Int(Double(bytes[p+1]) * inv + Double(g) * af))
-        bytes[p+2] = UInt8(clamping: Int(Double(bytes[p+2]) * inv + Double(b) * af))
-        bytes[p+3] = max(bytes[p+3], a)
+        bytes[p + 1] = UInt8(clamping: Int(Double(bytes[p + 1]) * inv + Double(g) * af))
+        bytes[p + 2] = UInt8(clamping: Int(Double(bytes[p + 2]) * inv + Double(b) * af))
+        bytes[p + 3] = max(bytes[p + 3], a)
     }
 }
 
 extension CGImage {
     static func fromRGBA8(width: Int, height: Int, bytes: [UInt8], colorSpace: CGColorSpace? = nil) -> CGImage? {
         guard width > 0, height > 0, bytes.count == width * height * 4,
-              let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
+            let provider = CGDataProvider(data: Data(bytes) as CFData)
+        else { return nil }
         let space = colorSpace ?? (CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB())
         return CGImage(
             width: width,

@@ -11,8 +11,10 @@ enum SpektraFilePanel {
     static var isPickerVisible: Bool { controller?.window?.isVisible == true }
 
     @discardableResult
-    static func chooseFiles(title: String, types: [UTType]? = nil, multiple: Bool = false,
-                            completion: @escaping @MainActor ([URL]) -> Void) -> Bool {
+    static func chooseFiles(
+        title: String, types: [UTType]? = nil, multiple: Bool = false,
+        completion: @escaping @MainActor ([URL]) -> Void
+    ) -> Bool {
         present(title: title, mode: .files, types: types ?? [], multiple: multiple) {
             if !$0.isEmpty { completion($0) }
         }
@@ -30,16 +32,20 @@ enum SpektraFilePanel {
         }
     }
 
-    static func saveFile(title: String, types: [UTType], filename: String,
-                         completion: @escaping @MainActor (URL?) -> Void) {
+    static func saveFile(
+        title: String, types: [UTType], filename: String,
+        completion: @escaping @MainActor (URL?) -> Void
+    ) {
         let started = present(title: title, mode: .save, types: types, filename: filename) { completion($0.first) }
         if !started { completion(nil) }
     }
 
     @discardableResult
-    private static func present(title: String, mode: StudioFileBrowser.Mode, types: [UTType] = [],
-                                multiple: Bool = false, filename: String = "",
-                                completion: @escaping @MainActor ([URL]) -> Void) -> Bool {
+    private static func present(
+        title: String, mode: StudioFileBrowser.Mode, types: [UTType] = [],
+        multiple: Bool = false, filename: String = "",
+        completion: @escaping @MainActor ([URL]) -> Void
+    ) -> Bool {
         guard controller == nil else {
             controller?.window?.makeKeyAndOrderFront(nil)
             return false
@@ -76,8 +82,9 @@ enum SpektraFilePanel {
         let browser: StudioFileBrowser
         init(browser: StudioFileBrowser, title: String) {
             self.browser = browser
-            let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 760, height: 500),
-                                styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            let panel = NSPanel(
+                contentRect: NSRect(x: 0, y: 0, width: 760, height: 500),
+                styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             panel.title = title
             panel.isReleasedWhenClosed = false
             panel.contentViewController = NSHostingController(rootView: StudioFileBrowserView(browser: browser))
@@ -96,7 +103,8 @@ extension SpektraFilePanel {
         current.browser.navigate(directory)
         try? await Task.sleep(for: .milliseconds(900))
         guard let view = current.window?.contentView,
-              let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return false }
+            let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+        else { return false }
         view.cacheDisplay(in: view.bounds, to: bitmap)
         guard let data = bitmap.representation(using: .png, properties: [:]) else { return false }
         do { try data.write(to: destination) } catch { return false }
@@ -119,7 +127,9 @@ extension SpektraFilePanel {
             return predicate()
         }
         NSApp.activate(ignoringOtherApps: true)
-        guard await waitFor({ NSApp.windows.contains { $0.isVisible } }) else { return report("app window visible", false) }
+        guard await waitFor({ NSApp.windows.contains { $0.isVisible } }) else {
+            return report("app window visible", false)
+        }
         NSApp.windows.first(where: { $0.isVisible })?.makeKeyAndOrderFront(nil)
         let actions: [(String, () -> Void)] = [
             ("open project", { model.openProject() }),
@@ -131,7 +141,7 @@ extension SpektraFilePanel {
             ("scratch folder", { model.chooseExternalOriginalScratch() }),
             ("cache folder", { model.chooseCacheFolder() }),
             ("export folder", { model.chooseExportDestination() }),
-            ("import presets", { model.importPreset() })
+            ("import presets", { model.importPreset() }),
         ]
         for (name, action) in actions {
             action()
@@ -149,26 +159,31 @@ extension SpektraFilePanel {
         guard await waitFor({ controller == nil }) else { return false }
         var selected: URL?
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("SpektraPicker-" + UUID().uuidString)
-        do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
-        catch { return report("fixture folder", false) }
+        do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) } catch {
+            return report("fixture folder", false)
+        }
         defer {
             controller?.browser.cancel()
             model.showingLightroomImportWizard = false
             try? FileManager.default.removeItem(at: folder)
         }
         guard chooseFolder(title: "Nested Wizard Picker Smoke Test", completion: { selected = $0 }),
-              await waitFor({ isPickerVisible }), report("nested foreground", lastPresentation.hasPrefix("foreground:"))
+            await waitFor({ isPickerVisible }), report("nested foreground", lastPresentation.hasPrefix("foreground:"))
         else { return false }
         let original = controller
-        guard report("duplicate rejected", !chooseFolder(title: "Duplicate") { _ in } && controller === original) else { return false }
+        guard report("duplicate rejected", !chooseFolder(title: "Duplicate") { _ in } && controller === original) else {
+            return false
+        }
         controller?.browser.navigate(folder)
         guard await waitFor({ controller?.browser.loading == false }) else { return false }
         controller?.browser.choose()
         guard await waitFor({ selected != nil && controller == nil }),
-              report("selected folder callback", selected?.standardizedFileURL == folder.standardizedFileURL) else { return false }
+            report("selected folder callback", selected?.standardizedFileURL == folder.standardizedFileURL)
+        else { return false }
         var cancelledCallback = false
         guard chooseFiles(title: "Reopen", completion: { _ in cancelledCallback = true }),
-              await waitFor({ isPickerVisible }) else { return report("reopen", false) }
+            await waitFor({ isPickerVisible })
+        else { return report("reopen", false) }
         controller?.browser.cancel()
         try? await Task.sleep(for: .milliseconds(100))
         guard report("cancel leaves callback untouched", !cancelledCallback) else { return false }
@@ -192,7 +207,9 @@ extension SpektraFilePanel {
         let projectURL = folder.appendingPathComponent("Smoke.spektrafilm")
         var document = SpektraProjectDocument()
         document.name = "Picker End-to-End Test"
-        document.images = [ProjectImageRecord(sourcePath: folder.appendingPathComponent("Missing.jpg").path, captureDate: nil)]
+        document.images = [
+            ProjectImageRecord(sourcePath: folder.appendingPathComponent("Missing.jpg").path, captureDate: nil)
+        ]
         document.selectedImageID = document.images.first?.id
         do {
             let encoder = JSONEncoder()
@@ -205,7 +222,10 @@ extension SpektraFilePanel {
         controller?.browser.selection = [projectURL]
         controller?.browser.choose()
         guard await waitFor({ model.projectURL == projectURL }),
-              report("project decoded into Library", model.project.name == document.name && !model.showProjectHome && model.page == .library) else { return false }
+            report(
+                "project decoded into Library",
+                model.project.name == document.name && !model.showProjectHome && model.page == .library)
+        else { return false }
         do {
             let original = folder.appendingPathComponent("copy-source.bin")
             let copy = folder.appendingPathComponent("copy-destination.bin")
@@ -216,8 +236,11 @@ extension SpektraFilePanel {
             do {
                 try SpektraCloudLibrary.streamCopy(from: original, to: copy)
                 return report("conflicting cloud copy rejected", false)
-            } catch SpektraCloudLibrary.CloudError.destinationConflict { }
-            guard report("cloud copy preserves conflicting existing bytes", try Data(contentsOf: copy) == Data([1, 2, 3])) else { return false }
+            } catch SpektraCloudLibrary.CloudError.destinationConflict {}
+            guard
+                report(
+                    "cloud copy preserves conflicting existing bytes", try Data(contentsOf: copy) == Data([1, 2, 3]))
+            else { return false }
         } catch { return report("cloud copy regression", false) }
         let malformed = folder.appendingPathComponent("Broken.spektrafilm")
         do { try Data("not json".utf8).write(to: malformed) } catch { return false }
@@ -227,6 +250,8 @@ extension SpektraFilePanel {
         controller?.browser.selection = [malformed]
         controller?.browser.choose()
         guard await waitFor({ model.status.hasPrefix("Open failed:") }) else { return false }
-        return report("malformed project preserves workspace", model.projectURL == projectURL && model.project.name == document.name)
+        return report(
+            "malformed project preserves workspace",
+            model.projectURL == projectURL && model.project.name == document.name)
     }
 }

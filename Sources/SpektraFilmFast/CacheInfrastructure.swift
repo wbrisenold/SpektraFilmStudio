@@ -1,8 +1,8 @@
-import Foundation
 import CoreGraphics
+import Dispatch
+import Foundation
 import ImageIO
 import UniformTypeIdentifiers
-import Dispatch
 
 enum CachePressureLevel: Sendable {
     case normal
@@ -73,7 +73,8 @@ private enum FloatImageDiskCodec {
 
     static func encode(_ payload: FloatImagePayload) -> Data? {
         guard payload.width > 0, payload.height > 0, payload.width <= 16384, payload.height <= 16384,
-              payload.data.count == payload.expectedByteCount else { return nil }
+            payload.data.count == payload.expectedByteCount
+        else { return nil }
         var data = Data()
         data.reserveCapacity(headerBytes + payload.data.count)
         data.append(contentsOf: magic)
@@ -100,8 +101,9 @@ private enum FloatImageDiskCodec {
         let height = Int(u32(12))
         let byteCount = Int(u32(16))
         guard width > 0, height > 0, width <= 16384, height <= 16384,
-              byteCount == width * height * 4 * MemoryLayout<Float>.size,
-              data.count == headerBytes + byteCount else { return nil }
+            byteCount == width * height * 4 * MemoryLayout<Float>.size,
+            data.count == headerBytes + byteCount
+        else { return nil }
         return FloatImagePayload(width: width, height: height, data: data.subdata(in: headerBytes..<data.count))
     }
 }
@@ -117,7 +119,9 @@ enum RenderedPreviewQuality: String, Sendable {
 
 private enum CacheFileIO {
     static func directorySize(_ dir: URL) -> Int64 {
-        guard let e = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
+        guard let e = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: [.fileSizeKey]) else {
+            return 0
+        }
         var total: Int64 = 0
         for case let file as URL in e {
             total += Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
@@ -153,11 +157,13 @@ actor DevelopedSourceDiskCache {
         bypassImportTransform: Bool
     ) -> PixelBufferF32? {
         guard longEdge != Int.max,
-              let key = try? key(url: url, raw: raw, longEdge: longEdge, bypassImportTransform: bypassImportTransform),
-              let dir = directory() else { misses += 1; return nil }
+            let key = try? key(url: url, raw: raw, longEdge: longEdge, bypassImportTransform: bypassImportTransform),
+            let dir = directory()
+        else { misses += 1; return nil }
         let file = dir.appendingPathComponent("\(key).rgba32f")
         guard let data = try? Data(contentsOf: file, options: .mappedIfSafe),
-              let decoded = Self.decode(data) else {
+            let decoded = Self.decode(data)
+        else {
             misses += 1
             try? FileManager.default.removeItem(at: file)
             return nil
@@ -175,9 +181,10 @@ actor DevelopedSourceDiskCache {
         bypassImportTransform: Bool
     ) {
         guard longEdge != Int.max,
-              let key = try? key(url: url, raw: raw, longEdge: longEdge, bypassImportTransform: bypassImportTransform),
-              let dir = directory(),
-              let data = Self.encode(buffer) else { return }
+            let key = try? key(url: url, raw: raw, longEdge: longEdge, bypassImportTransform: bypassImportTransform),
+            let dir = directory(),
+            let data = Self.encode(buffer)
+        else { return }
         let file = dir.appendingPathComponent("\(key).rgba32f")
         do {
             try data.write(to: file, options: .atomic)
@@ -198,14 +205,18 @@ actor DevelopedSourceDiskCache {
     func invalidate(url: URL) {
         guard let dir = directory() else { return }
         let prefix = String(format: "%016llx_", Self.fnv1a64(url.standardizedFileURL.path))
-        guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
+        guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else {
+            return
+        }
         for file in files where file.lastPathComponent.hasPrefix(prefix) {
             try? FileManager.default.removeItem(at: file)
         }
     }
 
     func snapshot() -> CacheStoreSnapshot {
-        CacheStoreSnapshot(hits: hits, misses: misses, writes: writes, memoryBytes: 0, diskBytes: directory().map(CacheFileIO.directorySize) ?? 0)
+        CacheStoreSnapshot(
+            hits: hits, misses: misses, writes: writes, memoryBytes: 0,
+            diskBytes: directory().map(CacheFileIO.directorySize) ?? 0)
     }
 
     private func key(url: URL, raw: RawSettings, longEdge: Int, bypassImportTransform: Bool) throws -> String {
@@ -231,15 +242,18 @@ actor DevelopedSourceDiskCache {
         if !force, Date().timeIntervalSince(lastPrune) < 60 { return }
         lastPrune = Date()
         guard let dir = directory(),
-              let files = try? FileManager.default.contentsOfDirectory(
+            let files = try? FileManager.default.contentsOfDirectory(
                 at: dir,
                 includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
                 options: [.skipsHiddenFiles]
-              ) else { return }
+            )
+        else { return }
         var total: Int64 = 0
         var entries: [(URL, Int64, Date)] = []
         for file in files {
-            guard let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else { continue }
+            guard let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else {
+                continue
+            }
             let size = Int64(values.fileSize ?? 0)
             total += size
             entries.append((file, size, values.contentModificationDate ?? .distantPast))
@@ -253,14 +267,18 @@ actor DevelopedSourceDiskCache {
 
     private func pruneSourceVariants(directory: URL, sourceURL: URL, maxEntries: Int) {
         let prefix = String(format: "%016llx_", Self.fnv1a64(sourceURL.standardizedFileURL.path))
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
+        guard
+            let files = try? FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            )
+        else { return }
         let variants = files.filter { $0.lastPathComponent.hasPrefix(prefix) }
             .compactMap { file -> (URL, Date)? in
-                let date = (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let date =
+                    (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+                    ?? .distantPast
                 return (file, date)
             }
             .sorted { $0.1 > $1.1 }
@@ -280,7 +298,8 @@ actor DevelopedSourceDiskCache {
 
     private nonisolated static func encode(_ buffer: PixelBufferF32) -> Data? {
         guard buffer.width > 0, buffer.height > 0, buffer.width <= 16384, buffer.height <= 16384,
-              buffer.pixels.count == buffer.width * buffer.height * 4 else { return nil }
+            buffer.pixels.count == buffer.width * buffer.height * 4
+        else { return nil }
         var data = Data()
         data.reserveCapacity(headerBytes + buffer.pixels.count * MemoryLayout<Float>.size)
         data.append(contentsOf: magic)
@@ -298,7 +317,8 @@ actor DevelopedSourceDiskCache {
 
     private nonisolated static func decode(_ data: Data) -> PixelBufferF32? {
         guard data.count >= headerBytes,
-              Array(data.prefix(8)) == magic else { return nil }
+            Array(data.prefix(8)) == magic
+        else { return nil }
         func u32(_ offset: Int) -> UInt32 {
             data.withUnsafeBytes { raw in
                 UInt32(littleEndian: raw.loadUnaligned(fromByteOffset: offset, as: UInt32.self))
@@ -308,7 +328,8 @@ actor DevelopedSourceDiskCache {
         let height = Int(u32(12))
         let count = Int(u32(16))
         guard width > 0, height > 0, width <= 16384, height <= 16384, count == width * height * 4,
-              data.count == headerBytes + count * MemoryLayout<Float>.size else { return nil }
+            data.count == headerBytes + count * MemoryLayout<Float>.size
+        else { return nil }
         let pixels: [Float] = data.withUnsafeBytes { raw in
             let start = raw.baseAddress!.advanced(by: headerBytes).assumingMemoryBound(to: Float.self)
             return Array(UnsafeBufferPointer(start: start, count: count))
@@ -341,13 +362,20 @@ actor RenderedPreviewDiskCache {
     /// Prefer an accurate cached frame if one exists; otherwise the working-policy frame is
     /// the correct instant-open cache for normal editing. Count the lookup once, not as a miss
     /// followed by a hit.
-    func bestPreview(url: URL, look: RenderLook, longEdge: Int, bypassImportTransform: Bool) -> RenderedPreviewDiskEntry? {
+    func bestPreview(
+        url: URL, look: RenderLook, longEdge: Int, bypassImportTransform: Bool
+    ) -> RenderedPreviewDiskEntry? {
         guard let dir = directory() else { misses += 1; return nil }
         for quality in [RenderedPreviewQuality.accurate] {
-            guard let key = try? key(url: url, look: look, longEdge: longEdge, bypassImportTransform: bypassImportTransform, quality: quality) else { continue }
+            guard
+                let key = try? key(
+                    url: url, look: look, longEdge: longEdge, bypassImportTransform: bypassImportTransform,
+                    quality: quality)
+            else { continue }
             let file = dir.appendingPathComponent("\(key).rgba32f")
             if let data = try? Data(contentsOf: file, options: .mappedIfSafe),
-               let payload = FloatImageDiskCodec.decode(data) {
+                let payload = FloatImageDiskCodec.decode(data)
+            {
                 hits += 1
                 try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: file.path)
                 return RenderedPreviewDiskEntry(payload: payload, quality: quality)
@@ -367,9 +395,13 @@ actor RenderedPreviewDiskCache {
         bypassImportTransform: Bool,
         quality: RenderedPreviewQuality
     ) {
-        guard let key = try? key(url: url, look: look, longEdge: longEdge, bypassImportTransform: bypassImportTransform, quality: quality),
-              let dir = directory(),
-              let encoded = FloatImageDiskCodec.encode(payload) else { return }
+        guard
+            let key = try? key(
+                url: url, look: look, longEdge: longEdge, bypassImportTransform: bypassImportTransform, quality: quality
+            ),
+            let dir = directory(),
+            let encoded = FloatImageDiskCodec.encode(payload)
+        else { return }
         let file = dir.appendingPathComponent("\(key).rgba32f")
         do {
             try encoded.write(to: file, options: .atomic)
@@ -390,7 +422,9 @@ actor RenderedPreviewDiskCache {
     func invalidate(url: URL) {
         guard let dir = directory() else { return }
         let prefix = String(format: "%016llx_", Self.fnv1a64(url.standardizedFileURL.path))
-        guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
+        guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else {
+            return
+        }
         for file in files where file.lastPathComponent.hasPrefix(prefix) {
             try? FileManager.default.removeItem(at: file)
         }
@@ -402,7 +436,8 @@ actor RenderedPreviewDiskCache {
     }
 
     func snapshot() -> CacheStoreSnapshot {
-        CacheStoreSnapshot(hits: hits, misses: misses, writes: writes, memoryBytes: 0, diskBytes: approximateDiskUsageBytes())
+        CacheStoreSnapshot(
+            hits: hits, misses: misses, writes: writes, memoryBytes: 0, diskBytes: approximateDiskUsageBytes())
     }
 
     private func key(
@@ -419,24 +454,31 @@ actor RenderedPreviewDiskCache {
         func consume<S: Sequence>(_ bytes: S) where S.Element == UInt8 {
             for byte in bytes { hash ^= UInt64(byte); hash &*= 0x100000001b3 }
         }
-        consume("\(CacheSchema.renderedPreview)|\(quality.rawValue)|\(sourceFingerprint)|\(longEdge)|\(bypassImportTransform)".utf8)
+        consume(
+            "\(CacheSchema.renderedPreview)|\(quality.rawValue)|\(sourceFingerprint)|\(longEdge)|\(bypassImportTransform)"
+                .utf8)
         consume(lookData)
         let sourceID = Self.fnv1a64(url.standardizedFileURL.path)
-        return String(format: "%016llx", sourceID) + "_\(quality.rawValue)_" + String(format: "%016llx_%d", hash, longEdge)
+        return String(format: "%016llx", sourceID) + "_\(quality.rawValue)_"
+            + String(format: "%016llx_%d", hash, longEdge)
     }
 
     private func pruneSourceVariants(directory: URL, sourceURL: URL, maxEntriesPerQuality: Int) {
         let sourcePrefix = String(format: "%016llx_", Self.fnv1a64(sourceURL.standardizedFileURL.path))
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
+        guard
+            let files = try? FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            )
+        else { return }
         for quality in [RenderedPreviewQuality.accurate] {
             let prefix = "\(sourcePrefix)\(quality.rawValue)_"
             let variants = files.filter { $0.lastPathComponent.hasPrefix(prefix) }
                 .compactMap { file -> (URL, Date)? in
-                    let date = (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                    let date =
+                        (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+                        ?? .distantPast
                     return (file, date)
                 }
                 .sorted { $0.1 > $1.1 }
@@ -459,15 +501,18 @@ actor RenderedPreviewDiskCache {
         if !force, Date().timeIntervalSince(lastPrune) < 60 { return }
         lastPrune = Date()
         guard let dir = directory(),
-              let files = try? FileManager.default.contentsOfDirectory(
-            at: dir,
-            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
+            let files = try? FileManager.default.contentsOfDirectory(
+                at: dir,
+                includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            )
+        else { return }
         var entries: [(URL, Int64, Date)] = []
         var total: Int64 = 0
         for file in files {
-            guard let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else { continue }
+            guard let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else {
+                continue
+            }
             let size = Int64(values.fileSize ?? 0)
             total += size
             entries.append((file, size, values.contentModificationDate ?? .distantPast))
@@ -499,7 +544,8 @@ actor CullAnalysisDiskCache {
         guard let key = try? key(url: url), let dir = directory() else { misses += 1; return nil }
         let file = dir.appendingPathComponent("\(key).json")
         guard let data = try? Data(contentsOf: file, options: .mappedIfSafe),
-              let record = try? JSONDecoder().decode(CullAnalysisRecord.self, from: data) else {
+            let record = try? JSONDecoder().decode(CullAnalysisRecord.self, from: data)
+        else {
             misses += 1
             return nil
         }
@@ -510,7 +556,8 @@ actor CullAnalysisDiskCache {
 
     func store(_ record: CullAnalysisRecord, url: URL) {
         guard let key = try? key(url: url), let dir = directory(),
-              let data = try? JSONEncoder().encode(record) else { return }
+            let data = try? JSONEncoder().encode(record)
+        else { return }
         let file = dir.appendingPathComponent("\(key).json")
         do {
             try data.write(to: file, options: .atomic)
@@ -551,15 +598,18 @@ actor CullAnalysisDiskCache {
         if !force, Date().timeIntervalSince(lastPrune) < 60 { return }
         lastPrune = Date()
         guard let dir = directory(),
-              let files = try? FileManager.default.contentsOfDirectory(
+            let files = try? FileManager.default.contentsOfDirectory(
                 at: dir,
                 includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
                 options: [.skipsHiddenFiles]
-              ) else { return }
+            )
+        else { return }
         var total: Int64 = 0
         var entries: [(URL, Int64, Date)] = []
         for file in files {
-            guard let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else { continue }
+            guard let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else {
+                continue
+            }
             let size = Int64(values.fileSize ?? 0)
             total += size
             entries.append((file, size, values.contentModificationDate ?? .distantPast))

@@ -1,5 +1,5 @@
-import Foundation
 import CoreGraphics
+import Foundation
 
 /// Mirrors ExportResize.swift dimension and center-crop decisions without allocating pixels.
 struct StudioOutputGeometry: Equatable, Sendable {
@@ -64,7 +64,8 @@ struct StudioOutputGeometry: Equatable, Sendable {
             )
             let cw = Int(crop.width)
             let ch = Int(crop.height)
-            let factor = dontEnlarge
+            let factor =
+                dontEnlarge
                 ? min(1, min(Double(cw) / Double(w), Double(ch) / Double(h)))
                 : 1.0
             return .init(

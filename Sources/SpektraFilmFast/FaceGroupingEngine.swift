@@ -1,5 +1,5 @@
-import Foundation
 import CoreGraphics
+import Foundation
 import ImageIO
 import Vision
 
@@ -66,7 +66,10 @@ actor FaceGroupingEngine {
         var photosRead = 0
         var photosWithFace = 0
         for (id, url) in items {
-            if Task.isCancelled { return Outcome(groups: [], photosRead: photosRead, facesFound: samples.count, photosWithFace: photosWithFace) }
+            if Task.isCancelled {
+                return Outcome(
+                    groups: [], photosRead: photosRead, facesFound: samples.count, photosWithFace: photosWithFace)
+            }
             let found = featurePrints(photoID: id, url: url)
             photosRead += 1
             if !found.isEmpty { photosWithFace += 1 }
@@ -75,7 +78,10 @@ actor FaceGroupingEngine {
         samples.sort { $0.area > $1.area }
         var groups: [Cluster] = []
         for sample in samples {
-            if Task.isCancelled { return Outcome(groups: [], photosRead: photosRead, facesFound: samples.count, photosWithFace: photosWithFace) }
+            if Task.isCancelled {
+                return Outcome(
+                    groups: [], photosRead: photosRead, facesFound: samples.count, photosWithFace: photosWithFace)
+            }
             var chosen: Int?
             var best = Float.greatestFiniteMagnitude
             for index in groups.indices {
@@ -94,8 +100,7 @@ actor FaceGroupingEngine {
                 guard nearest < directDistance, mean < directDistance + 0.055 else { continue }
                 if mean < best { best = mean; chosen = index }
             }
-            if let chosen { groups[chosen].add(sample) }
-            else { groups.append(Cluster(sample)) }
+            if let chosen { groups[chosen].add(sample) } else { groups.append(Cluster(sample)) }
         }
 
         // Consolidate split identities across different lighting/camera viewpoints.
@@ -103,7 +108,10 @@ actor FaceGroupingEngine {
         // photos is forbidden because these clusters may be different co-appearing people.
         var merged = true
         while merged {
-            if Task.isCancelled { return Outcome(groups: [], photosRead: photosRead, facesFound: samples.count, photosWithFace: photosWithFace) }
+            if Task.isCancelled {
+                return Outcome(
+                    groups: [], photosRead: photosRead, facesFound: samples.count, photosWithFace: photosWithFace)
+            }
             merged = false
             guard groups.count > 1 else { break }
             outer: for a in 0..<(groups.count - 1) {
@@ -148,7 +156,8 @@ actor FaceGroupingEngine {
                     detectedFaceCount: cluster.allPhotoIDs.count
                 )
             }
-        return Outcome(groups: ranked, photosRead: photosRead, facesFound: samples.count, photosWithFace: photosWithFace)
+        return Outcome(
+            groups: ranked, photosRead: photosRead, facesFound: samples.count, photosWithFace: photosWithFace)
     }
 
     private func distance(_ a: Sample, _ b: Sample) -> Float? {
@@ -157,7 +166,10 @@ actor FaceGroupingEngine {
         for i in 0..<min(a.prints.count, b.prints.count) {
             var value: Float = 0
             if (try? a.prints[i].computeDistance(&value, to: b.prints[i])) != nil,
-               value.isFinite { distances.append(value) }
+                value.isFinite
+            {
+                distances.append(value)
+            }
         }
         guard !distances.isEmpty else { return nil }
         distances.sort()
@@ -173,7 +185,7 @@ actor FaceGroupingEngine {
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: 1600,
-            kCGImageSourceShouldCacheImmediately: true
+            kCGImageSourceShouldCacheImmediately: true,
         ]
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, opts as CFDictionary) else { return [] }
         let detector = VNDetectFaceRectanglesRequest()
@@ -194,10 +206,14 @@ actor FaceGroupingEngine {
                     .intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
                     .integral
                 guard rect.width >= 40, rect.height >= 40,
-                      let crop = image.cropping(to: rect) else { continue }
+                    let crop = image.cropping(to: rect)
+                else { continue }
                 let request = VNGenerateImageFeaturePrintRequest()
                 if (try? VNImageRequestHandler(cgImage: crop, options: [:]).perform([request])) != nil,
-                   let feature = request.results?.first { prints.append(feature) }
+                    let feature = request.results?.first
+                {
+                    prints.append(feature)
+                }
             }
             if !prints.isEmpty { result.append(Sample(photoID: photoID, prints: prints, area: area)) }
         }

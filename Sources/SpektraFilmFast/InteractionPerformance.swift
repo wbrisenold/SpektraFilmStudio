@@ -1,5 +1,5 @@
-import Foundation
 import Accelerate
+import Foundation
 
 /// Raw controls that are safe to preview from an already-developed linear frame.
 /// Exact CIRAWFilter development is reserved for explicit Accurate Preview / 100% / export.
@@ -71,7 +71,8 @@ extension PixelBufferF32 {
         let error: vImage_Error = pixels.withUnsafeBytes { sourceBytes in
             destination.withUnsafeMutableBytes { destinationBytes in
                 guard let sourceBase = sourceBytes.baseAddress,
-                      let destinationBase = destinationBytes.baseAddress else {
+                    let destinationBase = destinationBytes.baseAddress
+                else {
                     return vImage_Error(kvImageNullPointerArgument)
                 }
 
@@ -145,16 +146,20 @@ extension PixelBufferF32 {
     ) -> PixelBufferF32 {
         let resolvedBaseKelvin = Self.clampedKelvin(baseTemperature ?? baseline.temperature)
         let resolvedBaseTint = (baseTint ?? baseline.tint).isFinite ? (baseTint ?? baseline.tint) : 0
-        let baselineKelvin = baseline.whiteBalanceMode == .custom
+        let baselineKelvin =
+            baseline.whiteBalanceMode == .custom
             ? Self.clampedKelvin(baseline.temperature)
             : Self.kelvin(baseKelvin: resolvedBaseKelvin, miredOffset: baseline.temperatureOffsetMired ?? 0)
-        let targetKelvin = target.whiteBalanceMode == .custom
+        let targetKelvin =
+            target.whiteBalanceMode == .custom
             ? Self.clampedKelvin(target.temperature)
             : Self.kelvin(baseKelvin: resolvedBaseKelvin, miredOffset: target.temperatureOffsetMired ?? 0)
-        let baselineTint = baseline.whiteBalanceMode == .custom
+        let baselineTint =
+            baseline.whiteBalanceMode == .custom
             ? baseline.tint
             : resolvedBaseTint + (baseline.tintOffset ?? 0)
-        let targetTint = target.whiteBalanceMode == .custom
+        let targetTint =
+            target.whiteBalanceMode == .custom
             ? target.tint
             : resolvedBaseTint + (target.tintOffset ?? 0)
         guard abs(baselineKelvin - targetKelvin) > 0.001 || abs(baselineTint - targetTint) > 0.001 else {
@@ -175,15 +180,16 @@ extension PixelBufferF32 {
             Float(matrix.m00), Float(matrix.m01), Float(matrix.m02), 0,
             Float(matrix.m10), Float(matrix.m11), Float(matrix.m12), 0,
             Float(matrix.m20), Float(matrix.m21), Float(matrix.m22), 0,
-            0, 0, 0, 1
+            0, 0, 0, 1,
         ]
 
         let error: vImage_Error = pixels.withUnsafeBytes { sourceBytes in
             output.withUnsafeMutableBytes { destinationBytes in
                 transform.withUnsafeBufferPointer { matrixValues in
                     guard let sourceBase = sourceBytes.baseAddress,
-                          let destinationBase = destinationBytes.baseAddress,
-                          let matrixBase = matrixValues.baseAddress else {
+                        let destinationBase = destinationBytes.baseAddress,
+                        let matrixBase = matrixValues.baseAddress
+                    else {
                         return vImage_Error(kvImageNullPointerArgument)
                     }
                     var source = vImage_Buffer(
@@ -334,15 +340,15 @@ private struct WBMatrix: Sendable {
 
     static func * (lhs: WBMatrix, rhs: WBMatrix) -> WBMatrix {
         WBMatrix(
-            m00: lhs.m00*rhs.m00 + lhs.m01*rhs.m10 + lhs.m02*rhs.m20,
-            m01: lhs.m00*rhs.m01 + lhs.m01*rhs.m11 + lhs.m02*rhs.m21,
-            m02: lhs.m00*rhs.m02 + lhs.m01*rhs.m12 + lhs.m02*rhs.m22,
-            m10: lhs.m10*rhs.m00 + lhs.m11*rhs.m10 + lhs.m12*rhs.m20,
-            m11: lhs.m10*rhs.m01 + lhs.m11*rhs.m11 + lhs.m12*rhs.m21,
-            m12: lhs.m10*rhs.m02 + lhs.m11*rhs.m12 + lhs.m12*rhs.m22,
-            m20: lhs.m20*rhs.m00 + lhs.m21*rhs.m10 + lhs.m22*rhs.m20,
-            m21: lhs.m20*rhs.m01 + lhs.m21*rhs.m11 + lhs.m22*rhs.m21,
-            m22: lhs.m20*rhs.m02 + lhs.m21*rhs.m12 + lhs.m22*rhs.m22
+            m00: lhs.m00 * rhs.m00 + lhs.m01 * rhs.m10 + lhs.m02 * rhs.m20,
+            m01: lhs.m00 * rhs.m01 + lhs.m01 * rhs.m11 + lhs.m02 * rhs.m21,
+            m02: lhs.m00 * rhs.m02 + lhs.m01 * rhs.m12 + lhs.m02 * rhs.m22,
+            m10: lhs.m10 * rhs.m00 + lhs.m11 * rhs.m10 + lhs.m12 * rhs.m20,
+            m11: lhs.m10 * rhs.m01 + lhs.m11 * rhs.m11 + lhs.m12 * rhs.m21,
+            m12: lhs.m10 * rhs.m02 + lhs.m11 * rhs.m12 + lhs.m12 * rhs.m22,
+            m20: lhs.m20 * rhs.m00 + lhs.m21 * rhs.m10 + lhs.m22 * rhs.m20,
+            m21: lhs.m20 * rhs.m01 + lhs.m21 * rhs.m11 + lhs.m22 * rhs.m21,
+            m22: lhs.m20 * rhs.m02 + lhs.m21 * rhs.m12 + lhs.m22 * rhs.m22
         )
     }
 }

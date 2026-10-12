@@ -1,8 +1,8 @@
-import Foundation
+import Accelerate
 import CoreGraphics
+import Foundation
 import ImageIO
 import UniformTypeIdentifiers
-import Accelerate
 
 struct ThumbnailPayload: Sendable {
     let width: Int
@@ -70,7 +70,7 @@ actor ThumbnailPipeline {
             throw error
         }
         let task = Task.detached(priority: .utility) {
-            defer { }
+            defer {}
             return try Self.generateThumbnail(url: url, maxPixel: maxPixel, diskURL: diskURL)
         }
         inFlight[key] = task
@@ -119,14 +119,20 @@ actor ThumbnailPipeline {
 
     private func cacheDerivedThumbnailIfNeeded(source: ThumbnailPayload, url: URL, maxPixel: Int) async {
         guard max(source.width, source.height) > maxPixel,
-              let key = try? cacheKey(url: url, maxPixel: maxPixel) else { return }
+            let key = try? cacheKey(url: url, maxPixel: maxPixel)
+        else { return }
         if memory[key] != nil { touch(key); return }
         guard let cacheDir = cacheDirectory() else { return }
         let diskURL = cacheDir.appendingPathComponent("\(key).jpg")
         if FileManager.default.fileExists(atPath: diskURL.path) { return }
-        guard let derived = try? await Task.detached(priority: .utility, operation: {
-            try Self.resize(source, maxPixel: maxPixel)
-        }).value else { return }
+        guard
+            let derived = try? await Task.detached(
+                priority: .utility,
+                operation: {
+                    try Self.resize(source, maxPixel: maxPixel)
+                }
+            ).value
+        else { return }
         if (try? Self.writeJPEG(derived, to: diskURL, quality: 0.82)) != nil { writes += 1 }
         insert(derived, for: key)
     }
@@ -213,7 +219,8 @@ actor ThumbnailPipeline {
 
     private func trimMemory() {
         let normalBudget = CacheBudget.thumbnailBytes(mode: memoryMode)
-        let budget = pressureConstrained ? min(normalBudget, CacheBudget.thumbnailBytes(mode: .conservative)) : normalBudget
+        let budget =
+            pressureConstrained ? min(normalBudget, CacheBudget.thumbnailBytes(mode: .conservative)) : normalBudget
         while memoryBytes > budget, let old = memoryOrder.first {
             memoryOrder.removeFirst()
             if let removed = memory.removeValue(forKey: old) { memoryBytes -= removed.rgba.count }
@@ -245,15 +252,18 @@ actor ThumbnailPipeline {
         if !force, Date().timeIntervalSince(lastDiskPrune) < 60 { return }
         lastDiskPrune = Date()
         guard let dir = cacheDirectory(),
-              let files = try? FileManager.default.contentsOfDirectory(
-            at: dir,
-            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
+            let files = try? FileManager.default.contentsOfDirectory(
+                at: dir,
+                includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            )
+        else { return }
         var entries: [(URL, Int64, Date)] = []
         var total: Int64 = 0
         for file in files {
-            guard let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else { continue }
+            guard let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else {
+                continue
+            }
             let size = Int64(values.fileSize ?? 0)
             total += size
             entries.append((file, size, values.contentModificationDate ?? .distantPast))
@@ -276,13 +286,18 @@ actor ThumbnailPipeline {
 
     private nonisolated static func decodeThumbnailFile(_ url: URL, maxPixel: Int) async throws -> ThumbnailPayload {
         try await Task.detached(priority: .utility) {
-            guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
-                  let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceCreateThumbnailWithTransform: true,
-                    kCGImageSourceThumbnailMaxPixelSize: maxPixel,
-                    kCGImageSourceShouldCacheImmediately: true
-                  ] as CFDictionary) else {
+            guard
+                let source = CGImageSourceCreateWithURL(
+                    url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+                let image = CGImageSourceCreateThumbnailAtIndex(
+                    source, 0,
+                    [
+                        kCGImageSourceCreateThumbnailFromImageAlways: true,
+                        kCGImageSourceCreateThumbnailWithTransform: true,
+                        kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+                        kCGImageSourceShouldCacheImmediately: true,
+                    ] as CFDictionary)
+            else {
                 throw CocoaError(.fileReadCorruptFile)
             }
             return try rasterize(image)
@@ -291,28 +306,33 @@ actor ThumbnailPipeline {
 
     private nonisolated static func generateThumbnail(url: URL, maxPixel: Int, diskURL: URL?) throws -> ThumbnailPayload {
         try Task.checkCancellation()
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary)
+        else {
             throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: url.path])
         }
 
         // First ask ImageIO for an existing embedded thumbnail/preview. This is the
         // fast path for camera RAW files and avoids demosaicing the full sensor frame.
-        let embeddedOptions: CFDictionary = [
-            kCGImageSourceCreateThumbnailFromImageIfAbsent: false,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
-            kCGImageSourceShouldCacheImmediately: true
-        ] as CFDictionary
+        let embeddedOptions: CFDictionary =
+            [
+                kCGImageSourceCreateThumbnailFromImageIfAbsent: false,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+                kCGImageSourceShouldCacheImmediately: true,
+            ] as CFDictionary
 
-        let fallbackOptions: CFDictionary = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
-            kCGImageSourceShouldCacheImmediately: true
-        ] as CFDictionary
+        let fallbackOptions: CFDictionary =
+            [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+                kCGImageSourceShouldCacheImmediately: true,
+            ] as CFDictionary
 
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, embeddedOptions)
-                ?? CGImageSourceCreateThumbnailAtIndex(source, 0, fallbackOptions) else {
+        guard
+            let image = CGImageSourceCreateThumbnailAtIndex(source, 0, embeddedOptions)
+                ?? CGImageSourceCreateThumbnailAtIndex(source, 0, fallbackOptions)
+        else {
             throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: url.path])
         }
         try Task.checkCancellation()
@@ -328,7 +348,7 @@ actor ThumbnailPipeline {
         let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
         let ok = bytes.withUnsafeMutableBytes { raw -> Bool in
             guard let base = raw.baseAddress,
-                  let context = CGContext(
+                let context = CGContext(
                     data: base,
                     width: width,
                     height: height,
@@ -336,7 +356,8 @@ actor ThumbnailPipeline {
                     bytesPerRow: width * 4,
                     space: colorSpace,
                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
-                  ) else { return false }
+                )
+            else { return false }
             context.interpolationQuality = .high
             // CGImageSourceCreateThumbnailWithTransform already applies the file's EXIF
             // orientation. Drawing into our row-major RGBA buffer must therefore use the
@@ -385,16 +406,20 @@ actor ThumbnailPipeline {
     private nonisolated static func writeJPEG(_ payload: ThumbnailPayload, to url: URL, quality: Double) throws {
         let encoded = NSMutableData()
         guard let image = payload.makeCGImage(),
-              let destination = CGImageDestinationCreateWithData(encoded, UTType.jpeg.identifier as CFString, 1, nil) else {
+            let destination = CGImageDestinationCreateWithData(encoded, UTType.jpeg.identifier as CFString, 1, nil)
+        else {
             throw CocoaError(.fileWriteUnknown)
         }
-        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+        CGImageDestinationAddImage(
+            destination, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
         guard CGImageDestinationFinalize(destination), encoded.length > 0 else { throw CocoaError(.fileWriteUnknown) }
         try (encoded as Data).write(to: url, options: .atomic)
     }
 
     private nonisolated static func directorySize(_ dir: URL) -> Int64 {
-        guard let e = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
+        guard let e = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: [.fileSizeKey]) else {
+            return 0
+        }
         var total: Int64 = 0
         for case let file as URL in e {
             total += Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
@@ -427,13 +452,13 @@ actor MediaMetadataService {
     }
 
     private func release() {
-        if waiters.isEmpty { active = max(0, active - 1) }
-        else { waiters.removeFirst().resume() }
+        if waiters.isEmpty { active = max(0, active - 1) } else { waiters.removeFirst().resume() }
     }
 
     private nonisolated static func readMetadata(url: URL) -> PhotoMetadata {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
-              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
+            let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        else {
             return PhotoMetadata()
         }
 
@@ -447,7 +472,9 @@ actor MediaMetadataService {
         let captureDate = dates.lazy.compactMap(parseDate).first
 
         let iso: Int? = {
-            if let values = exif?[kCGImagePropertyExifISOSpeedRatings] as? [NSNumber], let first = values.first { return first.intValue }
+            if let values = exif?[kCGImagePropertyExifISOSpeedRatings] as? [NSNumber], let first = values.first {
+                return first.intValue
+            }
             if let value = exif?[kCGImagePropertyExifISOSpeedRatings] as? NSNumber { return value.intValue }
             return nil
         }()

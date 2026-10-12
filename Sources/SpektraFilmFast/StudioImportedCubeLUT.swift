@@ -1,7 +1,7 @@
-import Foundation
-import CoreGraphics
-import SwiftUI
 import AppKit
+import CoreGraphics
+import Foundation
+import SwiftUI
 
 // One LUT engine, two legacy user-facing selectors.  GPU rendering, sidecar
 // parsing, tetrahedral interpolation, and cache identity are all owned by
@@ -29,19 +29,21 @@ enum StudioImportedCubeLUTSettings {
     static func explicitContract(for url: URL) throws -> StudioImportedLUT.Contract? {
         let sidecar = URL(fileURLWithPath: url.path + ".lut.json")
         if FileManager.default.fileExists(atPath: sidecar.path) {
-            return nil // The shared importer validates and applies the sidecar.
+            return nil  // The shared importer validates and applies the sidecar.
         }
         let input = UserDefaults.standard.string(forKey: inputKey) ?? "auto"
         let output = UserDefaults.standard.string(forKey: outputKey) ?? "auto"
         let name = url.deletingPathExtension().lastPathComponent.lowercased()
             .replacingOccurrences(of: "_", with: "-")
         let saysSRGB = name.contains("in-srgb") || name.contains("in-s-rgb")
-        let saysLinear = name.contains("in-rec2020") || name.contains("in-linear") ||
-            name.contains("in-scene") || name.contains("in-rec-2020")
+        let saysLinear =
+            name.contains("in-rec2020") || name.contains("in-linear") || name.contains("in-scene")
+            || name.contains("in-rec-2020")
         if input == "auto" && output == "auto" {
             if saysLinear {
                 throw GPULiveError.unavailable(
-                    "This LUT filename indicates scene-linear input, but its .cube.lut.json contract is missing. Select explicit LUT input/output in Settings or generate the contract sidecar.")
+                    "This LUT filename indicates scene-linear input, but its .cube.lut.json contract is missing. Select explicit LUT input/output in Settings or generate the contract sidecar."
+                )
             }
             // Untagged legacy LUTs are sRGB -> sRGB; the visible UI makes
             // that assumption explicit. This also handles filenames IN-sRGB.
@@ -52,11 +54,13 @@ enum StudioImportedCubeLUTSettings {
         }
         if saysSRGB && input != "display-srgb" {
             throw GPULiveError.unavailable(
-                "Selected LUT is labeled IN-sRGB, but your LUT input is not Display sRGB. Set input to Display sRGB (or both to Automatic).")
+                "Selected LUT is labeled IN-sRGB, but your LUT input is not Display sRGB. Set input to Display sRGB (or both to Automatic)."
+            )
         }
         if saysLinear && input == "display-srgb" {
             throw GPULiveError.unavailable(
-                "Selected LUT is labeled scene-linear, but your LUT input is Display sRGB. Set its matching Rec.2020 input/shaper.")
+                "Selected LUT is labeled scene-linear, but your LUT input is Display sRGB. Set its matching Rec.2020 input/shaper."
+            )
         }
         let space: StudioImportedLUT.InputSpace
         let shaper: StudioImportedLUT.Shaper
@@ -72,15 +76,19 @@ enum StudioImportedCubeLUTSettings {
         case "linear-rec2020": outSpace = .linearRec2020
         default: throw GPULiveError.unavailable("Unknown LUT output contract: \(output)")
         }
-        let contract = StudioImportedLUT.Contract(version: 1, input: space,
+        let contract = StudioImportedLUT.Contract(
+            version: 1, input: space,
             output: outSpace, shaper: shaper, role: .fullFilmPrint)
         try contract.validate()
         return contract
     }
 
     static func files(in directory: URL) -> [URL] {
-        guard let walker = FileManager.default.enumerator(at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else { return [] }
+        guard
+            let walker = FileManager.default.enumerator(
+                at: directory,
+                includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles])
+        else { return [] }
         var urls: [URL] = []
         for case let url as URL in walker where url.pathExtension.lowercased() == "cube" {
             if (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {

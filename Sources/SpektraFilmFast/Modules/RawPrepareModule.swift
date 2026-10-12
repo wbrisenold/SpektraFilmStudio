@@ -11,42 +11,42 @@ final class RawPrepareModule: PixelpipeModule {
     let outputColorSpace: PixelpipeColorSpace = .raw
     nonisolated(unsafe) var isEnabled: Bool = true
     nonisolated(unsafe) var blendingOpacity: Float = 1.0
-    
-    func canProcess(_ input: PixelBufferF32) -> Bool {
-        return input.channels == 1
+
+    func canProcess(_ input: any PipelineBuffer) -> Bool {
+        input.asRawMosaic != nil
     }
-    
-    func process(_ input: PixelBufferF32, context: inout PixelpipeContext) throws -> PixelBufferF32 {
-        guard let metadata = context.metadata else { return input }
-        
-        let width = input.width
-        let height = input.height
-        var output = input.pixels
-        let blackLevels = metadata.rawBlackLevelSeparate
-        let whitePoint = metadata.rawWhitePoint
-        let filters = metadata.filters
-        let xtrans = metadata.xtrans
-        
-        let count = width * height
-        
+
+    func process(_ input: any PipelineBuffer, context: inout PixelpipeContext) throws -> any PipelineBuffer {
+        guard let rawInput = input.asRawMosaic else {
+            throw PipelineError.wrongBufferType
+        }
+        var output = rawInput
+        let blackLevels = rawInput.blackLevel
+        let whitePoint = rawInput.whiteLevel
+        let filters = rawInput.filters
+        let xtrans = rawInput.xtrans
+
+        let count = rawInput.count
+        guard rawInput.width > 0, !blackLevels.isEmpty else { return rawInput }
+
         // Simple sequential processing
         for idx in 0..<count {
-            let y = idx / width
-            let x = idx % width
-            
+            let y = idx / rawInput.width
+            let x = idx % rawInput.width
+
             let channel: Int
-            if filters == 9 { // X-Trans
-                channel = Int(xtrans[y % 6][x % 6])
-            } else { // Bayer
+            if filters == 9 {  // X-Trans
+                channel = Int(xtrans?[y % 6][x % 6] ?? 0)
+            } else {  // Bayer
                 channel = Int((filters >> ((y & 1) * 2 + (x & 1)) * 2) & 3)
             }
-            
-            let black = blackLevels[channel]
-            let scale = 1.0 / (whitePoint - black)
-            let value = output[idx]
-            output[idx] = max(0, (value - black) * scale)
+
+            let black = blackLevels[min(channel, blackLevels.count - 1)]
+            let scale = 1.0 / max(1, whitePoint - black)
+            let value = output.pixels[idx]
+            output.pixels[idx] = max(0, (value - black) * scale)
         }
-        
-        return PixelBufferF32(width: width, height: height, pixels: output)
+
+        return output
     }
 }

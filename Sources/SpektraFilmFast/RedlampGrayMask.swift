@@ -41,8 +41,8 @@ public struct GrayMask: Sendable, Hashable {
     public var centroid: ImagePoint {
         var sum = SIMD2<Double>.zero
         var total = 0.0
-        for y in 0 ..< height {
-            for x in 0 ..< width {
+        for y in 0..<height {
+            for x in 0..<width {
                 let weight = Double(pixels[y * width + x])
                 guard weight > 0 else { continue }
                 sum += SIMD2(Double(x) + 0.5, Double(y) + 0.5) * weight
@@ -72,7 +72,7 @@ public struct GrayMask: Sendable, Hashable {
                 let y0 = Int(fy)
                 let y1 = min(y0 + 1, height - 1)
                 let ty = fy - Double(y0)
-                for x in 0 ..< size.width {
+                for x in 0..<size.width {
                     let fx = min(max((Double(x) + 0.5) * sx - 0.5, 0), Double(width - 1))
                     let x0 = Int(fx)
                     let x1 = min(x0 + 1, width - 1)
@@ -88,10 +88,12 @@ public struct GrayMask: Sendable, Hashable {
 
     /// Resized so the long edge is at most `longEdge`, keeping the aspect ratio.
     public func fitted(longEdge: Int) -> GrayMask {
-        resized(to: PixelSize(width: width, height: height).fitted(within: PixelSize(
-            width: longEdge,
-            height: longEdge,
-        )))
+        resized(
+            to: PixelSize(width: width, height: height).fitted(
+                within: PixelSize(
+                    width: longEdge,
+                    height: longEdge,
+                )))
     }
 
     /// Per pixel: the larger (union) of two masks of the same size.
@@ -123,7 +125,7 @@ public struct GrayMask: Sendable, Hashable {
         var owner = [Int8](repeating: -1, count: count)
         var queue = [Int32]()
         queue.reserveCapacity(count)
-        for index in 0 ..< count {
+        for index in 0..<count {
             var best = -1
             var strongest: UInt8 = 127
             for (person, mask) in people.enumerated() where mask.pixels[index] > strongest {
@@ -171,7 +173,7 @@ public struct GrayMask: Sendable, Hashable {
         }
         return people.indices.map { person in
             var piece = [UInt8](repeating: 0, count: count)
-            for index in 0 ..< count where owner[index] == person {
+            for index in 0..<count where owner[index] == person {
                 piece[index] = pixels[index]
             }
             return GrayMask(width: width, height: height, pixels: piece)
@@ -182,7 +184,7 @@ public struct GrayMask: Sendable, Hashable {
     public func blurred(radius: Int) -> GrayMask {
         guard radius > 0 else { return self }
         var values = coverage
-        for _ in 0 ..< 2 {
+        for _ in 0..<2 {
             values = BoxFilter.blur(values, width: width, height: height, radius: radius)
         }
         return GrayMask(width: width, height: height, coverage: values)
@@ -207,9 +209,11 @@ public struct GrayMask: Sendable, Hashable {
         let shapedBody = GrayMask(width: width, height: height, coverage: body)
             .shapedWhole(feather: feather, edge: edge, reach: reach).coverage
         let gain = Float(1 - min(max(-edge, 0), 100) / 100)
-        return GrayMask(width: width, height: height, coverage: values.indices.map {
-            min(shapedBody[$0] + (values[$0] - body[$0]) * gain, 1)
-        })
+        return GrayMask(
+            width: width, height: height,
+            coverage: values.indices.map {
+                min(shapedBody[$0] + (values[$0] - body[$0]) * gain, 1)
+            })
     }
 
     /// The widest detail Feather and Edge leave as it is, either side of its centre: 3 px at the
@@ -225,10 +229,12 @@ public struct GrayMask: Sendable, Hashable {
         let blurred = blurred(radius: max(Int((larger / 2).rounded()), 1)).coverage
         let softness = Float(max(0.5 * featherReach / larger, 0.02))
         let level = min(max(Float(0.5 - min(max(edge, -100), 100) / 200 * edgeReach / larger), softness), 1 - softness)
-        return GrayMask(width: width, height: height, coverage: blurred.map { value in
-            let t = min(max((value - (level - softness)) / (2 * softness), 0), 1)
-            return t * t * (3 - 2 * t)
-        })
+        return GrayMask(
+            width: width, height: height,
+            coverage: blurred.map { value in
+                let t = min(max((value - (level - softness)) / (2 * softness), 0), 1)
+                return t * t * (3 - 2 * t)
+            })
     }
 
     /// A grey opening by a square `2 * radius + 1` px wide: erosion (the least value around), then
@@ -240,7 +246,7 @@ public struct GrayMask: Sendable, Hashable {
                 let (x, y) = (index % width, index / width)
                 let (position, length) = rows ? (x, width) : (y, height)
                 var value = input[index]
-                for offset in max(0, position - radius) ... min(length - 1, position + radius) {
+                for offset in max(0, position - radius)...min(length - 1, position + radius) {
                     value = keep(value, input[rows ? y * width + offset : offset * width + x])
                 }
                 return value
@@ -259,17 +265,18 @@ public struct GrayMask: Sendable, Hashable {
         let outWidth = swaps ? height : width
         let outHeight = swaps ? width : height
         var out = [UInt8](repeating: 0, count: pixels.count)
-        for y in 0 ..< outHeight {
-            for x in 0 ..< outWidth {
-                let (sx, sy): (Int, Int) = switch orientation {
-                case 2: (width - 1 - x, y)
-                case 3: (width - 1 - x, height - 1 - y)
-                case 4: (x, height - 1 - y)
-                case 5: (y, x)
-                case 6: (y, height - 1 - x)
-                case 7: (width - 1 - y, height - 1 - x)
-                default: (width - 1 - y, x)
-                }
+        for y in 0..<outHeight {
+            for x in 0..<outWidth {
+                let (sx, sy): (Int, Int) =
+                    switch orientation {
+                    case 2: (width - 1 - x, y)
+                    case 3: (width - 1 - x, height - 1 - y)
+                    case 4: (x, height - 1 - y)
+                    case 5: (y, x)
+                    case 6: (y, height - 1 - x)
+                    case 7: (width - 1 - y, height - 1 - x)
+                    default: (width - 1 - y, x)
+                    }
                 out[y * outWidth + x] = pixels[sy * width + sx]
             }
         }
@@ -280,7 +287,7 @@ public struct GrayMask: Sendable, Hashable {
 
     public static func decode(_ png: Data) -> GrayMask? {
         guard let source = CGImageSourceCreateWithData(png as CFData, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+            let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
         else { return nil }
         return GrayMask(image)
     }
@@ -291,10 +298,12 @@ public struct GrayMask: Sendable, Hashable {
         let height = image.height
         var pixels = [UInt8](repeating: 0, count: width * height)
         let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(
-                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
-                space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue,
-            ) else { return false }
+            guard
+                let context = CGContext(
+                    data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
+                    space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue,
+                )
+            else { return false }
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
             return true
         }
@@ -314,7 +323,7 @@ public struct GrayMask: Sendable, Hashable {
     public func pngData() -> Data? {
         let data = NSMutableData()
         guard let image = cgImage,
-              let destination = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil)
+            let destination = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil)
         else { return nil }
         CGImageDestinationAddImage(destination, image, nil)
         guard CGImageDestinationFinalize(destination) else { return nil }
@@ -333,24 +342,24 @@ public enum BoxFilter {
     public static func blur(_ values: [Float], width: Int, height: Int, radius: Int) -> [Float] {
         guard radius > 0, width > 0, height > 0 else { return values }
         var rows = [Float](repeating: 0, count: values.count)
-        for y in 0 ..< height {
+        for y in 0..<height {
             var sum: Float = 0
             let base = y * width
-            for x in -radius ... radius {
+            for x in -radius...radius {
                 sum += values[base + min(max(x, 0), width - 1)]
             }
-            for x in 0 ..< width {
+            for x in 0..<width {
                 rows[base + x] = sum / Float(2 * radius + 1)
                 sum += values[base + min(x + radius + 1, width - 1)] - values[base + max(x - radius, 0)]
             }
         }
         var out = [Float](repeating: 0, count: values.count)
-        for x in 0 ..< width {
+        for x in 0..<width {
             var sum: Float = 0
-            for y in -radius ... radius {
+            for y in -radius...radius {
                 sum += rows[min(max(y, 0), height - 1) * width + x]
             }
-            for y in 0 ..< height {
+            for y in 0..<height {
                 out[y * width + x] = sum / Float(2 * radius + 1)
                 sum += rows[min(y + radius + 1, height - 1) * width + x] - rows[max(y - radius, 0) * width + x]
             }

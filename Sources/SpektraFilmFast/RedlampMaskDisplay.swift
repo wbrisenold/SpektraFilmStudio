@@ -1,5 +1,5 @@
-import Foundation
 import CoreGraphics
+import Foundation
 
 // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // See bundled licenses/MPL-2.0.txt.
@@ -24,13 +24,15 @@ struct RedlampMaskDisplay {
         guard width > 0, height > 0, width <= 16384, height <= 16384 else { return nil }
         var rgba = [UInt8](repeating: 0, count: width * height * 4)
         let space = image.colorSpace ?? (CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB())
-        let bitmap = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue |
-                                         CGBitmapInfo.byteOrder32Big.rawValue)
+        let bitmap = CGBitmapInfo(
+            rawValue: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)
         let ok = rgba.withUnsafeMutableBytes { ptr in
             guard let address = ptr.baseAddress,
-                  let context = CGContext(data: address, width: width, height: height,
-                                          bitsPerComponent: 8, bytesPerRow: width * 4,
-                                          space: space, bitmapInfo: bitmap.rawValue) else { return false }
+                let context = CGContext(
+                    data: address, width: width, height: height,
+                    bitsPerComponent: 8, bytesPerRow: width * 4,
+                    space: space, bitmapInfo: bitmap.rawValue)
+            else { return false }
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
             return true
         }
@@ -44,8 +46,9 @@ struct RedlampMaskDisplay {
         opacity: Float = 0.73
     ) -> [UInt8]? {
         guard displayWidth > 0, displayHeight > 0,
-              rgba.count == displayWidth * displayHeight * 4,
-              preGeometryWidth > 0, preGeometryHeight > 0 else { return nil }
+            rgba.count == displayWidth * displayHeight * 4,
+            preGeometryWidth > 0, preGeometryHeight > 0
+        else { return nil }
         // No fake coverage: raster masks and local grades run through exactly the
         // same evaluator as export. Geometry is the identical non-destructive transform.
         let maxEdge = max(preGeometryWidth, preGeometryHeight)
@@ -88,22 +91,28 @@ struct RedlampMaskDisplay {
                 switch style {
                 case .color:
                     let alpha = cover * appliedOpacity
-                    out = (r * (1 - alpha) + 0.95 * alpha,
-                           g * (1 - alpha) + 0.18 * alpha,
-                           b * (1 - alpha) + 0.18 * alpha)
+                    out = (
+                        r * (1 - alpha) + 0.95 * alpha,
+                        g * (1 - alpha) + 0.18 * alpha,
+                        b * (1 - alpha) + 0.18 * alpha
+                    )
                 case .colorOnBW:
                     let alpha = cover * appliedOpacity
-                    out = (gray * (1 - alpha) + 0.95 * alpha,
-                           gray * (1 - alpha) + 0.18 * alpha,
-                           gray * (1 - alpha) + 0.18 * alpha)
+                    out = (
+                        gray * (1 - alpha) + 0.95 * alpha,
+                        gray * (1 - alpha) + 0.18 * alpha,
+                        gray * (1 - alpha) + 0.18 * alpha
+                    )
                 case .imageOnBlack: out = (r * cover, g * cover, b * cover)
                 case .imageOnWhite:
                     out = (1 - cover + r * cover, 1 - cover + g * cover, 1 - cover + b * cover)
                 case .blackAndWhite: out = (cover, cover, cover)
                 case .imageOnBW:
-                    out = (gray * (1 - cover) + r * cover,
-                           gray * (1 - cover) + g * cover,
-                           gray * (1 - cover) + b * cover)
+                    out = (
+                        gray * (1 - cover) + r * cover,
+                        gray * (1 - cover) + g * cover,
+                        gray * (1 - cover) + b * cover
+                    )
                 }
                 result[o] = UInt8(clamping: Int((max(0, min(1, out.0)) * 255).rounded()))
                 result[o + 1] = UInt8(clamping: Int((max(0, min(1, out.1)) * 255).rounded()))
@@ -116,12 +125,14 @@ struct RedlampMaskDisplay {
 
     static func image(width: Int, height: Int, rgba: [UInt8], colorSpace: CGColorSpace? = nil) -> CGImage? {
         guard width > 0, height > 0, rgba.count == width * height * 4,
-              let provider = CGDataProvider(data: Data(rgba) as CFData) else { return nil }
-        return CGImage(width: width, height: height,
-                       bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
-                       space: colorSpace ?? (CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()),
-                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue |
-                                                  CGBitmapInfo.byteOrder32Big.rawValue),
-                       provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+            let provider = CGDataProvider(data: Data(rgba) as CFData)
+        else { return nil }
+        return CGImage(
+            width: width, height: height,
+            bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+            space: colorSpace ?? (CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()),
+            bitmapInfo: CGBitmapInfo(
+                rawValue: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue),
+            provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
     }
 }

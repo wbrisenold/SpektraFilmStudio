@@ -25,12 +25,16 @@ let package = Package(
             name: "RawSpeedBridge",
             path: "Sources/RawSpeedBridge",
             publicHeadersPath: ".",
+            // Intel Homebrew lives in /usr/local, Apple-silicon in /opt/homebrew.
+            // Passing a missing -I/-L makes the toolchain emit a warning, so filter to existing paths.
             cxxSettings: [
-                .unsafeFlags(["-I/opt/homebrew/include", "-I/usr/local/include"]),
+                .unsafeFlags(["/opt/homebrew/include", "/usr/local/include"]
+                    .filter { FileManager.default.fileExists(atPath: $0) }.map { "-I\($0)" }),
                 .unsafeFlags(["-ULIBRAW_USE_OPENMP"]),
             ],
             linkerSettings: [
-                .unsafeFlags(["-L/opt/homebrew/lib", "-L/usr/local/lib"]),
+                .unsafeFlags(["/opt/homebrew/lib", "/usr/local/lib"]
+                    .filter { FileManager.default.fileExists(atPath: $0) }.map { "-L\($0)" }),
                 .linkedLibrary("raw"),
                 .linkedLibrary("lcms2"),
                 .linkedLibrary("c++"),

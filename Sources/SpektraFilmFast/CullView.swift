@@ -43,8 +43,11 @@ struct CullWorkspaceView: View {
                     .studioGlassPane()
                 viewer.frame(minWidth: 360)
                 if showCullInspector {
-                    inspector.frame(minWidth: StudioLayout.editorInspectorWidth, idealWidth: StudioLayout.editorInspectorWidth, maxWidth: 440)
-                        .padding(StudioLayout.paneInset).studioGlassPane()
+                    inspector.frame(
+                        minWidth: StudioLayout.editorInspectorWidth, idealWidth: StudioLayout.editorInspectorWidth,
+                        maxWidth: 440
+                    )
+                    .padding(StudioLayout.paneInset).studioGlassPane()
                 }
             }
 
@@ -61,13 +64,23 @@ struct CullWorkspaceView: View {
                 Text("Compare").tag(CullDisplayMode.compare)
                 Text("Survey").tag(CullDisplayMode.survey)
             }.pickerStyle(.segmented).labelsHidden().frame(width: 220)
-            Button { move(-1) } label: { Image(systemName: "chevron.left") }
-                .keyboardShortcut(.leftArrow, modifiers: []).help("Previous photo")
-            Button { move(1) } label: { Image(systemName: "chevron.right") }
-                .keyboardShortcut(.rightArrow, modifiers: []).help("Next photo")
+            Button {
+                move(-1)
+            } label: {
+                Image(systemName: "chevron.left")
+            }
+            .keyboardShortcut(.leftArrow, modifiers: []).help("Previous photo")
+            Button {
+                move(1)
+            } label: {
+                Image(systemName: "chevron.right")
+            }
+            .keyboardShortcut(.rightArrow, modifiers: []).help("Next photo")
             if displayMode == .compare {
-                Picker("Frames", selection: $compareCount) { Text("2-up").tag(2); Text("4-up").tag(4) }
-                    .frame(width: 80)
+                Picker("Frames", selection: $compareCount) {
+                    Text("2-up").tag(2); Text("4-up").tag(4)
+                }
+                .frame(width: 80)
             }
             Menu(zoom == 1 ? "Fit" : "\(Int(zoom * 100))%") {
                 Button("Fit") { zoom = 1 }
@@ -75,7 +88,9 @@ struct CullWorkspaceView: View {
                 Button("400%") { zoom = 4 }
             }.fixedSize(horizontal: true, vertical: false).frame(width: 70)
             Spacer()
-            Button { showFilters.toggle() } label: {
+            Button {
+                showFilters.toggle()
+            } label: {
                 Label("Filter", systemImage: "line.3.horizontal.decrease")
             }
             .buttonStyle(.borderless).fixedSize()
@@ -88,10 +103,13 @@ struct CullWorkspaceView: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    Toggle("Selected only", isOn: Binding(
-                        get: { navigationScope == .highlighted },
-                        set: { navigationScope = $0 ? .highlighted : .visible }
-                    ))
+                    Toggle(
+                        "Selected only",
+                        isOn: Binding(
+                            get: { navigationScope == .highlighted },
+                            set: { navigationScope = $0 ? .highlighted : .visible }
+                        )
+                    )
                     .toggleStyle(.checkbox)
                     Button("Show All") {
                         reviewFilter = .all
@@ -107,18 +125,25 @@ struct CullWorkspaceView: View {
                 Button("Analyze Photos") { model.analyzeVisibleForCull() }
                 ForEach([0.10, 0.25, 0.50], id: \.self) { fraction in
                     Button("Suggest Best \(Int(fraction * 100))% in Current Folder") {
-                        model.pickBestInFolder(model.selectedImage.map(Self.folderPath) ?? "__all__", fraction: fraction)
+                        model.pickBestInFolder(
+                            model.selectedImage.map(Self.folderPath) ?? "__all__", fraction: fraction)
                     }
                 }
-            } label: { Label("Assist", systemImage: "sparkles") }
-                .fixedSize(horizontal: true, vertical: false)
-                .disabled(model.isCullAnalyzing || model.project.images.isEmpty)
+            } label: {
+                Label("Assist", systemImage: "sparkles")
+            }
+            .fixedSize(horizontal: true, vertical: false)
+            .disabled(model.isCullAnalyzing || model.project.images.isEmpty)
             if model.isCullAnalyzing {
                 ProgressView(value: model.cullAnalysisProgress).frame(width: 80)
                 Button("Cancel") { model.cancelCullAnalysis() }
             }
-            Button { showCullInspector.toggle() } label: { Image(systemName: "sidebar.right") }
-                .help("Photo details")
+            Button {
+                showCullInspector.toggle()
+            } label: {
+                Image(systemName: "sidebar.right")
+            }
+            .help("Photo details")
         }
         .controlSize(.small)
         .padding(.horizontal, 12).frame(height: 44)
@@ -149,23 +174,31 @@ struct CullWorkspaceView: View {
             if let image = model.selectedImage {
                 Text(image.fileName).font(.caption).lineLimit(1)
                 Spacer()
-                Button { model.setFlag(image.flag == .picked ? .unflagged : .picked) } label: {
+                Button {
+                    model.setFlag(image.flag == .picked ? .unflagged : .picked)
+                } label: {
                     Label("Pick", systemImage: image.flag == .picked ? "flag.fill" : "flag")
                 }.help("P · Pick")
-                Button { model.setFlag(image.flag == .rejected ? .unflagged : .rejected) } label: {
+                Button {
+                    model.setFlag(image.flag == .rejected ? .unflagged : .rejected)
+                } label: {
                     Label("Reject", systemImage: image.flag == .rejected ? "xmark.circle.fill" : "xmark.circle")
                 }.help("X · Reject")
                 Divider().frame(height: 18)
                 HStack(spacing: 6) {
                     ForEach(1...5, id: \.self) { rating in
-                        Button { model.setRating(image.rating == rating ? 0 : rating) } label: {
+                        Button {
+                            model.setRating(image.rating == rating ? 0 : rating)
+                        } label: {
                             Image(systemName: image.rating >= rating ? "star.fill" : "star")
                         }.buttonStyle(.plain).help("\(rating) · Rate \(rating) stars")
                     }
                 }
                 Toggle("Auto advance", isOn: $model.project.preferences.autoAdvanceRatings)
                     .toggleStyle(.checkbox).font(.caption)
-            } else { Text("P Pick · X Reject · 1–5 Rate · Arrows Navigate").foregroundStyle(.secondary) }
+            } else {
+                Text("P Pick · X Reject · 1–5 Rate · Arrows Navigate").foregroundStyle(.secondary)
+            }
         }
         .controlSize(.small)
         .padding(.horizontal, 14).frame(height: 42)
@@ -184,10 +217,15 @@ struct CullWorkspaceView: View {
                     .padding(12)
             } else {
                 VStack(spacing: 12) {
-                    ContentUnavailableView("Choose photos to review", systemImage: "photo.stack",
-                                           description: Text("Import photos, or select a photo in Library. Use P to pick, X to reject, and 1–5 to rate."))
+                    ContentUnavailableView(
+                        "Choose photos to review", systemImage: "photo.stack",
+                        description: Text(
+                            "Import photos, or select a photo in Library. Use P to pick, X to reject, and 1–5 to rate.")
+                    )
                     Button("Import Photos…") { model.importImages() }.buttonStyle(.borderedProminent)
-                    Button("Show Library") { model.resetLibraryFilters(); model.showProjectHome = false; model.page = .library }
+                    Button("Show Library") {
+                        model.resetLibraryFilters(); model.showProjectHome = false; model.page = .library
+                    }
                 }
             }
 
@@ -295,7 +333,9 @@ struct CullWorkspaceView: View {
 
                     HStack(spacing: 6) {
                         ForEach(1...5, id: \.self) { n in
-                            Button { model.setRating(n) } label: {
+                            Button {
+                                model.setRating(n)
+                            } label: {
                                 Image(
                                     systemName:
                                         n <= image.rating ? "star.fill" : "star"
@@ -323,7 +363,7 @@ struct CullWorkspaceView: View {
                                         Circle().stroke(
                                             .primary.opacity(
                                                 image.colorLabel == label
-                                                ? 0.9 : 0.15
+                                                    ? 0.9 : 0.15
                                             ),
                                             lineWidth: 2
                                         )
@@ -351,7 +391,8 @@ struct CullWorkspaceView: View {
                         }
 
                         if let rank = cull.stackRank,
-                           let count = cull.stackCount {
+                            let count = cull.stackCount
+                        {
                             Label(
                                 rank == 1
                                     ? "Best technical frame · \(count)-photo stack"
@@ -457,8 +498,12 @@ struct CullWorkspaceView: View {
                     .textFieldStyle(.plain)
                     .font(.caption)
                 if !cullSearch.isEmpty {
-                    Button { cullSearch = "" } label: { Image(systemName: "xmark.circle.fill") }
-                        .buttonStyle(.plain)
+                    Button {
+                        cullSearch = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(8)
@@ -467,7 +512,9 @@ struct CullWorkspaceView: View {
             ScrollView(.vertical) {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 7) {
                     ForEach(cullPool) { image in
-                        Button { model.selectLibraryImage(image.id) } label: {
+                        Button {
+                            model.selectLibraryImage(image.id)
+                        } label: {
                             VStack(spacing: 4) {
                                 LocalThumbnail(url: model.thumbnailURL(for: image), contentMode: .fit)
                                     .frame(height: 105)
@@ -494,13 +541,16 @@ struct CullWorkspaceView: View {
                                 .foregroundStyle(.secondary)
                             }
                             .padding(5)
-                            .background(model.project.selectedImageID == image.id
-                                ? StudioPalette.selected : Color.clear,
-                                in: RoundedRectangle(cornerRadius: 8))
+                            .background(
+                                model.project.selectedImageID == image.id
+                                    ? StudioPalette.selected : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 8)
+                            )
                             .overlay {
                                 RoundedRectangle(cornerRadius: 8)
-                                    .strokeBorder(model.project.selectedImageID == image.id
-                                        ? Color.accentColor : StudioPalette.subtleBorder,
+                                    .strokeBorder(
+                                        model.project.selectedImageID == image.id
+                                            ? Color.accentColor : StudioPalette.subtleBorder,
                                         lineWidth: model.project.selectedImageID == image.id ? 2 : 0.5)
                             }
                         }
@@ -524,11 +574,17 @@ struct CullWorkspaceView: View {
 
     private var cullPool: [ProjectImageRecord] {
         if navigationScope == .highlighted,
-           model.librarySelection.count > 1 {
+            model.librarySelection.count > 1
+        {
             let ids = model.librarySelection
-            return model.visibleImages.filter { ids.contains($0.id) && reviewFilter.includes($0) && (cullSearch.isEmpty || $0.fileName.localizedStandardContains(cullSearch)) }
+            return model.visibleImages.filter {
+                ids.contains($0.id) && reviewFilter.includes($0)
+                    && (cullSearch.isEmpty || $0.fileName.localizedStandardContains(cullSearch))
+            }
         }
-        return model.visibleImages.filter { reviewFilter.includes($0) && (cullSearch.isEmpty || $0.fileName.localizedStandardContains(cullSearch)) }
+        return model.visibleImages.filter {
+            reviewFilter.includes($0) && (cullSearch.isEmpty || $0.fileName.localizedStandardContains(cullSearch))
+        }
     }
 
     private var comparisonImages: [ProjectImageRecord] {
@@ -635,22 +691,28 @@ private struct CullPreview: View {
             }
             .clipped()
             .contentShape(Rectangle())
-            .gesture(DragGesture().onChanged { value in
-                guard zoom > 1 else { return }
-                let maxX = proxy.size.width * (zoom - 1) / 2
-                let maxY = proxy.size.height * (zoom - 1) / 2
-                pan = CGSize(width: min(maxX, max(-maxX, panStart.width + value.translation.width)),
-                             height: min(maxY, max(-maxY, panStart.height + value.translation.height)))
-            }.onEnded { _ in panStart = pan })
+            .gesture(
+                DragGesture().onChanged { value in
+                    guard zoom > 1 else { return }
+                    let maxX = proxy.size.width * (zoom - 1) / 2
+                    let maxY = proxy.size.height * (zoom - 1) / 2
+                    pan = CGSize(
+                        width: min(maxX, max(-maxX, panStart.width + value.translation.width)),
+                        height: min(maxY, max(-maxY, panStart.height + value.translation.height)))
+                }.onEnded { _ in panStart = pan })
         }
-        .onChange(of: zoom) { _, _ in pan = .zero; panStart = .zero }
+        .onChange(of: zoom) { _, _ in
+            pan = .zero; panStart = .zero
+        }
         .task(id: url.path) {
             image = nil
             pan = .zero; panStart = .zero
-            guard let payload = try? await ThumbnailPipeline.shared.thumbnail(
-                url: url,
-                maxPixel: 1800
-            ), !Task.isCancelled else { return }
+            guard
+                let payload = try? await ThumbnailPipeline.shared.thumbnail(
+                    url: url,
+                    maxPixel: 1800
+                ), !Task.isCancelled
+            else { return }
             image = payload.makeCGImage()
         }
     }

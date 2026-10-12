@@ -31,12 +31,14 @@ struct CloudLibraryPanel: View {
                     Text("RAW SESSION SCRATCH")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    Text(model.externalOriginalScratchParent.isEmpty
-                         ? "Choose an external drive before Edit/Export"
-                         : model.externalOriginalScratchParent)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                    Text(
+                        model.externalOriginalScratchParent.isEmpty
+                            ? "Choose an external drive before Edit/Export"
+                            : model.externalOriginalScratchParent
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
                     Button("Choose External Scratch…") {
                         model.chooseExternalOriginalScratch()
                     }.controlSize(.small)
@@ -74,7 +76,9 @@ struct CloudLibraryPanel: View {
                     Button("Import Lightroom → iCloud…", systemImage: "arrow.triangle.2.circlepath.icloud") {
                         model.importLightroomCatalogToICloud()
                     }
-                    .help("Read a Lightroom Classic .lrcat catalog, copy its originals into iCloud Drive, preserve its develop payloads, and convert the library to SpektraFilm.")
+                    .help(
+                        "Read a Lightroom Classic .lrcat catalog, copy its originals into iCloud Drive, preserve its develop payloads, and convert the library to SpektraFilm."
+                    )
 
                     Button("Move Current Library → iCloud…", systemImage: "icloud.and.arrow.up") {
                         model.moveCurrentLibraryToICloud()
@@ -93,7 +97,9 @@ struct CloudLibraryPanel: View {
         .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
-                .stroke(model.isCloudLibraryConnected ? Color.blue.opacity(0.35) : StudioPalette.subtleBorder, lineWidth: 0.5)
+                .stroke(
+                    model.isCloudLibraryConnected ? Color.blue.opacity(0.35) : StudioPalette.subtleBorder,
+                    lineWidth: 0.5)
         }
     }
 }

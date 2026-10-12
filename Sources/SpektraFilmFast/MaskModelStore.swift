@@ -1,5 +1,5 @@
-import Foundation
 import CryptoKit
+import Foundation
 
 enum ModelStoreError: Error, LocalizedError {
     case unknownModel(String), download(String), checksumMismatch(String)
@@ -17,7 +17,9 @@ actor MaskModelStore {
     static let shared = MaskModelStore()
     static var root: URL {
         if CommandLine.arguments.contains("--mask-integration-test"),
-           let index = CommandLine.arguments.firstIndex(of: "--mask-model-root"), index + 1 < CommandLine.arguments.count {
+            let index = CommandLine.arguments.firstIndex(of: "--mask-model-root"),
+            index + 1 < CommandLine.arguments.count
+        {
             return URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true)
         }
         return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -31,9 +33,13 @@ actor MaskModelStore {
         FileManager.default.fileExists(atPath: directory(manifest).appendingPathComponent("verified.json").path)
     }
     func install(_ manifest: ModelManifest) async throws {
-        guard manifest.isPublished, manifest.fits() else { throw ModelStoreError.download("This model is unavailable for this Mac.") }
+        guard manifest.isPublished, manifest.fits() else {
+            throw ModelStoreError.download("This model is unavailable for this Mac.")
+        }
         guard !Self.installed(manifest) else { return }
-        guard installing.insert(manifest.id).inserted else { throw ModelStoreError.download("This model is already downloading.") }
+        guard installing.insert(manifest.id).inserted else {
+            throw ModelStoreError.download("This model is already downloading.")
+        }
         defer { installing.remove(manifest.id) }
         let fm = FileManager.default
         try fm.createDirectory(at: Self.root, withIntermediateDirectories: true)

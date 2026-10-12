@@ -47,10 +47,11 @@ public final class DepthEstimator: @unchecked Sendable {
         let high = sorted[sorted.count * 99 / 100]
         let span = max(high - low, 1e-6)
         values = values.map { min(max(($0 - low) / span, 0), 1) }
-        let size = PixelSize(width: image.width, height: image.height).fitted(within: PixelSize(
-            width: longEdge,
-            height: longEdge,
-        ))
+        let size = PixelSize(width: image.width, height: image.height).fitted(
+            within: PixelSize(
+                width: longEdge,
+                height: longEdge,
+            ))
         let mask = GrayMask(
             width: CVPixelBufferGetWidth(depth),
             height: CVPixelBufferGetHeight(depth),
@@ -70,10 +71,11 @@ public final class DepthEstimator: @unchecked Sendable {
         else { throw MaskComputationError.unsupported(.depthRange) }
         var values = [Float](repeating: 0, count: width * height)
         let half = CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_OneComponent16Half
-        for y in 0 ..< height {
+        for y in 0..<height {
             let row = base + y * rowBytes
-            for x in 0 ..< width {
-                values[y * width + x] = half
+            for x in 0..<width {
+                values[y * width + x] =
+                    half
                     ? HalfPrecision.float(row.load(fromByteOffset: x * 2, as: UInt16.self))
                     : row.load(fromByteOffset: x * 4, as: Float.self)
             }

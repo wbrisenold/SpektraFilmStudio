@@ -1,6 +1,6 @@
-import Foundation
 import CoreGraphics
 import CoreImage
+import Foundation
 import Metal
 
 // SpektraFilmStudio GPL-3.0 — production-facing experimental live GPU pipeline.
@@ -12,7 +12,9 @@ import Metal
 enum GPULiveError: LocalizedError {
     case unavailable(String)
     var errorDescription: String? {
-        switch self { case .unavailable(let reason): return "GPU live: \(reason)" }
+        switch self {
+        case .unavailable(let reason): return "GPU live: \(reason)"
+        }
     }
 }
 
@@ -49,8 +51,10 @@ final class GPULiveFrame: @unchecked Sendable {
     let colorSpace: CGColorSpace
     let rendererLabel: String
     private let onRelease: (() -> Void)?
-    init(texture: any MTLTexture, colorSpace: CGColorSpace, rendererLabel: String,
-         onRelease: (() -> Void)? = nil) {
+    init(
+        texture: any MTLTexture, colorSpace: CGColorSpace, rendererLabel: String,
+        onRelease: (() -> Void)? = nil
+    ) {
         self.texture = texture
         self.colorSpace = colorSpace
         self.rendererLabel = rendererLabel
@@ -77,30 +81,35 @@ final class GPULiveDevice: @unchecked Sendable {
 
     init(device: any MTLDevice) throws {
         self.device = device
-        guard let queue = device.makeCommandQueue() else { throw GPULiveError.unavailable("Metal queue creation failed") }
+        guard let queue = device.makeCommandQueue() else {
+            throw GPULiveError.unavailable("Metal queue creation failed")
+        }
         self.queue = queue
-        self.context = CIContext(mtlDevice: device, options: [
-            .cacheIntermediates: true, .useSoftwareRenderer: false
-        ])
+        self.context = CIContext(
+            mtlDevice: device,
+            options: [
+                .cacheIntermediates: true, .useSoftwareRenderer: false,
+            ])
         let code = #"""
-        #include <metal_stdlib>
-        using namespace metal;
-        kernel void spektraTextureToBuffer(texture2d<float, access::read> src [[texture(0)]],
-                                           device float4 *dst [[buffer(0)]],
-                                           uint2 p [[thread_position_in_grid]]) {
-            if (p.x >= src.get_width() || p.y >= src.get_height()) return;
-            dst[p.y * src.get_width() + p.x] = src.read(p);
-        }
-        kernel void spektraBufferToTexture(device const float4 *src [[buffer(0)]],
-                                           texture2d<float, access::write> dst [[texture(0)]],
-                                           uint2 p [[thread_position_in_grid]]) {
-            if (p.x >= dst.get_width() || p.y >= dst.get_height()) return;
-            dst.write(src[p.y * dst.get_width() + p.x], p);
-        }
-        """#
+            #include <metal_stdlib>
+            using namespace metal;
+            kernel void spektraTextureToBuffer(texture2d<float, access::read> src [[texture(0)]],
+                                               device float4 *dst [[buffer(0)]],
+                                               uint2 p [[thread_position_in_grid]]) {
+                if (p.x >= src.get_width() || p.y >= src.get_height()) return;
+                dst[p.y * src.get_width() + p.x] = src.read(p);
+            }
+            kernel void spektraBufferToTexture(device const float4 *src [[buffer(0)]],
+                                               texture2d<float, access::write> dst [[texture(0)]],
+                                               uint2 p [[thread_position_in_grid]]) {
+                if (p.x >= dst.get_width() || p.y >= dst.get_height()) return;
+                dst.write(src[p.y * dst.get_width() + p.x], p);
+            }
+            """#
         let library = try device.makeLibrary(source: code, options: nil)
         guard let t2b = library.makeFunction(name: "spektraTextureToBuffer"),
-              let b2t = library.makeFunction(name: "spektraBufferToTexture") else {
+            let b2t = library.makeFunction(name: "spektraBufferToTexture")
+        else {
             throw GPULiveError.unavailable("Metal resource conversion kernels missing")
         }
         textureToBuffer = try device.makeComputePipelineState(function: t2b)
@@ -113,35 +122,41 @@ final class GPULiveDevice: @unchecked Sendable {
     func allocateFloatBuffer(width: Int, height: Int) throws -> any MTLBuffer {
         let product = width.multipliedReportingOverflow(by: height)
         guard width > 0, height > 0, !product.overflow,
-              product.partialValue <= Int.max / 16,
-              let buffer = device.makeBuffer(length: product.partialValue * 16, options: .storageModePrivate)
+            product.partialValue <= Int.max / 16,
+            let buffer = device.makeBuffer(length: product.partialValue * 16, options: .storageModePrivate)
         else { throw GPULiveError.unavailable("Float image buffer allocation failed") }
         return buffer
     }
 
-    func encodeTextureToBuffer(_ source: any MTLTexture, destination: any MTLBuffer,
-                               on command: any MTLCommandBuffer) throws {
+    func encodeTextureToBuffer(
+        _ source: any MTLTexture, destination: any MTLBuffer,
+        on command: any MTLCommandBuffer
+    ) throws {
         guard let encoder = command.makeComputeCommandEncoder() else {
             throw GPULiveError.unavailable("RAW texture converter unavailable")
         }
         encoder.setComputePipelineState(textureToBuffer)
         encoder.setTexture(source, index: 0)
         encoder.setBuffer(destination, offset: 0, index: 0)
-        encoder.dispatchThreads(MTLSize(width: source.width, height: source.height, depth: 1),
-                                threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
+        encoder.dispatchThreads(
+            MTLSize(width: source.width, height: source.height, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
         encoder.endEncoding()
     }
 
-    func encodeBufferToTexture(_ source: any MTLBuffer, destination: any MTLTexture,
-                               on command: any MTLCommandBuffer) throws {
+    func encodeBufferToTexture(
+        _ source: any MTLBuffer, destination: any MTLTexture,
+        on command: any MTLCommandBuffer
+    ) throws {
         guard let encoder = command.makeComputeCommandEncoder() else {
             throw GPULiveError.unavailable("Display texture converter unavailable")
         }
         encoder.setComputePipelineState(bufferToTexture)
         encoder.setBuffer(source, offset: 0, index: 0)
         encoder.setTexture(destination, index: 0)
-        encoder.dispatchThreads(MTLSize(width: destination.width, height: destination.height, depth: 1),
-                                threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
+        encoder.dispatchThreads(
+            MTLSize(width: destination.width, height: destination.height, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
         encoder.endEncoding()
     }
 
@@ -149,15 +164,19 @@ final class GPULiveDevice: @unchecked Sendable {
         let key = "\(device.registryID)|\(width)|\(height)"
         outputLock.lock()
         if var pool = availableOutputTextures[key], let ready = pool.popLast() {
-            if pool.isEmpty { availableOutputTextures.removeValue(forKey: key) }
-            else { availableOutputTextures[key] = pool }
+            if pool.isEmpty {
+                availableOutputTextures.removeValue(forKey: key)
+            } else {
+                availableOutputTextures[key] = pool
+            }
             outputPoolBytes -= ready.allocatedSize
             outputTextureReuses += 1
             outputLock.unlock()
             return ready
         }
         outputLock.unlock()
-        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba32Float,
+        let d = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba32Float,
             width: width, height: height, mipmapped: false)
         d.usage = [.shaderRead, .shaderWrite]
         d.storageMode = .private
@@ -172,12 +191,14 @@ final class GPULiveDevice: @unchecked Sendable {
 
     func returnOutputTexture(_ texture: any MTLTexture) {
         guard texture.device.registryID == device.registryID,
-              texture.storageMode == .private else { return }
+            texture.storageMode == .private
+        else { return }
         let key = "\(device.registryID)|\(texture.width)|\(texture.height)"
         outputLock.lock()
         defer { outputLock.unlock() }
         guard outputPoolBytes + texture.allocatedSize <= maxOutputPoolBytes,
-              availableOutputTextures[key, default: []].count < 3 else { return }
+            availableOutputTextures[key, default: []].count < 3
+        else { return }
         availableOutputTextures[key, default: []].append(texture)
         outputPoolBytes += texture.allocatedSize
     }
@@ -232,13 +253,13 @@ actor GPULiveFramePipeline {
     private func borrowScratch(gpu: GPULiveDevice, width: Int, height: Int) throws -> any MTLBuffer {
         let product = width.multipliedReportingOverflow(by: height)
         guard width > 0, height > 0, !product.overflow,
-              product.partialValue <= Int.max / 16 else {
+            product.partialValue <= Int.max / 16
+        else {
             throw GPULiveError.unavailable("Invalid GPU scratch dimensions")
         }
         let bytes = product.partialValue * 16
         if var slots = scratchByBytes[bytes], let reused = slots.popLast() {
-            if slots.isEmpty { scratchByBytes.removeValue(forKey: bytes) }
-            else { scratchByBytes[bytes] = slots }
+            if slots.isEmpty { scratchByBytes.removeValue(forKey: bytes) } else { scratchByBytes[bytes] = slots }
             scratchResidentBytes -= bytes
             if reused.device.registryID == gpu.device.registryID {
                 scratchReuseCount += 1
@@ -254,10 +275,11 @@ actor GPULiveFramePipeline {
         for buffer in buffers {
             let bytes = buffer.length
             guard buffer.storageMode == .private,
-                  buffer.device.registryID == gpu.device.registryID,
-                  bytes > 0 && bytes <= scratchBudgetBytes,
-                  scratchResidentBytes <= scratchBudgetBytes - bytes,
-                  scratchByBytes[bytes, default: []].count < maxScratchPerSize else { continue }
+                buffer.device.registryID == gpu.device.registryID,
+                bytes > 0 && bytes <= scratchBudgetBytes,
+                scratchResidentBytes <= scratchBudgetBytes - bytes,
+                scratchByBytes[bytes, default: []].count < maxScratchPerSize
+            else { continue }
             scratchByBytes[bytes, default: []].append(buffer)
             scratchResidentBytes += bytes
         }
@@ -276,7 +298,6 @@ actor GPULiveFramePipeline {
         hasher.combine(calibration)
         return UInt64(bitPattern: Int64(hasher.finalize()))
     }
-
 
     func reset() {
         rawCache.removeAll()
@@ -298,7 +319,8 @@ actor GPULiveFramePipeline {
     /// after an idle settled render; never on a pointer-rate live render.
     func prewarmLUT(look: RenderLook) async throws -> StudioSpectralLUT.Prepared? {
         guard StudioSpectralLUT.selectedResolution() != nil,
-              Self.supports(look) else { return nil }
+            Self.supports(look)
+        else { return nil }
         if film == nil { film = try NativeRenderer(profile: .exact) }
         guard let film else { return nil }
         guard await film.isColorLUTEligible(look: look) else { return nil }
@@ -317,7 +339,8 @@ actor GPULiveFramePipeline {
     /// adapter, not by the interactive Metal view.
     func settledCachedFilmLUT(_ input: PixelBufferF32, look: RenderLook) async throws -> PixelBufferF32? {
         guard StudioSpectralLUT.selectedResolution() != nil,
-              Self.supports(look), let spectralLUT else { return nil }
+            Self.supports(look), let spectralLUT
+        else { return nil }
         if film == nil { film = try NativeRenderer(profile: .exact) }
         guard let film else { return nil }
         if gpu == nil {
@@ -327,16 +350,20 @@ actor GPULiveFramePipeline {
         guard let gpu else { return nil }
         let count = input.pixels.count
         guard input.width > 0, input.height > 0,
-              count == input.width * input.height * 4,
-              count <= Int.max / 4 else { throw GPULiveError.unavailable("Invalid settled LUT frame") }
+            count == input.width * input.height * 4,
+            count <= Int.max / 4
+        else { throw GPULiveError.unavailable("Invalid settled LUT frame") }
         let bytes = count * MemoryLayout<Float>.stride
-        guard let source = input.pixels.withUnsafeBytes({ data in
-                  gpu.device.makeBuffer(bytes: data.baseAddress!, length: bytes, options: .storageModeShared)
-              }),
-              let destination = gpu.device.makeBuffer(length: bytes, options: .storageModeShared) else {
+        guard
+            let source = input.pixels.withUnsafeBytes({ data in
+                gpu.device.makeBuffer(bytes: data.baseAddress!, length: bytes, options: .storageModeShared)
+            }),
+            let destination = gpu.device.makeBuffer(length: bytes, options: .storageModeShared)
+        else {
             throw GPULiveError.unavailable("Settled LUT Metal buffers unavailable")
         }
-        let used = try await spectralLUT.encodeIfEligible(film: film, look: look,
+        let used = try await spectralLUT.encodeIfEligible(
+            film: film, look: look,
             source: source, destination: destination, width: input.width, height: input.height)
         guard used else { return nil }
         guard let fence = gpu.queue.makeCommandBuffer() else {
@@ -346,12 +373,16 @@ actor GPULiveFramePipeline {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             fence.addCompletedHandler { completed in
                 withExtendedLifetime(retained) {
-                    if completed.status == .completed { continuation.resume() }
-                    else { continuation.resume(throwing: GPULiveError.unavailable(
-                        completed.error?.localizedDescription ?? "Settled LUT GPU failure")) }
+                    if completed.status == .completed {
+                        continuation.resume()
+                    } else {
+                        continuation.resume(
+                            throwing: GPULiveError.unavailable(
+                                completed.error?.localizedDescription ?? "Settled LUT GPU failure"))
+                    }
                 }
             }
-            fence.commit() // same FIFO Metal queue; previous LUT kernel completed
+            fence.commit()  // same FIFO Metal queue; previous LUT kernel completed
         }
         try Task.checkCancellation()
         var pixels = [Float](repeating: 0, count: count)
@@ -361,8 +392,10 @@ actor GPULiveFramePipeline {
         return PixelBufferF32(width: input.width, height: input.height, pixels: pixels)
     }
 
-    func render(url: URL, look: RenderLook, bypassImportTransform: Bool,
-                decoder: ImageDecoder, longEdge: Int = 1080) async throws -> GPULiveFrame {
+    func render(
+        url: URL, look: RenderLook, bypassImportTransform: Bool,
+        decoder: ImageDecoder, longEdge: Int = 1080
+    ) async throws -> GPULiveFrame {
         // The exact code path remains authoritative when an unsupported stage
         // is active; DO NOT ignore layers or geometry to fake a fast preview.
         if look.localGrades?.contains(where: { $0.enabled && $0.opacity > 0 }) == true {
@@ -405,8 +438,9 @@ actor GPULiveFramePipeline {
             }
         }
         guard let gpu else { throw GPULiveError.unavailable("Metal device unavailable") }
-        let key = DecodeKey(path: url.path, longEdge: longEdge, raw: look.raw,
-                            bypassImportTransform: bypassImportTransform)
+        let key = DecodeKey(
+            path: url.path, longEdge: longEdge, raw: look.raw,
+            bypassImportTransform: bypassImportTransform)
         // SFS_PREFIX_HASH_DIRTY_TAIL_V1: on a prefix hit the RAW conversion and
         // import-calibration encodes are skipped entirely — only the dirty tail
         // (host grade, film, lens, effects, geometry) is re-encoded.
@@ -427,7 +461,8 @@ actor GPULiveFramePipeline {
                 rawCache.insert(hit, at: 0)
                 developed = hit.frame
             } else {
-                developed = try await decoder.decodeMetal(url: url, longEdge: longEdge, raw: look.raw,
+                developed = try await decoder.decodeMetal(
+                    url: url, longEdge: longEdge, raw: look.raw,
                     bypassImportTransform: bypassImportTransform, gpu: gpu)
                 rawCache.insert((key: key, frame: developed), at: 0)
                 if rawCache.count > rawCacheCapacity { rawCache.removeLast() }
@@ -456,11 +491,13 @@ actor GPULiveFramePipeline {
                 if importCalibrationGPU == nil {
                     importCalibrationGPU = try StudioImportCalibrationMetal(device: gpu.device)
                 }
-                try importCalibrationGPU?.encode(buffer: source, width: width, height: height,
+                try importCalibrationGPU?.encode(
+                    buffer: source, width: width, height: height,
                     calibration: calibration, on: preCommand)
             }
         }
-        try gpu.host.encode(source: source, destination: graded, on: preCommand,
+        try gpu.host.encode(
+            source: source, destination: graded, on: preCommand,
             width: width, height: height,
             tone: look.tone, density: look.colorDensity, film: look.filmTone)
         if looksMode {
@@ -481,55 +518,69 @@ actor GPULiveFramePipeline {
             // Imported .cube is handled by the SAME validated shader, shaper,
             // sampler, and GPU cache as the library/settled/export importer.
             // Do not run the separate experimental .cube GPU shader here.
-            guard let file = looksMode ? StudioLooksSettings.selectedPack(for: look)?.cubeURL
-                                       : StudioImportedCubeLUTSettings.selectedURL else {
-                throw GPULiveError.unavailable(looksMode ? "Choose a valid Look pack in the Looks browser"
-                    : "Select a .cube file in Settings > General")
+            guard
+                let file = looksMode
+                    ? StudioLooksSettings.selectedPack(for: look)?.cubeURL
+                    : StudioImportedCubeLUTSettings.selectedURL
+            else {
+                throw GPULiveError.unavailable(
+                    looksMode
+                        ? "Choose a valid Look pack in the Looks browser"
+                        : "Select a .cube file in Settings > General")
             }
             let contract: StudioImportedLUT.Contract?
-            if looksMode { contract = nil }
-            else { contract = try StudioImportedCubeLUTSettings.explicitContract(for: file) }
+            if looksMode {
+                contract = nil
+            } else {
+                contract = try StudioImportedCubeLUTSettings.explicitContract(for: file)
+            }
             if importedLUT == nil { importedLUT = try StudioImportedLUTMetal(gpu: gpu) }
             guard let importedLUT, let command = gpu.queue.makeCommandBuffer() else {
                 throw GPULiveError.unavailable("Unified Metal LUT renderer unavailable")
             }
-            importedOutput = try importedLUT.encode(source: graded, destination: filmOutput,
+            importedOutput = try importedLUT.encode(
+                source: graded, destination: filmOutput,
                 width: width, height: height, on: command, file: file,
                 contractOverride: contract)
             command.commit()
             if looksMode && importedOutput != .linearRec2020 {
                 throw GPULiveError.unavailable("Look output must remain scene-linear Rec.2020")
             }
-            importedLabel = looksMode ? "Looks · \(StudioLooksSettings.selectedPack(for: look)?.name ?? "Unknown") · Live"
-                                     : "Imported .cube GPU · \(file.deletingPathExtension().lastPathComponent) · unified Metal"
+            importedLabel =
+                looksMode
+                ? "Looks · \(StudioLooksSettings.selectedPack(for: look)?.name ?? "Unknown") · Live"
+                : "Imported .cube GPU · \(file.deletingPathExtension().lastPathComponent) · unified Metal"
         } else {
-        guard let film else { throw GPULiveError.unavailable("Native film engine unavailable") }
-        if StudioImportedLUT.isSelected {
-            guard let file = StudioImportedLUT.selectedURL() else {
-                throw StudioImportedLUT.Failure.invalid("Choose a LUT from the linked folder in Settings.")
+            guard let film else { throw GPULiveError.unavailable("Native film engine unavailable") }
+            if StudioImportedLUT.isSelected {
+                guard let file = StudioImportedLUT.selectedURL() else {
+                    throw StudioImportedLUT.Failure.invalid("Choose a LUT from the linked folder in Settings.")
+                }
+                if importedLUT == nil { importedLUT = try StudioImportedLUTMetal(gpu: gpu) }
+                guard let importedLUT,
+                    let command = gpu.queue.makeCommandBuffer()
+                else {
+                    throw StudioImportedLUT.Failure.invalid("Metal imported-LUT stage unavailable.")
+                }
+                importedOutput = try importedLUT.encode(
+                    source: graded, destination: filmOutput,
+                    width: width, height: height, on: command, file: file)
+                command.commit()
+                usedImportedLUT = true
             }
-            if importedLUT == nil { importedLUT = try StudioImportedLUTMetal(gpu: gpu) }
-            guard let importedLUT,
-                  let command = gpu.queue.makeCommandBuffer() else {
-                throw StudioImportedLUT.Failure.invalid("Metal imported-LUT stage unavailable.")
+            if !usedImportedLUT && resolution != nil, let spectralLUT {
+                do {
+                    usedSpectralLUT = try await spectralLUT.encodeIfEligible(
+                        film: film, look: look, source: graded, destination: filmOutput,
+                        width: width, height: height)
+                } catch is CancellationError { throw CancellationError() } catch { usedSpectralLUT = false }
             }
-            importedOutput = try importedLUT.encode(source: graded, destination: filmOutput,
-                                    width: width, height: height, on: command, file: file)
-            command.commit()
-            usedImportedLUT = true
-        }
-        if !usedImportedLUT && resolution != nil, let spectralLUT {
-            do {
-                usedSpectralLUT = try await spectralLUT.encodeIfEligible(
-                    film: film, look: look, source: graded, destination: filmOutput,
-                    width: width, height: height)
-            } catch is CancellationError { throw CancellationError() }
-            catch { usedSpectralLUT = false }
-        }
-        if !usedImportedLUT && !usedSpectralLUT {
-            try await film.enqueueMetalFilm(GPUMetalFilmIO(source: graded, destination: filmOutput,
-                 queue: gpu.queue, width: width, height: height), look: look)
-        }
+            if !usedImportedLUT && !usedSpectralLUT {
+                try await film.enqueueMetalFilm(
+                    GPUMetalFilmIO(
+                        source: graded, destination: filmOutput,
+                        queue: gpu.queue, width: width, height: height), look: look)
+            }
         }
         try Task.checkCancellation()
         guard let postCommand = gpu.queue.makeCommandBuffer() else {
@@ -539,34 +590,40 @@ actor GPULiveFramePipeline {
         var keepAlive: [any MTLBuffer] = [source, graded, filmOutput]
         if looksMode {
             guard let looksGPU else { throw GPULiveError.unavailable("Looks GPU controls missing") }
-            try looksGPU.encodePost(neutral: graded, transformed: filmOutput,
+            try looksGPU.encodePost(
+                neutral: graded, transformed: filmOutput,
                 width: width, height: height, look: look, command: postCommand)
         }
         if let lens = look.lensEffects, lens.enabled && !lens.isIdentity {
             let out = try borrowScratch(gpu: gpu, width: width, height: height)
-            try gpu.lens.encode(source: result, destination: out, command: postCommand,
-                                width: width, height: height, parameters: lens.resolvedWithCenter)
+            try gpu.lens.encode(
+                source: result, destination: out, command: postCommand,
+                width: width, height: height, parameters: lens.resolvedWithCenter)
             result = out
             keepAlive.append(out)
             borrowedScratch.append(out)
         }
         if let fx = look.filmEffects, !fx.isIdentity {
             let out = try borrowScratch(gpu: gpu, width: width, height: height)
-            try gpu.effects.encode(source: result, destination: out, command: postCommand,
-                                   width: width, height: height, look: look)
+            try gpu.effects.encode(
+                source: result, destination: out, command: postCommand,
+                width: width, height: height, look: look)
             result = out
             keepAlive.append(out)
             borrowedScratch.append(out)
         }
         let geometry = look.geometry ?? GeometrySettings()
         let hasGeometry = geometry != GeometrySettings()
-        let geometrySize = StudioMetalGeometry.targetSize(sourceWidth: width,
+        let geometrySize = StudioMetalGeometry.targetSize(
+            sourceWidth: width,
             sourceHeight: height, geometry: geometry)
-        let texture = try gpu.makeOutputTexture(width: geometrySize.width,
+        let texture = try gpu.makeOutputTexture(
+            width: geometrySize.width,
             height: geometrySize.height)
         if hasGeometry {
             if geometryGPU == nil { geometryGPU = try StudioMetalGeometry(device: gpu.device) }
-            try geometryGPU?.encode(source: result, destination: texture,
+            try geometryGPU?.encode(
+                source: result, destination: texture,
                 width: width, height: height, geometry: geometry, command: postCommand)
         } else {
             try gpu.encodeBufferToTexture(result, destination: texture, on: postCommand)
@@ -577,7 +634,8 @@ actor GPULiveFramePipeline {
         if importedMode {
             if contentGuard == nil { contentGuard = try MetalFrameContentGuard(device: gpu.device) }
             if let guardEngine = contentGuard {
-                let samples = try guardEngine.encode(before: graded, after: filmOutput,
+                let samples = try guardEngine.encode(
+                    before: graded, after: filmOutput,
                     width: width, height: height, on: postCommand)
                 keepAlive.append(samples)
                 contentSamples = samples
@@ -589,14 +647,18 @@ actor GPULiveFramePipeline {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             postCommand.addCompletedHandler { command in
                 withExtendedLifetime(retained) {
-                    if command.status == .completed { continuation.resume() }
-                    else { continuation.resume(throwing: GPULiveError.unavailable(
-                        command.error?.localizedDescription ?? "Metal post processing failed")) }
+                    if command.status == .completed {
+                        continuation.resume()
+                    } else {
+                        continuation.resume(
+                            throwing: GPULiveError.unavailable(
+                                command.error?.localizedDescription ?? "Metal post processing failed"))
+                    }
                 }
             }
             postCommand.commit()
         }
-        recycleScratch(borrowedScratch, gpu: gpu) // The async Metal completion fence has returned.
+        recycleScratch(borrowedScratch, gpu: gpu)  // The async Metal completion fence has returned.
         try Task.checkCancellation()
         if let contentSamples { try MetalFrameContentGuard.verify(contentSamples) }
         let elapsed = (ProcessInfo.processInfo.systemUptime - renderedStart) * 1000.0
@@ -609,14 +671,16 @@ actor GPULiveFramePipeline {
             label = "Cached spectral LUT \(resolution ?? 33)³ · \(Int(elapsed.rounded())) ms"
         } else if let resolution {
             let blocked = await film?.colorLUTBlockingReason(look: look)
-            label = blocked.map { "Native Metal · LUT blocked (\($0))" }
+            label =
+                blocked.map { "Native Metal · LUT blocked (\($0))" }
                 ?? "Native Metal · LUT \(resolution)³ not yet cached"
         } else {
             label = "Native spectral Metal · \(Int(elapsed.rounded())) ms"
         }
-        return GPULiveFrame(texture: texture,
-              colorSpace: importedOutput?.cgColorSpace ?? OutputColorProfile.forLook(look).cgColorSpace,
-              rendererLabel: label,
-              onRelease: { [gpu] in gpu.returnOutputTexture(texture) })
+        return GPULiveFrame(
+            texture: texture,
+            colorSpace: importedOutput?.cgColorSpace ?? OutputColorProfile.forLook(look).cgColorSpace,
+            rendererLabel: label,
+            onRelease: { [gpu] in gpu.returnOutputTexture(texture) })
     }
 }

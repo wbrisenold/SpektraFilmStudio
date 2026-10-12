@@ -34,8 +34,8 @@ private enum OmniMatcher {
         if words.isEmpty { return Array(entries.prefix(36)) }
         let exact = RedlampSearchMatcher.normalized(query)
         let scored = entries.enumerated().compactMap { index, entry -> (OmniEntry, Int, Bool, Int)? in
-            guard let score = RedlampSearchMatcher.score(words, terms:
-                [entry.title, entry.context, entry.keywords]) else { return nil }
+            guard let score = RedlampSearchMatcher.score(words, terms: [entry.title, entry.context, entry.keywords])
+            else { return nil }
             return (entry, score, RedlampSearchMatcher.normalized(entry.title) == exact, index)
         }
         return scored.sorted { a, b in
@@ -56,37 +56,57 @@ struct StudioOmniSearch: View {
 
     private var entries: [OmniEntry] {
         var result = WorkspacePage.allCases.map {
-            OmniEntry(title: $0.title, context: "Workspace", icon: $0.systemImage,
-                      keywords: "navigate page", action: .workspace($0))
+            OmniEntry(
+                title: $0.title, context: "Workspace", icon: $0.systemImage,
+                keywords: "navigate page", action: .workspace($0))
         }
         result += [
-            OmniEntry(title: "Scene Intelligence", context: "Group shoots · recommend film and paper",
-                      icon: "sparkles.rectangle.stack", keywords: "ai similar studio shots stock print scene", action: .task("scenes")),
-            OmniEntry(title: "Import Photos", context: "Library", icon: "plus", keywords: "add files", action: .task("import")),
-            OmniEntry(title: "New Project", context: "Project", icon: "folder.badge.plus", keywords: "create", action: .task("new")),
-            OmniEntry(title: "Save Project", context: "Project", icon: "square.and.arrow.down", keywords: "save", action: .task("save")),
-            OmniEntry(title: "Copy Look", context: "Edit", icon: "doc.on.doc", keywords: "copy settings", action: .task("copy")),
-            OmniEntry(title: "Paste Look", context: "Edit", icon: "doc.on.clipboard", keywords: "paste settings", action: .task("paste")),
-            OmniEntry(title: "Sync Look to Highlighted", context: "Edit · keep individual WB and crop",
-                      icon: "square.stack.3d.up", keywords: "batch edit apply", action: .task("sync")),
-            OmniEntry(title: "Export Selected", context: "Export", icon: "square.and.arrow.up", keywords: "queue deliver", action: .task("export"))
+            OmniEntry(
+                title: "Scene Intelligence", context: "Group shoots · recommend film and paper",
+                icon: "sparkles.rectangle.stack", keywords: "ai similar studio shots stock print scene",
+                action: .task("scenes")),
+            OmniEntry(
+                title: "Import Photos", context: "Library", icon: "plus", keywords: "add files", action: .task("import")
+            ),
+            OmniEntry(
+                title: "New Project", context: "Project", icon: "folder.badge.plus", keywords: "create",
+                action: .task("new")),
+            OmniEntry(
+                title: "Save Project", context: "Project", icon: "square.and.arrow.down", keywords: "save",
+                action: .task("save")),
+            OmniEntry(
+                title: "Copy Look", context: "Edit", icon: "doc.on.doc", keywords: "copy settings",
+                action: .task("copy")),
+            OmniEntry(
+                title: "Paste Look", context: "Edit", icon: "doc.on.clipboard", keywords: "paste settings",
+                action: .task("paste")),
+            OmniEntry(
+                title: "Sync Look to Highlighted", context: "Edit · keep individual WB and crop",
+                icon: "square.stack.3d.up", keywords: "batch edit apply", action: .task("sync")),
+            OmniEntry(
+                title: "Export Selected", context: "Export", icon: "square.and.arrow.up", keywords: "queue deliver",
+                action: .task("export")),
         ]
         result += BridgeCatalog.shared.parameters.map { parameter in
-            OmniEntry(title: parameter.label, context: "Adjustment · \(parameter.group)", icon: "slider.horizontal.3",
-                      keywords: parameter.name + " " + parameter.group, action: .adjustment(parameter.name))
+            OmniEntry(
+                title: parameter.label, context: "Adjustment · \(parameter.group)", icon: "slider.horizontal.3",
+                keywords: parameter.name + " " + parameter.group, action: .adjustment(parameter.name))
         }
         result += BridgeCatalog.shared.films.enumerated().map { i, name in
-            OmniEntry(title: name, context: "Film Stock · apply to selected photo", icon: "camera.filters",
-                      keywords: "film stock negative", action: .film(i))
+            OmniEntry(
+                title: name, context: "Film Stock · apply to selected photo", icon: "camera.filters",
+                keywords: "film stock negative", action: .film(i))
         }
         result += BridgeCatalog.shared.papers.enumerated().map { i, name in
-            OmniEntry(title: name, context: "Print Paper · apply to selected photo", icon: "square.stack",
-                      keywords: "print paper", action: .paper(i))
+            OmniEntry(
+                title: name, context: "Print Paper · apply to selected photo", icon: "square.stack",
+                keywords: "print paper", action: .paper(i))
         }
         // File names are indexed without loading image data or cloud originals.
         result += model.project.images.map { image in
-            OmniEntry(title: image.fileName, context: "Photo", icon: "photo",
-                      keywords: (image.keywords ?? []).joined(separator: " "), action: .photo(image.id))
+            OmniEntry(
+                title: image.fileName, context: "Photo", icon: "photo",
+                keywords: (image.keywords ?? []).joined(separator: " "), action: .photo(image.id))
         }
         return result
     }
@@ -120,7 +140,7 @@ struct StudioOmniSearch: View {
                             }
                         }
                     )
-                        .frame(height: 34)
+                    .frame(height: 34)
                     Text("ESC").font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 18).padding(.vertical, 12)
@@ -129,34 +149,44 @@ struct StudioOmniSearch: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 2) {
                             ForEach(Array(matches.enumerated()), id: \.element.id) { index, item in
-                                Button { activate(item) } label: {
+                                Button {
+                                    activate(item)
+                                } label: {
                                     HStack(spacing: 12) {
                                         Image(systemName: item.icon).frame(width: 20)
                                             .foregroundStyle(.secondary)
                                         VStack(alignment: .leading, spacing: 3) {
                                             Text(item.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
-                                            Text(item.context).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                                            Text(item.context).font(.system(size: 11)).foregroundStyle(.secondary)
+                                                .lineLimit(1)
                                         }
                                         Spacer()
-                                        if selected == index { Image(systemName: "return").font(.caption2).foregroundStyle(.secondary) }
+                                        if selected == index {
+                                            Image(systemName: "return").font(.caption2).foregroundStyle(.secondary)
+                                        }
                                     }
                                     .padding(.horizontal, 14).frame(height: RedlampPaletteMetrics.rowHeight)
-                                    .background(selected == index ? StudioPalette.selected : .clear,
-                                                in: RoundedRectangle(cornerRadius: 8))
+                                    .background(
+                                        selected == index ? StudioPalette.selected : .clear,
+                                        in: RoundedRectangle(cornerRadius: 8)
+                                    )
                                     .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain).id(item.id)
                             }
                             if matches.isEmpty {
-                                ContentUnavailableView("No matches", systemImage: "magnifyingglass",
+                                ContentUnavailableView(
+                                    "No matches", systemImage: "magnifyingglass",
                                     description: Text("Try a photo name, an adjustment, a film stock, or a command."))
                             }
                         }.padding(8)
                     }.frame(maxHeight: RedlampPaletteMetrics.maxListHeight)
-                    .onChange(of: selected) { _, index in
-                        guard matches.indices.contains(index) else { return }
-                        withAnimation(.easeOut(duration: 0.12)) { reader.scrollTo(matches[index].id, anchor: .center) }
-                    }
+                        .onChange(of: selected) { _, index in
+                            guard matches.indices.contains(index) else { return }
+                            withAnimation(.easeOut(duration: 0.12)) {
+                                reader.scrollTo(matches[index].id, anchor: .center)
+                            }
+                        }
                 }
                 Divider()
                 HStack {

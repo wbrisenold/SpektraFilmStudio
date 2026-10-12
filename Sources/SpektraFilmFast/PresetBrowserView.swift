@@ -19,8 +19,12 @@ struct PresetBrowserView: View {
                 HStack {
                     Text("Presets").font(.headline)
                     Spacer()
-                    Button { showingSaveSheet = true } label: { Label("Save", systemImage: "plus") }
-                        .controlSize(.small).disabled(model.selectedImage == nil)
+                    Button {
+                        showingSaveSheet = true
+                    } label: {
+                        Label("Save", systemImage: "plus")
+                    }
+                    .controlSize(.small).disabled(model.selectedImage == nil)
                 }
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
@@ -50,7 +54,9 @@ struct PresetBrowserView: View {
                         model: model,
                         preset: preset,
                         favorite: favorites.contains(preset.id.uuidString),
-                        apply: { addRecent(preset.id); model.applyPreset(preset) },
+                        apply: {
+                            addRecent(preset.id); model.applyPreset(preset)
+                        },
                         toggleFavorite: { toggleFavorite(preset.id) },
                         delete: { model.deletePreset(preset) }
                     )
@@ -60,8 +66,12 @@ struct PresetBrowserView: View {
 
             Divider()
             HStack {
-                Button { model.importPreset() } label: { Label("Import", systemImage: "square.and.arrow.down") }
-                    .buttonStyle(.borderless)
+                Button {
+                    model.importPreset()
+                } label: {
+                    Label("Import", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(.borderless)
                 Spacer()
                 Text("Hover = live preview · Click = apply").font(.caption2).foregroundStyle(.secondary)
             }.padding(.horizontal, 10).frame(height: 38)
@@ -76,8 +86,9 @@ struct PresetBrowserView: View {
                     Button("Cancel") { showingSaveSheet = false }
                     Spacer()
                     Button("Save Preset") {
-                        model.savePreset(name: newName.trimmingCharacters(in: .whitespacesAndNewlines),
-                                         category: newCategory.trimmingCharacters(in: .whitespacesAndNewlines))
+                        model.savePreset(
+                            name: newName.trimmingCharacters(in: .whitespacesAndNewlines),
+                            category: newCategory.trimmingCharacters(in: .whitespacesAndNewlines))
                         newName = ""; showingSaveSheet = false
                     }.buttonStyle(.borderedProminent).disabled(model.selectedImage == nil)
                 }
@@ -103,9 +114,11 @@ struct PresetBrowserView: View {
         case "All": base = model.presets
         default: base = model.presets.filter { $0.category == category }
         }
-        return needle.isEmpty ? base : base.filter {
-            $0.name.localizedCaseInsensitiveContains(needle) || $0.category.localizedCaseInsensitiveContains(needle)
-        }
+        return needle.isEmpty
+            ? base
+            : base.filter {
+                $0.name.localizedCaseInsensitiveContains(needle) || $0.category.localizedCaseInsensitiveContains(needle)
+            }
     }
 
     private func toggleFavorite(_ id: UUID) {
@@ -150,12 +163,16 @@ private struct PresetListRow: View {
                 Divider()
                 Button(favorite ? "Remove Favorite" : "Favorite", action: toggleFavorite)
                 Button("Delete", role: .destructive, action: delete)
-            } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton)
+            } label: {
+                Image(systemName: "ellipsis")
+            }.menuStyle(.borderlessButton)
         }
         .contentShape(Rectangle())
         .padding(.vertical, 3)
         .background(hovering ? StudioPalette.hover.opacity(0.7) : Color.clear)
-        .onTapGesture { hoverTask?.cancel(); apply() }
+        .onTapGesture {
+            hoverTask?.cancel(); apply()
+        }
         .onHover { inside in
             hovering = inside
             hoverTask?.cancel()

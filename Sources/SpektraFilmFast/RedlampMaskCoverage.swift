@@ -14,10 +14,12 @@ import Foundation
 enum RedlampMaskCoverage {
     static func coverage(for grade: LocalGradeRecord, width: Int, height: Int) -> [Float] {
         guard width > 0, height > 0, width <= 16384, height <= 16384,
-              width <= Int.max / height else { return [] }
+            width <= Int.max / height
+        else { return [] }
         let count = width * height
         if grade.masks.sources.isEmpty { return [Float](repeating: 1, count: count) }
-        let sources = grade.masks.sources.filter(\.enabled).map(MaskRasterProcessing.prepared).map(MaskRasterProcessing.depthPrepared)
+        let sources = grade.masks.sources.filter(\.enabled).map(MaskRasterProcessing.prepared).map(
+            MaskRasterProcessing.depthPrepared)
         guard !sources.isEmpty else { return [Float](repeating: 0, count: count) }
 
         var coverage = [Float](repeating: 0, count: count)
@@ -87,10 +89,12 @@ enum RedlampMaskCoverage {
                     let x0 = Int(fx), y0 = Int(fy)
                     let x1 = min(rw - 1, x0 + 1), y1 = min(rh - 1, y0 + 1)
                     let tx = fx - Float(x0), ty = fy - Float(y0)
-                    let a = Float(rasterAlpha[y0 * rw + x0]) * (1 - tx)
-                          + Float(rasterAlpha[y0 * rw + x1]) * tx
-                    let b = Float(rasterAlpha[y1 * rw + x0]) * (1 - tx)
-                          + Float(rasterAlpha[y1 * rw + x1]) * tx
+                    let a =
+                        Float(rasterAlpha[y0 * rw + x0]) * (1 - tx)
+                        + Float(rasterAlpha[y0 * rw + x1]) * tx
+                    let b =
+                        Float(rasterAlpha[y1 * rw + x0]) * (1 - tx)
+                        + Float(rasterAlpha[y1 * rw + x1]) * tx
                     coverage = (a * (1 - ty) + b * ty) / 255
                 }
                 let value = source.inverted ? 1 - coverage : coverage

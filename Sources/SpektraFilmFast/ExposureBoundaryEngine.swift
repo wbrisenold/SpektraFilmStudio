@@ -11,10 +11,13 @@ enum ExposureBoundaryEngine {
         return RedlampFilmEffectsEngine.shared.apply(adjusted, look: look)
     }
 
-    private static func applyBoundary(_ input: PixelBufferF32, look: RenderLook, preferences: AppPreferences) -> PixelBufferF32 {
+    private static func applyBoundary(
+        _ input: PixelBufferF32, look: RenderLook, preferences: AppPreferences
+    ) -> PixelBufferF32 {
         guard (look.tone?.autoContrast ?? false) || (look.filmTone?.autoContrast ?? false),
-              input.width > 0, input.height > 0, input.pixels.count >= 4,
-              SkinToneReference.outputRoleIndex(look) == 0 else { return input }
+            input.width > 0, input.height > 0, input.pixels.count >= 4,
+            SkinToneReference.outputRoleIndex(look) == 0
+        else { return input }
         let space = SkinToneReference.outputSpaceIndex(look)
         guard [14, 15, 16, 17, 18, 22, 23, 24, 25].contains(space) else { return input }
 
@@ -26,9 +29,11 @@ enum ExposureBoundaryEngine {
         lumas.reserveCapacity(min(count, 40_001))
         for i in stride(from: 0, to: count, by: stridePixels) {
             let p = i * 4
-            guard let linear = SkinToneReference.canonicalLinearSRGBUnclamped(
-                r: input.pixels[p], g: input.pixels[p+1], b: input.pixels[p+2], look: look
-            ) else { return input }
+            guard
+                let linear = SkinToneReference.canonicalLinearSRGBUnclamped(
+                    r: input.pixels[p], g: input.pixels[p + 1], b: input.pixels[p + 2], look: look
+                )
+            else { return input }
             let y = 0.2126 * linear.0 + 0.7152 * linear.1 + 0.0722 * linear.2
             if y.isFinite { lumas.append(y) }
         }
@@ -51,7 +56,7 @@ enum ExposureBoundaryEngine {
 
         var output = input.pixels
         for p in stride(from: 0, to: output.count, by: 4) {
-            let native = (Double(output[p]), Double(output[p+1]), Double(output[p+2]))
+            let native = (Double(output[p]), Double(output[p + 1]), Double(output[p + 2]))
             let linear = (decode(native.0, space), decode(native.1, space), decode(native.2, space))
             let y = 0.2126 * linear.0 + 0.7152 * linear.1 + 0.0722 * linear.2
             if !y.isFinite { continue }
@@ -73,8 +78,8 @@ enum ExposureBoundaryEngine {
                 adjusted = (linear.0 + desired, linear.1 + desired, linear.2 + desired)
             }
             output[p] = Float(encode(adjusted.0, space))
-            output[p+1] = Float(encode(adjusted.1, space))
-            output[p+2] = Float(encode(adjusted.2, space))
+            output[p + 1] = Float(encode(adjusted.1, space))
+            output[p + 2] = Float(encode(adjusted.2, space))
             // Preserve alpha.
         }
         return PixelBufferF32(width: input.width, height: input.height, pixels: output)

@@ -24,8 +24,9 @@ enum LightroomDevelopMapper {
             values.merge(parseKeyValues(catalogText)) { _, newer in newer }
         }
         if let sidecarURL,
-           let data = try? Data(contentsOf: sidecarURL, options: .mappedIfSafe),
-           let text = String(data: data, encoding: .utf8) {
+            let data = try? Data(contentsOf: sidecarURL, options: .mappedIfSafe),
+            let text = String(data: data, encoding: .utf8)
+        {
             values.merge(parseKeyValues(text)) { _, newer in newer }
         }
 
@@ -34,7 +35,8 @@ enum LightroomDevelopMapper {
         func number(_ names: String...) -> Double? {
             for name in names {
                 guard let raw = values[name] else { continue }
-                let cleaned = raw
+                let cleaned =
+                    raw
                     .replacingOccurrences(of: "+", with: "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 if let value = Double(cleaned) {
@@ -111,10 +113,11 @@ enum LightroomDevelopMapper {
         // Lightroom crop coordinates are normalized on the upright image.
         var geometry = look.geometry ?? GeometrySettings()
         if let left = number("CropLeft"),
-           let top = number("CropTop"),
-           let right = number("CropRight"),
-           let bottom = number("CropBottom"),
-           right > left, bottom > top {
+            let top = number("CropTop"),
+            let right = number("CropRight"),
+            let bottom = number("CropBottom"),
+            right > left, bottom > top
+        {
             geometry.crop = NormalizedCropRect(
                 x: min(1, max(0, left)),
                 y: min(1, max(0, top)),
@@ -141,11 +144,12 @@ enum LightroomDevelopMapper {
             "Saturation", "Vibrance", "ToneCurve", "HueAdjustment", "SaturationAdjustment",
             "LuminanceAdjustment", "Sharpness", "LuminanceSmoothing", "ColorNoiseReduction",
             "LensProfile", "Perspective", "Upright", "Grain", "PostCropVignette",
-            "ProcessVersion"
+            "ProcessVersion",
         ]
-        let interesting = Set(values.keys.filter { key in
-            interestingPrefixes.contains { key.hasPrefix($0) }
-        })
+        let interesting = Set(
+            values.keys.filter { key in
+                interestingPrefixes.contains { key.hasPrefix($0) }
+            })
         let unmapped = interesting.subtracting(mapped)
 
         return LightroomDevelopMappingResult(
@@ -165,7 +169,8 @@ enum LightroomDevelopMapper {
         }
 
         // Lightroom/Lua-ish table form: Exposure2012 = 0.75 or ["Exposure2012"] = 0.75
-        let luaPattern = #"(?:\[\s*["']([A-Za-z][A-Za-z0-9_]+)["']\s*\]|([A-Za-z][A-Za-z0-9_]+))\s*=\s*(?:["']([^"']*)["']|([+\-]?(?:\d+(?:\.\d*)?|\.\d+)))"#
+        let luaPattern =
+            #"(?:\[\s*["']([A-Za-z][A-Za-z0-9_]+)["']\s*\]|([A-Za-z][A-Za-z0-9_]+))\s*=\s*(?:["']([^"']*)["']|([+\-]?(?:\d+(?:\.\d*)?|\.\d+)))"#
         guard let regex = try? NSRegularExpression(pattern: luaPattern) else { return result }
         let ns = text as NSString
         let range = NSRange(location: 0, length: ns.length)

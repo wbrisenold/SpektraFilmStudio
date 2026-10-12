@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 // Redlamp source audit: RedlampUI/Export/ExportSheet.swift and
 // ExportSheetSections.swift @ 657beb41d148a8f66916123f961e612b95c1a047.
@@ -49,7 +49,9 @@ struct StudioRedlampExportDialog: View {
                 Text("\(model.selectedExportCount) selected")
                     .foregroundStyle(.secondary)
                     .font(.caption.monospacedDigit())
-                Button { choosePhotos = true } label: {
+                Button {
+                    choosePhotos = true
+                } label: {
                     Label("Choose Photos", systemImage: "photo.stack")
                 }
                 .controlSize(.small)
@@ -136,7 +138,8 @@ struct StudioRedlampExportDialog: View {
                     StudioExportPreview(model: model, image: currentPhoto)
                         .padding(18)
                 } else {
-                    ContentUnavailableView("No Photos Selected", systemImage: "photo", description: Text("Choose the photos to export."))
+                    ContentUnavailableView(
+                        "No Photos Selected", systemImage: "photo", description: Text("Choose the photos to export."))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -164,7 +167,9 @@ struct StudioRedlampExportDialog: View {
                         ForEach(ExportPresetCategory.allCases) { category in
                             Section(category.rawValue) {
                                 ForEach(ExportPresetDefinition.all.filter { $0.category == category }) { p in
-                                    Button(p.name) { model.applyExportPreset(p.id); currentPreset = nil }
+                                    Button(p.name) {
+                                        model.applyExportPreset(p.id); currentPreset = nil
+                                    }
                                 }
                             }
                         }
@@ -179,13 +184,16 @@ struct StudioRedlampExportDialog: View {
                             }
                         }
                         Divider()
-                        Button("Save as Preset…") { presetName = ""; showPresetName = true }
+                        Button("Save as Preset…") {
+                            presetName = ""; showPresetName = true
+                        }
                         if let id = currentPreset {
                             Button("Update Current Preset") { updatePreset(id) }
                             Button("Delete Current Preset", role: .destructive) { deletePreset(id) }
                         }
                     } label: {
-                        Text(currentPreset.flatMap { id in userPresets.first(where: { $0.id == id })?.name } ?? "Custom")
+                        Text(
+                            currentPreset.flatMap { id in userPresets.first(where: { $0.id == id })?.name } ?? "Custom")
                     }
                     .fixedSize()
                 }
@@ -193,16 +201,20 @@ struct StudioRedlampExportDialog: View {
             Section("Location") {
                 LabeledContent("Export to") {
                     HStack(spacing: 8) {
-                        Text(model.project.exportSettings.destinationPath.isEmpty
-                             ? "Choose folder" : URL(fileURLWithPath: model.project.exportSettings.destinationPath).lastPathComponent)
-                            .lineLimit(1).truncationMode(.middle)
+                        Text(
+                            model.project.exportSettings.destinationPath.isEmpty
+                                ? "Choose folder"
+                                : URL(fileURLWithPath: model.project.exportSettings.destinationPath).lastPathComponent
+                        )
+                        .lineLimit(1).truncationMode(.middle)
                         Button("Choose…") { model.chooseExportDestination() }
                             .controlSize(.small)
                     }
                 }
                 TextField("File name", text: settings.filenameTemplate)
-                Stepper("Sequence starts at \(model.project.exportSettings.sequenceStart)",
-                        value: settings.sequenceStart, in: 1...999999)
+                Stepper(
+                    "Sequence starts at \(model.project.exportSettings.sequenceStart)",
+                    value: settings.sequenceStart, in: 1...999999)
             }
             Section("File") {
                 Picker("Format", selection: settings.format) {
@@ -332,12 +344,21 @@ private struct StudioExportPhotoPicker: View {
             TextField("Search photos", text: $search)
                 .textFieldStyle(.roundedBorder).padding(.horizontal, 14)
             List {
-                ForEach(model.project.images.filter { search.isEmpty || $0.fileName.localizedCaseInsensitiveContains(search) }) { photo in
+                ForEach(
+                    model.project.images.filter {
+                        search.isEmpty || $0.fileName.localizedCaseInsensitiveContains(search)
+                    }
+                ) { photo in
                     HStack(spacing: 8) {
-                        Toggle("", isOn: Binding(
-                            get: { model.project.images.first(where: { $0.id == photo.id })?.selectedForExport ?? false },
-                            set: { _ in model.toggleExportSelection(photo.id) }
-                        )).labelsHidden().disabled(model.isExporting)
+                        Toggle(
+                            "",
+                            isOn: Binding(
+                                get: {
+                                    model.project.images.first(where: { $0.id == photo.id })?.selectedForExport ?? false
+                                },
+                                set: { _ in model.toggleExportSelection(photo.id) }
+                            )
+                        ).labelsHidden().disabled(model.isExporting)
                         LocalThumbnail(url: model.thumbnailURL(for: photo), contentMode: .fit)
                             .frame(width: 50, height: 39)
                         Button(photo.fileName) { model.selectLibraryImage(photo.id) }

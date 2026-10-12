@@ -1,5 +1,5 @@
-import Foundation
 import CSpektraStudioCore
+import Foundation
 
 enum SpektraStudioCore {
     static let abiVersion = Int(sf_core_abi_version())

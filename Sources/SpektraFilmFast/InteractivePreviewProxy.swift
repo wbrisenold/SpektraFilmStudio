@@ -1,5 +1,5 @@
-import Foundation
 import Accelerate
+import Foundation
 
 /// Pointer-rate visual feedback that never enters the native spectral renderer.
 ///
@@ -25,10 +25,12 @@ enum InteractivePreviewProxy {
             let after = targetLook.raw
             switch rawField {
             case .temperature:
-                let beforeMired = before.whiteBalanceMode == .custom
+                let beforeMired =
+                    before.whiteBalanceMode == .custom
                     ? 1_000_000.0 / max(1667.0, min(50000.0, before.temperature))
                     : (before.temperatureOffsetMired ?? 0)
-                let afterMired = after.whiteBalanceMode == .custom
+                let afterMired =
+                    after.whiteBalanceMode == .custom
                     ? 1_000_000.0 / max(1667.0, min(50000.0, after.temperature))
                     : (after.temperatureOffsetMired ?? 0)
                 let delta = max(-120.0, min(120.0, afterMired - beforeMired))
@@ -43,7 +45,8 @@ enum InteractivePreviewProxy {
 
         if let name = changedParameter {
             if name == "rawDevelopExposure" {
-                return baseline.pointTransform(exposureStops: targetLook.raw.developExposureEV - baselineLook.raw.developExposureEV)
+                return baseline.pointTransform(
+                    exposureStops: targetLook.raw.developExposureEV - baselineLook.raw.developExposureEV)
             }
             let beforeTone = baselineLook.tone ?? ToneSettings()
             let afterTone = targetLook.tone ?? ToneSettings()
@@ -55,9 +58,11 @@ enum InteractivePreviewProxy {
             case "hostMidtones":
                 return baseline.pointTransform(exposureStops: (afterTone.midtones - beforeTone.midtones) / 160.0)
             case "hostHighlightRecovery":
-                return baseline.pointTransform(highlightDelta: -(afterTone.highlightRecovery - beforeTone.highlightRecovery) / 145.0)
+                return baseline.pointTransform(
+                    highlightDelta: -(afterTone.highlightRecovery - beforeTone.highlightRecovery) / 145.0)
             case "hostShadowRecovery":
-                return baseline.pointTransform(shadowDelta: (afterTone.shadowRecovery - beforeTone.shadowRecovery) / 145.0)
+                return baseline.pointTransform(
+                    shadowDelta: (afterTone.shadowRecovery - beforeTone.shadowRecovery) / 145.0)
             case "hostWhitePoint":
                 return baseline.pointTransform(highlightDelta: (afterTone.whitePoint - beforeTone.whitePoint) / 145.0)
             case "hostBlackPoint":
@@ -98,11 +103,13 @@ enum InteractivePreviewProxy {
                 let key = String(name.dropFirst("filmStockShape.".count))
                 switch key {
                 case "brightness":
-                    return baseline.pointTransform(exposureStops: (afterFilm.brightness - beforeFilm.brightness) / 125.0)
+                    return baseline.pointTransform(
+                        exposureStops: (afterFilm.brightness - beforeFilm.brightness) / 125.0)
                 case "contrast":
                     return baseline.pointTransform(contrastDelta: (afterFilm.contrast - beforeFilm.contrast) / 125.0)
                 case "highlights":
-                    return baseline.pointTransform(highlightDelta: (afterFilm.highlights - beforeFilm.highlights) / 72.0)
+                    return baseline.pointTransform(
+                        highlightDelta: (afterFilm.highlights - beforeFilm.highlights) / 72.0)
                 case "shadows":
                     return baseline.pointTransform(shadowDelta: (afterFilm.shadows - beforeFilm.shadows) / 72.0)
                 case "whites":
@@ -110,9 +117,11 @@ enum InteractivePreviewProxy {
                 case "blacks":
                     return baseline.pointTransform(shadowDelta: (afterFilm.blacks - beforeFilm.blacks) / 90.0)
                 case "highlightRecovery":
-                    return baseline.pointTransform(highlightDelta: -(afterFilm.highlightRecovery - beforeFilm.highlightRecovery) / 135.0)
+                    return baseline.pointTransform(
+                        highlightDelta: -(afterFilm.highlightRecovery - beforeFilm.highlightRecovery) / 135.0)
                 case "shadowRecovery":
-                    return baseline.pointTransform(shadowDelta: (afterFilm.shadowRecovery - beforeFilm.shadowRecovery) / 135.0)
+                    return baseline.pointTransform(
+                        shadowDelta: (afterFilm.shadowRecovery - beforeFilm.shadowRecovery) / 135.0)
                 default:
                     break
                 }
@@ -126,9 +135,10 @@ enum InteractivePreviewProxy {
         }
 
         guard let name = changedParameter,
-              let before = baselineLook.values[name],
-              let after = targetLook.values[name],
-              before != after else { return baseline }
+            let before = baselineLook.values[name],
+            let after = targetLook.values[name],
+            before != after
+        else { return baseline }
 
         let descriptor = descriptorByName[name]
         let group = descriptor?.group ?? ""
@@ -217,7 +227,7 @@ enum InteractivePreviewProxy {
         case .int(let v): return Double(v)
         case .bool(let v): return v ? 1 : 0
         case .vector2(let x, let y): return hypot(x, y)
-        case .vector3(let x, let y, let z): return sqrt(x*x + y*y + z*z)
+        case .vector3(let x, let y, let z): return sqrt(x * x + y * y + z * z)
         }
     }
 
@@ -412,7 +422,8 @@ private extension PixelBufferF32 {
         let error: vImage_Error = pixels.withUnsafeBytes { sourceBytes in
             out.withUnsafeMutableBytes { destinationBytes in
                 guard let sourceBase = sourceBytes.baseAddress,
-                      let destinationBase = destinationBytes.baseAddress else {
+                    let destinationBase = destinationBytes.baseAddress
+                else {
                     return vImage_Error(kvImageNullPointerArgument)
                 }
                 var source = vImage_Buffer(

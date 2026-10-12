@@ -1,10 +1,10 @@
-import Foundation
-import CoreImage
 import CoreGraphics
-import Metal
+import CoreImage
+import Foundation
 import ImageIO
-import UniformTypeIdentifiers
+import Metal
 import RawSpeedBridge
+import UniformTypeIdentifiers
 
 struct DecodeKey: Hashable, Sendable {
     var path: String
@@ -62,6 +62,12 @@ actor ImageDecoder {
     private var cacheHits = 0
     private var cacheMisses = 0
 
+    nonisolated static let sharedCIContext: CIContext = {
+        let options: [CIContextOption: Any] = [.cacheIntermediates: true, .useSoftwareRenderer: false]
+        if let device = StudioGPUDevice.shared { return CIContext(mtlDevice: device, options: options) }
+        return CIContext(options: options)
+    }()
+
     func decode(
         url: URL,
         longEdge: Int,
@@ -106,19 +112,21 @@ actor ImageDecoder {
         // This is the important app-relaunch / RAM-eviction speed path: revisit a photo and
         // the expensive CIRAWFilter stage can be skipped entirely.
         if longEdge != Int.max,
-           let disk = await developedDiskCache.buffer(
-            url: url,
-            raw: raw,
-            longEdge: longEdge,
-            bypassImportTransform: bypassImportTransform
-           ) {
+            let disk = await developedDiskCache.buffer(
+                url: url,
+                raw: raw,
+                longEdge: longEdge,
+                bypassImportTransform: bypassImportTransform
+            )
+        {
             try Task.checkCancellation()
             insert(disk, key: key, mode: cacheMode)
             return disk
         }
 
         cacheMisses += 1
-        let autoNeutral = raw.whiteBalanceMode == .auto
+        let autoNeutral =
+            raw.whiteBalanceMode == .auto
             ? await resolvedAutoNeutralLocation(url: url, lensCorrection: raw.lensCorrection)
             : nil
         let box = contextBox
@@ -162,7 +170,6 @@ actor ImageDecoder {
         }
     }
 
-
     func decodeInteractiveWhiteBalance(
         url: URL,
         longEdge: Int,
@@ -200,15 +207,19 @@ actor ImageDecoder {
     /// Decode the SAME camera-space CIRAWFilter chain directly into a GPU texture.
     /// No toBitmap, CPU float array or Core Image software rendering is used.
     /// Unsupported non-RAW / working-space Auto WB is NOT silently approximated.
-    func decodeMetal(url: URL, longEdge: Int, raw: RawSettings,
-                     bypassImportTransform: Bool, gpu: GPULiveDevice) async throws -> MetalDevelopedRAW {
+    func decodeMetal(
+        url: URL, longEdge: Int, raw: RawSettings,
+        bypassImportTransform: Bool, gpu: GPULiveDevice
+    ) async throws -> MetalDevelopedRAW {
         try Task.checkCancellation()
-        let autoNeutral = raw.whiteBalanceMode == .auto
+        let autoNeutral =
+            raw.whiteBalanceMode == .auto
             ? await resolvedAutoNeutralLocation(url: url, lensCorrection: raw.lensCorrection)
             : nil
-        let source = try Self.sourceImage(url: url, raw: raw,
-                                          draft: longEdge <= 1024,
-                                          autoNeutralLocation: autoNeutral)
+        let source = try Self.sourceImage(
+            url: url, raw: raw,
+            draft: longEdge <= 1024,
+            autoNeutralLocation: autoNeutral)
         // Non-RAW as-shot images already carry a decoded color profile. The
         // CIContext converts them to scene-linear Rec.2020 without asking a
         // missing CIRAWFilter for camera-space WB. Custom/Auto WB still needs
@@ -218,37 +229,42 @@ actor ImageDecoder {
         }
         let extent = source.image.extent.integral
         guard extent.width.isFinite, extent.height.isFinite,
-              extent.width > 0, extent.height > 0,
-              longEdge > 0 && longEdge <= 2048 else {
+            extent.width > 0, extent.height > 0,
+            longEdge > 0 && longEdge <= 2048
+        else {
             throw GPULiveError.unavailable("unsafe GPU decode dimensions")
         }
         let scale = min(1, CGFloat(longEdge) / max(extent.width, extent.height))
-        let translated = source.image.transformed(by: CGAffineTransform(
-            translationX: -extent.minX, y: -extent.minY))
+        let translated = source.image.transformed(
+            by: CGAffineTransform(
+                translationX: -extent.minX, y: -extent.minY))
         let scaled = translated.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let width = max(1, Int((extent.width * scale).rounded()))
         let height = max(1, Int((extent.height * scale).rounded()))
         guard width <= 2048, height <= 2048 else {
             throw GPULiveError.unavailable("GPU preview exceeds 2048 px")
         }
-        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba32Float,
-                       width: width, height: height, mipmapped: false)
+        let d = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba32Float,
+            width: width, height: height, mipmapped: false)
         d.usage = [.renderTarget, .shaderRead]
         d.storageMode = .private
         guard let texture = gpu.device.makeTexture(descriptor: d),
-              let command = gpu.queue.makeCommandBuffer() else {
+            let command = gpu.queue.makeCommandBuffer()
+        else {
             throw GPULiveError.unavailable("GPU RAW development allocation failed")
         }
         let colorSpace = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
-        gpu.context.render(scaled, to: texture, commandBuffer: command,
-                           bounds: CGRect(x: 0, y: 0, width: width, height: height),
-                           colorSpace: colorSpace)
+        gpu.context.render(
+            scaled, to: texture, commandBuffer: command,
+            bounds: CGRect(x: 0, y: 0, width: width, height: height),
+            colorSpace: colorSpace)
         command.commit()
         // The queue guarantees GPU ordering; do not block for the RAW command.
-try Task.checkCancellation()
+        try Task.checkCancellation()
         return MetalDevelopedRAW(texture: texture, width: width, height: height)
     }
-    
+
     /// Decode RAW using RawSpeed (libraw) for scene-referred pipeline.
     /// Returns linear, scene-referred, camera RGB data in Rec.2020 primaries.
     /// This bypasses CIRAWFilter entirely and matches Darktable's RawSpeed path.
@@ -265,24 +281,25 @@ try Task.checkCancellation()
             touch(key)
             return existing
         }
-        
+
         if let existing = inFlight[key] {
             return try await existing.value
         }
-        
+
         // Check persistent disk cache first
         if longEdge != Int.max,
-           let disk = await developedDiskCache.buffer(
-               url: url,
-               raw: raw,
-               longEdge: longEdge,
-               bypassImportTransform: bypassImportTransform
-           ) {
+            let disk = await developedDiskCache.buffer(
+                url: url,
+                raw: raw,
+                longEdge: longEdge,
+                bypassImportTransform: bypassImportTransform
+            )
+        {
             try Task.checkCancellation()
             insert(disk, key: key, mode: cacheMode)
             return disk
         }
-        
+
         cacheMisses += 1
         let task = Task.detached(priority: .userInitiated) {
             try Task.checkCancellation()
@@ -320,7 +337,7 @@ try Task.checkCancellation()
             throw error
         }
     }
-    
+
     /// Synchronous RawSpeed decode for background thread.
     private nonisolated static func decodeRawSpeedSync(
         url: URL,
@@ -334,22 +351,24 @@ try Task.checkCancellation()
             throw mapRawSpeedError(error)
         }
         defer { RawSpeedDecoderDestroy(decoderRef) }
-        
+
         // Get metadata
         var cMeta = RawSpeedBridge.RawSpeedMetadata()
         let metaError = RawSpeedDecoderGetMetadata(decoderRef, &cMeta)
         guard metaError == RawSpeedError_None else {
-            throw NSError(domain: "RawSpeed", code: Int(metaError.rawValue),
-                         userInfo: [NSLocalizedDescriptionKey: "Failed to get RAW metadata"])
+            throw NSError(
+                domain: "RawSpeed", code: Int(metaError.rawValue),
+                userInfo: [NSLocalizedDescriptionKey: "Failed to get RAW metadata"])
         }
         let meta = RawSpeedMetadata(from: cMeta)
-        
+
         // Check camera support
         guard meta.cameraSupported else {
-            throw NSError(domain: "RawSpeed", code: 6,
-                         userInfo: [NSLocalizedDescriptionKey: "Camera not supported by RawSpeed"])
+            throw NSError(
+                domain: "RawSpeed", code: 6,
+                userInfo: [NSLocalizedDescriptionKey: "Camera not supported by RawSpeed"])
         }
-        
+
         // Decode RAW to linear float buffer
         var cRawImage = RawSpeedBridge.RawSpeedImage()
         let decodeError = RawSpeedDecoderDecode(decoderRef, &cRawImage)
@@ -360,43 +379,45 @@ try Task.checkCancellation()
         defer {
             rawImage.freeCMemory()
         }
-        
-        // Apply camera-space white balance if not "as shot"
-        var baseTemperature: Double?
-        var baseTint: Double?
-        var cameraSpaceWBApplied = false
-        
-        if raw.whiteBalanceMode != .asShot {
-            // Get WB coeffs from metadata
-            let wbCoeffs = meta.wbCoeffs
-            baseTemperature = Double(wbCoeffs[0]) // Approximate
-            baseTint = Double(wbCoeffs[1])
-            cameraSpaceWBApplied = true
-        }
-        
+
+        // Camera-space white balance is applied later in the pixelpipe; nothing to do
+        // here when the request is not "as shot".
+
         // Convert to PixelBufferF32
         let width = rawImage.width
         let height = rawImage.height
         let channels = rawImage.channels
-        
+
         guard width > 0, height > 0, channels >= 1 else {
-            throw NSError(domain: "RawSpeed", code: 3,
-                         userInfo: [NSLocalizedDescriptionKey: "Invalid RAW dimensions"])
+            throw NSError(
+                domain: "RawSpeed", code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "Invalid RAW dimensions"])
         }
-        
+
         // For Bayer (1 channel), we need to demosaic
-        // For now, return the raw Bayer data as single-channel
-        // The scene-referred pipeline will handle demosaicing separately
-        var floats: [Float]
-        if channels == 1 {
-            // Single channel Bayer - expand to 4 channels for consistency
-            // The demosaic module will interpolate RGB
-            floats = rawImage.data
-        } else {
-            // sRAW or processed - already has RGB
-            floats = rawImage.data
+        // libRaw hands back 1 channel for Bayer and 3-4 for sRAW. PixelBufferF32 promises
+        // 4 channels, so normalise once here rather than per exit path -- the scaled and
+        // unscaled paths drifted apart and the scaled one silently returned short data.
+        let floats = rawImage.data
+
+        /// Normalise decoded channel data to the RGBA layout PixelBufferF32 promises.
+        /// Fewer than 3 channels (Bayer) carries its samples in R only, matching the
+        /// pre-demosaic representation the scene-referred modules expect.
+        func expandToRGBA(_ src: [Float], channels: Int, width: Int, height: Int) -> [Float] {
+            guard channels != 4 else { return src }
+            var rgba = [Float](repeating: 0, count: width * height * 4)
+            for i in 0..<(width * height) {
+                let s = i * channels
+                rgba[i * 4] = s < src.count ? src[s] : 0
+                if channels >= 3 {
+                    rgba[i * 4 + 1] = s + 1 < src.count ? src[s + 1] : 0
+                    rgba[i * 4 + 2] = s + 2 < src.count ? src[s + 2] : 0
+                }
+                rgba[i * 4 + 3] = 1.0
+            }
+            return rgba
         }
-        
+
         // Scale if needed
         let scaled: [Float]
         if longEdge != Int.max && max(width, height) > longEdge {
@@ -404,65 +425,147 @@ try Task.checkCancellation()
             let newWidth = max(1, Int(CGFloat(width) * scale))
             let newHeight = max(1, Int(CGFloat(height) * scale))
             // Use vImage for fast scaling
-            scaled = try scaleBuffer(floats, width: width, height: height, channels: max(channels, 1),
-                                   newWidth: newWidth, newHeight: newHeight)
-            return PixelBufferF32(width: newWidth, height: newHeight, pixels: scaled)
+            scaled = try scaleBuffer(
+                floats, width: width, height: height, channels: max(channels, 1),
+                newWidth: newWidth, newHeight: newHeight)
+            return PixelBufferF32(
+                width: newWidth, height: newHeight,
+                pixels: expandToRGBA(
+                    scaled, channels: channels,
+                    width: newWidth, height: newHeight))
         } else {
-            // Pad to 4 channels if needed
-            if channels == 1 {
-                // Expand single channel to RGBA (R=raw, G=0, B=0, A=1)
-                var rgba = [Float](repeating: 0, count: width * height * 4)
-                for i in 0..<(width * height) {
-                    rgba[i * 4] = floats[i]
-                    rgba[i * 4 + 3] = 1.0
-                }
-                return PixelBufferF32(width: width, height: height, pixels: rgba)
-            } else if channels == 3 {
-                var rgba = [Float](repeating: 0, count: width * height * 4)
-                for i in 0..<(width * height) {
-                    rgba[i * 4] = floats[i * 3]
-                    rgba[i * 4 + 1] = floats[i * 3 + 1]
-                    rgba[i * 4 + 2] = floats[i * 3 + 2]
-                    rgba[i * 4 + 3] = 1.0
-                }
-                return PixelBufferF32(width: width, height: height, pixels: rgba)
-            } else {
-                return PixelBufferF32(width: width, height: height, pixels: floats)
-            }
+            return PixelBufferF32(
+                width: width, height: height,
+                pixels: expandToRGBA(
+                    floats, channels: channels,
+                    width: width, height: height))
         }
     }
-    
+
+    /// Decode RAW to the single-channel CFA mosaic the pixelpipe modules operate on.
+    ///
+    /// Unlike ``decodeRawSpeedSync`` this never expands to RGBA: the scene-referred
+    /// modules need one sample per sensor site, and packing Bayer into the R channel
+    /// of an RGBA buffer is what made the module chain dead code.
+    nonisolated static func decodeRawSpeedMosaic(
+        url: URL,
+        longEdge: Int = Int.max
+    ) throws -> (mosaic: RawMosaicF32, metadata: RawSpeedMetadata) {
+        var error: RawSpeedError = RawSpeedError_None
+        guard let decoderRef = RawSpeedDecoderCreate(url.path, &error) else {
+            throw mapRawSpeedError(error)
+        }
+        defer { RawSpeedDecoderDestroy(decoderRef) }
+
+        var cMeta = RawSpeedBridge.RawSpeedMetadata()
+        guard RawSpeedDecoderGetMetadata(decoderRef, &cMeta) == RawSpeedError_None else {
+            throw NSError(
+                domain: "RawSpeed", code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to get RAW metadata"])
+        }
+        let meta = RawSpeedMetadata(from: cMeta)
+        guard meta.cameraSupported else {
+            throw NSError(
+                domain: "RawSpeed", code: 6,
+                userInfo: [NSLocalizedDescriptionKey: "Camera not supported by RawSpeed"])
+        }
+
+        var cRawImage = RawSpeedBridge.RawSpeedImage()
+        let decodeError = RawSpeedDecoderDecode(decoderRef, &cRawImage)
+        guard decodeError == RawSpeedError_None else { throw mapRawSpeedError(decodeError) }
+        let rawImage = RawSpeedImage(from: cRawImage)
+        defer { rawImage.freeCMemory() }
+
+        let width = rawImage.width
+        let height = rawImage.height
+        let channels = rawImage.channels
+        guard width > 0, height > 0, channels >= 1 else {
+            throw NSError(
+                domain: "RawSpeed", code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "Invalid RAW dimensions"])
+        }
+
+        // Nearest-neighbour downscaling keeps each output sample on the same CFA
+        // site as its source; bilinear would blend neighbouring photosites and
+        // corrupt the pattern the demosaic and hotpixel modules rely on.
+        let samples: [Float]
+        let outW: Int
+        let outH: Int
+        if longEdge != Int.max && max(width, height) > longEdge {
+            let scale = CGFloat(longEdge) / CGFloat(max(width, height))
+            outW = max(1, Int(CGFloat(width) * scale))
+            outH = max(1, Int(CGFloat(height) * scale))
+            var scaled = [Float](repeating: 0, count: outW * outH * channels)
+            for y in 0..<outH {
+                let sy = min(height - 1, Int(CGFloat(y) / scale))
+                for x in 0..<outW {
+                    let sx = min(width - 1, Int(CGFloat(x) / scale))
+                    for c in 0..<channels {
+                        scaled[(y * outW + x) * channels + c] =
+                            rawImage.data[(sy * width + sx) * channels + c]
+                    }
+                }
+            }
+            samples = scaled
+        } else {
+            samples = rawImage.data
+            outW = width
+            outH = height
+        }
+
+        let mosaic = RawMosaicF32(
+            width: outW, height: outH,
+            pixels: channels == 1 ? samples : Array(samples[0..<(outW * outH)]),
+            filters: meta.filters,
+            xtrans: meta.xtrans.isEmpty ? nil : meta.xtrans,
+            blackLevel: meta.rawBlackLevelSeparate,
+            whiteLevel: meta.rawWhitePoint,
+            cfaPhase: CFAPhase.fromFilters(meta.filters),
+            orientation: Int(meta.orientation))
+        return (mosaic, meta)
+    }
+
     private nonisolated static func mapRawSpeedError(_ error: RawSpeedError) -> Error {
         switch error {
         case RawSpeedError_UnsupportedFormat:
-            return NSError(domain: "RawSpeed", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "Unsupported RAW format"])
+            return NSError(
+                domain: "RawSpeed", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Unsupported RAW format"])
         case RawSpeedError_LoadFailed:
-            return NSError(domain: "RawSpeed", code: 2,
-                          userInfo: [NSLocalizedDescriptionKey: "Failed to load RAW file"])
+            return NSError(
+                domain: "RawSpeed", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to load RAW file"])
         case RawSpeedError_UnsupportedFeature:
-            return NSError(domain: "RawSpeed", code: 3,
-                          userInfo: [NSLocalizedDescriptionKey: "Unsupported feature"])
+            return NSError(
+                domain: "RawSpeed", code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "Unsupported feature"])
         case RawSpeedError_FileCorrupted:
-            return NSError(domain: "RawSpeed", code: 4,
-                          userInfo: [NSLocalizedDescriptionKey: "RAW file corrupted"])
+            return NSError(
+                domain: "RawSpeed", code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "RAW file corrupted"])
         case RawSpeedError_Memory:
-            return NSError(domain: "RawSpeed", code: 5,
-                          userInfo: [NSLocalizedDescriptionKey: "Out of memory"])
+            return NSError(
+                domain: "RawSpeed", code: 5,
+                userInfo: [NSLocalizedDescriptionKey: "Out of memory"])
         case RawSpeedError_CameraNotSupported:
-            return NSError(domain: "RawSpeed", code: 6,
-                          userInfo: [NSLocalizedDescriptionKey: "Camera not supported"])
+            return NSError(
+                domain: "RawSpeed", code: 6,
+                userInfo: [NSLocalizedDescriptionKey: "Camera not supported"])
         case RawSpeedError_Internal:
-            return NSError(domain: "RawSpeed", code: 7,
-                          userInfo: [NSLocalizedDescriptionKey: "Internal RawSpeed error"])
+            return NSError(
+                domain: "RawSpeed", code: 7,
+                userInfo: [NSLocalizedDescriptionKey: "Internal RawSpeed error"])
         default:
-            return NSError(domain: "RawSpeed", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "Unknown RawSpeed error"])
+            return NSError(
+                domain: "RawSpeed", code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Unknown RawSpeed error"])
         }
     }
-    
-    private nonisolated static func scaleBuffer(_ input: [Float], width: Int, height: Int, channels: Int,
-                                              newWidth: Int, newHeight: Int) throws -> [Float] {
+
+    private nonisolated static func scaleBuffer(
+        _ input: [Float], width: Int, height: Int, channels: Int,
+        newWidth: Int, newHeight: Int
+    ) throws -> [Float] {
         // Use vImage for fast scaling
         var output = [Float](repeating: 0, count: newWidth * newHeight * 4)
         // Simplified: just use CPU scaling for now
@@ -476,7 +579,7 @@ try Task.checkCancellation()
                 let x0 = Int(srcX)
                 let x1 = min(x0 + 1, width - 1)
                 let fx = srcX - Float(x0)
-                
+
                 let dstIdx = (y * newWidth + x) * 4
                 for c in 0..<min(channels, 4) {
                     let srcIdx = (y0 * width + x0) * channels + c
@@ -484,9 +587,8 @@ try Task.checkCancellation()
                     let v01 = input[(y0 * width + x1) * channels + c]
                     let v10 = input[(y1 * width + x0) * channels + c]
                     let v11 = input[(y1 * width + x1) * channels + c]
-                    
-                    let interp = v00 * (1 - fx) * (1 - fy) + v01 * fx * (1 - fy) +
-                                v10 * (1 - fx) * fy + v11 * fx * fy
+
+                    let interp = v00 * (1 - fx) * (1 - fy) + v01 * fx * (1 - fy) + v10 * (1 - fx) * fy + v11 * fx * fy
                     output[dstIdx + c] = interp
                 }
                 output[dstIdx + 3] = 1.0
@@ -494,9 +596,10 @@ try Task.checkCancellation()
         }
         return output
     }
-    
+
     func fullResolution(url: URL, raw: RawSettings, bypassImportTransform: Bool) async throws -> PixelBufferF32 {
-        let autoNeutral = raw.whiteBalanceMode == .auto
+        let autoNeutral =
+            raw.whiteBalanceMode == .auto
             ? await resolvedAutoNeutralLocation(url: url, lensCorrection: raw.lensCorrection)
             : nil
         let box = contextBox
@@ -521,7 +624,8 @@ try Task.checkCancellation()
 
     func autoWhiteBalanceResolution(url: URL, lensCorrection: Bool) async -> AutoWhiteBalanceResolution {
         if CIRAWFilter(imageURL: url) != nil,
-           let location = await resolvedAutoNeutralLocation(url: url, lensCorrection: lensCorrection) {
+            let location = await resolvedAutoNeutralLocation(url: url, lensCorrection: lensCorrection)
+        {
             return AutoWhiteBalanceResolution(
                 method: .cameraNeutral,
                 neutralX: location.x,
@@ -535,7 +639,8 @@ try Task.checkCancellation()
         if raw.whiteBalanceMode == .custom {
             return WhiteBalanceReference(temperature: raw.temperature, tint: raw.tint)
         }
-        let autoNeutral = raw.whiteBalanceMode == .auto
+        let autoNeutral =
+            raw.whiteBalanceMode == .auto
             ? await resolvedAutoNeutralLocation(url: url, lensCorrection: raw.lensCorrection)
             : nil
         return await Task.detached(priority: .utility) {
@@ -576,7 +681,9 @@ try Task.checkCancellation()
         await developedDiskCache.invalidate(url: url)
     }
 
-    func prefetch(url: URL, longEdge: Int, raw: RawSettings, bypassImportTransform: Bool, cacheMode: PreviewCacheMemoryMode) async {
+    func prefetch(
+        url: URL, longEdge: Int, raw: RawSettings, bypassImportTransform: Bool, cacheMode: PreviewCacheMemoryMode
+    ) async {
         _ = try? await decode(
             url: url,
             longEdge: longEdge,
@@ -627,11 +734,13 @@ try Task.checkCancellation()
 
         let outExtent = scaled.extent.integral
         guard outExtent.width.isFinite, outExtent.height.isFinite,
-              outExtent.width > 0, outExtent.height > 0,
-              outExtent.width <= 16384, outExtent.height <= 16384,
-              outExtent.width * outExtent.height * 16 <= Double(ProcessInfo.processInfo.physicalMemory) / 3 else {
-            throw NSError(domain: "SpektraFilm.Decode", code: 3,
-                          userInfo: [NSLocalizedDescriptionKey: "Photo dimensions exceed the safe decoding memory limit."])
+            outExtent.width > 0, outExtent.height > 0,
+            outExtent.width <= 16384, outExtent.height <= 16384,
+            outExtent.width * outExtent.height * 16 <= Double(ProcessInfo.processInfo.physicalMemory) / 3
+        else {
+            throw NSError(
+                domain: "SpektraFilm.Decode", code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "Photo dimensions exceed the safe decoding memory limit."])
         }
         let width = max(1, Int(outExtent.width.rounded()))
         let height = max(1, Int(outExtent.height.rounded()))
@@ -729,7 +838,8 @@ try Task.checkCancellation()
             rawFilter.extendedDynamicRangeAmount = Float(min(2, max(0, raw.developHighlightHeadroom)))
 
             let rawCurve = ToneCurveMath.normalize(raw.developCurvePoints)
-            let identityCurve = rawCurve.count == 2
+            let identityCurve =
+                rawCurve.count == 2
                 && abs(rawCurve[0].x) < 1e-9 && abs(rawCurve[0].y) < 1e-9
                 && abs(rawCurve[1].x - 1) < 1e-9 && abs(rawCurve[1].y - 1) < 1e-9
             if !identityCurve, let curveFilter = CIFilter(name: "CIToneCurve") {
@@ -755,10 +865,14 @@ try Task.checkCancellation()
                 )
             }
         }
-        guard let image = CIImage(contentsOf: url, options: [
-            .applyOrientationProperty: true,
-            .cacheImmediately: false
-        ]) else {
+        guard
+            let image = CIImage(
+                contentsOf: url,
+                options: [
+                    .applyOrientationProperty: true,
+                    .cacheImmediately: false,
+                ])
+        else {
             throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: url.path])
         }
         return SourceImageResult(
@@ -788,7 +902,8 @@ try Task.checkCancellation()
 
     private func autoNeutralKey(url: URL, lensCorrection: Bool) -> String {
         let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-        return "\(url.path)|\(values?.fileSize ?? 0)|\(values?.contentModificationDate?.timeIntervalSince1970 ?? 0)|\(lensCorrection)"
+        return
+            "\(url.path)|\(values?.fileSize ?? 0)|\(values?.contentModificationDate?.timeIntervalSince1970 ?? 0)|\(lensCorrection)"
     }
 
     /// Finds a plausible neutral patch on a small draft decode, then asks CIRAWFilter to
@@ -811,10 +926,12 @@ try Task.checkCancellation()
 
         let extent = image.extent.integral
         guard extent.width.isFinite, extent.height.isFinite,
-              extent.width > 2, extent.height > 2 else { return nil }
+            extent.width > 2, extent.height > 2
+        else { return nil }
         let target = 256.0
         let scale = min(1.0, target / max(extent.width, extent.height))
-        let normalized = image
+        let normalized =
+            image
             .transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
             .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let width = max(1, Int((extent.width * scale).rounded()))
@@ -887,15 +1004,15 @@ try Task.checkCancellation()
         )
     }
 
-
     private func reusableInFlightTask(for requested: DecodeKey) -> (key: DecodeKey, task: Task<PixelBufferF32, Error>)? {
         var best: (DecodeKey, Task<PixelBufferF32, Error>)?
         var bestRequestedLongEdge = Int.max
         for (candidateKey, task) in inFlight {
             guard candidateKey.path == requested.path,
-                  candidateKey.raw == requested.raw,
-                  candidateKey.bypassImportTransform == requested.bypassImportTransform,
-                  candidateKey.longEdge >= requested.longEdge else { continue }
+                candidateKey.raw == requested.raw,
+                candidateKey.bypassImportTransform == requested.bypassImportTransform,
+                candidateKey.longEdge >= requested.longEdge
+            else { continue }
             if candidateKey.longEdge < bestRequestedLongEdge {
                 best = (candidateKey, task)
                 bestRequestedLongEdge = candidateKey.longEdge
@@ -909,9 +1026,10 @@ try Task.checkCancellation()
         var bestRequestedLongEdge = Int.max
         for (candidateKey, candidateBuffer) in cache {
             guard candidateKey.path == requested.path,
-                  candidateKey.raw == requested.raw,
-                  candidateKey.bypassImportTransform == requested.bypassImportTransform,
-                  candidateKey.longEdge >= requested.longEdge else { continue }
+                candidateKey.raw == requested.raw,
+                candidateKey.bypassImportTransform == requested.bypassImportTransform,
+                candidateKey.longEdge >= requested.longEdge
+            else { continue }
             // Compare the requested decode sizes rather than actual pixel dimensions: a
             // physically small source may be below both sizes but the larger decode is still
             // already the best data that exists for that file.
@@ -929,7 +1047,8 @@ try Task.checkCancellation()
         cacheBytes += byteCount(value)
         touch(key)
         let normalBudget = CacheBudget.decodedBytes(mode: mode)
-        let budget = pressureConstrained ? min(normalBudget, CacheBudget.decodedBytes(mode: .conservative)) : normalBudget
+        let budget =
+            pressureConstrained ? min(normalBudget, CacheBudget.decodedBytes(mode: .conservative)) : normalBudget
         trim(to: budget)
     }
 

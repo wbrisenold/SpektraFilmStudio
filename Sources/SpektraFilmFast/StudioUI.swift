@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 // Inspired by Redlamp's neutral, color-accurate editing surfaces and its compact
 // macOS 26 workspace system. Original SpektraFilmStudio adaptation; no Redlamp source
@@ -209,7 +209,9 @@ struct StudioSelectionOutline: ViewModifier {
             .background(selected ? StudioPalette.selected : Color.clear, in: RoundedRectangle(cornerRadius: 8))
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(selected ? StudioPalette.selectedBorder : StudioPalette.subtleBorder, lineWidth: selected ? 1 : 0.5)
+                    .stroke(
+                        selected ? StudioPalette.selectedBorder : StudioPalette.subtleBorder,
+                        lineWidth: selected ? 1 : 0.5)
             }
     }
 }
@@ -224,11 +226,13 @@ struct SpektraApplicationIconView: View {
     private var iconImage: NSImage {
         let bundle = Bundle.main
         if let url = bundle.url(forResource: "SpektraFilm", withExtension: "icns"),
-           let image = NSImage(contentsOfFile: url.path) {
+            let image = NSImage(contentsOfFile: url.path)
+        {
             return image
         }
         if let url = bundle.url(forResource: "AppIcon", withExtension: "icns"),
-           let image = NSImage(contentsOfFile: url.path) {
+            let image = NSImage(contentsOfFile: url.path)
+        {
             return image
         }
         return NSApp.applicationIconImage
@@ -307,11 +311,12 @@ struct StudioSliderTrack: View {
 
     /// `,` `.` select the slider; `-` `=` nudge it, as Redlamp's FocusMarker does.
     func handleKey(_ key: KeyEquivalent, flags: NSEvent.ModifierFlags, onEdit: @escaping (Double) -> Void) {
-        let nudge: Double? = switch key {
-        case KeyEquivalent("-"): -1
-        case KeyEquivalent("="): 1
-        default: nil
-        }
+        let nudge: Double? =
+            switch key {
+            case KeyEquivalent("-"): -1
+            case KeyEquivalent("="): 1
+            default: nil
+            }
         if let nudge {
             adjust(by: nudge, flags: flags, onEdit: onEdit)
             return

@@ -21,14 +21,16 @@ struct EditorPanelVisibilityMenu: View {
             Section("Show panels") {
                 ForEach(panels, id: \.id) { panel in
                     let hidden = EditorPanelVisibilityStore.hidden(from: serializedHidden)
-                    Toggle(panel.title, isOn: Binding(
-                        get: { !hidden.contains(panel.id) },
-                        set: { visible in
-                            var next = EditorPanelVisibilityStore.hidden(from: serializedHidden)
-                            if visible { next.remove(panel.id) } else { next.insert(panel.id) }
-                            serializedHidden = EditorPanelVisibilityStore.serialize(next)
-                        }
-                    ))
+                    Toggle(
+                        panel.title,
+                        isOn: Binding(
+                            get: { !hidden.contains(panel.id) },
+                            set: { visible in
+                                var next = EditorPanelVisibilityStore.hidden(from: serializedHidden)
+                                if visible { next.remove(panel.id) } else { next.insert(panel.id) }
+                                serializedHidden = EditorPanelVisibilityStore.serialize(next)
+                            }
+                        ))
                 }
             }
             Divider()

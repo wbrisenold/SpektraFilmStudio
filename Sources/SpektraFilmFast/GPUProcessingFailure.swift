@@ -36,8 +36,10 @@ enum GPUProcessingFailure {
         if changed {
             throw NSError(
                 domain: "SpektraFilmStudio.GPUProcessingFailure", code: 1,
-                userInfo: [NSLocalizedDescriptionKey:
-                    "GPU image stage failed; export/preview aborted instead of emitting partial output. \(reason)"]
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "GPU image stage failed; export/preview aborted instead of emitting partial output. \(reason)"
+                ]
             )
         }
     }

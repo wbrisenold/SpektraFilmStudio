@@ -1,5 +1,5 @@
-import Foundation
 import CoreGraphics
+import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -38,10 +38,14 @@ enum ExportWriter {
         let profile = OutputColorProfile.forLook(look)
         let image: CGImage
         if settings.format == .tiff && settings.tiff16Bit {
-            guard let cg = output.makeCGImage16(colorSpace: profile.cgColorSpace) else { throw ExportWriterError.cannotCreateImage }
+            guard let cg = output.makeCGImage16(colorSpace: profile.cgColorSpace) else {
+                throw ExportWriterError.cannotCreateImage
+            }
             image = cg
         } else {
-            guard let cg = output.makeCGImage8(colorSpace: profile.cgColorSpace) else { throw ExportWriterError.cannotCreateImage }
+            guard let cg = output.makeCGImage8(colorSpace: profile.cgColorSpace) else {
+                throw ExportWriterError.cannotCreateImage
+            }
             image = cg
         }
 
@@ -58,7 +62,8 @@ enum ExportWriter {
         guard !fm.fileExists(atPath: destination.path) else {
             throw ExportWriterError.destinationExists(destination.lastPathComponent)
         }
-        let temp = destination.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString)-\(destination.lastPathComponent)")
+        let temp = destination.deletingLastPathComponent().appendingPathComponent(
+            ".\(UUID().uuidString)-\(destination.lastPathComponent)")
         defer { try? fm.removeItem(at: temp) }
 
         guard let dest = CGImageDestinationCreateWithURL(temp as CFURL, type, 1, nil) else {
@@ -113,7 +118,8 @@ enum ExportWriter {
 
     private static func sourceMetadata(url: URL, stripGPS: Bool) -> [CFString: Any] {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let raw = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else { return [:] }
+            let raw = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        else { return [:] }
         var result = raw
         result.removeValue(forKey: kCGImagePropertyPixelWidth)
         result.removeValue(forKey: kCGImagePropertyPixelHeight)
@@ -136,8 +142,9 @@ enum ExportWriter {
         guard bytes > 0 else { throw ExportWriterError.verificationFailed("file is empty") }
 
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              CGImageSourceGetCount(source) > 0,
-              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
+            CGImageSourceGetCount(source) > 0,
+            let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        else {
             throw ExportWriterError.verificationFailed("ImageIO cannot read the written file")
         }
 
@@ -152,9 +159,10 @@ enum ExportWriter {
         // The encoder already received the intended TIFF depth. Do not decode
         // the entire just-written image solely to re-check that value.
         if let expectedBitDepth,
-           let depth = (props[kCGImagePropertyDepth] as? NSNumber)?.intValue,
-           depth > 0,
-           depth < expectedBitDepth {
+            let depth = (props[kCGImagePropertyDepth] as? NSNumber)?.intValue,
+            depth > 0,
+            depth < expectedBitDepth
+        {
             throw ExportWriterError.verificationFailed(
                 "container reports \(depth)-bit, expected at least \(expectedBitDepth)-bit"
             )

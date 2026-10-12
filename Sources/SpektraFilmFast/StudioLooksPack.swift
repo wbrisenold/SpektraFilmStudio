@@ -1,6 +1,6 @@
-import Foundation
 import CoreGraphics
 import CryptoKit
+import Foundation
 import Metal
 
 // A Look is immutable. It never asks NativeRenderer to bake while editing.
@@ -20,7 +20,8 @@ enum StudioLooksSettings {
         var item: StudioLooksPack.Manifest?
         func get(root: String, id: String) -> StudioLooksPack.Manifest? {
             guard !root.isEmpty, !id.isEmpty,
-                  id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) else { return nil }
+                id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") })
+            else { return nil }
             let folder = URL(fileURLWithPath: root, isDirectory: true).appendingPathComponent(id, isDirectory: true)
             let url = folder.appendingPathComponent("manifest.json")
             let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
@@ -35,13 +36,15 @@ enum StudioLooksSettings {
     }
     static var selectedPack: StudioLooksPack.Manifest? {
         let defaults = UserDefaults.standard
-        return manifestCache.get(root: defaults.string(forKey: folderKey) ?? "",
-                                 id: defaults.string(forKey: selectedIDKey) ?? "")
+        return manifestCache.get(
+            root: defaults.string(forKey: folderKey) ?? "",
+            id: defaults.string(forKey: selectedIDKey) ?? "")
     }
     static func selectedPack(for look: RenderLook) -> StudioLooksPack.Manifest? {
         let defaults = UserDefaults.standard
-        return manifestCache.get(root: defaults.string(forKey: folderKey) ?? "",
-                                 id: look.studioLookID ?? "")
+        return manifestCache.get(
+            root: defaults.string(forKey: folderKey) ?? "",
+            id: look.studioLookID ?? "")
     }
     static func scalar(_ look: RenderLook, _ key: String, default initial: Double) -> Float {
         let value = look.values["looks." + key]?.scalarValue ?? initial
@@ -119,12 +122,15 @@ enum StudioLooksPack {
     }
 
     static func discover(in root: URL) -> [Manifest] {
-        guard let children = try? FileManager.default.contentsOfDirectory(
-            at: root, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
-            options: [.skipsHiddenFiles]) else { return [] }
+        guard
+            let children = try? FileManager.default.contentsOfDirectory(
+                at: root, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                options: [.skipsHiddenFiles])
+        else { return [] }
         return children.sorted { $0.lastPathComponent < $1.lastPathComponent }.compactMap { url in
             guard (try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]).isDirectory) == true,
-                  (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true else { return nil }
+                (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true
+            else { return nil }
             return try? manifest(in: url)
         }
     }
@@ -133,32 +139,36 @@ enum StudioLooksPack {
         let manifestFile = folder.appendingPathComponent("manifest.json")
         let props = try manifestFile.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey])
         guard props.isRegularFile == true, props.isSymbolicLink != true,
-              (props.fileSize ?? 0) <= 65536 else {
+            (props.fileSize ?? 0) <= 65536
+        else {
             throw Failure.invalid("Missing or oversized manifest")
         }
         let bytes = try Data(contentsOf: manifestFile)
         var manifest = try JSONDecoder().decode(Manifest.self, from: bytes)
         guard manifest.version == 1, manifest.id.count <= 96, !manifest.id.isEmpty,
-              manifest.name.count <= 180,
-              manifest.id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }),
-              manifest.cube.file == "cube.bin", manifest.cube.size == 65,
-              ["rgba32f-le", "rgba16f-le"].contains(manifest.cube.format),
-              manifest.input.space == "linear-rec2020",
-              ["signed-log2-v1", "domain-linear"].contains(manifest.input.shaper),
-              manifest.output.space == "linear-rec2020",
-              manifest.input.domainMin.count == 3, manifest.input.domainMax.count == 3,
-              manifest.source.coreHash.count >= 7, manifest.source.bakeSchema > 0,
-              manifest.cube.sha256.count == 64 else {
+            manifest.name.count <= 180,
+            manifest.id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }),
+            manifest.cube.file == "cube.bin", manifest.cube.size == 65,
+            ["rgba32f-le", "rgba16f-le"].contains(manifest.cube.format),
+            manifest.input.space == "linear-rec2020",
+            ["signed-log2-v1", "domain-linear"].contains(manifest.input.shaper),
+            manifest.output.space == "linear-rec2020",
+            manifest.input.domainMin.count == 3, manifest.input.domainMax.count == 3,
+            manifest.source.coreHash.count >= 7, manifest.source.bakeSchema > 0,
+            manifest.cube.sha256.count == 64
+        else {
             throw Failure.invalid("Looks mode needs a 65³ linear Rec.2020 pack with an explicit shaper and SHA-256")
         }
         for i in 0..<3 {
             guard manifest.input.domainMin[i].isFinite, manifest.input.domainMax[i].isFinite,
-                  manifest.input.domainMax[i] > manifest.input.domainMin[i] else {
+                manifest.input.domainMax[i] > manifest.input.domainMin[i]
+            else {
                 throw Failure.invalid("Invalid shaper-domain bounds")
             }
         }
-        if manifest.input.shaper == "signed-log2-v1" &&
-           (manifest.input.domainMin != [0, 0, 0] || manifest.input.domainMax != [1, 1, 1]) {
+        if manifest.input.shaper == "signed-log2-v1"
+            && (manifest.input.domainMin != [0, 0, 0] || manifest.input.domainMax != [1, 1, 1])
+        {
             throw Failure.invalid("Signed-log look requires encoded domain 0...1")
         }
         manifest.folder = folder
@@ -191,7 +201,8 @@ enum StudioLooksPack {
         let bytesPerChannel = manifest.cube.format == "rgba32f-le" ? 4 : 2
         let expected = 65 * 65 * 65 * 4 * bytesPerChannel
         guard properties.isRegularFile == true, properties.isSymbolicLink != true,
-              properties.fileSize == expected else { throw Failure.invalid("LUT byte length doesn't match 65³ RGBA format") }
+            properties.fileSize == expected
+        else { throw Failure.invalid("LUT byte length doesn't match 65³ RGBA format") }
         let bytes = try Data(contentsOf: url, options: .mappedIfSafe)
         let checksum = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
         guard checksum == manifest.cube.sha256.lowercased() else {
@@ -206,7 +217,8 @@ enum StudioLooksPack {
                     let p = offset + c * bytesPerChannel
                     let base = raw.baseAddress!.advanced(by: p)
                     if bytesPerChannel == 4 {
-                        return Float(bitPattern: UInt32(littleEndian: base.assumingMemoryBound(to: UInt32.self).pointee))
+                        return Float(
+                            bitPattern: UInt32(littleEndian: base.assumingMemoryBound(to: UInt32.self).pointee))
                     }
                     let bits = UInt16(littleEndian: base.assumingMemoryBound(to: UInt16.self).pointee)
                     return halfToFloat(bits)
@@ -218,9 +230,11 @@ enum StudioLooksPack {
             throw Failure.invalid("Non-finite LUT output sample")
         }
         let shaper: StudioImportedLUT.Shaper = manifest.input.shaper == "signed-log2-v1" ? .signedLog2 : .domainLinear
-        let contract = StudioImportedLUT.Contract(version: 1, input: .linearRec2020,
+        let contract = StudioImportedLUT.Contract(
+            version: 1, input: .linearRec2020,
             output: .linearRec2020, shaper: shaper, role: .fullFilmPrint)
-        return StudioImportedLUT.Cube(size: 65, values: values,
+        return StudioImportedLUT.Cube(
+            size: 65, values: values,
             domainMin: SIMD3(manifest.input.domainMin[0], manifest.input.domainMin[1], manifest.input.domainMin[2]),
             domainMax: SIMD3(manifest.input.domainMax[0], manifest.input.domainMax[1], manifest.input.domainMax[2]),
             contract: contract, assumedSRGB: false)

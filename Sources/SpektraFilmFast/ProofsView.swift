@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 private enum ProofSourceMode: String, CaseIterable, Identifiable {
     case picks = "Cull Picks"
@@ -31,10 +31,12 @@ struct ProofsWorkspaceView: View {
                         .foregroundStyle(.secondary)
                     Text("Client proofing, without another app")
                         .font(.title2.weight(.semibold))
-                    Text("Create a gallery from your picks, share the link, and bring client selections back into your library.")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 440)
+                    Text(
+                        "Create a gallery from your picks, share the link, and bring client selections back into your library."
+                    )
+                    .font(.subheadline).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 440)
                     Button("Create Proof Gallery…") { showingNewGallery = true }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
@@ -43,7 +45,10 @@ struct ProofsWorkspaceView: View {
             } else {
                 HSplitView {
                     gallerySidebar
-                        .frame(minWidth: StudioLayout.presetSidebarWidth, idealWidth: StudioLayout.presetSidebarWidth, maxWidth: 380)
+                        .frame(
+                            minWidth: StudioLayout.presetSidebarWidth, idealWidth: StudioLayout.presetSidebarWidth,
+                            maxWidth: 380
+                        )
                         .padding(StudioLayout.paneInset).studioFloatingPane()
                     galleryBody
                 }
@@ -59,14 +64,20 @@ struct ProofsWorkspaceView: View {
         .sheet(isPresented: $showingNewGallery) { newGallerySheet }
         .onChange(of: showingNewGallery) { _, showing in
             guard showing else { return }
-            if model.project.images.contains(where: { $0.flag == .picked }) { sourceMode = .picks }
-            else if !model.librarySelection.isEmpty { sourceMode = .librarySelection }
-            else { sourceMode = .clientCandidates }
+            if model.project.images.contains(where: { $0.flag == .picked }) {
+                sourceMode = .picks
+            } else if !model.librarySelection.isEmpty {
+                sourceMode = .librarySelection
+            } else {
+                sourceMode = .clientCandidates
+            }
             name = model.project.name == "Untitled Project" ? "Client Proofs" : model.project.name
         }
         .confirmationDialog("Delete this proof gallery?", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Delete Gallery", role: .destructive) { model.deleteSelectedProofGallery() }
-        } message: { Text("The gallery and client link will be removed. Your original photos stay in the library.") }
+        } message: {
+            Text("The gallery and client link will be removed. Your original photos stay in the library.")
+        }
     }
 
     private var gallerySidebar: some View {
@@ -81,9 +92,13 @@ struct ProofsWorkspaceView: View {
                         .foregroundStyle(.tertiary)
                 }
                 Spacer()
-                Button { showingNewGallery = true } label: { Image(systemName: "plus") }
-                    .buttonStyle(.plain)
-                    .help("Create a proof gallery from your cull or rating selection.")
+                Button {
+                    showingNewGallery = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.plain)
+                .help("Create a proof gallery from your cull or rating selection.")
             }
             .padding(11)
 
@@ -97,10 +112,12 @@ struct ProofsWorkspaceView: View {
                 )
                 .padding(.horizontal, 10)
             } else {
-                List(selection: Binding(
-                    get: { model.selectedProofGalleryID },
-                    set: { model.selectedProofGalleryID = $0 }
-                )) {
+                List(
+                    selection: Binding(
+                        get: { model.selectedProofGalleryID },
+                        set: { model.selectedProofGalleryID = $0 }
+                    )
+                ) {
                     ForEach(model.proofGalleries) { gallery in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack(spacing: 7) {
@@ -156,7 +173,9 @@ struct ProofsWorkspaceView: View {
             ContentUnavailableView(
                 "Client Proofing Stays Here",
                 systemImage: "person.2.crop.square.stack",
-                description: Text("Cull, create a client gallery, send the short link, sync their picks, then keep editing without leaving SpektraFilm Studio.")
+                description: Text(
+                    "Cull, create a client gallery, send the short link, sync their picks, then keep editing without leaving SpektraFilm Studio."
+                )
             )
         }
     }
@@ -186,8 +205,10 @@ struct ProofsWorkspaceView: View {
                 Button("Open Picked Originals in Finder") { model.openProofClientPicksInFinder() }
                 Divider()
                 Button("Delete Gallery", role: .destructive) { confirmingDelete = true }
-            } label: { Image(systemName: "ellipsis.circle") }
-                .menuStyle(.borderlessButton)
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .menuStyle(.borderlessButton)
         }
         .padding(.horizontal, 14)
         .frame(height: 66)
@@ -197,9 +218,13 @@ struct ProofsWorkspaceView: View {
     private func shareBar(_ gallery: ProofGallerySnapshot) -> some View {
         VStack(spacing: 8) {
             HStack(spacing: 9) {
-                Label(gallery.shareRunning && gallery.publicLink != nil ? "ONLINE" : "LOCAL", systemImage: gallery.shareRunning && gallery.publicLink != nil ? "network.badge.shield.half.filled" : "wifi")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(gallery.shareRunning && gallery.publicLink != nil ? .green : .secondary)
+                Label(
+                    gallery.shareRunning && gallery.publicLink != nil ? "ONLINE" : "LOCAL",
+                    systemImage: gallery.shareRunning && gallery.publicLink != nil
+                        ? "network.badge.shield.half.filled" : "wifi"
+                )
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(gallery.shareRunning && gallery.publicLink != nil ? .green : .secondary)
 
                 Text(gallery.publicLink ?? gallery.lanLink)
                     .font(.system(.caption, design: .monospaced))
@@ -220,10 +245,18 @@ struct ProofsWorkspaceView: View {
                 }
             }
             HStack {
-                Text(gallery.publicLink != nil ? "Internet link ready to share" : gallery.shareRunning ? "Creating internet link…" : "Local link works on the same Wi-Fi. Start an internet link to share remotely.")
+                Text(
+                    gallery.publicLink != nil
+                        ? "Internet link ready to share"
+                        : gallery.shareRunning
+                            ? "Creating internet link…"
+                            : "Local link works on the same Wi-Fi. Start an internet link to share remotely.")
                 Spacer()
-                if let limit = gallery.maxSelections { Text("Selection limit: \(limit)") }
-                else { Text("No selection limit") }
+                if let limit = gallery.maxSelections {
+                    Text("Selection limit: \(limit)")
+                } else {
+                    Text("No selection limit")
+                }
             }
             .font(.caption2)
             .foregroundStyle(.tertiary)
@@ -285,8 +318,14 @@ struct ProofsWorkspaceView: View {
             }
         }
         .padding(6)
-        .background(photo.selected ? StudioPalette.selected : StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 9))
-        .overlay { RoundedRectangle(cornerRadius: 9).stroke(photo.selected ? StudioPalette.selectedBorder : StudioPalette.subtleBorder, lineWidth: photo.selected ? 1 : 0.5) }
+        .background(
+            photo.selected ? StudioPalette.selected : StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 9)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 9).stroke(
+                photo.selected ? StudioPalette.selectedBorder : StudioPalette.subtleBorder,
+                lineWidth: photo.selected ? 1 : 0.5)
+        }
     }
 
     private func footer(_ gallery: ProofGallerySnapshot) -> some View {
@@ -330,34 +369,50 @@ struct ProofsWorkspaceView: View {
                     ForEach(ProofSourceMode.allCases) { Text($0.rawValue).tag($0) }
                 }
                 LabeledContent("Photos") { Text("\(candidates.count)").monospacedDigit() }
-                Stepper("Selection limit: \(selectionLimit == 0 ? "None" : String(selectionLimit))", value: $selectionLimit, in: 0...999)
+                Stepper(
+                    "Selection limit: \(selectionLimit == 0 ? "None" : String(selectionLimit))", value: $selectionLimit,
+                    in: 0...999)
                 SecureField("Optional client password", text: $password)
 
                 Section {
-                  DisclosureGroup("Image size and quality") {
-                    LabeledContent("Long edge") {
-                        HStack {
-                            Slider(value: $longEdge, in: 1200...3200, step: 100)
-                                .help("Sets the maximum proof size. Larger proofs show more detail but upload more slowly through the client link.")
-                            Button { longEdge = 2048 } label: { Image(systemName: "arrow.counterclockwise") }
+                    DisclosureGroup("Image size and quality") {
+                        LabeledContent("Long edge") {
+                            HStack {
+                                Slider(value: $longEdge, in: 1200...3200, step: 100)
+                                    .help(
+                                        "Sets the maximum proof size. Larger proofs show more detail but upload more slowly through the client link."
+                                    )
+                                Button {
+                                    longEdge = 2048
+                                } label: {
+                                    Image(systemName: "arrow.counterclockwise")
+                                }
                                 .buttonStyle(.plain)
                                 .help("Reset proof size to 2048 px.")
-                            Text("\(Int(longEdge)) px").monospacedDigit().frame(width: 64)
+                                Text("\(Int(longEdge)) px").monospacedDigit().frame(width: 64)
+                            }
                         }
-                    }
-                    LabeledContent("JPEG quality") {
-                        HStack {
-                            Slider(value: $quality, in: 0.65...0.98, step: 0.01)
-                                .help("Controls proof JPEG compression. Around 85–90% is usually a good balance between detail and fast client loading.")
-                            Button { quality = 0.88 } label: { Image(systemName: "arrow.counterclockwise") }
+                        LabeledContent("JPEG quality") {
+                            HStack {
+                                Slider(value: $quality, in: 0.65...0.98, step: 0.01)
+                                    .help(
+                                        "Controls proof JPEG compression. Around 85–90% is usually a good balance between detail and fast client loading."
+                                    )
+                                Button {
+                                    quality = 0.88
+                                } label: {
+                                    Image(systemName: "arrow.counterclockwise")
+                                }
                                 .buttonStyle(.plain)
                                 .help("Reset proof JPEG quality to 88%.")
-                            Text(quality, format: .percent.precision(.fractionLength(0))).frame(width: 48)
+                                Text(quality, format: .percent.precision(.fractionLength(0))).frame(width: 48)
+                            }
                         }
-                    }
-                    Text("Proofs use the current WB, Exposure/Curve, SpektraFilm look, and Crop/Geometry. GPS/private metadata is not copied. Full-resolution originals are never served to the client.")
+                        Text(
+                            "Proofs use the current WB, Exposure/Curve, SpektraFilm look, and Crop/Geometry. GPS/private metadata is not copied. Full-resolution originals are never served to the client."
+                        )
                         .font(.caption2).foregroundStyle(.secondary)
-                  }
+                    }
                 }
                 if candidates.isEmpty {
                     Text("No photos match this source. Choose another source or import photos in Library.")
@@ -414,7 +469,9 @@ private struct ProofLocalImage: View {
         if let image = NSImage(contentsOfFile: path) {
             Image(nsImage: image).resizable().interpolation(.high)
         } else {
-            ZStack { Color.black.opacity(0.35); Image(systemName: "photo").foregroundStyle(.secondary) }
+            ZStack {
+                Color.black.opacity(0.35); Image(systemName: "photo").foregroundStyle(.secondary)
+            }
         }
     }
 }

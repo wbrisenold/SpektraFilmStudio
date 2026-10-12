@@ -1,6 +1,6 @@
-import Foundation
 import AppKit
 import CryptoKit
+import Foundation
 
 enum ManagedIngestItemState: String, Codable, Sendable {
     case pending, primaryCopied, completed, failed
@@ -91,7 +91,7 @@ actor ManagedIngestService {
         "jpg", "jpeg", "jpe", "png", "heic", "heif", "tif", "tiff", "dng",
         "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "raf", "orf",
         "rw2", "rwl", "pef", "ptx", "3fr", "fff", "iiq", "mos", "mef", "mrw",
-        "erf", "kdc", "dcr", "x3f", "raw", "srw", "bay", "cap", "eip"
+        "erf", "kdc", "dcr", "x3f", "raw", "srw", "bay", "cap", "eip",
     ]
 
     private var journalURL: URL {
@@ -105,7 +105,8 @@ actor ManagedIngestService {
         let backup = backupRoot.standardizedFileURL
         guard primary.path != backup.path else { throw ManagedIngestError.sameDestination }
         guard !primary.path.hasPrefix(source.path + "/"),
-              !backup.path.hasPrefix(source.path + "/") else {
+            !backup.path.hasPrefix(source.path + "/")
+        else {
             throw ManagedIngestError.destinationInsideSource
         }
 
@@ -118,12 +119,13 @@ actor ManagedIngestService {
             let relative = relativePath(of: url, under: source)
             let primaryURL = primary.appendingPathComponent(relative)
             let backupURL = backup.appendingPathComponent(relative)
-            items.append(ManagedIngestItem(
-                source: url,
-                relativePath: relative,
-                primary: primaryURL,
-                backup: backupURL
-            ))
+            items.append(
+                ManagedIngestItem(
+                    source: url,
+                    relativePath: relative,
+                    primary: primaryURL,
+                    backup: backupURL
+                ))
         }
 
         let job = ManagedIngestJob(
@@ -160,12 +162,13 @@ actor ManagedIngestService {
             let name = source.lastPathComponent
 
             do {
-                progress(ManagedIngestProgress(
-                    completed: job.completedCount,
-                    total: total,
-                    fileName: name,
-                    message: "Copying primary…"
-                ))
+                progress(
+                    ManagedIngestProgress(
+                        completed: job.completedCount,
+                        total: total,
+                        fileName: name,
+                        message: "Copying primary…"
+                    ))
                 let sourceHash = try await verifiedCopy(source: source, destination: primary, expectedHash: nil)
                 job.items[index].sha256 = sourceHash
                 job.items[index].state = .primaryCopied
@@ -174,24 +177,26 @@ actor ManagedIngestService {
                 try save(job)
 
                 try Task.checkCancellation()
-                progress(ManagedIngestProgress(
-                    completed: job.completedCount,
-                    total: total,
-                    fileName: name,
-                    message: "Copying verified backup…"
-                ))
+                progress(
+                    ManagedIngestProgress(
+                        completed: job.completedCount,
+                        total: total,
+                        fileName: name,
+                        message: "Copying verified backup…"
+                    ))
                 _ = try await verifiedCopy(source: source, destination: backup, expectedHash: sourceHash)
 
                 job.items[index].state = .completed
                 job.items[index].errorMessage = nil
                 job.updatedAt = Date()
                 try save(job)
-                progress(ManagedIngestProgress(
-                    completed: job.completedCount,
-                    total: total,
-                    fileName: name,
-                    message: "Verified"
-                ))
+                progress(
+                    ManagedIngestProgress(
+                        completed: job.completedCount,
+                        total: total,
+                        fileName: name,
+                        message: "Verified"
+                    ))
             } catch is CancellationError {
                 try? save(job)
                 throw CancellationError()
@@ -226,18 +231,21 @@ actor ManagedIngestService {
 
     private func photoURLs(in folder: URL) -> [URL] {
         let keys: [URLResourceKey] = [.isRegularFileKey, .isHiddenKey]
-        guard let enumerator = FileManager.default.enumerator(
-            at: folder,
-            includingPropertiesForKeys: keys,
-            options: [.skipsHiddenFiles, .skipsPackageDescendants],
-            errorHandler: { _, _ in true }
-        ) else { return [] }
+        guard
+            let enumerator = FileManager.default.enumerator(
+                at: folder,
+                includingPropertiesForKeys: keys,
+                options: [.skipsHiddenFiles, .skipsPackageDescendants],
+                errorHandler: { _, _ in true }
+            )
+        else { return [] }
 
         var values: [URL] = []
         for case let url as URL in enumerator {
             guard let resource = try? url.resourceValues(forKeys: Set(keys)),
-                  resource.isRegularFile == true,
-                  resource.isHidden != true else { continue }
+                resource.isRegularFile == true,
+                resource.isHidden != true
+            else { continue }
             if supportedExtensions.contains(url.pathExtension.lowercased()) {
                 values.append(url)
             }
@@ -324,9 +332,10 @@ extension AppModel {
 
         Task { @MainActor [weak self] in
             guard let self,
-                  let source = await SpektraFilePanel.folder(title: "Choose Camera Card or Source Folder"),
-                  let primary = await SpektraFilePanel.folder(title: "Choose Working Photo Destination"),
-                  let backup = await SpektraFilePanel.folder(title: "Choose Verified Backup Folder") else { return }
+                let source = await SpektraFilePanel.folder(title: "Choose Camera Card or Source Folder"),
+                let primary = await SpektraFilePanel.folder(title: "Choose Working Photo Destination"),
+                let backup = await SpektraFilePanel.folder(title: "Choose Verified Backup Folder")
+            else { return }
             self.beginManagedIngest(source: source, primary: primary, backup: backup)
         }
     }
@@ -351,10 +360,12 @@ extension AppModel {
                 let (_, urls) = try await ManagedIngestService.shared.run(job: job) { progress in
                     Task { @MainActor [weak self] in
                         guard let self, generation == self.projectGeneration else { return }
-                        self.ingestProgress = progress.total == 0
+                        self.ingestProgress =
+                            progress.total == 0
                             ? 0
                             : Double(progress.completed) / Double(progress.total)
-                        self.ingestStatus = "\(progress.message) · \(progress.fileName) · \(progress.completed)/\(progress.total)"
+                        self.ingestStatus =
+                            "\(progress.message) · \(progress.fileName) · \(progress.completed)/\(progress.total)"
                     }
                 }
                 guard generation == projectGeneration else { throw CancellationError() }
@@ -397,10 +408,12 @@ extension AppModel {
                 let (_, urls) = try await ManagedIngestService.shared.run(job: job) { progress in
                     Task { @MainActor [weak self] in
                         guard let self, generation == self.projectGeneration else { return }
-                        self.ingestProgress = progress.total == 0
+                        self.ingestProgress =
+                            progress.total == 0
                             ? 0
                             : Double(progress.completed) / Double(progress.total)
-                        self.ingestStatus = "\(progress.message) · \(progress.fileName) · \(progress.completed)/\(progress.total)"
+                        self.ingestStatus =
+                            "\(progress.message) · \(progress.fileName) · \(progress.completed)/\(progress.total)"
                     }
                 }
                 guard generation == projectGeneration else { throw CancellationError() }

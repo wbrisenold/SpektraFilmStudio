@@ -1,8 +1,8 @@
-import Foundation
-import CoreGraphics
-import ImageIO
-import CoreImage
 import AVFoundation
+import CoreGraphics
+import CoreImage
+import Foundation
+import ImageIO
 
 /// Adapts Redlamp's mask providers to Spektra's persisted local grades.
 /// Models always see the oriented, unedited photo in sRGB.
@@ -40,15 +40,20 @@ actor RedlampMaskService {
         let width = properties?[kCGImagePropertyPixelWidth] as? Int ?? 0
         let height = properties?[kCGImagePropertyPixelHeight] as? Int ?? 0
         guard width > 0, height > 0, width <= 16384, height <= 16384,
-              width <= (64 * 1024 * 1024) / height else {
+            width <= (64 * 1024 * 1024) / height
+        else {
             throw ModelStoreError.download("AI masks support originals up to 64 megapixels and 16,384 pixels per side.")
         }
-        guard let decoded = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: max(width, height),
-                kCGImageSourceShouldCacheImmediately: true
-              ] as CFDictionary) else { throw ModelStoreError.download("Cannot read the original photo for masking.") }
+        guard
+            let decoded = CGImageSourceCreateThumbnailAtIndex(
+                source, 0,
+                [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceThumbnailMaxPixelSize: max(width, height),
+                    kCGImageSourceShouldCacheImmediately: true,
+                ] as CFDictionary)
+        else { throw ModelStoreError.download("Cannot read the original photo for masking.") }
         imageURL = url; imageStamp = stamp; image = decoded; analysisPhoto = nil; foregroundMatte = nil
         embedding = nil; conceptFeatures = nil; cachedClasses = nil; cachedParts = nil; cachedDepth = nil
         return decoded
@@ -57,10 +62,14 @@ actor RedlampMaskService {
     func analysisImage(_ url: URL) throws -> CGImage {
         let full = try original(url)
         if let analysisPhoto { return analysisPhoto }
-        let size = PixelSize(width: full.width, height: full.height).fitted(within: PixelSize(width: 2048, height: 2048))
-        guard let context = CGContext(data: nil, width: size.width, height: size.height, bitsPerComponent: 8,
-            bytesPerRow: size.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { throw ModelStoreError.download("Cannot prepare mask analysis") }
+        let size = PixelSize(width: full.width, height: full.height).fitted(
+            within: PixelSize(width: 2048, height: 2048))
+        guard
+            let context = CGContext(
+                data: nil, width: size.width, height: size.height, bitsPerComponent: 8,
+                bytesPerRow: size.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { throw ModelStoreError.download("Cannot prepare mask analysis") }
         context.interpolationQuality = .high
         context.draw(full, in: CGRect(x: 0, y: 0, width: size.width, height: size.height))
         guard let result = context.makeImage() else { throw ModelStoreError.download("Cannot prepare mask analysis") }
@@ -77,7 +86,9 @@ actor RedlampMaskService {
 
     private func segmenter() throws -> SAMSegmenter {
         if let sam { return sam }
-        guard let manifest = ModelCatalog.manifest("sam2.1-tiny") else { throw ModelStoreError.unknownModel("sam2.1-tiny") }
+        guard let manifest = ModelCatalog.manifest("sam2.1-tiny") else {
+            throw ModelStoreError.unknownModel("sam2.1-tiny")
+        }
         let bundled = Bundle.main.resourceURL!.appendingPathComponent("AIModels/SAM2Tiny")
         let directory = FileManager.default.fileExists(atPath: bundled.path) ? bundled : try installed(manifest.id).1
         let loaded = try SAMSegmenter(manifest: manifest, directory: directory)
@@ -88,8 +99,9 @@ actor RedlampMaskService {
     private func object(_ request: MaskRequest, image: CGImage) throws -> GrayMask {
         let sam = try segmenter()
         if embedding == nil { embedding = try sam.embedding(for: image) }
-        return try sam.mask(embedding!, included: request.prompts, excluded: request.excluded, box: request.box,
-                            size: PixelSize(width: image.width, height: image.height))
+        return try sam.mask(
+            embedding!, included: request.prompts, excluded: request.excluded, box: request.box,
+            size: PixelSize(width: image.width, height: image.height))
     }
 
     func previewObject(_ recipe: AIMaskRecipe, url: URL) throws -> GrayMask {
@@ -119,8 +131,13 @@ actor RedlampMaskService {
             provided = try vision.masks(for: request, in: image)
         case .people:
             if [.hair, .facialHair, .bodySkin, .clothes].contains(request.part) {
-                if request.part == .hair, let matte = try embedded(url, type: kCGImageAuxiliaryDataTypeSemanticSegmentationHairMatte) {
-                    provided = [ProvidedMask(kind: .people, provider: "apple.embedded.hair", revision: 14, part: .hair, mask: matte)]
+                if request.part == .hair,
+                    let matte = try embedded(url, type: kCGImageAuxiliaryDataTypeSemanticSegmentationHairMatte)
+                {
+                    provided = [
+                        ProvidedMask(
+                            kind: .people, provider: "apple.embedded.hair", revision: 14, part: .hair, mask: matte)
+                    ]
                 } else {
                     if concepts == nil {
                         let (manifest, directory) = try installed("sam3")
@@ -128,39 +145,63 @@ actor RedlampMaskService {
                     }
                     if conceptFeatures == nil { conceptFeatures = try concepts!.features(of: image) }
                     if cachedParts == nil { cachedParts = try concepts!.peopleParts(conceptFeatures!) }
-                    guard let part = cachedParts!.parts[request.part], let other = cachedParts!.others[request.part] else {
+                    guard let part = cachedParts!.parts[request.part], let other = cachedParts!.others[request.part]
+                    else {
                         throw MaskComputationError.notFound(request.part)
                     }
                     let subject = try vision.masks(for: MaskRequest(kind: .people), in: image)
                     let person = subject.dropFirst().reduce(subject.first?.mask ?? part) { $0.union($1.mask) }
                     let matte = ClosedFormMatte.refine(person, image: full)
-                    let dehazed = GrayMask(width: part.width, height: part.height, coverage: part.coverage.map { max($0 - 0.1, 0) / 0.9 })
-                    let guided = GuidedFilter.refine(dehazed.resized(to: PixelSize(width: image.width, height: image.height)), guide: image, radius: 4, epsilon: 1e-3)
-                    let mask = SAM3Concepts.edges(of: guided, others: other, person: matte, reach: max(1, image.width / 50))
-                    provided = [ProvidedMask(kind: .people, provider: "redlamp.sam3", revision: 14, part: request.part, mask: mask)]
+                    let dehazed = GrayMask(
+                        width: part.width, height: part.height, coverage: part.coverage.map { max($0 - 0.1, 0) / 0.9 })
+                    let guided = GuidedFilter.refine(
+                        dehazed.resized(to: PixelSize(width: image.width, height: image.height)), guide: image,
+                        radius: 4, epsilon: 1e-3)
+                    let mask = SAM3Concepts.edges(
+                        of: guided, others: other, person: matte, reach: max(1, image.width / 50))
+                    provided = [
+                        ProvidedMask(
+                            kind: .people, provider: "redlamp.sam3", revision: 14, part: request.part, mask: mask)
+                    ]
                 }
-            } else if request.part == .teeth, let teeth = try embedded(url, type: kCGImageAuxiliaryDataTypeSemanticSegmentationTeethMatte) {
-                provided = [ProvidedMask(kind: .people, provider: "apple.embedded.teeth", revision: 14, part: .teeth, mask: teeth)]
-            } else { provided = try vision.masks(for: request, in: image) }
+            } else if request.part == .teeth,
+                let teeth = try embedded(url, type: kCGImageAuxiliaryDataTypeSemanticSegmentationTeethMatte)
+            {
+                provided = [
+                    ProvidedMask(
+                        kind: .people, provider: "apple.embedded.teeth", revision: 14, part: .teeth, mask: teeth)
+                ]
+            } else {
+                provided = try vision.masks(for: request, in: image)
+            }
             if [.hair, .facialHair, .bodySkin, .clothes].contains(request.part), let combined = provided.first {
                 let people = (try? vision.masks(for: MaskRequest(kind: .people), in: image)) ?? []
                 if !people.isEmpty {
                     let size = PixelSize(width: combined.mask.width, height: combined.mask.height)
                     let pieces = combined.mask.split(among: people.map { $0.mask.resized(to: size) })
                     provided = zip(people, pieces).map { person, mask in
-                        ProvidedMask(kind: .people, provider: combined.provider, revision: 14,
-                                     instance: person.instance, part: request.part, mask: mask)
+                        ProvidedMask(
+                            kind: .people, provider: combined.provider, revision: 14,
+                            instance: person.instance, part: request.part, mask: mask)
                     }
                 }
             }
-            if let selected = request.people { provided = provided.filter { $0.instance.map(selected.contains) ?? true } }
+            if let selected = request.people {
+                provided = provided.filter { $0.instance.map(selected.contains) ?? true }
+            }
         case .objects:
-            provided = [ProvidedMask(kind: .objects, provider: "redlamp.sam2.1-tiny", revision: 14,
-                                     mask: try object(request, image: image))]
+            provided = [
+                ProvidedMask(
+                    kind: .objects, provider: "redlamp.sam2.1-tiny", revision: 14,
+                    mask: try object(request, image: image))
+            ]
         case .sky:
             if let sky = try embedded(url, type: kCGImageAuxiliaryDataTypeSemanticSegmentationSkyMatte) {
-                provided = [ProvidedMask(kind: .sky, provider: "apple.embedded.sky", revision: 14,
-                    mask: CoarseMaskEdges.refine(sky, analysis: image, full: full))]
+                provided = [
+                    ProvidedMask(
+                        kind: .sky, provider: "apple.embedded.sky", revision: 14,
+                        mask: CoarseMaskEdges.refine(sky, analysis: image, full: full))
+                ]
                 break
             }
             let depth = try? da3(image)
@@ -169,12 +210,19 @@ actor RedlampMaskService {
             var mask: GrayMask
             if !seeds.isEmpty {
                 let raw = try object(MaskRequest(kind: .objects, prompts: seeds), image: image)
-                mask = SkyEstimator.refineBetweenBranches(GuidedFilter.refine(raw, guide: image, radius: 4, epsilon: 1e-3), image: image)
+                mask = SkyEstimator.refineBetweenBranches(
+                    GuidedFilter.refine(raw, guide: image, radius: 4, epsilon: 1e-3), image: image)
                 if let depth { mask = SkyEstimator.arbitrate(mask, depth.sky) }
-            } else if let depth { mask = depth.sky }
-            else { mask = try SkyEstimator.estimate(image).mask }
-            provided = [ProvidedMask(kind: .sky, provider: "Redlamp sky / SAM2 / optional DA3", revision: 14,
-                                     mask: SkyMatte.refine(mask, image: full))]
+            } else if let depth {
+                mask = depth.sky
+            } else {
+                mask = try SkyEstimator.estimate(image).mask
+            }
+            provided = [
+                ProvidedMask(
+                    kind: .sky, provider: "Redlamp sky / SAM2 / optional DA3", revision: 14,
+                    mask: SkyMatte.refine(mask, image: full))
+            ]
         case .depthRange:
             // SFS-UI-SETTINGS-20261009-R2: Settings › Models controls the
             // *actual* provider, not just which weights are downloaded.
@@ -184,7 +232,8 @@ actor RedlampMaskService {
             switch preference {
             case "embedded":
                 guard let embedded = try embeddedDepth(url) else {
-                    throw ModelStoreError.download("This photo has no embedded depth. Choose another provider in Settings › Models.")
+                    throw ModelStoreError.download(
+                        "This photo has no embedded depth. Choose another provider in Settings › Models.")
                 }
                 mask = embedded
                 provider = "apple.embedded.depth"
@@ -226,41 +275,58 @@ actor RedlampMaskService {
                 throw MaskComputationError.notFound(request.landscape)
             }
             guard mask.coveredFraction > 0.001 else { throw MaskComputationError.notFound(request.landscape) }
-            provided = [ProvidedMask(kind: .landscape, provider: "redlamp.sam3+closed-form", revision: 14,
-                                     mask: ClosedFormMatte.refine(mask, image: full))]
+            provided = [
+                ProvidedMask(
+                    kind: .landscape, provider: "redlamp.sam3+closed-form", revision: 14,
+                    mask: ClosedFormMatte.refine(mask, image: full))
+            ]
         default: throw MaskComputationError.unsupported(request.kind)
         }
         return try provided.map { supplied in
             var result = supplied
             var mask = result.mask
-            if mask.coveredFraction <= 0.0002, request.kind != .background { throw MaskComputationError.nothingFound(request.kind) }
+            if mask.coveredFraction <= 0.0002, request.kind != .background {
+                throw MaskComputationError.nothingFound(request.kind)
+            }
             let wholePerson = request.kind == .people && request.part == .entirePerson
             if [.subject, .background, .objects].contains(request.kind) || wholePerson {
                 let background = request.kind == .background
                 if [.subject, .background].contains(request.kind), let foregroundMatte {
                     mask = foregroundMatte
                 } else {
-                if background { mask = mask.inverted }
-                mask = ClosedFormMatte.refine(mask, image: full, inner: request.kind == .subject || background ? ClosedFormMatte.subjectInner : ClosedFormMatte.inner)
-                if [.subject, .background, .people].contains(request.kind),
-                   let manifest = ModelCatalog.manifest("vitmatte-base"), MaskModelStore.installed(manifest) {
-                    if vit == nil { vit = try ViTMatte(manifest: manifest, directory: MaskModelStore.directory(manifest)) }
-                    mask = ViTMatte.strands(of: try vit!.refine(background ? result.mask.inverted : result.mask, image: full), addedTo: mask)
-                }
-                if [.subject, .background].contains(request.kind) { foregroundMatte = mask }
+                    if background { mask = mask.inverted }
+                    mask = ClosedFormMatte.refine(
+                        mask, image: full,
+                        inner: request.kind == .subject || background
+                            ? ClosedFormMatte.subjectInner : ClosedFormMatte.inner)
+                    if [.subject, .background, .people].contains(request.kind),
+                        let manifest = ModelCatalog.manifest("vitmatte-base"), MaskModelStore.installed(manifest)
+                    {
+                        if vit == nil {
+                            vit = try ViTMatte(manifest: manifest, directory: MaskModelStore.directory(manifest))
+                        }
+                        mask = ViTMatte.strands(
+                            of: try vit!.refine(background ? result.mask.inverted : result.mask, image: full),
+                            addedTo: mask)
+                    }
+                    if [.subject, .background].contains(request.kind) { foregroundMatte = mask }
                 }
                 if background { mask = mask.inverted }
             }
             if request.kind == .people && !wholePerson && !result.provider.contains("sam3") {
                 mask = CoarseMaskEdges.refine(mask, analysis: image, full: full)
             }
-            if !recipe.refineStrokes.isEmpty { mask = ClosedFormMatte.refine(mask, image: full, along: recipe.refineStrokes) }
+            if !recipe.refineStrokes.isEmpty {
+                mask = ClosedFormMatte.refine(mask, image: full, along: recipe.refineStrokes)
+            }
             result.mask = mask
             return result
         }
     }
 
-    func refine(_ raster: RasterMaskPayload, recipe: AIMaskRecipe, url: URL, onlyStrokes: Bool = false) throws -> GrayMask {
+    func refine(
+        _ raster: RasterMaskPayload, recipe: AIMaskRecipe, url: URL, onlyStrokes: Bool = false
+    ) throws -> GrayMask {
         let image = try original(url)
         let mask = GrayMask(width: raster.width, height: raster.height, pixels: raster.decodedAlpha())
         if recipe.kind == .depthRange { return mask }
@@ -273,36 +339,47 @@ actor RedlampMaskService {
         } else if recipe.kind == .people && recipe.part != .entirePerson && !recipe.provider.contains("sam3") {
             refined = CoarseMaskEdges.refine(coarse, analysis: try analysisImage(url), full: image)
         } else {
-            refined = ClosedFormMatte.refine(coarse, image: image,
+            refined = ClosedFormMatte.refine(
+                coarse, image: image,
                 inner: recipe.kind == .subject || background ? ClosedFormMatte.subjectInner : ClosedFormMatte.inner)
             let wholePerson = recipe.kind == .people && recipe.part == .entirePerson
             if recipe.kind == .subject || background || wholePerson,
-               let manifest = ModelCatalog.manifest("vitmatte-base"), MaskModelStore.installed(manifest) {
+                let manifest = ModelCatalog.manifest("vitmatte-base"), MaskModelStore.installed(manifest)
+            {
                 if vit == nil { vit = try ViTMatte(manifest: manifest, directory: MaskModelStore.directory(manifest)) }
                 refined = ViTMatte.strands(of: try vit!.refine(coarse, image: image), addedTo: refined)
             }
         }
         if background { refined = refined.inverted }
-        if !recipe.refineStrokes.isEmpty { refined = ClosedFormMatte.refine(refined, image: image, along: recipe.refineStrokes) }
+        if !recipe.refineStrokes.isEmpty {
+            refined = ClosedFormMatte.refine(refined, image: image, along: recipe.refineStrokes)
+        }
         return refined
     }
 
     private func orientation(_ source: CGImageSource) -> Int {
-        (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])?[kCGImagePropertyOrientation] as? Int ?? 1
+        (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])?[kCGImagePropertyOrientation] as? Int
+            ?? 1
     }
 
     private func embedded(_ url: URL, type: CFString) throws -> GrayMask? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let data = CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, type) as? [AnyHashable: Any] else { return nil }
-        let matte = try AVSemanticSegmentationMatte(fromImageSourceAuxiliaryDataType: type, dictionaryRepresentation: data)
+            let data = CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, type) as? [AnyHashable: Any]
+        else { return nil }
+        let matte = try AVSemanticSegmentationMatte(
+            fromImageSourceAuxiliaryDataType: type, dictionaryRepresentation: data)
         return try VisionMaskProvider.gray(matte.mattingImage).oriented(exif: orientation(source))
     }
 
     private func embeddedDepth(_ url: URL) throws -> GrayMask? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let data = (CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeDisparity)
-                ?? CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeDepth)) as? [AnyHashable: Any] else { return nil }
-        let depth = try AVDepthData(fromDictionaryRepresentation: data).converting(toDepthDataType: kCVPixelFormatType_DisparityFloat32)
+            let data =
+                (CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeDisparity)
+                ?? CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeDepth))
+                as? [AnyHashable: Any]
+        else { return nil }
+        let depth = try AVDepthData(fromDictionaryRepresentation: data).converting(
+            toDepthDataType: kCVPixelFormatType_DisparityFloat32)
         let buffer = depth.depthDataMap
         CVPixelBufferLockBaseAddress(buffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
@@ -310,11 +387,14 @@ actor RedlampMaskService {
         let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
         let stride = CVPixelBufferGetBytesPerRow(buffer)
         var values = [Float](repeating: 0, count: width * height)
-        for y in 0..<height { for x in 0..<width {
-            let value = base.advanced(by: y * stride).assumingMemoryBound(to: Float.self)[x]
-            values[y * width + x] = value.isFinite ? max(0, value) : 0
-        } }
+        for y in 0..<height {
+            for x in 0..<width {
+                let value = base.advanced(by: y * stride).assumingMemoryBound(to: Float.self)[x]
+                values[y * width + x] = value.isFinite ? max(0, value) : 0
+            }
+        }
         let low = values.min() ?? 0, high = values.max() ?? 1
-        return GrayMask(width: width, height: height, coverage: values.map { ($0 - low) / max(high - low, 1e-6) }).oriented(exif: orientation(source))
+        return GrayMask(width: width, height: height, coverage: values.map { ($0 - low) / max(high - low, 1e-6) })
+            .oriented(exif: orientation(source))
     }
 }

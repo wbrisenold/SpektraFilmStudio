@@ -1,5 +1,5 @@
-import Foundation
 import CoreGraphics
+import Foundation
 
 @MainActor
 extension AppModel {
@@ -55,8 +55,9 @@ extension AppModel {
                     try? await Task.sleep(for: .seconds(interval - elapsed))
                 }
                 guard !Task.isCancelled,
-                      page == .edit,
-                      let frame = latestRenderedBuffer else { break }
+                    page == .edit,
+                    let frame = latestRenderedBuffer
+                else { break }
 
                 isScopeAnalyzing = true
                 let mode = project.preferences.scopeMode
@@ -77,7 +78,8 @@ extension AppModel {
                     guard !Task.isCancelled, page == .edit else { break }
                     // Never publish a completed trace over a newer frame/slider generation.
                     if requestedGeneration != scopeGeneration { continue }
-                    editorScopeImage = CGImage.fromRGBA8(width: payload.width, height: payload.height, bytes: payload.rgba)
+                    editorScopeImage = CGImage.fromRGBA8(
+                        width: payload.width, height: payload.height, bytes: payload.rgba)
                     lastScopeUpdateUptime = ProcessInfo.processInfo.systemUptime
                 } catch {
                     // Scope failures never fail or interrupt the edit render path.
@@ -89,10 +91,11 @@ extension AppModel {
             isScopeAnalyzing = false
             scopeTask = nil
             if !Task.isCancelled,
-               page == .edit,
-               latestRenderedBuffer != nil,
-               scopeGeneration > 0,
-               ProcessInfo.processInfo.systemUptime - lastScopeUpdateUptime > 0.05 {
+                page == .edit,
+                latestRenderedBuffer != nil,
+                scopeGeneration > 0,
+                ProcessInfo.processInfo.systemUptime - lastScopeUpdateUptime > 0.05
+            {
                 // A frame may have landed between the final generation check and task cleanup.
                 requestEditorScopeUpdate()
             }

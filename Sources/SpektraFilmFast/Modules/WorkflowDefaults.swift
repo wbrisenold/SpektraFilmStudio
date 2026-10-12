@@ -8,25 +8,29 @@ extension PixelpipeRegistry {
         register(RawPrepareModule())
         register(WhiteBalanceModule())
         register(HighlightReconstructionModule())
+        register(HotPixelModule())
+        register(RawDenoiseModule())
+        register(RawCAModule())
+        register(DemosaicModule())
         register(ExposureModule())
         register(ColorCalibrationModule())
-        
+
         // Tone mappers (only one should be enabled at a time)
         register(FilmicRGBModule())
         register(AgXModule())
         register(SigmoidModule())
-        
+
         // More modules to be added...
     }
-    
+
     /// Apply auto-apply pixel workflow defaults (Darktable style)
     func applyWorkflowDefaults(_ workflow: WorkflowPreset) {
-        // Disable all first
-        let allModules = getAllModules()
-        for var module in allModules {
-            module.isEnabled = false
+        // Disable all first. Go through setEnabled so mutation happens under the
+        // registry lock rather than on loop-local copies of the existentials.
+        for module in getAllModules() {
+            setEnabled(module.name, false)
         }
-        
+
         switch workflow {
         case .sceneReferredFilmic:
             enableSceneReferredFilmic()
@@ -40,56 +44,57 @@ extension PixelpipeRegistry {
             enableNone()
         }
     }
-    
+
     private func enableSceneReferredFilmic() {
         let modules = [
             "rawprepare", "whitebalance", "highlights", "cacorrect", "hotpixels",
             "rawdenoise", "demosaic", "denoiseprofile", "lens", "exposure",
-            "colorin", "colorcalibration", "filmicrgb"
+            "colorin", "colorcalibration", "filmicrgb",
         ]
         for name in modules { setEnabled(name, true) }
     }
-    
+
     private func enableSceneReferredAgX() {
         let modules = [
             "rawprepare", "whitebalance", "highlights", "cacorrect", "hotpixels",
             "rawdenoise", "demosaic", "denoiseprofile", "lens", "exposure",
-            "colorin", "colorcalibration", "agx"
+            "colorin", "colorcalibration", "agx",
         ]
         for name in modules { setEnabled(name, true) }
     }
-    
+
     private func enableSceneReferredSigmoid() {
         let modules = [
             "rawprepare", "whitebalance", "highlights", "cacorrect", "hotpixels",
             "rawdenoise", "demosaic", "denoiseprofile", "lens", "exposure",
-            "colorin", "colorcalibration", "sigmoid"
+            "colorin", "colorcalibration", "sigmoid",
         ]
         for name in modules { setEnabled(name, true) }
     }
-    
+
     private func enableDisplayReferredLegacy() {
         let modules = [
-            "rawprepare", "whitebalance", "basecurve"
+            "rawprepare", "whitebalance", "basecurve",
         ]
         for name in modules { setEnabled(name, true) }
     }
-    
+
     private func enableNone() {
         let modules = [
-            "rawprepare", "whitebalance"
+            "rawprepare", "whitebalance",
         ]
         for name in modules { setEnabled(name, true) }
     }
 }
 
-enum WorkflowPreset: String, CaseIterable, Sendable {
+enum WorkflowPreset: String, CaseIterable, Codable, Sendable, Identifiable {
+    var id: String { rawValue }
     case sceneReferredFilmic = "scene-referred (filmic)"
     case sceneReferredAgX = "scene-referred (AgX)"
     case sceneReferredSigmoid = "scene-referred (sigmoid)"
     case displayReferredLegacy = "display-referred (legacy)"
     case none = "none"
-    
+
     var description: String {
         switch self {
         case .sceneReferredFilmic:
@@ -103,18 +108,5 @@ enum WorkflowPreset: String, CaseIterable, Sendable {
         case .none:
             return "Minimal workflow - only raw preparation"
         }
-    }
-}
-
-// RawSettings extension for workflow preset
-extension RawSettings {
-    var workflowPreset: WorkflowPreset {
-        get { WorkflowPreset(rawValue: workflowPresetRaw) ?? .sceneReferredFilmic }
-        set { workflowPresetRaw = newValue.rawValue }
-    }
-    
-    private var workflowPresetRaw: String {
-        get { "scene-referred (filmic)" }
-        set { }
     }
 }

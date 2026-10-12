@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MPL-2.0. See Resources/Redlamp-MPL-2.0.txt.
 import CoreGraphics
 import Foundation
-import simd
 import Vision
+import simd
 
 /// The interim Sky mask, until the bake-off (tracker MSK-17) picks a model: a classical estimate.
 ///
@@ -18,9 +18,10 @@ public enum SkyEstimator {
     public static func estimate(_ image: CGImage) throws -> ProvidedMask {
         let region = try region(image)
         let rough = GrayMask(width: region.width, height: region.height, pixels: region.sky.map { $0 ? 255 : 0 })
-        let stored = rough.blurred(radius: 1).resized(to: PixelSize(width: image.width, height: image.height).fitted(
-            within: PixelSize(width: VisionMaskProvider.partsLongEdge, height: VisionMaskProvider.partsLongEdge),
-        ))
+        let stored = rough.blurred(radius: 1).resized(
+            to: PixelSize(width: image.width, height: image.height).fitted(
+                within: PixelSize(width: VisionMaskProvider.partsLongEdge, height: VisionMaskProvider.partsLongEdge),
+            ))
         return ProvidedMask(
             kind: .sky, provider: "redlamp.skyEstimate", revision: 1,
             mask: GuidedFilter.refine(stored, guide: image, radius: 8, epsilon: 2e-3),
@@ -71,8 +72,8 @@ public enum SkyEstimator {
     static func seeds(inside region: [Bool], width: Int, height: Int, count: Int, depth: Int) throws -> [ImagePoint] {
         // Distance from the region's edge, in work pixels (two-pass chamfer).
         var distance = region.map { $0 ? Int.max / 2 : 0 }
-        for y in 0 ..< height {
-            for x in 0 ..< width where distance[y * width + x] > 0 {
+        for y in 0..<height {
+            for x in 0..<width where distance[y * width + x] > 0 {
                 let up = y > 0 ? distance[(y - 1) * width + x] + 1 : 1
                 let left = x > 0 ? distance[y * width + x - 1] + 1 : 1
                 distance[y * width + x] = min(distance[y * width + x], up, left)
@@ -86,20 +87,21 @@ public enum SkyEstimator {
             }
         }
         var points: [ImagePoint] = []
-        for band in 0 ..< count {
+        for band in 0..<count {
             let x0 = band * width / count
             let x1 = (band + 1) * width / count
             var best = (distance: 0, index: -1)
-            for y in 0 ..< height {
-                for x in x0 ..< x1 where distance[y * width + x] > best.distance {
+            for y in 0..<height {
+                for x in x0..<x1 where distance[y * width + x] > best.distance {
                     best = (distance[y * width + x], y * width + x)
                 }
             }
             if best.index >= 0, best.distance >= depth {
-                points.append(ImagePoint(
-                    x: (Double(best.index % width) + 0.5) / Double(width),
-                    y: (Double(best.index / width) + 0.5) / Double(height),
-                ))
+                points.append(
+                    ImagePoint(
+                        x: (Double(best.index % width) + 0.5) / Double(width),
+                        y: (Double(best.index / width) + 0.5) / Double(height),
+                    ))
             }
         }
         guard !points.isEmpty else { throw MaskComputationError.nothingFound(.sky) }
@@ -114,7 +116,7 @@ public enum SkyEstimator {
         let width = size.width
         let height = size.height
         let weights = Luma.rec709
-        let luma = (0 ..< width * height).map { index -> Float in
+        let luma = (0..<width * height).map { index -> Float in
             let rgb = pixels.rgb(index % width, index / width)
             return weights.x * rgb.x + weights.y * rgb.y + weights.z * rgb.z
         }
@@ -127,7 +129,7 @@ public enum SkyEstimator {
 
         // The sky's own brightness: the brightest smooth band along the top.
         let topRows = max(1, height / 12)
-        let topLuma = (0 ..< topRows * width).filter { texture[$0] < 0.04 }.map { luma[$0] }.sorted()
+        let topLuma = (0..<topRows * width).filter { texture[$0] < 0.04 }.map { luma[$0] }.sorted()
         guard !topLuma.isEmpty else { throw MaskComputationError.nothingFound(.sky) }
         let reference = topLuma[topLuma.count / 2]
 
@@ -142,7 +144,7 @@ public enum SkyEstimator {
 
         // Grown from the top edge, four-connected.
         var sky = [Bool](repeating: false, count: width * height)
-        var stack = (0 ..< width).filter { candidate[$0] }
+        var stack = (0..<width).filter { candidate[$0] }
         for index in stack {
             sky[index] = true
         }
@@ -150,7 +152,7 @@ public enum SkyEstimator {
             let x = index % width
             let y = index / width
             for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
-                where nx >= 0 && nx < width && ny >= 0 && ny < height {
+            where nx >= 0 && nx < width && ny >= 0 && ny < height {
                 let next = ny * width + nx
                 if candidate[next], !sky[next] {
                     sky[next] = true
@@ -159,12 +161,13 @@ public enum SkyEstimator {
             }
         }
         // Next to branches and roofs the sky isn't smooth, only sky-coloured: grow into that rim.
-        for _ in 0 ..< 4 {
+        for _ in 0..<4 {
             var grown = sky
             for index in sky.indices where !sky[index] {
                 let x = index % width
                 let y = index / width
-                let touches = (x > 0 && sky[index - 1]) || (x < width - 1 && sky[index + 1])
+                let touches =
+                    (x > 0 && sky[index - 1]) || (x < width - 1 && sky[index + 1])
                     || (y > 0 && sky[index - width]) || (y < height - 1 && sky[index + width])
                 guard touches else { continue }
                 let rgb = pixels.rgb(x, y)
@@ -193,7 +196,7 @@ public enum SkyEstimator {
         let height = mask.height
         guard let pixels = RGBImage(image, size: PixelSize(width: width, height: height)) else { return mask }
         let sky = mask.coverage
-        let lab = (0 ..< width * height).map { Self.oklab(sRGB: pixels.rgb($0 % width, $0 / width)) }
+        let lab = (0..<width * height).map { Self.oklab(sRGB: pixels.rgb($0 % width, $0 / width)) }
         let sure = sky.map { $0 > 0.9 }
         guard sure.count(where: \.self) >= 100 else { return mask }
 
@@ -222,8 +225,8 @@ public enum SkyEstimator {
 
         // Where crowns can be: above the lowest sure sky in each column, widened across nearby
         // columns and smoothed, plus a little reach below it.
-        var lowest = (0 ..< width).map { x -> Float in
-            let rows = (0 ..< height).reversed()
+        var lowest = (0..<width).map { x -> Float in
+            let rows = (0..<height).reversed()
             return Float(rows.first { sure[$0 * width + x] } ?? 0)
         }
         lowest = Self.maximum(lowest, window: max(3, width / 20))
@@ -232,16 +235,16 @@ public enum SkyEstimator {
         let allowed = { (index: Int) in Float(index / width) <= lowest[index % width] + limit }
 
         // Grown from the sky through matching pixels, four-connected.
-        let passable = (0 ..< width * height).map { (allowed($0) && match[$0] > 0.3) || sky[$0] > 0.5 }
+        let passable = (0..<width * height).map { (allowed($0) && match[$0] > 0.3) || sky[$0] > 0.5 }
         var connected = [Bool](repeating: false, count: width * height)
-        var stack = (0 ..< width * height).filter { sky[$0] > 0.5 }
+        var stack = (0..<width * height).filter { sky[$0] > 0.5 }
         for index in stack {
             connected[index] = true
         }
         while let index = stack.popLast() {
             let x = index % width
             for next in [x > 0 ? index - 1 : -1, x < width - 1 ? index + 1 : -1, index - width, index + width]
-                where next >= 0 && next < width * height && passable[next] && !connected[next] {
+            where next >= 0 && next < width * height && passable[next] && !connected[next] {
                 connected[next] = true
                 stack.append(next)
             }
@@ -265,14 +268,14 @@ public enum SkyEstimator {
     /// Sliding maximum and mean over `window` neighbours, clamped at the ends.
     static func maximum(_ values: [Float], window: Int) -> [Float] {
         values.indices.map { index in
-            let range = max(index - window / 2, 0) ... min(index + window / 2, values.count - 1)
+            let range = max(index - window / 2, 0)...min(index + window / 2, values.count - 1)
             return values[range].max() ?? values[index]
         }
     }
 
     static func mean(_ values: [Float], window: Int) -> [Float] {
         values.indices.map { index in
-            let range = max(index - window / 2, 0) ... min(index + window / 2, values.count - 1)
+            let range = max(index - window / 2, 0)...min(index + window / 2, values.count - 1)
             return values[range].reduce(0, +) / Float(range.count)
         }
     }
@@ -280,8 +283,8 @@ public enum SkyEstimator {
     /// Central-difference gradient magnitude.
     static func gradient(_ values: [Float], width: Int, height: Int) -> [Float] {
         var out = [Float](repeating: 0, count: values.count)
-        for y in 0 ..< height {
-            for x in 0 ..< width {
+        for y in 0..<height {
+            for x in 0..<width {
                 let left = values[y * width + max(x - 1, 0)]
                 let right = values[y * width + min(x + 1, width - 1)]
                 let up = values[max(y - 1, 0) * width + x]

@@ -91,8 +91,9 @@ struct RasterMaskPayload: Codable, Equatable, Hashable, Sendable {
 
     private static func encodeRLE(_ alpha: [UInt8], expectedCount: Int) -> Data {
         let source: [UInt8]
-        if alpha.count == expectedCount { source = alpha }
-        else {
+        if alpha.count == expectedCount {
+            source = alpha
+        } else {
             var copy = Array(alpha.prefix(expectedCount))
             if copy.count < expectedCount { copy += Array(repeating: 0, count: expectedCount - copy.count) }
             source = copy
@@ -196,8 +197,9 @@ struct AIMaskRecipe: Codable, Hashable, Sendable {
     var depthUpper: Double = 1
     var depthSoftness: Double = 0.1
     var request: MaskRequest {
-        MaskRequest(kind: kind, part: part, prompts: prompts, excluded: excluded,
-                    landscape: landscape, box: box, people: instance.map { [$0] })
+        MaskRequest(
+            kind: kind, part: part, prompts: prompts, excluded: excluded,
+            landscape: landscape, box: box, people: instance.map { [$0] })
     }
 }
 

@@ -29,8 +29,12 @@ struct ControlsView: View {
                         .textFieldStyle(.plain)
                         .submitLabel(.search)
                     if !inspectorSearch.isEmpty {
-                        Button { inspectorSearch = "" } label: { Image(systemName: "xmark.circle.fill") }
-                            .buttonStyle(.plain).foregroundStyle(.secondary)
+                        Button {
+                            inspectorSearch = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                        }
+                        .buttonStyle(.plain).foregroundStyle(.secondary)
                     }
                 }
                 .padding(.horizontal, 9).frame(height: 30)
@@ -44,12 +48,17 @@ struct ControlsView: View {
 
             if mode == .adjust {
                 HStack(spacing: 8) {
-                    Toggle("Auto baseline", isOn: Binding(
-                        get: { model.selectedLook.importCalibration?.applies(to: model.selectedLook.raw) == true },
-                        set: { model.setImportCalibrationEnabled($0) }
-                    ))
+                    Toggle(
+                        "Auto baseline",
+                        isOn: Binding(
+                            get: { model.selectedLook.importCalibration?.applies(to: model.selectedLook.raw) == true },
+                            set: { model.setImportCalibrationEnabled($0) }
+                        )
+                    )
                     .disabled(model.selectedLook.importCalibration == nil)
-                    .help("Per-photo CAT16 color calibration and percentile-based auto exposure; starts from the camera's as-shot balance")
+                    .help(
+                        "Per-photo CAT16 color calibration and percentile-based auto exposure; starts from the camera's as-shot balance"
+                    )
                     Spacer()
                     Button("Reanalyze") { model.reanalyzeImportCalibration() }
                         .disabled(model.selectedImage == nil)
@@ -60,9 +69,12 @@ struct ControlsView: View {
             // One section at a time, chosen by a segmented tab. This is what keeps the
             // rail short: only the selected workflow's controls are in the stack.
             if mode == .adjust {
-                Picker("RAW workflow", selection: Binding(
-                    get: { openAdjustment ?? "tone" }, set: { openAdjustment = $0 }
-                )) {
+                Picker(
+                    "RAW workflow",
+                    selection: Binding(
+                        get: { openAdjustment ?? "tone" }, set: { openAdjustment = $0 }
+                    )
+                ) {
                     Text("WB").tag("raw")
                     Text("Light").tag("tone")
                     Text("Crop").tag("geometry")
@@ -71,11 +83,16 @@ struct ControlsView: View {
                 .pickerStyle(.segmented).padding(.horizontal, 9).padding(.top, 8)
             }
             if mode == .film {
-                Toggle("Fast halation", isOn: Binding(
-                    get: { model.selectedLook.values["fastSpatial"] == .bool(true) },
-                    set: { model.setParameter("fastSpatial", value: .bool($0), interactive: false) }
-                ))
-                .help("Calculates broad halation at half resolution, keeping its fine core full size. Diffusion, scanner processing and selected export grain retain their original kernels. Saved for preview and export.")
+                Toggle(
+                    "Fast halation",
+                    isOn: Binding(
+                        get: { model.selectedLook.values["fastSpatial"] == .bool(true) },
+                        set: { model.setParameter("fastSpatial", value: .bool($0), interactive: false) }
+                    )
+                )
+                .help(
+                    "Calculates broad halation at half resolution, keeping its fine core full size. Diffusion, scanner processing and selected export grain retain their original kernels. Saved for preview and export."
+                )
                 .padding(.horizontal, 12).padding(.top, 8)
                 Picker("Film workflow", selection: $filmStage) {
                     Text("Stock").tag("stock")
@@ -98,19 +115,39 @@ struct ControlsView: View {
                         // tab. That is the whole reason the tabs exist.
                         switch openAdjustment ?? "tone" {
                         case "raw":
-                            if panelVisible("raw") && sectionMatches("raw", terms: ["raw", "white balance", "wb", "temperature", "tint", "denoise", "camera"]) {
+                            if panelVisible("raw")
+                                && sectionMatches(
+                                    "raw",
+                                    terms: ["raw", "white balance", "wb", "temperature", "tint", "denoise", "camera"])
+                            {
                                 inspectorSection("White Balance & Camera", id: "raw") { rawSection }
                             }
                         case "tone":
-                            if panelVisible("tone") && sectionMatches("tone", terms: ["light", "exposure", "tone", "curve", "contrast", "shadows", "highlights", "whites", "blacks", "edr"]) {
+                            if panelVisible("tone")
+                                && sectionMatches(
+                                    "tone",
+                                    terms: [
+                                        "light", "exposure", "tone", "curve", "contrast", "shadows", "highlights",
+                                        "whites", "blacks", "edr",
+                                    ])
+                            {
                                 inspectorSection("Light & Tone", id: "tone") { toneSection }
                             }
                         case "geometry":
-                            if panelVisible("geometry") && sectionMatches("geometry", terms: ["crop", "geometry", "aspect", "rotation", "perspective", "flip", "straighten"]) {
+                            if panelVisible("geometry")
+                                && sectionMatches(
+                                    "geometry",
+                                    terms: [
+                                        "crop", "geometry", "aspect", "rotation", "perspective", "flip", "straighten",
+                                    ])
+                            {
                                 inspectorSection("Crop & Geometry", id: "geometry") { geometrySection }
                             }
                         default:
-                            if panelVisible("lens") && sectionMatches("lens", terms: ["lens", "optical", "aberration", "vignette", "swirl", "distortion"]) {
+                            if panelVisible("lens")
+                                && sectionMatches(
+                                    "lens", terms: ["lens", "optical", "aberration", "vignette", "swirl", "distortion"])
+                            {
                                 inspectorSection("Optical Character", id: "lens") {
                                     LensCharacterPanel(model: model, isExpanded: .constant(true))
                                 }
@@ -118,11 +155,16 @@ struct ControlsView: View {
                         }
                     } else if mode == .film {
                         if filmStage == "negative" {
-                            Toggle("Fast DIR color", isOn: Binding(
-                                get: { model.selectedLook.values["fastDIR"] == .bool(true) },
-                                set: { model.setParameter("fastDIR", value: .bool($0), interactive: false) }
-                            ))
-                            .help("Keeps DIR color chemistry and skips spatial diffusion. Applies to preview and export; fine edge contrast may change.")
+                            Toggle(
+                                "Fast DIR color",
+                                isOn: Binding(
+                                    get: { model.selectedLook.values["fastDIR"] == .bool(true) },
+                                    set: { model.setParameter("fastDIR", value: .bool($0), interactive: false) }
+                                )
+                            )
+                            .help(
+                                "Keeps DIR color chemistry and skips spatial diffusion. Applies to preview and export; fine edge contrast may change."
+                            )
                             .padding(12)
                         }
                         if filmStage == "finish" { FilmEffectsPanel(model: model) }
@@ -132,7 +174,8 @@ struct ControlsView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 12).padding(.top, 18).padding(.bottom, 6)
                         ForEach(catalog.groups.filter { filmGroups.contains($0.id) }) { group in
-                            let descriptors = catalog.parameters(in: group.id, flavor: .pro).filter(bridgeControlVisible)
+                            let descriptors = catalog.parameters(in: group.id, flavor: .pro).filter(
+                                bridgeControlVisible)
                             if !descriptors.isEmpty && panelVisible("film.\(group.id)") {
                                 inspectorSection(group.label, id: "film.\(group.id)") {
                                     VStack(spacing: 8) {
@@ -142,14 +185,19 @@ struct ControlsView: View {
                                                 .buttonStyle(.borderless).font(.caption2)
                                         }
                                         ForEach(descriptors) { descriptor in
-                                            ParameterControlRow(model: model, descriptor: descriptor,
+                                            ParameterControlRow(
+                                                model: model, descriptor: descriptor,
                                                 options: catalog.options(for: descriptor))
                                         }
                                     }
                                 }
                             }
                         }
-                        if filmStage == "print" && panelVisible("density") && sectionMatches("density", terms: ["color density", "red", "yellow", "green", "cyan", "blue", "magenta"]) {
+                        if filmStage == "print" && panelVisible("density")
+                            && sectionMatches(
+                                "density",
+                                terms: ["color density", "red", "yellow", "green", "cyan", "blue", "magenta"])
+                        {
                             inspectorSection("Color Density", id: "density") { colorDensitySection }
                         }
                     }
@@ -169,13 +217,20 @@ struct ControlsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: StudioOmniEvents.focusAdjustment)) { note in
             guard let name = note.object as? String,
-                  let item = BridgeCatalog.shared.parameters.first(where: { $0.name == name }) else { return }
+                let item = BridgeCatalog.shared.parameters.first(where: { $0.name == name })
+            else { return }
             inspectorSearch = item.label
-            if ["raw", "tone", "geometry", "lens"].contains(item.group) { openAdjustment = item.group }
-            else if ["film", "filtering"].contains(item.group) { filmStage = "stock" }
-            else if ["print", "diffusion"].contains(item.group) { filmStage = "print" }
-            else if ["dir", "halation", "grain", "grainSynthesis", "filmPlane"].contains(item.group) { filmStage = "negative" }
-            else { filmStage = "output" }
+            if ["raw", "tone", "geometry", "lens"].contains(item.group) {
+                openAdjustment = item.group
+            } else if ["film", "filtering"].contains(item.group) {
+                filmStage = "stock"
+            } else if ["print", "diffusion"].contains(item.group) {
+                filmStage = "print"
+            } else if ["dir", "halation", "grain", "grainSynthesis", "filmPlane"].contains(item.group) {
+                filmStage = "negative"
+            } else {
+                filmStage = "output"
+            }
         }
         .onChange(of: inspectorSearch) { _, value in
             if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -235,8 +290,10 @@ struct ControlsView: View {
     }
 
     @ViewBuilder
-    private func inspectorSection<Content: View>(_ title: String, id: String,
-                                                @ViewBuilder content: @escaping () -> Content) -> some View {
+    private func inspectorSection<Content: View>(
+        _ title: String, id: String,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
         let expanded = sectionExpanded(id)
         VStack(spacing: 0) {
             StudioDevelopSectionHeader(title: title, expanded: expanded, edited: sectionEdited(id)) {
@@ -271,30 +328,39 @@ struct ControlsView: View {
             switch section {
             case "raw": guard look.raw != RawSettings() else { return false }
             case "tone": guard (look.tone ?? ToneSettings()) != ToneSettings() else { return false }
-            case "density": guard (look.colorDensity ?? ColorDensitySettings()) != ColorDensitySettings() else { return false }
+            case "density":
+                guard (look.colorDensity ?? ColorDensitySettings()) != ColorDensitySettings() else { return false }
             case "geometry": guard (look.geometry ?? GeometrySettings()) != GeometrySettings() else { return false }
-            case "lens": guard (look.lensEffects ?? LensEffectsSettings()) != LensEffectsSettings() else { return false }
+            case "lens":
+                guard (look.lensEffects ?? LensEffectsSettings()) != LensEffectsSettings() else { return false }
             default: break
             }
         }
         guard !searchTerm.isEmpty else { return true }
-        return terms.contains { $0.localizedCaseInsensitiveContains(searchTerm) } ||
-            section.localizedCaseInsensitiveContains(searchTerm)
+        return terms.contains { $0.localizedCaseInsensitiveContains(searchTerm) }
+            || section.localizedCaseInsensitiveContains(searchTerm)
     }
 
     private var preferredSearchSection: String? {
         guard !searchTerm.isEmpty else { return openAdjustment }
         let sections: [(String, [String])] = [
             ("raw", ["raw", "white balance", "temperature", "tint", "denoise", "iso"]),
-            ("tone", ["raw develop", "raw exposure", "raw tone", "curve", "shadow boost", "highlight headroom", "edr"]),
+            (
+                "tone",
+                ["raw develop", "raw exposure", "raw tone", "curve", "shadow boost", "highlight headroom", "edr"]
+            ),
             ("density", ["density", "red", "yellow", "green", "cyan", "blue", "magenta"]),
             ("geometry", ["geometry", "crop", "rotation", "perspective", "aspect", "straighten", "flip"]),
-            ("lens", ["lens", "aberration", "vignette", "petzval", "swirl", "spherical", "distortion"])
+            ("lens", ["lens", "aberration", "vignette", "petzval", "swirl", "spherical", "distortion"]),
         ]
         if let section = sections.first(where: { sectionMatches($0.0, terms: $0.1) }) { return section.0 }
         for group in catalog.groups where group.id != "raw" {
-            if group.label.localizedCaseInsensitiveContains(searchTerm) ||
-                catalog.parameters(in: group.id, flavor: .pro).contains(where: { $0.label.localizedCaseInsensitiveContains(searchTerm) || $0.name.localizedCaseInsensitiveContains(searchTerm) }) {
+            if group.label.localizedCaseInsensitiveContains(searchTerm)
+                || catalog.parameters(in: group.id, flavor: .pro).contains(where: {
+                    $0.label.localizedCaseInsensitiveContains(searchTerm)
+                        || $0.name.localizedCaseInsensitiveContains(searchTerm)
+                })
+            {
                 return "film.\(group.id)"
             }
         }
@@ -303,7 +369,8 @@ struct ControlsView: View {
 
     private func bridgeControlVisible(_ descriptor: ParameterDescriptor) -> Bool {
         let needle = inspectorSearch.trimmingCharacters(in: .whitespacesAndNewlines)
-        let searchMatches = needle.isEmpty
+        let searchMatches =
+            needle.isEmpty
             || descriptor.label.localizedCaseInsensitiveContains(needle)
             || descriptor.name.localizedCaseInsensitiveContains(needle)
             || descriptor.group.localizedCaseInsensitiveContains(needle)
@@ -319,10 +386,35 @@ struct ControlsView: View {
                 Text("Camera Settings")
                     .font(.caption.weight(.semibold))
                 Spacer()
-                Button { model.resetRawSection() } label: { Image(systemName: "arrow.counterclockwise") }
-                    .buttonStyle(.plain)
-                    .help("Reset the RAW section, including white balance and lens correction.")
+                Button {
+                    model.resetRawSection()
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                }
+                .buttonStyle(.plain)
+                .help("Reset the RAW section, including white balance and lens correction.")
             }
+
+            // Workflow Preset Picker
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Workflow").font(.caption.weight(.medium))
+                Picker(
+                    "Workflow",
+                    selection: Binding(
+                        get: { model.selectedLook.raw.workflowPreset },
+                        set: { preset in model.setRawSettings({ $0.workflowPreset = preset }, interactive: false) }
+                    )
+                ) {
+                    ForEach(WorkflowPreset.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                Text(model.selectedLook.raw.workflowPreset.description)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.bottom, 5)
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
@@ -340,21 +432,32 @@ struct ControlsView: View {
 
                 VStack(alignment: .leading, spacing: 5) {
                     Text("White Balance").font(.caption.weight(.medium))
-                    Picker("White Balance", selection: Binding(
-                    get: { model.selectedLook.raw.whiteBalanceMode },
-                    set: { mode in model.setWhiteBalanceMode(mode) }
-                )) {
-                    ForEach(RawWhiteBalanceMode.allCases) { Text($0.rawValue).tag($0) }
+                    Picker(
+                        "White Balance",
+                        selection: Binding(
+                            get: { model.selectedLook.raw.whiteBalanceMode },
+                            set: { mode in model.setWhiteBalanceMode(mode) }
+                        )
+                    ) {
+                        ForEach(RawWhiteBalanceMode.allCases) { Text($0.rawValue).tag($0) }
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
                     HStack(spacing: 8) {
                         Button("Auto WB") { model.setAutoWhiteBalanceOnce() }
                             .controlSize(.mini)
-                            .help("Measures the color cast once from the current frame and stores the temperature and tint that neutralize it.")
-                        if model.selectedLook.raw.temperatureOffsetMired != nil || model.selectedLook.raw.tintOffset != nil {
-                            Text(String(format: "Auto %dK %+.0f", Int(model.whiteBalanceDisplayTemperature), model.whiteBalanceDisplayTint))
-                                .font(.caption2).foregroundStyle(.secondary)
+                            .help(
+                                "Measures the color cast once from the current frame and stores the temperature and tint that neutralize it."
+                            )
+                        if model.selectedLook.raw.temperatureOffsetMired != nil
+                            || model.selectedLook.raw.tintOffset != nil
+                        {
+                            Text(
+                                String(
+                                    format: "Auto %dK %+.0f", Int(model.whiteBalanceDisplayTemperature),
+                                    model.whiteBalanceDisplayTint)
+                            )
+                            .font(.caption2).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -363,7 +466,8 @@ struct ControlsView: View {
                     label: "Temperature",
                     committedKelvin: model.whiteBalanceDisplayTemperature,
                     disabled: model.isResolvingWhiteBalanceReference,
-                    helpText: "Makes the image warmer or cooler. Move right for warmer/yellower light and left for cooler/bluer light. In As Shot or Auto, this starts from that mode's current white balance instead of jumping to a fixed value.",
+                    helpText:
+                        "Makes the image warmer or cooler. Move right for warmer/yellower light and left for cooler/bluer light. In As Shot or Auto, this starts from that mode's current white balance instead of jumping to a fixed value.",
                     onReset: { model.resetWhiteBalanceSliders() },
                     onBegin: { model.beginEditGesture() },
                     onChange: { value in model.setWhiteBalanceTemperature(value, interactive: true) },
@@ -376,7 +480,8 @@ struct ControlsView: View {
                     range: -150...150,
                     precision: 1,
                     disabled: model.isResolvingWhiteBalanceReference,
-                    helpText: "Fixes a green or magenta color cast. Move right toward magenta and left toward green. It stays relative to As Shot or Auto when those modes are selected.",
+                    helpText:
+                        "Fixes a green or magenta color cast. Move right toward magenta and left toward green. It stays relative to As Shot or Auto when those modes are selected.",
                     onReset: { model.resetWhiteBalanceSliders() },
                     onBegin: { model.beginEditGesture() },
                     onChange: { value in model.setWhiteBalanceTint(value, interactive: true) },
@@ -388,7 +493,10 @@ struct ControlsView: View {
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
 
-                    LazyVGrid(columns: [GridItem(.flexible(minimum: 115)), GridItem(.flexible(minimum: 115))], alignment: .leading, spacing: 6) {
+                    LazyVGrid(
+                        columns: [GridItem(.flexible(minimum: 115)), GridItem(.flexible(minimum: 115))],
+                        alignment: .leading, spacing: 6
+                    ) {
                         Button {
                             model.autoWhiteBalanceToSkin()
                         } label: {
@@ -400,7 +508,9 @@ struct ControlsView: View {
                         }
                         .controlSize(.small)
                         .disabled(model.isSkinWhiteBalanceRunning || model.selectedImage == nil)
-                        .help("Starts from this photo's As Shot white balance, measures reliable skin against the vectorscope skin line, then solves a conservative per-photo temperature/tint correction.")
+                        .help(
+                            "Starts from this photo's As Shot white balance, measures reliable skin against the vectorscope skin line, then solves a conservative per-photo temperature/tint correction."
+                        )
 
                         Menu("From As Shot") {
                             Section("Technical") {
@@ -442,7 +552,9 @@ struct ControlsView: View {
                             }
                         }
                         .controlSize(.small)
-                        .help("Starts from this photo's own Auto White Balance result, then applies the chosen relative shift.")
+                        .help(
+                            "Starts from this photo's own Auto White Balance result, then applies the chosen relative shift."
+                        )
                     }
                 }
 
@@ -465,7 +577,8 @@ struct ControlsView: View {
                 .foregroundStyle(.secondary)
 
                 if model.selectedLook.raw.whiteBalanceMode == .auto,
-                   !model.autoWhiteBalanceStatus.isEmpty {
+                    !model.autoWhiteBalanceStatus.isEmpty
+                {
                     Text(model.autoWhiteBalanceStatus)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
@@ -477,36 +590,65 @@ struct ControlsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-
                 Divider().opacity(0.5)
                 VStack(alignment: .leading, spacing: 5) {
                     Text("RAW Denoise").font(.caption.weight(.medium))
-                    Picker("RAW Denoise", selection: Binding(get:{ model.selectedLook.raw.denoiseMode }, set:{ model.setRawDenoiseMode($0) })) {
+                    Picker(
+                        "RAW Denoise",
+                        selection: Binding(
+                            get: { model.selectedLook.raw.denoiseMode }, set: { model.setRawDenoiseMode($0) })
+                    ) {
                         ForEach(RawDenoiseMode.allCases) { Text($0.rawValue).tag($0) }
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
                 }
                 if model.selectedLook.raw.denoiseMode == .manual {
-                    VStack(alignment: .leading, spacing: 3) { Text("Luma").font(.caption); Slider(value: Binding(get:{model.selectedLook.raw.denoiseLuma},set:{model.setRawDenoiseLuma($0)}),in:0...1) }
-                    VStack(alignment: .leading, spacing: 3) { Text("Chroma").font(.caption); Slider(value: Binding(get:{model.selectedLook.raw.denoiseChroma},set:{model.setRawDenoiseChroma($0)}),in:0...1) }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Luma").font(.caption);
+                        Slider(
+                            value: Binding(
+                                get: { model.selectedLook.raw.denoiseLuma }, set: { model.setRawDenoiseLuma($0) }),
+                            in: 0...1)
+                    }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Chroma").font(.caption);
+                        Slider(
+                            value: Binding(
+                                get: { model.selectedLook.raw.denoiseChroma }, set: { model.setRawDenoiseChroma($0) }),
+                            in: 0...1)
+                    }
                 }
                 HStack {
-                    Button { model.prepareRawDenoiseForSelected() } label: { if model.isPreparingRawDenoise { ProgressView().controlSize(.mini) } else { Label("Prepare RAW Denoise",systemImage:"sparkles") } }.disabled(model.selectedLook.raw.denoiseMode == .off || model.isPreparingRawDenoise)
+                    Button {
+                        model.prepareRawDenoiseForSelected()
+                    } label: {
+                        if model.isPreparingRawDenoise {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            Label("Prepare RAW Denoise", systemImage: "sparkles")
+                        }
+                    }.disabled(model.selectedLook.raw.denoiseMode == .off || model.isPreparingRawDenoise)
                     Menu("Prewarm") {
                         Button("Selected Photos") { model.prewarmRawDenoiseForLibrarySelection() }
                         Button("Export Set") { model.prewarmRawDenoiseForExportSet() }
                     }
                     .controlSize(.small)
-                    .help("Prepares RawForge DNGs in the background with at most two workers so the editor stays responsive.")
+                    .help(
+                        "Prepares RawForge DNGs in the background with at most two workers so the editor stays responsive."
+                    )
                     Button("Clear Denoise Cache") { model.clearRawDenoiseCache() }.controlSize(.small)
                 }
-                if !model.rawDenoiseStatus.isEmpty { Text(model.rawDenoiseStatus).font(.caption2).foregroundStyle(.secondary) }
+                if !model.rawDenoiseStatus.isEmpty {
+                    Text(model.rawDenoiseStatus).font(.caption2).foregroundStyle(.secondary)
+                }
 
-                Toggle("Vendor Lens Correction", isOn: Binding(
-                    get: { model.selectedLook.raw.lensCorrection },
-                    set: { enabled in model.setRawSettings({ $0.lensCorrection = enabled }, interactive: false) }
-                ))
+                Toggle(
+                    "Vendor Lens Correction",
+                    isOn: Binding(
+                        get: { model.selectedLook.raw.lensCorrection },
+                        set: { enabled in model.setRawSettings({ $0.lensCorrection = enabled }, interactive: false) }
+                    ))
             }
             .padding(.top, 8)
 
@@ -523,60 +665,82 @@ struct ControlsView: View {
         let active = model.activeLocalGrade
         let tone = active?.tone ?? (model.selectedLook.tone ?? ToneSettings())
         return VStack(alignment: .leading, spacing: 10) {
-            HStack{
+            HStack {
                 Text("Tone Controls").font(.caption.weight(.semibold))
-                if let grade=active { Text("· \(grade.name)").font(.caption2).foregroundStyle(.cyan) }
+                if let grade = active { Text("· \(grade.name)").font(.caption2).foregroundStyle(.cyan) }
                 Spacer()
                 if active == nil {
-                    Button{model.resetRawDevelop()}label:{Image(systemName:"arrow.counterclockwise")}
-                        .buttonStyle(.plain)
+                    Button {
+                        model.resetRawDevelop()
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                    }
+                    .buttonStyle(.plain)
                 }
             }
 
             VStack(alignment: .leading, spacing: 10) {
                 if let grade = active {
                     HStack {
-                        Label("MASK: \(grade.name)", systemImage:"circle.lefthalf.filled")
+                        Label("MASK: \(grade.name)", systemImage: "circle.lefthalf.filled")
                             .font(.caption.weight(.bold)).foregroundStyle(.cyan)
                         Spacer()
-                        Button("Main Image"){model.selectLocalGrade(nil)}.controlSize(.small)
+                        Button("Main Image") { model.selectLocalGrade(nil) }.controlSize(.small)
                     }
                     Text("RAW Develop is targeting this mask until Main Image is selected.")
                         .font(.caption2).foregroundStyle(.secondary)
-                    DraftScalarSlider(label:"Exposure EV",committedValue:tone.exposureEV,range:-5...5,precision:2,resetValue:0,
-                        onReset:{model.setLocalTone(grade.id,"exposure",0,interactive:false)},
-                        onBegin:{model.beginEditGesture()},
-                        onChange:{model.setLocalTone(grade.id,"exposure",$0,interactive:true)},
-                        onEnd:{model.endEditGesture()})
+                    DraftScalarSlider(
+                        label: "Exposure EV", committedValue: tone.exposureEV, range: -5...5, precision: 2,
+                        resetValue: 0,
+                        onReset: { model.setLocalTone(grade.id, "exposure", 0, interactive: false) },
+                        onBegin: { model.beginEditGesture() },
+                        onChange: { model.setLocalTone(grade.id, "exposure", $0, interactive: true) },
+                        onEnd: { model.endEditGesture() })
                 } else {
                     Text("Original photo development")
                         .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Text("Exposure and tone shape the image before film is applied.")
                         .font(.caption2).foregroundStyle(.secondary)
-                    DraftScalarSlider(label:"Exposure",committedValue:raw.developExposureEV,range:-5...5,precision:2,
-                        helpText:"CIRAWFilter exposure. Locked behavior.",resetValue:0,
-                        onReset:{model.setRawDevelopExposure(0,interactive:false)},onBegin:{model.beginEditGesture()},
-                        onChange:{model.setRawDevelopExposure($0,interactive:true)},onEnd:{model.endEditGesture()})
+                    DraftScalarSlider(
+                        label: "Exposure", committedValue: raw.developExposureEV, range: -5...5, precision: 2,
+                        helpText: "CIRAWFilter exposure. Locked behavior.", resetValue: 0,
+                        onReset: { model.setRawDevelopExposure(0, interactive: false) },
+                        onBegin: { model.beginEditGesture() },
+                        onChange: { model.setRawDevelopExposure($0, interactive: true) },
+                        onEnd: { model.endEditGesture() })
                     HStack(spacing: 8) {
                         Button("Auto Exposure") { model.setRawDevelopAutoExposure() }
                             .controlSize(.mini)
-                            .help("Meters one exposure value from the current frame. Moving the exposure slider by hand clears it.")
+                            .help(
+                                "Meters one exposure value from the current frame. Moving the exposure slider by hand clears it."
+                            )
                         if raw.autoExposureApplied {
                             Text(String(format: "Auto %+.2f EV", raw.developExposureEV))
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                     }
-                    DraftScalarSlider(label:"Global Tone",committedValue:raw.developGlobalTone*100,range:0...100,precision:0,
-                        helpText:"Apple CIRAWFilter global tone. Locked behavior.",resetValue:100,
-                        onReset:{model.setRawDevelopGlobalTone(1,interactive:false)},onBegin:{model.beginEditGesture()},
-                        onChange:{model.setRawDevelopGlobalTone($0/100,interactive:true)},onEnd:{model.endEditGesture()})
-                    DraftScalarSlider(label:"Shadow Boost",committedValue:raw.developShadowBoost*100,range:0...200,precision:0,resetValue:100,
-                        onReset:{model.setRawDevelopShadowBoost(1,interactive:false)},onBegin:{model.beginEditGesture()},
-                        onChange:{model.setRawDevelopShadowBoost($0/100,interactive:true)},onEnd:{model.endEditGesture()})
-                    DraftScalarSlider(label:"Highlight Headroom",committedValue:raw.developHighlightHeadroom*100,range:0...200,precision:0,resetValue:0,
-                        onReset:{model.setRawDevelopHighlightHeadroom(0,interactive:false)},onBegin:{model.beginEditGesture()},
-                        onChange:{model.setRawDevelopHighlightHeadroom($0/100,interactive:true)},onEnd:{model.endEditGesture()})
+                    DraftScalarSlider(
+                        label: "Global Tone", committedValue: raw.developGlobalTone * 100, range: 0...100, precision: 0,
+                        helpText: "Apple CIRAWFilter global tone. Locked behavior.", resetValue: 100,
+                        onReset: { model.setRawDevelopGlobalTone(1, interactive: false) },
+                        onBegin: { model.beginEditGesture() },
+                        onChange: { model.setRawDevelopGlobalTone($0 / 100, interactive: true) },
+                        onEnd: { model.endEditGesture() })
+                    DraftScalarSlider(
+                        label: "Shadow Boost", committedValue: raw.developShadowBoost * 100, range: 0...200,
+                        precision: 0, resetValue: 100,
+                        onReset: { model.setRawDevelopShadowBoost(1, interactive: false) },
+                        onBegin: { model.beginEditGesture() },
+                        onChange: { model.setRawDevelopShadowBoost($0 / 100, interactive: true) },
+                        onEnd: { model.endEditGesture() })
+                    DraftScalarSlider(
+                        label: "Highlight Headroom", committedValue: raw.developHighlightHeadroom * 100, range: 0...200,
+                        precision: 0, resetValue: 0,
+                        onReset: { model.setRawDevelopHighlightHeadroom(0, interactive: false) },
+                        onBegin: { model.beginEditGesture() },
+                        onChange: { model.setRawDevelopHighlightHeadroom($0 / 100, interactive: true) },
+                        onEnd: { model.endEditGesture() })
                 }
 
                 Divider().opacity(0.5)
@@ -585,21 +749,39 @@ struct ControlsView: View {
                     HStack(spacing: 8) {
                         Button("Auto Contrast") { model.setAutoContrast(true) }
                             .controlSize(.mini)
-                            .help("Places black and white once from the current frame. Changing any tone control by hand clears it.")
+                            .help(
+                                "Places black and white once from the current frame. Changing any tone control by hand clears it."
+                            )
                         if let black = tone.resolvedAutoContrastBlack, let white = tone.resolvedAutoContrastWhite {
                             Text(String(format: "Auto %.2f–%.2f", black, white))
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                     }
                 }
-                routedTone("Contrast",tone.contrast,-100...100,grade:active,key:"contrast"){model.setToneContrast($0,interactive:$1)}
-                routedTone("Midtones",tone.midtones,-100...100,grade:active,key:"midtones"){model.setToneMidtones($0,interactive:$1)}
-                routedTone("Highlights",tone.highlights,-100...100,grade:active,key:"highlights"){model.setToneHighlights($0,interactive:$1)}
-                routedTone("Highlight Recovery",tone.highlightRecovery,0...100,grade:active,key:"highlightRecovery"){model.setHighlightRecovery($0,interactive:$1)}
-                routedTone("Shadows",tone.shadows,-100...100,grade:active,key:"shadows"){model.setToneShadows($0,interactive:$1)}
-                routedTone("Shadow Recovery",tone.shadowRecovery,0...100,grade:active,key:"shadowRecovery"){model.setShadowRecovery($0,interactive:$1)}
-                routedTone("Whites",tone.whites,-100...100,grade:active,key:"whites"){model.setToneWhites($0,interactive:$1)}
-                routedTone("Blacks",tone.blacks,-100...100,grade:active,key:"blacks"){model.setToneBlacks($0,interactive:$1)}
+                routedTone("Contrast", tone.contrast, -100...100, grade: active, key: "contrast") {
+                    model.setToneContrast($0, interactive: $1)
+                }
+                routedTone("Midtones", tone.midtones, -100...100, grade: active, key: "midtones") {
+                    model.setToneMidtones($0, interactive: $1)
+                }
+                routedTone("Highlights", tone.highlights, -100...100, grade: active, key: "highlights") {
+                    model.setToneHighlights($0, interactive: $1)
+                }
+                routedTone(
+                    "Highlight Recovery", tone.highlightRecovery, 0...100, grade: active, key: "highlightRecovery"
+                ) { model.setHighlightRecovery($0, interactive: $1) }
+                routedTone("Shadows", tone.shadows, -100...100, grade: active, key: "shadows") {
+                    model.setToneShadows($0, interactive: $1)
+                }
+                routedTone("Shadow Recovery", tone.shadowRecovery, 0...100, grade: active, key: "shadowRecovery") {
+                    model.setShadowRecovery($0, interactive: $1)
+                }
+                routedTone("Whites", tone.whites, -100...100, grade: active, key: "whites") {
+                    model.setToneWhites($0, interactive: $1)
+                }
+                routedTone("Blacks", tone.blacks, -100...100, grade: active, key: "blacks") {
+                    model.setToneBlacks($0, interactive: $1)
+                }
 
                 if active == nil {
                     Divider().opacity(0.5)
@@ -607,17 +789,19 @@ struct ControlsView: View {
                         Text("Tone Curve").font(.caption.weight(.semibold))
                         Spacer()
                         Menu("Presets") {
-                            ForEach(ToneCurvePresetGroup.allCases){g in Section(g.rawValue){
-                                ForEach(ToneCurvePreset.allCases.filter{$0.group==g}){p in
-                                    Button(p.rawValue){model.applyRawDevelopCurvePreset(p)}
+                            ForEach(ToneCurvePresetGroup.allCases) { g in
+                                Section(g.rawValue) {
+                                    ForEach(ToneCurvePreset.allCases.filter { $0.group == g }) { p in
+                                        Button(p.rawValue) { model.applyRawDevelopCurvePreset(p) }
+                                    }
                                 }
-                            }}
+                            }
                         }.controlSize(.small)
-                        Button("Reset"){model.resetRawDevelopCurve()}.controlSize(.small)
+                        Button("Reset") { model.resetRawDevelopCurve() }.controlSize(.small)
                     }
-                    ToneCurveEditorView(model:model).frame(height:230)
+                    ToneCurveEditorView(model: model).frame(height: 230)
                 }
-            }.padding(.top,8)
+            }.padding(.top, 8)
 
         }
         .padding(10).background(Color.clear)
@@ -626,18 +810,19 @@ struct ControlsView: View {
 
     @ViewBuilder
     private func routedTone(
-        _ label:String,_ value:Double,_ range:ClosedRange<Double>,
-        grade:LocalGradeRecord?,key:String,global:@escaping(Double,Bool)->Void
-    )->some View {
-        DraftScalarSlider(label:label,committedValue:value,range:range,precision:0,resetValue:0,
-            onReset:{
-                if let grade { model.setLocalTone(grade.id,key,0,interactive:false) } else { global(0,false) }
+        _ label: String, _ value: Double, _ range: ClosedRange<Double>,
+        grade: LocalGradeRecord?, key: String, global: @escaping (Double, Bool) -> Void
+    ) -> some View {
+        DraftScalarSlider(
+            label: label, committedValue: value, range: range, precision: 0, resetValue: 0,
+            onReset: {
+                if let grade { model.setLocalTone(grade.id, key, 0, interactive: false) } else { global(0, false) }
             },
-            onBegin:{model.beginEditGesture()},
-            onChange:{v in
-                if let grade { model.setLocalTone(grade.id,key,v,interactive:true) } else { global(v,true) }
+            onBegin: { model.beginEditGesture() },
+            onChange: { v in
+                if let grade { model.setLocalTone(grade.id, key, v, interactive: true) } else { global(v, true) }
             },
-            onEnd:{model.endEditGesture()})
+            onEnd: { model.endEditGesture() })
     }
 
     private var colorDensitySection: some View {
@@ -647,31 +832,46 @@ struct ControlsView: View {
                 Text("Color Density · ME deSatch")
                     .font(.caption.weight(.semibold))
                 Spacer()
-                Button { model.resetColorDensity() } label: { Image(systemName: "arrow.counterclockwise") }
-                    .buttonStyle(.plain)
-                    .help("Reset all ME deSatch density controls.")
+                Button {
+                    model.resetColorDensity()
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                }
+                .buttonStyle(.plain)
+                .help("Reset all ME deSatch density controls.")
             }
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("ME deSatch density uses the cone-coordinate behavior from Moaz Elgabry's GPL-3.0 ME_Desatch DCTL. Zero is untouched; move left toward −1 to progressively deSatch/darken density globally or around one hue family. This is intentionally not a normal Saturation control.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text(
+                    "ME deSatch density uses the cone-coordinate behavior from Moaz Elgabry's GPL-3.0 ME_Desatch DCTL. Zero is untouched; move left toward −1 to progressively deSatch/darken density globally or around one hue family. This is intentionally not a normal Saturation control."
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
-                DensitySlider(label: "Global deSatch", value: density.master, key: "master", model: model,
-                              help: "Original ME_Desatch global control. 0 is identity; move left toward −1 for stronger global deSatch density.")
-                DensitySlider(label: "Red deSatch", value: density.red, key: "red", model: model,
-                              help: "Targets the red hue neighborhood using the original cone-coordinate falloff.")
-                DensitySlider(label: "Green deSatch", value: density.green, key: "green", model: model,
-                              help: "Targets the green hue neighborhood using the original cone-coordinate falloff.")
-                DensitySlider(label: "Blue deSatch", value: density.blue, key: "blue", model: model,
-                              help: "Targets the blue hue neighborhood using the original cone-coordinate falloff.")
-                DensitySlider(label: "Cyan deSatch", value: density.cyan, key: "cyan", model: model,
-                              help: "Targets the cyan hue neighborhood using the original cone-coordinate falloff.")
-                DensitySlider(label: "Magenta deSatch", value: density.magenta, key: "magenta", model: model,
-                              help: "Targets the magenta hue neighborhood using the original cone-coordinate falloff.")
-                DensitySlider(label: "Yellow deSatch", value: density.yellow, key: "yellow", model: model,
-                              help: "Targets the yellow hue neighborhood using the original cone-coordinate falloff.")
+                DensitySlider(
+                    label: "Global deSatch", value: density.master, key: "master", model: model,
+                    help:
+                        "Original ME_Desatch global control. 0 is identity; move left toward −1 for stronger global deSatch density."
+                )
+                DensitySlider(
+                    label: "Red deSatch", value: density.red, key: "red", model: model,
+                    help: "Targets the red hue neighborhood using the original cone-coordinate falloff.")
+                DensitySlider(
+                    label: "Green deSatch", value: density.green, key: "green", model: model,
+                    help: "Targets the green hue neighborhood using the original cone-coordinate falloff.")
+                DensitySlider(
+                    label: "Blue deSatch", value: density.blue, key: "blue", model: model,
+                    help: "Targets the blue hue neighborhood using the original cone-coordinate falloff.")
+                DensitySlider(
+                    label: "Cyan deSatch", value: density.cyan, key: "cyan", model: model,
+                    help: "Targets the cyan hue neighborhood using the original cone-coordinate falloff.")
+                DensitySlider(
+                    label: "Magenta deSatch", value: density.magenta, key: "magenta", model: model,
+                    help: "Targets the magenta hue neighborhood using the original cone-coordinate falloff.")
+                DensitySlider(
+                    label: "Yellow deSatch", value: density.yellow, key: "yellow", model: model,
+                    help: "Targets the yellow hue neighborhood using the original cone-coordinate falloff.")
 
                 Text("Source behavior: ME_Desatch.dctl · GPL-3.0 · attribution is bundled with the app.")
                     .font(.system(size: 9))
@@ -699,9 +899,13 @@ struct ControlsView: View {
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
-                Button { model.resetGeometry() } label: { Image(systemName: "arrow.counterclockwise") }
-                    .buttonStyle(.plain)
-                    .help("Reset crop, rotation, perspective, scale, flips, and geometry guides.")
+                Button {
+                    model.resetGeometry()
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                }
+                .buttonStyle(.plain)
+                .help("Reset crop, rotation, perspective, scale, flips, and geometry guides.")
             }
 
             VStack(alignment: .leading, spacing: 10) {
@@ -725,10 +929,17 @@ struct ControlsView: View {
                     .help("Choose a common photo, print, social-media, or cinema frame shape.")
                 }
 
-                Picker("Guide", selection: Binding(
-                    get: { geometry.overlayGuide },
-                    set: { value in model.setGeometrySettings(interactive: false, changedParameter: "cropGuide") { $0.overlayGuide = value } }
-                )) {
+                Picker(
+                    "Guide",
+                    selection: Binding(
+                        get: { geometry.overlayGuide },
+                        set: { value in
+                            model.setGeometrySettings(interactive: false, changedParameter: "cropGuide") {
+                                $0.overlayGuide = value
+                            }
+                        }
+                    )
+                ) {
                     ForEach(CropOverlayGuide.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.menu)
@@ -747,7 +958,9 @@ struct ControlsView: View {
                         }
                     }
                     .controlSize(.small)
-                    .help("Level straightens the horizon. Vertical corrects leaning vertical lines. Full corrects both vertical and horizontal perspective. Auto chooses a balanced correction.")
+                    .help(
+                        "Level straightens the horizon. Vertical corrects leaning vertical lines. Full corrects both vertical and horizontal perspective. Auto chooses a balanced correction."
+                    )
                 }
 
                 DraftScalarSlider(
@@ -755,11 +968,20 @@ struct ControlsView: View {
                     committedValue: geometry.rotationDegrees,
                     range: -45...45,
                     precision: 2,
-                    helpText: "Rotates the photo to level a tilted horizon. Move left or right until horizontal lines look level.",
+                    helpText:
+                        "Rotates the photo to level a tilted horizon. Move left or right until horizontal lines look level.",
                     resetValue: 0,
-                    onReset: { model.setGeometrySettings(interactive: false, changedParameter: "geometryRotation") { $0.rotationDegrees = 0 } },
+                    onReset: {
+                        model.setGeometrySettings(interactive: false, changedParameter: "geometryRotation") {
+                            $0.rotationDegrees = 0
+                        }
+                    },
                     onBegin: { model.beginEditGesture() },
-                    onChange: { value in model.setGeometrySettings(interactive: true, changedParameter: "geometryRotation") { $0.rotationDegrees = value } },
+                    onChange: { value in
+                        model.setGeometrySettings(interactive: true, changedParameter: "geometryRotation") {
+                            $0.rotationDegrees = value
+                        }
+                    },
                     onEnd: { model.endEditGesture() }
                 )
 
@@ -768,11 +990,20 @@ struct ControlsView: View {
                     committedValue: geometry.verticalPerspective,
                     range: -100...100,
                     precision: 1,
-                    helpText: "Corrects vertical lines that lean inward or outward, like buildings photographed from below or above.",
+                    helpText:
+                        "Corrects vertical lines that lean inward or outward, like buildings photographed from below or above.",
                     resetValue: 0,
-                    onReset: { model.setGeometrySettings(interactive: false, changedParameter: "geometryVertical") { $0.verticalPerspective = 0 } },
+                    onReset: {
+                        model.setGeometrySettings(interactive: false, changedParameter: "geometryVertical") {
+                            $0.verticalPerspective = 0
+                        }
+                    },
                     onBegin: { model.beginEditGesture() },
-                    onChange: { value in model.setGeometrySettings(interactive: true, changedParameter: "geometryVertical") { $0.verticalPerspective = value } },
+                    onChange: { value in
+                        model.setGeometrySettings(interactive: true, changedParameter: "geometryVertical") {
+                            $0.verticalPerspective = value
+                        }
+                    },
                     onEnd: { model.endEditGesture() }
                 )
 
@@ -781,11 +1012,20 @@ struct ControlsView: View {
                     committedValue: geometry.horizontalPerspective,
                     range: -100...100,
                     precision: 1,
-                    helpText: "Corrects sideways perspective when one side of the scene looks farther away than the other.",
+                    helpText:
+                        "Corrects sideways perspective when one side of the scene looks farther away than the other.",
                     resetValue: 0,
-                    onReset: { model.setGeometrySettings(interactive: false, changedParameter: "geometryHorizontal") { $0.horizontalPerspective = 0 } },
+                    onReset: {
+                        model.setGeometrySettings(interactive: false, changedParameter: "geometryHorizontal") {
+                            $0.horizontalPerspective = 0
+                        }
+                    },
                     onBegin: { model.beginEditGesture() },
-                    onChange: { value in model.setGeometrySettings(interactive: true, changedParameter: "geometryHorizontal") { $0.horizontalPerspective = value } },
+                    onChange: { value in
+                        model.setGeometrySettings(interactive: true, changedParameter: "geometryHorizontal") {
+                            $0.horizontalPerspective = value
+                        }
+                    },
                     onEnd: { model.endEditGesture() }
                 )
 
@@ -794,11 +1034,20 @@ struct ControlsView: View {
                     committedValue: geometry.aspect,
                     range: -100...100,
                     precision: 1,
-                    helpText: "Stretches or squeezes the corrected image horizontally. Use it when perspective correction makes people or objects look too wide or too narrow.",
+                    helpText:
+                        "Stretches or squeezes the corrected image horizontally. Use it when perspective correction makes people or objects look too wide or too narrow.",
                     resetValue: 0,
-                    onReset: { model.setGeometrySettings(interactive: false, changedParameter: "geometryAspect") { $0.aspect = 0 } },
+                    onReset: {
+                        model.setGeometrySettings(interactive: false, changedParameter: "geometryAspect") {
+                            $0.aspect = 0
+                        }
+                    },
                     onBegin: { model.beginEditGesture() },
-                    onChange: { value in model.setGeometrySettings(interactive: true, changedParameter: "geometryAspect") { $0.aspect = value } },
+                    onChange: { value in
+                        model.setGeometrySettings(interactive: true, changedParameter: "geometryAspect") {
+                            $0.aspect = value
+                        }
+                    },
                     onEnd: { model.endEditGesture() }
                 )
 
@@ -807,11 +1056,20 @@ struct ControlsView: View {
                     committedValue: geometry.scale,
                     range: 50...400,
                     precision: 1,
-                    helpText: "Zooms the corrected photo in or out. Increase it to hide empty edges after straightening or perspective correction.",
+                    helpText:
+                        "Zooms the corrected photo in or out. Increase it to hide empty edges after straightening or perspective correction.",
                     resetValue: 100,
-                    onReset: { model.setGeometrySettings(interactive: false, changedParameter: "geometryScale") { $0.scale = 100 } },
+                    onReset: {
+                        model.setGeometrySettings(interactive: false, changedParameter: "geometryScale") {
+                            $0.scale = 100
+                        }
+                    },
                     onBegin: { model.beginEditGesture() },
-                    onChange: { value in model.setGeometrySettings(interactive: true, changedParameter: "geometryScale") { $0.scale = value } },
+                    onChange: { value in
+                        model.setGeometrySettings(interactive: true, changedParameter: "geometryScale") {
+                            $0.scale = value
+                        }
+                    },
                     onEnd: { model.endEditGesture() }
                 )
 
@@ -820,11 +1078,20 @@ struct ControlsView: View {
                     committedValue: geometry.xOffset,
                     range: -100...100,
                     precision: 1,
-                    helpText: "Moves the corrected image left or right inside the frame. Use it after perspective correction to reposition the subject without changing the crop shape.",
+                    helpText:
+                        "Moves the corrected image left or right inside the frame. Use it after perspective correction to reposition the subject without changing the crop shape.",
                     resetValue: 0,
-                    onReset: { model.setGeometrySettings(interactive: false, changedParameter: "geometryXOffset") { $0.xOffset = 0 } },
+                    onReset: {
+                        model.setGeometrySettings(interactive: false, changedParameter: "geometryXOffset") {
+                            $0.xOffset = 0
+                        }
+                    },
                     onBegin: { model.beginEditGesture() },
-                    onChange: { value in model.setGeometrySettings(interactive: true, changedParameter: "geometryXOffset") { $0.xOffset = value } },
+                    onChange: { value in
+                        model.setGeometrySettings(interactive: true, changedParameter: "geometryXOffset") {
+                            $0.xOffset = value
+                        }
+                    },
                     onEnd: { model.endEditGesture() }
                 )
 
@@ -833,32 +1100,66 @@ struct ControlsView: View {
                     committedValue: geometry.yOffset,
                     range: -100...100,
                     precision: 1,
-                    helpText: "Moves the corrected image up or down inside the frame. It is useful for centering architecture or giving a portrait more headroom after correction.",
+                    helpText:
+                        "Moves the corrected image up or down inside the frame. It is useful for centering architecture or giving a portrait more headroom after correction.",
                     resetValue: 0,
-                    onReset: { model.setGeometrySettings(interactive: false, changedParameter: "geometryYOffset") { $0.yOffset = 0 } },
+                    onReset: {
+                        model.setGeometrySettings(interactive: false, changedParameter: "geometryYOffset") {
+                            $0.yOffset = 0
+                        }
+                    },
                     onBegin: { model.beginEditGesture() },
-                    onChange: { value in model.setGeometrySettings(interactive: true, changedParameter: "geometryYOffset") { $0.yOffset = value } },
+                    onChange: { value in
+                        model.setGeometrySettings(interactive: true, changedParameter: "geometryYOffset") {
+                            $0.yOffset = value
+                        }
+                    },
                     onEnd: { model.endEditGesture() }
                 )
 
                 HStack(spacing: 8) {
-                    Toggle("Auto Fill Edges", isOn: Binding(
-                        get: { geometry.autoCrop },
-                        set: { value in model.setGeometrySettings(interactive: false, changedParameter: "geometryAutoCrop") { $0.autoCrop = value } }
-                    ))
-                    .help("Automatically adds only the zoom needed to keep the active crop free of black edges after rotation or perspective correction.")
+                    Toggle(
+                        "Auto Fill Edges",
+                        isOn: Binding(
+                            get: { geometry.autoCrop },
+                            set: { value in
+                                model.setGeometrySettings(interactive: false, changedParameter: "geometryAutoCrop") {
+                                    $0.autoCrop = value
+                                }
+                            }
+                        )
+                    )
+                    .help(
+                        "Automatically adds only the zoom needed to keep the active crop free of black edges after rotation or perspective correction."
+                    )
                     Spacer()
-                    Button { model.rotateCropQuarterTurn(clockwise: false) } label: { Image(systemName: "rotate.left") }
-                        .help("Rotate 90° left")
-                    Button { model.rotateCropQuarterTurn(clockwise: true) } label: { Image(systemName: "rotate.right") }
-                        .help("Rotate 90° right")
                     Button {
-                        model.setGeometrySettings(interactive: false, changedParameter: "geometryFlipH") { $0.flipHorizontal.toggle() }
-                    } label: { Image(systemName: "arrow.left.and.right.righttriangle.left.righttriangle.right") }
+                        model.rotateCropQuarterTurn(clockwise: false)
+                    } label: {
+                        Image(systemName: "rotate.left")
+                    }
+                    .help("Rotate 90° left")
+                    Button {
+                        model.rotateCropQuarterTurn(clockwise: true)
+                    } label: {
+                        Image(systemName: "rotate.right")
+                    }
+                    .help("Rotate 90° right")
+                    Button {
+                        model.setGeometrySettings(interactive: false, changedParameter: "geometryFlipH") {
+                            $0.flipHorizontal.toggle()
+                        }
+                    } label: {
+                        Image(systemName: "arrow.left.and.right.righttriangle.left.righttriangle.right")
+                    }
                     .help("Flip the photo left-to-right")
                     Button {
-                        model.setGeometrySettings(interactive: false, changedParameter: "geometryFlipV") { $0.flipVertical.toggle() }
-                    } label: { Image(systemName: "arrow.up.and.down.righttriangle.up.righttriangle.down") }
+                        model.setGeometrySettings(interactive: false, changedParameter: "geometryFlipV") {
+                            $0.flipVertical.toggle()
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.and.down.righttriangle.up.righttriangle.down")
+                    }
                     .help("Flip the photo top-to-bottom")
                 }
                 .buttonStyle(.borderless)
@@ -910,20 +1211,27 @@ struct ParameterControlRow: View {
     var body: some View {
         switch descriptor.kind {
         case .bool:
-            Toggle(descriptor.label, isOn: Binding(
-                get: { if case .bool(let v) = value { return v }; return descriptor.defaultInt != 0 },
-                set: { model.setParameter(descriptor.name, value: .bool($0), interactive: false) }
-            ))
+            Toggle(
+                descriptor.label,
+                isOn: Binding(
+                    get: {
+                        if case .bool(let v) = value { return v }; return descriptor.defaultInt != 0
+                    },
+                    set: { model.setParameter(descriptor.name, value: .bool($0), interactive: false) }
+                ))
 
         case .choice, .filmStock, .printPaper:
             VStack(alignment: .leading, spacing: 5) {
                 Text(descriptor.label)
                     .font(.caption.weight(.medium))
                     .fixedSize(horizontal: false, vertical: true)
-                Picker(descriptor.label, selection: Binding(
-                    get: { Int(value.intValue) },
-                    set: { model.setParameter(descriptor.name, value: .int(Int32($0)), interactive: false) }
-                )) {
+                Picker(
+                    descriptor.label,
+                    selection: Binding(
+                        get: { Int(value.intValue) },
+                        set: { model.setParameter(descriptor.name, value: .int(Int32($0)), interactive: false) }
+                    )
+                ) {
                     ForEach(Array(options.enumerated()), id: \.offset) { index, label in
                         Text(label).tag(index)
                     }
@@ -971,12 +1279,14 @@ private struct IntegerParameterControl: View {
                 Text(descriptor.label)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer()
-            Button { model.resetParameter(descriptor.name) } label: {
-                Image(systemName: "arrow.counterclockwise")
-                    .font(.system(size: 9, weight: .medium))
-            }
-            .buttonStyle(.plain)
-            .help("Reset \(descriptor.label)")
+                Button {
+                    model.resetParameter(descriptor.name)
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 9, weight: .medium))
+                }
+                .buttonStyle(.plain)
+                .help("Reset \(descriptor.label)")
             }
             Stepper(
                 value: Binding(
@@ -1077,24 +1387,29 @@ struct DraftScalarSlider: View {
             }
             .focusable()
             .onKeyPress(.leftArrow) {
-                guard let v = try? $draft.wrappedValue else { return .ignored }
+                // draft is a non-optional Double and the binding getter cannot
+                // throw, so a `try?` here only existed to feed an unreachable guard.
+                let v = $draft.wrappedValue
                 let next = min(range.upperBound, max(range.lowerBound, v - step))
                 draft = next; onChange(next); onEnd(); return .handled
             }
             .onKeyPress(.rightArrow) {
-                guard let v = try? $draft.wrappedValue else { return .ignored }
+                let v = $draft.wrappedValue
                 let next = min(range.upperBound, max(range.lowerBound, v + step))
                 draft = next; onChange(next); onEnd(); return .handled
             }
-            TextField(label, value: Binding(
-                get: { draft },
-                set: { value in
-                    let clamped = min(range.upperBound, max(range.lowerBound, value))
-                    draft = clamped
-                    onChange(clamped)
-                    onEnd()
-                }
-            ), format: .number.precision(.fractionLength(0...precision)))
+            TextField(
+                label,
+                value: Binding(
+                    get: { draft },
+                    set: { value in
+                        let clamped = min(range.upperBound, max(range.lowerBound, value))
+                        draft = clamped
+                        onChange(clamped)
+                        onEnd()
+                    }
+                ), format: .number.precision(.fractionLength(0...precision))
+            )
             .textFieldStyle(.plain).multilineTextAlignment(.trailing)
             .font(StudioType.value).frame(width: RedlampMetrics.valueWidth)
             if let onReset {
@@ -1153,7 +1468,9 @@ private struct VectorParameterControl: View {
                 Text(descriptor.label)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 6)
-                Button { model.resetParameter(descriptor.name) } label: {
+                Button {
+                    model.resetParameter(descriptor.name)
+                } label: {
                     Image(systemName: "arrow.counterclockwise")
                         .font(.system(size: 9, weight: .medium))
                 }
@@ -1163,20 +1480,26 @@ private struct VectorParameterControl: View {
             ForEach(0..<count, id: \.self) { component in
                 HStack {
                     Text(["R", "G", "B"][component]).frame(width: 16)
-                    Slider(value: Binding(
-                        get: { draft[component] },
-                        set: { newValue in
-                            draft[component] = newValue
-                            let p: ParameterValue = count == 2
-                                ? .vector2(draft[0], draft[1])
-                                : .vector3(draft[0], draft[1], draft[2])
-                            model.setParameter(descriptor.name, value: p, interactive: true)
+                    Slider(
+                        value: Binding(
+                            get: { draft[component] },
+                            set: { newValue in
+                                draft[component] = newValue
+                                let p: ParameterValue =
+                                    count == 2
+                                    ? .vector2(draft[0], draft[1])
+                                    : .vector3(draft[0], draft[1], draft[2])
+                                model.setParameter(descriptor.name, value: p, interactive: true)
+                            }
+                        ), in: descriptor.minimum...descriptor.maximum,
+                        onEditingChanged: { isEditing in
+                            editing = isEditing
+                            if isEditing { model.beginEditGesture() } else { model.endEditGesture() }
                         }
-                    ), in: descriptor.minimum...descriptor.maximum, onEditingChanged: { isEditing in
-                        editing = isEditing
-                        if isEditing { model.beginEditGesture() } else { model.endEditGesture() }
-                    })
-                    .help(EditorBeginnerHelp.parameter(descriptor) + " This slider adjusts the \(["R", "G", "B"][component]) component.")
+                    )
+                    .help(
+                        EditorBeginnerHelp.parameter(descriptor)
+                            + " This slider adjusts the \(["R", "G", "B"][component]) component.")
                     Text(draft[component], format: .number.precision(.fractionLength(2)))
                         .monospacedDigit()
                         .frame(width: 54)
@@ -1281,24 +1604,76 @@ private enum EditorBeginnerHelp {
             let extra = behavior.isEmpty ? "" : " " + behavior
             return "\(what) Move left to \(left) and right to \(right).\(extra)"
         }
-        if key.contains("exposure") { return text("Changes overall brightness.", "darken the image", "brighten the image", "Exposure controls usually work early in the image pipeline, so they can change how the film response handles highlights and shadows.") }
-        if key.contains("contrast") { return text("Changes the difference between dark and bright areas.", "make tones softer/flatter", "make tones more separated/punchy") }
-        if key.contains("density") { return text("Changes how deep and rich the image feels.", "make it lighter/thinner", "make it denser/richer") }
-        if key.contains("satur") || key.contains("chroma") { return text("Changes color intensity.", "mute colors", "make colors stronger") }
-        if key.contains("grain") && key.contains("size") { return text("Changes the visible grain size.", "make grain finer", "make grain larger") }
-        if key.contains("grain") { return text("Changes the amount or strength of film grain.", "reduce grain", "increase grain") }
-        if key.contains("halation") { return text("Adds the warm glow that can form around very bright edges on film.", "reduce the glow", "increase the glow") }
-        if key.contains("bloom") { return text("Adds a soft light spread around highlights.", "keep highlights tighter", "make highlight glow softer and wider") }
-        if key.contains("sharp") || key.contains("texture") || key.contains("detail") { return text("Changes fine edge/detail definition.", "soften fine detail", "make fine detail more obvious") }
-        if key.contains("highlight") || key.contains("shoulder") { return text("Changes the bright end of the image.", "hold/compress bright tones more", "open or strengthen bright tones") }
-        if key.contains("shadow") || key.contains("toe") { return text("Changes the dark end of the image.", "deepen or compress dark tones", "lift/open dark tones") }
-        if key.contains("black") { return text("Changes the darkest point of the image.", "lift blacks", "deepen blacks") }
-        if key.contains("white") { return text("Changes the brightest point of the image.", "lower the white point", "raise the white point") }
-        if key.contains("blur") || key.contains("mist") || key.contains("promist") { return text("Changes optical softness/glow.", "keep the image cleaner", "make the image softer and more diffused") }
-        if key.contains("vignette") { return text("Changes darkening toward the edges of the frame.", "reduce edge darkening", "increase edge darkening") }
-        if key.contains("hue") { return text("Rotates the selected color around the color wheel.", "shift it one direction", "shift it the other direction") }
-        if key.contains("temperature") { return text("Changes color warmth.", "make the image cooler/bluer", "make it warmer/yellower") }
-        if key.contains("tint") { return text("Corrects green versus magenta color cast.", "move toward green", "move toward magenta") }
+        if key.contains("exposure") {
+            return text(
+                "Changes overall brightness.", "darken the image", "brighten the image",
+                "Exposure controls usually work early in the image pipeline, so they can change how the film response handles highlights and shadows."
+            )
+        }
+        if key.contains("contrast") {
+            return text(
+                "Changes the difference between dark and bright areas.", "make tones softer/flatter",
+                "make tones more separated/punchy")
+        }
+        if key.contains("density") {
+            return text(
+                "Changes how deep and rich the image feels.", "make it lighter/thinner", "make it denser/richer")
+        }
+        if key.contains("satur") || key.contains("chroma") {
+            return text("Changes color intensity.", "mute colors", "make colors stronger")
+        }
+        if key.contains("grain") && key.contains("size") {
+            return text("Changes the visible grain size.", "make grain finer", "make grain larger")
+        }
+        if key.contains("grain") {
+            return text("Changes the amount or strength of film grain.", "reduce grain", "increase grain")
+        }
+        if key.contains("halation") {
+            return text(
+                "Adds the warm glow that can form around very bright edges on film.", "reduce the glow",
+                "increase the glow")
+        }
+        if key.contains("bloom") {
+            return text(
+                "Adds a soft light spread around highlights.", "keep highlights tighter",
+                "make highlight glow softer and wider")
+        }
+        if key.contains("sharp") || key.contains("texture") || key.contains("detail") {
+            return text("Changes fine edge/detail definition.", "soften fine detail", "make fine detail more obvious")
+        }
+        if key.contains("highlight") || key.contains("shoulder") {
+            return text(
+                "Changes the bright end of the image.", "hold/compress bright tones more",
+                "open or strengthen bright tones")
+        }
+        if key.contains("shadow") || key.contains("toe") {
+            return text("Changes the dark end of the image.", "deepen or compress dark tones", "lift/open dark tones")
+        }
+        if key.contains("black") {
+            return text("Changes the darkest point of the image.", "lift blacks", "deepen blacks")
+        }
+        if key.contains("white") {
+            return text("Changes the brightest point of the image.", "lower the white point", "raise the white point")
+        }
+        if key.contains("blur") || key.contains("mist") || key.contains("promist") {
+            return text(
+                "Changes optical softness/glow.", "keep the image cleaner", "make the image softer and more diffused")
+        }
+        if key.contains("vignette") {
+            return text(
+                "Changes darkening toward the edges of the frame.", "reduce edge darkening", "increase edge darkening")
+        }
+        if key.contains("hue") {
+            return text(
+                "Rotates the selected color around the color wheel.", "shift it one direction",
+                "shift it the other direction")
+        }
+        if key.contains("temperature") {
+            return text("Changes color warmth.", "make the image cooler/bluer", "make it warmer/yellower")
+        }
+        if key.contains("tint") {
+            return text("Corrects green versus magenta color cast.", "move toward green", "move toward magenta")
+        }
         return text("Adjusts \(descriptor.label.lowercased()).", "reduce the effect", "increase the effect")
     }
 }

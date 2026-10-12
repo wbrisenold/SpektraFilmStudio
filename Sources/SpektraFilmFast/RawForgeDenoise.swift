@@ -31,12 +31,14 @@ actor RawForgeDenoiseService {
     }
 
     nonisolated static let supportedExtensions: Set<String> = [
-        "dng","cr2","cr3","nef","nrw","arw","srf","sr2","raf","orf","rw2","rwl","pef","ptx","3fr","fff","iiq","mos","mef","mrw","erf","kdc","dcr","x3f","raw","srw"
+        "dng", "cr2", "cr3", "nef", "nrw", "arw", "srf", "sr2", "raf", "orf", "rw2", "rwl", "pef", "ptx", "3fr", "fff",
+        "iiq", "mos", "mef", "mrw", "erf", "kdc", "dcr", "x3f", "raw", "srw",
     ]
 
     nonisolated static func cacheRoot() -> URL {
         if let external = UserDefaults.standard.string(forKey: "SpektraFilmStudio.externalOriginalScratchParent"),
-           !external.isEmpty {
+            !external.isEmpty
+        {
             // Do not fall back to the internal caches directory when a selected external
             // drive is disconnected. The downstream write must report a drive error.
             return URL(fileURLWithPath: external, isDirectory: true)
@@ -64,13 +66,17 @@ actor RawForgeDenoiseService {
     }
 
     nonisolated static func destinationURL(source: URL, raw: RawSettings, iso: Int? = nil) -> URL? {
-        guard raw.denoiseMode != .off, supportedExtensions.contains(source.pathExtension.lowercased()) else { return nil }
+        guard raw.denoiseMode != .off, supportedExtensions.contains(source.pathExtension.lowercased()) else {
+            return nil
+        }
         let attrs = try? FileManager.default.attributesOfItem(atPath: source.path)
         let size = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
         let stamp = Int64((attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0)
         let s = strength(raw: raw, iso: iso)
-        let identity = [source.standardizedFileURL.path, String(size), String(stamp), raw.denoiseModel,
-                        String(format: "%.4f", s.luma), String(format: "%.4f", s.chroma)].joined(separator: "|")
+        let identity = [
+            source.standardizedFileURL.path, String(size), String(stamp), raw.denoiseModel,
+            String(format: "%.4f", s.luma), String(format: "%.4f", s.chroma),
+        ].joined(separator: "|")
         let hash = Stage5StableHash.fnv1a64(identity)
         return cacheRoot().appendingPathComponent(String(format: "%016llx.dng", hash))
     }
@@ -82,9 +88,12 @@ actor RawForgeDenoiseService {
 
     func prepare(source: URL, raw: RawSettings, iso: Int?) async throws -> URL {
         guard raw.denoiseMode == .off else {
-            throw NSError(domain: "SpektraFilmStudio.GPUOnlyDenoise", code: 1,
-                userInfo: [NSLocalizedDescriptionKey:
-                    "RAW AI denoise unavailable: this build has no verified Intel Metal denoiser."])
+            throw NSError(
+                domain: "SpektraFilmStudio.GPUOnlyDenoise", code: 1,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "RAW AI denoise unavailable: this build has no verified Intel Metal denoiser."
+                ])
         }
         return source
     }
@@ -93,7 +102,9 @@ actor RawForgeDenoiseService {
     /// CPU-heavy and wedding sets should not starve the editor or blow out memory.
     func prewarm(_ images: [ProjectImageRecord], maxConcurrent: Int = 2) async -> RawForgeBatchResult {
         let start = ProcessInfo.processInfo.systemUptime
-        let candidates = images.filter { $0.look.raw.denoiseMode != .off && Self.supportedExtensions.contains($0.url.pathExtension.lowercased()) }
+        let candidates = images.filter {
+            $0.look.raw.denoiseMode != .off && Self.supportedExtensions.contains($0.url.pathExtension.lowercased())
+        }
         var result = RawForgeBatchResult(skipped: images.count - candidates.count)
         guard !candidates.isEmpty else { result.elapsed = ProcessInfo.processInfo.systemUptime - start; return result }
 
@@ -105,18 +116,24 @@ actor RawForgeDenoiseService {
                 let image = candidates[next]; next += 1
                 let wasCached = Self.cacheURL(source: image.url, raw: image.look.raw, iso: image.metadata?.iso) != nil
                 group.addTask {
-                    do { _ = try await service.prepare(source: image.url, raw: image.look.raw, iso: image.metadata?.iso); return (true, wasCached) }
-                    catch { return (false, wasCached) }
+                    do {
+                        _ = try await service.prepare(source: image.url, raw: image.look.raw, iso: image.metadata?.iso);
+                        return (true, wasCached)
+                    } catch { return (false, wasCached) }
                 }
             }
             while let item = await group.next() {
                 if item.0 { result.prepared += 1; if item.1 { result.cacheHits += 1 } } else { result.failed += 1 }
                 if next < candidates.count {
                     let image = candidates[next]; next += 1
-                    let wasCached = Self.cacheURL(source: image.url, raw: image.look.raw, iso: image.metadata?.iso) != nil
+                    let wasCached =
+                        Self.cacheURL(source: image.url, raw: image.look.raw, iso: image.metadata?.iso) != nil
                     group.addTask {
-                        do { _ = try await service.prepare(source: image.url, raw: image.look.raw, iso: image.metadata?.iso); return (true, wasCached) }
-                        catch { return (false, wasCached) }
+                        do {
+                            _ = try await service.prepare(
+                                source: image.url, raw: image.look.raw, iso: image.metadata?.iso);
+                            return (true, wasCached)
+                        } catch { return (false, wasCached) }
                     }
                 }
             }
@@ -127,10 +144,14 @@ actor RawForgeDenoiseService {
 
     func stats() -> RawForgeCacheStats {
         let fm = FileManager.default, root = Self.cacheRoot()
-        guard let e = fm.enumerator(at: root, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey], options: [.skipsHiddenFiles]) else { return .init() }
+        guard
+            let e = fm.enumerator(
+                at: root, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey], options: [.skipsHiddenFiles])
+        else { return .init() }
         var out = RawForgeCacheStats()
         for case let url as URL in e {
-            guard let v = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]), v.isRegularFile == true else { continue }
+            guard let v = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]), v.isRegularFile == true
+            else { continue }
             out.files += 1; out.bytes += Int64(v.fileSize ?? 0)
         }
         return out

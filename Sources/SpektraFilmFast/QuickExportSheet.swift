@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 struct QuickExportRequest: Identifiable {
     let id: UUID
@@ -160,7 +160,9 @@ struct QuickExportSheet: View {
         return nil
     }
 
-    private func quickSection<Content: View>(_ title: String, symbol: String, @ViewBuilder content: () -> Content) -> some View {
+    private func quickSection<Content: View>(
+        _ title: String, symbol: String, @ViewBuilder content: () -> Content
+    ) -> some View {
         VStack(alignment: .leading, spacing: 11) {
             Label(title, systemImage: symbol).font(.subheadline.weight(.semibold))
             content()

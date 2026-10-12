@@ -78,7 +78,8 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: StudioOmniEvents.open)) { _ in
             showingOmni.toggle()
         }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("SpektraFilmStudio.UI.CloudSetup"))) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("SpektraFilmStudio.UI.CloudSetup"))) {
+            _ in
             showingCloudTransfer = true
         }
         .onChange(of: model.page) { oldPage, newPage in
@@ -167,16 +168,19 @@ struct ContentView: View {
                             .foregroundStyle(selected ? .primary : .secondary)
                             .padding(.horizontal, 14)
                             .frame(height: 29)
-                            .background(selected ? StudioPalette.selected : Color.clear,
-                                        in: RoundedRectangle(cornerRadius: 8))
+                            .background(
+                                selected ? StudioPalette.selected : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(selected ? [.isSelected] : [])
                 }
             }
             .padding(4)
-            .background(StudioPalette.recessed,
-                        in: RoundedRectangle(cornerRadius: 11))
+            .background(
+                StudioPalette.recessed,
+                in: RoundedRectangle(cornerRadius: 11)
+            )
             .overlay {
                 RoundedRectangle(cornerRadius: 11)
                     .strokeBorder(StudioPalette.subtleBorder, lineWidth: 0.5)
@@ -271,7 +275,8 @@ struct ContentView: View {
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
-            let sourceCommit = Bundle.main.object(forInfoDictionaryKey: "SpektraSourceCommit") as? String ?? "unidentified"
+            let sourceCommit =
+                Bundle.main.object(forInfoDictionaryKey: "SpektraSourceCommit") as? String ?? "unidentified"
             Text("Source: \(String(sourceCommit.prefix(12)))\(sourceCommit.hasSuffix("-dirty") ? "-dirty" : "")")
                 .monospacedDigit()
                 .foregroundStyle(.secondary)

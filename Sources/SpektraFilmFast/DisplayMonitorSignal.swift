@@ -43,7 +43,8 @@ enum DisplayMonitorSignal {
         let floor = min(m.0, min(m.1, m.2))
         let luma = 0.2126 * m.0 + 0.7152 * m.1 + 0.0722 * m.2
         let saturation = peak > 1.0e-6 ? (peak - floor) / peak : 0
-        return DisplayMonitorSample(r: m.0, g: m.1, b: m.2, luma: luma, saturation: saturation, peak: peak, floor: floor)
+        return DisplayMonitorSample(
+            r: m.0, g: m.1, b: m.2, luma: luma, saturation: saturation, peak: peak, floor: floor)
     }
 
     static func sampleDisplay(r: Float, g: Float, b: Float) -> DisplayMonitorSample {

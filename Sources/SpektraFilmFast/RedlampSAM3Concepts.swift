@@ -147,12 +147,13 @@ public final class SAM3Concepts: @unchecked Sendable {
             for level in ["fpn0", "fpn1", "fpn2"] {
                 inputs[level] = features.levels.featureValue(for: level)
             }
-            let out = try lock
+            let out =
+                try lock
                 .withLock {
                     try Inference.shared.predict(decoder, from: MLDictionaryFeatureProvider(dictionary: inputs))
                 }
             guard let instanceArray = out.featureValue(for: "instances")?.multiArrayValue,
-                  let semanticArray = out.featureValue(for: "semantic")?.multiArrayValue
+                let semanticArray = out.featureValue(for: "semantic")?.multiArrayValue
             else { throw MaskComputationError.unsupported(.landscape) }
             for (index, value) in DepthAnything3.values(instanceArray).enumerated() {
                 instances[index] = max(instances[index], value)
@@ -205,7 +206,7 @@ public final class SAM3Concepts: @unchecked Sendable {
         )
         if let app = appPrompts {
             for (name, added) in try Self.prompts(index: app.index, blob: app.blob, decoder: decoder)
-                where prompts[name] == nil {
+            where prompts[name] == nil {
                 prompts[name] = added
             }
         }
@@ -218,7 +219,8 @@ public final class SAM3Concepts: @unchecked Sendable {
         // Xcode may flatten the SAM3 folder into the bundle's root.
         for subdirectory in ["SAM3", nil] {
             if let index = bundle.url(forResource: "Sam3AppPrompts", withExtension: "json", subdirectory: subdirectory),
-               let blob = bundle.url(forResource: "Sam3AppPrompts", withExtension: "bin", subdirectory: subdirectory) {
+                let blob = bundle.url(forResource: "Sam3AppPrompts", withExtension: "bin", subdirectory: subdirectory)
+            {
                 return (index, blob)
             }
         }
@@ -251,10 +253,11 @@ public final class SAM3Concepts: @unchecked Sendable {
                 let base = bytes.baseAddress!.advanced(by: entry.offset).assumingMemoryBound(to: UInt16.self)
                 return Array(UnsafeBufferPointer(start: base, count: featureCount + maskCount))
             }
-            try out[entry.class, default: []].append(Prompt(
-                text: array(Array(values[..<featureCount]), shape: entry.features, name: "text"),
-                mask: array(Array(values[featureCount...]), shape: entry.mask, name: "textMask"),
-            ))
+            try out[entry.class, default: []].append(
+                Prompt(
+                    text: array(Array(values[..<featureCount]), shape: entry.features, name: "text"),
+                    mask: array(Array(values[featureCount...]), shape: entry.mask, name: "textMask"),
+                ))
         }
         return out
     }

@@ -73,14 +73,15 @@ public enum OKLab {
         let c = value * saturation
         let x = c * (1 - abs(h.truncatingRemainder(dividingBy: 2) - 1))
         let m = value - c
-        let rgb: SIMD3<Double> = switch Int(h) {
-        case 0: [c, x, 0]
-        case 1: [x, c, 0]
-        case 2: [0, c, x]
-        case 3: [0, x, c]
-        case 4: [x, 0, c]
-        default: [c, 0, x]
-        }
+        let rgb: SIMD3<Double> =
+            switch Int(h) {
+            case 0: [c, x, 0]
+            case 1: [x, c, 0]
+            case 2: [0, c, x]
+            case 3: [0, x, c]
+            case 4: [x, 0, c]
+            default: [c, 0, x]
+            }
         return rgb + m
     }
 }

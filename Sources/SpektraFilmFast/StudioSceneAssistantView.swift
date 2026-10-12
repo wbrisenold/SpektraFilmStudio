@@ -44,7 +44,9 @@ struct StudioSceneAssistantView: View {
                         Text("Merge").font(.caption2).foregroundStyle(.secondary)
                     }
                 }
-                .help("Left separates aggressively into small groups. Right merges visually different frames. Groups also require close capture time (within 20 minutes) and the same session folder.")
+                .help(
+                    "Left separates aggressively into small groups. Right merges visually different frames. Groups also require close capture time (within 20 minutes) and the same session folder."
+                )
                 Spacer()
                 if working { ProgressView().controlSize(.small) }
                 Button("Analyze Thumbnails") { Task { await analyze() } }
@@ -57,24 +59,31 @@ struct StudioSceneAssistantView: View {
                 ScrollView {
                     LazyVStack(spacing: 6) {
                         ForEach(sets) { group in
-                            Button { selectedID = group.id } label: {
+                            Button {
+                                selectedID = group.id
+                            } label: {
                                 HStack(spacing: 11) {
                                     if let image = photo(group.id) {
                                         LocalThumbnail(url: model.thumbnailURL(for: image), contentMode: .fit)
                                             .frame(width: 76, height: 56)
-                                            .background(Color.black.opacity(0.24), in: RoundedRectangle(cornerRadius: 7))
+                                            .background(
+                                                Color.black.opacity(0.24), in: RoundedRectangle(cornerRadius: 7))
                                     }
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(group.label).font(.subheadline.weight(.medium))
-                                        Text("\(group.count) photo\(group.count == 1 ? "" : "s") · " + group.topTags.prefix(2).joined(separator: ", "))
-                                            .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                                        Text(
+                                            "\(group.count) photo\(group.count == 1 ? "" : "s") · "
+                                                + group.topTags.prefix(2).joined(separator: ", ")
+                                        )
+                                        .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
                                     }
                                     Spacer()
                                 }
                                 .padding(8)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(selectedID == group.id ? StudioPalette.selected : Color.clear,
-                                            in: RoundedRectangle(cornerRadius: 9))
+                                .background(
+                                    selectedID == group.id ? StudioPalette.selected : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 9))
                             }.buttonStyle(.plain)
                         }
                     }.padding(12)
@@ -115,21 +124,28 @@ struct StudioSceneAssistantView: View {
                                         }.controlSize(.small)
                                     }
                                     .padding(11)
-                                    .background(StudioPalette.panel.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
+                                    .background(
+                                        StudioPalette.panel.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
                                 }
-                                Label("Suggestions are starting points, not measured film matches. Review skin color, highlight response, and print density in the exact renderer before batch application.", systemImage: "info.circle")
-                                    .font(.caption).foregroundStyle(.secondary)
+                                Label(
+                                    "Suggestions are starting points, not measured film matches. Review skin color, highlight response, and print density in the exact renderer before batch application.",
+                                    systemImage: "info.circle"
+                                )
+                                .font(.caption).foregroundStyle(.secondary)
                             }.padding(17)
                         }
                     } else if let errorText {
-                        ContentUnavailableView("Analysis unavailable", systemImage: "exclamationmark.triangle",
-                                               description: Text(errorText))
+                        ContentUnavailableView(
+                            "Analysis unavailable", systemImage: "exclamationmark.triangle",
+                            description: Text(errorText))
                     } else if working {
-                        ContentUnavailableView("Analyzing your local previews", systemImage: "sparkles",
-                                               description: Text("No RAW originals are uploaded or downloaded for this analysis."))
+                        ContentUnavailableView(
+                            "Analyzing your local previews", systemImage: "sparkles",
+                            description: Text("No RAW originals are uploaded or downloaded for this analysis."))
                     } else {
-                        ContentUnavailableView("No scene groups yet", systemImage: "photo.stack",
-                                               description: Text("Analyze local thumbnails to find related shots."))
+                        ContentUnavailableView(
+                            "No scene groups yet", systemImage: "photo.stack",
+                            description: Text("Analyze local thumbnails to find related shots."))
                     }
                 }
                 .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
@@ -147,7 +163,8 @@ struct StudioSceneAssistantView: View {
         .task { await analyze() }
         .confirmationDialog(
             "Apply film stock and print paper to this entire set?",
-            isPresented: Binding(get: { pendingApply != nil }, set: { if !$0 { pendingApply = nil; pendingGroupID = nil } }),
+            isPresented: Binding(
+                get: { pendingApply != nil }, set: { if !$0 { pendingApply = nil; pendingGroupID = nil } }),
             titleVisibility: .visible
         ) {
             Button("Apply Stock + Paper") {
@@ -157,9 +174,13 @@ struct StudioSceneAssistantView: View {
                 pendingApply = nil
                 pendingGroupID = nil
             }
-            Button("Cancel", role: .cancel) { pendingApply = nil; pendingGroupID = nil }
+            Button("Cancel", role: .cancel) {
+                pendingApply = nil; pendingGroupID = nil
+            }
         } message: {
-            Text("Only stock and paper change; individual white balance, crop and tone settings remain. Batch changes are not a single-step Undo. Save a project copy first if you need a rollback.")
+            Text(
+                "Only stock and paper change; individual white balance, crop and tone settings remain. Batch changes are not a single-step Undo. Save a project copy first if you need a rollback."
+            )
         }
     }
 
@@ -173,20 +194,23 @@ struct StudioSceneAssistantView: View {
         errorText = nil
         defer { working = false }
         let inputs = model.project.images.map { image in
-            StudioSceneInput(id: image.id,
-                             previewURL: model.thumbnailURL(for: image),
-                             captureTime: image.captureDate ?? image.metadata?.captureDate ?? image.importedAt,
-                             folder: image.logicalFolderPath ?? image.url.deletingLastPathComponent().path)
+            StudioSceneInput(
+                id: image.id,
+                previewURL: model.thumbnailURL(for: image),
+                captureTime: image.captureDate ?? image.metadata?.captureDate ?? image.importedAt,
+                folder: image.logicalFolderPath ?? image.url.deletingLastPathComponent().path)
         }
         do {
-            let results = try await StudioSceneIntelligence.shared.group(inputs, similarity: Float(similarity),
+            let results = try await StudioSceneIntelligence.shared.group(
+                inputs, similarity: Float(similarity),
                 films: BridgeCatalog.shared.films, papers: BridgeCatalog.shared.papers)
             guard !Task.isCancelled else { return }
             sets = results
             if !sets.contains(where: { $0.id == selectedID }) { selectedID = sets.first?.id }
-            if sets.isEmpty { errorText = "No local thumbnails are ready. Generate previews in Library or Cull before analyzing." }
-        } catch is CancellationError { }
-        catch { errorText = error.localizedDescription }
+            if sets.isEmpty {
+                errorText = "No local thumbnails are ready. Generate previews in Library or Cull before analyzing."
+            }
+        } catch is CancellationError {} catch { errorText = error.localizedDescription }
     }
 
     private func selectGroup(_ group: StudioSceneSet) {

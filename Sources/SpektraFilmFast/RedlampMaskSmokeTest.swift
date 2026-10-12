@@ -1,5 +1,5 @@
-import Foundation
 import CoreGraphics
+import Foundation
 
 /// Deterministic macOS runtime check. A passing test proves the actual viewer-compositor
 /// pixel path makes a center radial mask visibly red without turning the corner red.
@@ -16,11 +16,13 @@ enum RedlampMaskSmokeTest {
         var source = MaskSourceRecord(name: "Center", kind: .radial)
         source.radial = RadialMaskGeometry()
         grade.masks.sources = [source]
-        guard let output = RedlampMaskDisplay.compose(
-            rgba: input, displayWidth: width, displayHeight: height,
-            grade: grade, preGeometryWidth: width, preGeometryHeight: height,
-            geometry: nil, style: .color
-        ) else { return 11 }
+        guard
+            let output = RedlampMaskDisplay.compose(
+                rgba: input, displayWidth: width, displayHeight: height,
+                grade: grade, preGeometryWidth: width, preGeometryHeight: height,
+                geometry: nil, style: .color
+            )
+        else { return 11 }
         // On Macs with Metal, verify the installed GPU evaluator has the same coverage
         // as the fallback, not merely that the CPU tint math works.
         if let metal = MaskMetalEngine.shared {
@@ -39,10 +41,11 @@ enum RedlampMaskSmokeTest {
         let center = ((height / 2) * width + width / 2) * 4
         let corner = 0
         guard output[center] > input[center] + 25,
-              output[center + 2] < input[center + 2] - 10,
-              output[corner] == input[corner],
-              output[corner + 1] == input[corner + 1],
-              output[corner + 2] == input[corner + 2] else { return 12 }
+            output[center + 2] < input[center + 2] - 10,
+            output[corner] == input[corner],
+            output[corner + 1] == input[corner + 1],
+            output[corner + 2] == input[corner + 2]
+        else { return 12 }
         guard RedlampMaskDisplay.image(width: width, height: height, rgba: output) != nil else { return 13 }
         // A bitmap CGContext is capable of silently flipping a CGImage vertically.
         // The old radial-only test was symmetrical and could never detect that.
@@ -56,12 +59,14 @@ enum RedlampMaskSmokeTest {
             }
         }
         guard let bandImage = RedlampMaskDisplay.image(width: width, height: height, rgba: stripe),
-              let roundTrip = RedlampMaskDisplay.rgbaBytes(bandImage),
-              roundTrip.count == stripe.count else { return 17 }
+            let roundTrip = RedlampMaskDisplay.rgbaBytes(bandImage),
+            roundTrip.count == stripe.count
+        else { return 17 }
         let upper = ((height / 4) * width + width / 2) * 4
         let lower = (((height * 3) / 4) * width + width / 2) * 4
         guard roundTrip[upper] > roundTrip[upper + 1],
-              roundTrip[lower] < roundTrip[lower + 1] else {
+            roundTrip[lower] < roundTrip[lower + 1]
+        else {
             print("FAIL: CGContext image readback vertically flipped the mask canvas")
             return 18
         }
@@ -75,16 +80,18 @@ enum RedlampMaskSmokeTest {
         }
         rasterSource.raster = RasterMaskPayload(width: width, height: height, alpha: alpha)
         rasterGrade.masks.sources = [rasterSource]
-        guard let localCoverage = MaskMetalEngine.shared?.renderCoverage(
-            grade: rasterGrade, width: width, height: height
-        ), localCoverage[width / 2 + (height / 4) * width] > 0.9,
-           localCoverage[width / 2 + ((height * 3) / 4) * width] < 0.1,
-           let overlayFrame = RedlampMaskDisplay.compose(
-               rgba: input, displayWidth: width, displayHeight: height,
-               grade: rasterGrade, preGeometryWidth: width, preGeometryHeight: height,
-               geometry: nil, style: .color
-           ), overlayFrame[upper] > input[upper] + 25,
-           overlayFrame[lower] == input[lower] else {
+        guard
+            let localCoverage = MaskMetalEngine.shared?.renderCoverage(
+                grade: rasterGrade, width: width, height: height
+            ), localCoverage[width / 2 + (height / 4) * width] > 0.9,
+            localCoverage[width / 2 + ((height * 3) / 4) * width] < 0.1,
+            let overlayFrame = RedlampMaskDisplay.compose(
+                rgba: input, displayWidth: width, displayHeight: height,
+                grade: rasterGrade, preGeometryWidth: width, preGeometryHeight: height,
+                geometry: nil, style: .color
+            ), overlayFrame[upper] > input[upper] + 25,
+            overlayFrame[lower] == input[lower]
+        else {
             print("FAIL: Selected asymmetric raster mask does not match overlay")
             return 19
         }

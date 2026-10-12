@@ -69,6 +69,21 @@ References studied:
   threshold semantics, and the -12.69 EV 8-bit sRGB black reference. SpektraFilmFast
   independently implements the behavior against its own final post-film/post-geometry
   render buffer; no darktable source file is bundled.
+- `src/iop/hotpixels.c` (`_process_bayer`, `_process_xtrans`) and
+  `src/iop/highlights.c` + `src/iop/hlreconstruct/{opposed,segbased}.c`
+  (`process_clip`, `_process_opposed`, `_calc_refavg`, `_mask_dilated`,
+  `highlights_clip_magics`) were ported to Swift in
+  `Sources/SpektraFilmFast/Modules/HotPixelModule.swift` and
+  `Modules/HighlightReconstructionModule.swift`. These are line-level ports of
+  GPL-3.0-or-later darktable code into a GPL-3.0-or-later project, so the
+  upstream terms continue to apply. Correctness was checked differentially
+  against a C harness transcribed from the upstream sources: 24/24 bit-exact
+  cases across both modes. Deviations from upstream are deliberate and marked
+  in-file: late white-balance correction is forced to 1.0 (no WB coefficients
+  at this pipeline stage), X-Trans is not exercised by that harness, and the
+  not-yet-ported highlight modes (`lch`, `inpaint`, `segmentation`,
+  `guidedLaplacians`) now throw `PipelineError.unsupportedModule` rather than
+  silently returning unmodified pixels.
 
 ## RawTherapee
 

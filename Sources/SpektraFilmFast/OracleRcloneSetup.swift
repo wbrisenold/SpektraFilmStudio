@@ -17,16 +17,19 @@ final class OracleRcloneTerminal: ObservableObject {
     func start(configuration: NativeCloudTransferRunner.Configuration) {
         guard !running else { return }
         guard Self.safeHost(configuration.host), Self.safeUser(configuration.username),
-              FileManager.default.fileExists(atPath: configuration.sshKey) else {
+            FileManager.default.fileExists(atPath: configuration.sshKey)
+        else {
             output = "Enter a valid Oracle host, SSH username and local private-key path first."
             return
         }
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-        task.arguments = ["-tt", "-i", configuration.sshKey,
-                          "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
-                          "-o", "ConnectTimeout=15", "\(configuration.username)@\(configuration.host)",
-                          "umask 077; exec rclone config"]
+        task.arguments = [
+            "-tt", "-i", configuration.sshKey,
+            "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+            "-o", "ConnectTimeout=15", "\(configuration.username)@\(configuration.host)",
+            "umask 077; exec rclone config",
+        ]
         let outgoing = Pipe(), incoming = Pipe()
         task.standardOutput = outgoing
         task.standardError = outgoing
@@ -63,8 +66,9 @@ final class OracleRcloneTerminal: ObservableObject {
         // stdin only; secrets never become process arguments or logs.
         var data = Data(value.utf8)
         data.append(10)
-        do { try input.fileHandleForWriting.write(contentsOf: data) }
-        catch { stop(); output += "\nOracle input connection closed." }
+        do { try input.fileHandleForWriting.write(contentsOf: data) } catch {
+            stop(); output += "\nOracle input connection closed."
+        }
     }
 
     func stop() {
@@ -134,14 +138,16 @@ final class OracleRcloneTerminal: ObservableObject {
     }
 
     private static func safeHost(_ s: String) -> Bool {
-        !s.isEmpty && s.count < 254 && !s.hasPrefix("-") && s.utf8.allSatisfy {
-            (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 46
-        }
+        !s.isEmpty && s.count < 254 && !s.hasPrefix("-")
+            && s.utf8.allSatisfy {
+                (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 46
+            }
     }
     private static func safeUser(_ s: String) -> Bool {
-        !s.isEmpty && s.count < 65 && !s.hasPrefix("-") && s.utf8.allSatisfy {
-            (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 95
-        }
+        !s.isEmpty && s.count < 65 && !s.hasPrefix("-")
+            && s.utf8.allSatisfy {
+                (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 95
+            }
     }
 }
 
@@ -159,15 +165,21 @@ final class OracleRcloneConfigImporter: ObservableObject {
             failed = true; status = "Choose an existing rclone.conf first"; return
         }
         guard let text = try? String(contentsOfFile: localPath, encoding: .utf8),
-              text.range(of: #"(?m)^\[icloud\]\s*$"#, options: .regularExpression) != nil,
-              text.range(of: #"(?m)^\s*type\s*=\s*iclouddrive\s*$"#, options: .regularExpression) != nil else {
+            text.range(of: #"(?m)^\[icloud\]\s*$"#, options: .regularExpression) != nil,
+            text.range(of: #"(?m)^\s*type\s*=\s*iclouddrive\s*$"#, options: .regularExpression) != nil
+        else {
             failed = true; status = "File must contain an [icloud] remote of type iclouddrive"; return
         }
         guard !configuration.host.isEmpty, configuration.host.count < 254, !configuration.host.hasPrefix("-"),
-              !configuration.username.isEmpty, configuration.username.count < 65, !configuration.username.hasPrefix("-"),
-              configuration.host.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 46 }),
-              configuration.username.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 95 }),
-              FileManager.default.fileExists(atPath: configuration.sshKey) else {
+            !configuration.username.isEmpty, configuration.username.count < 65, !configuration.username.hasPrefix("-"),
+            configuration.host.utf8.allSatisfy({
+                (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 46
+            }),
+            configuration.username.utf8.allSatisfy({
+                (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 95
+            }),
+            FileManager.default.fileExists(atPath: configuration.sshKey)
+        else {
             failed = true; status = "Enter the Oracle host, SSH username and SSH key first"; return
         }
         running = true
@@ -178,32 +190,45 @@ final class OracleRcloneConfigImporter: ObservableObject {
                 Self.upload(path: localPath, configuration: configuration)
             }.value
             failed = !outcome
-            status = outcome ? "Credentials installed. Select Test iCloud to verify the login." : "Credential import failed. Check your SSH connection and Oracle user permissions."
+            status =
+                outcome
+                ? "Credentials installed. Select Test iCloud to verify the login."
+                : "Credential import failed. Check your SSH connection and Oracle user permissions."
             running = false
         }
     }
 
     private nonisolated static func upload(path: String, configuration: NativeCloudTransferRunner.Configuration) -> Bool {
         let target = "\(configuration.username)@\(configuration.host)"
-        let sshOptions = ["-i", configuration.sshKey, "-o", "BatchMode=yes",
-                          "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=15"]
+        let sshOptions = [
+            "-i", configuration.sshKey, "-o", "BatchMode=yes",
+            "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=15",
+        ]
         func execute(_ program: String, _ args: [String]) -> Bool {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: program)
             process.arguments = args
-            process.standardOutput = FileHandle.nullDevice // Drain without retaining secrets.
+            process.standardOutput = FileHandle.nullDevice  // Drain without retaining secrets.
             process.standardError = FileHandle.nullDevice
-            do { try process.run(); process.waitUntilExit() }
-            catch { return false }
+            do { try process.run(); process.waitUntilExit() } catch { return false }
             return process.terminationStatus == 0
         }
-        guard execute("/usr/bin/ssh", sshOptions + [target, "set -e; umask 077; mkdir -p ~/.config/rclone; chmod 700 ~/.config/rclone"]) else { return false }
+        guard
+            execute(
+                "/usr/bin/ssh",
+                sshOptions + [target, "set -e; umask 077; mkdir -p ~/.config/rclone; chmod 700 ~/.config/rclone"])
+        else { return false }
         // Remote scratch path is in the authenticated user's home, never a shared /tmp.
-        guard execute("/usr/bin/scp", sshOptions + [path, "\(target):.config/rclone/rclone.conf.spektrafilm-new"]) else { return false }
+        guard execute("/usr/bin/scp", sshOptions + [path, "\(target):.config/rclone/rclone.conf.spektrafilm-new"])
+        else { return false }
         // Atomic replacement after a complete upload. Existing remote config is backed up.
-        return execute("/usr/bin/ssh", sshOptions + [target,
-            "set -e; umask 077; chmod 600 ~/.config/rclone/rclone.conf.spektrafilm-new; " +
-            "if test -e ~/.config/rclone/rclone.conf; then cp ~/.config/rclone/rclone.conf ~/.config/rclone/rclone.conf.spektrafilm-backup; chmod 600 ~/.config/rclone/rclone.conf.spektrafilm-backup; fi; " +
-            "mv ~/.config/rclone/rclone.conf.spektrafilm-new ~/.config/rclone/rclone.conf"])
+        return execute(
+            "/usr/bin/ssh",
+            sshOptions + [
+                target,
+                "set -e; umask 077; chmod 600 ~/.config/rclone/rclone.conf.spektrafilm-new; "
+                    + "if test -e ~/.config/rclone/rclone.conf; then cp ~/.config/rclone/rclone.conf ~/.config/rclone/rclone.conf.spektrafilm-backup; chmod 600 ~/.config/rclone/rclone.conf.spektrafilm-backup; fi; "
+                    + "mv ~/.config/rclone/rclone.conf.spektrafilm-new ~/.config/rclone/rclone.conf",
+            ])
     }
 }

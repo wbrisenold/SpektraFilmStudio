@@ -29,7 +29,9 @@ struct EditorScopeStrip: View {
     /// layout -> state -> layout cycle, so it is deferred by one turn. The
     /// `previous == nil` guard drops the initial `onChange` callback, since the
     /// caller already seeds a sane collapsed-height fallback.
-    private static func report(previous: CGFloat?, _ height: CGFloat, to handler: @escaping @MainActor (CGFloat) -> Void) {
+    private static func report(
+        previous: CGFloat?, _ height: CGFloat, to handler: @escaping @MainActor (CGFloat) -> Void
+    ) {
         guard let previous, previous != height, height.isFinite, height > 0 else { return }
         Task { @MainActor in
             handler(height)
@@ -98,7 +100,8 @@ struct EditorScopeStrip: View {
 
     private var collapsedReadout: String {
         let m = model.analysisMetrics
-        return "\(model.project.preferences.scopeMode.rawValue) · high \(String(format: "%.1f", m.highlightPercent))% · low \(String(format: "%.1f", m.shadowPercent))%"
+        return
+            "\(model.project.preferences.scopeMode.rawValue) · high \(String(format: "%.1f", m.highlightPercent))% · low \(String(format: "%.1f", m.shadowPercent))%"
     }
 
     /// Clipping and skin overlays stay reachable while the strip is collapsed.
@@ -106,17 +109,23 @@ struct EditorScopeStrip: View {
     /// they disappeared once scopes moved to the canvas.
     private var overlayToggles: some View {
         HStack(spacing: 5) {
-            Toggle(isOn: Binding(
-                get: { model.project.preferences.clippingEnabled },
-                set: { model.setClippingEnabled($0) })) {
+            Toggle(
+                isOn: Binding(
+                    get: { model.project.preferences.clippingEnabled },
+                    set: { model.setClippingEnabled($0) })
+            ) {
                 Label("Clipping", systemImage: "arrowtriangle.up.fill")
             }
             .toggleStyle(.button).controlSize(.mini)
-            .help("Warn when final output approaches white/red or black/blue. Bright warning is not always irreversible clipping.")
+            .help(
+                "Warn when final output approaches white/red or black/blue. Bright warning is not always irreversible clipping."
+            )
 
-            Toggle(isOn: Binding(
-                get: { model.project.preferences.skinCheckEnabled },
-                set: { model.setSkinCheckEnabled($0) })) {
+            Toggle(
+                isOn: Binding(
+                    get: { model.project.preferences.skinCheckEnabled },
+                    set: { model.setSkinCheckEnabled($0) })
+            ) {
                 Label("Skin", systemImage: "hand.raised.fill")
             }
             .toggleStyle(.button).controlSize(.mini)
@@ -164,36 +173,45 @@ struct EditorScopePanelView: View {
                             .allowsHitTesting(false)
                     }
                 } else {
-                    Text(model.selectedImage == nil ? "Select an image to view scopes" : ((StudioImportedCubeLUTSettings.isSelected || StudioLooksSettings.isSelected) ? "GPU scopes not yet connected to imported LUT" : "Reading display scope"))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    Text(
+                        model.selectedImage == nil
+                            ? "Select an image to view scopes"
+                            : ((StudioImportedCubeLUTSettings.isSelected || StudioLooksSettings.isSelected)
+                                ? "GPU scopes not yet connected to imported LUT" : "Reading display scope")
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 }
             }
             .frame(height: wellHeight)
             .contextMenu {
                 // Scope choice lives here rather than as a permanent pill strip:
                 // Redlamp's rail carries one histogram well and no mode bar.
-                Picker("Scope", selection: Binding(
-                    get: { model.project.preferences.scopeMode },
-                    set: { model.setEditorScopeMode($0) })) {
+                Picker(
+                    "Scope",
+                    selection: Binding(
+                        get: { model.project.preferences.scopeMode },
+                        set: { model.setEditorScopeMode($0) })
+                ) {
                     ForEach(ScopeMode.allCases) { mode in
                         Label(mode.rawValue, systemImage: icon(mode)).tag(mode)
                     }
                 }
             }
-            .background(GeometryReader { proxy in
-                Color.clear.onChange(of: proxy.size.width) { _, w in
-                    if w > 0 { lastWellWidth = w }
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.onChange(of: proxy.size.width) { _, w in
+                        if w > 0 { lastWellWidth = w }
+                    }
                 }
-            })
+            )
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay {
                 RoundedRectangle(cornerRadius: 10)
                     .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.75)
             }
             .overlay(alignment: .topLeading) {
-                if model.project.preferences.scopeMode == .waveform ||
-                   model.project.preferences.scopeMode == .parade {
+                if model.project.preferences.scopeMode == .waveform || model.project.preferences.scopeMode == .parade {
                     Text("100%")
                         .font(.system(size: 9, weight: .medium, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.58))
@@ -202,8 +220,7 @@ struct EditorScopePanelView: View {
                 }
             }
             .overlay(alignment: .bottomLeading) {
-                if model.project.preferences.scopeMode == .waveform ||
-                   model.project.preferences.scopeMode == .parade {
+                if model.project.preferences.scopeMode == .waveform || model.project.preferences.scopeMode == .parade {
                     Text("0%")
                         .font(.system(size: 9, weight: .medium, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.58))
@@ -218,9 +235,10 @@ struct EditorScopePanelView: View {
 
             HStack(spacing: 8) {
                 if model.project.preferences.scopeMode == .histogram {
-                    clippingIndicator(isClipped: model.analysisMetrics.hardShadowPercent > 0,
-                                      value: model.analysisMetrics.hardShadowPercent,
-                                      tint: .blue, isFlipped: false)
+                    clippingIndicator(
+                        isClipped: model.analysisMetrics.hardShadowPercent > 0,
+                        value: model.analysisMetrics.hardShadowPercent,
+                        tint: .blue, isFlipped: false)
                     Spacer()
                     if let zone = histogramZone {
                         Text("\(tuningName(for: zone))  \(tuningValue(for: zone))")
@@ -229,9 +247,10 @@ struct EditorScopePanelView: View {
                         Text("Drag histogram to adjust light").foregroundStyle(.secondary)
                     }
                     Spacer()
-                    clippingIndicator(isClipped: model.analysisMetrics.hardHighlightPercent > 0,
-                                      value: model.analysisMetrics.hardHighlightPercent,
-                                      tint: .red, isFlipped: true)
+                    clippingIndicator(
+                        isClipped: model.analysisMetrics.hardHighlightPercent > 0,
+                        value: model.analysisMetrics.hardHighlightPercent,
+                        tint: .red, isFlipped: true)
                 } else {
                     Text(" ").foregroundStyle(.secondary)
                 }
@@ -259,17 +278,26 @@ struct EditorScopePanelView: View {
             if model.project.preferences.scopeMode == .skinVectorscope {
                 skinReadout
             } else if model.project.preferences.scopeMode == .falseColor {
-                Text("Display-code \u{2032} \u{00B7} blue: low \u{00B7} green: shadows \u{00B7} gray: mid \u{00B7} yellow/orange: bright \u{00B7} red/white: near clip")
-                    .font(.caption2).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if ![14,15,16,17,18,24,25].contains(Int(model.selectedLook.values["outputColorSpace"]?.intValue ?? 25)) {
-                    Label("Nonstandard output transfer: false color is not calibrated for this output space", systemImage: "exclamationmark.triangle")
-                        .font(.caption2).foregroundStyle(.orange)
+                Text(
+                    "Display-code \u{2032} \u{00B7} blue: low \u{00B7} green: shadows \u{00B7} gray: mid \u{00B7} yellow/orange: bright \u{00B7} red/white: near clip"
+                )
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                if ![14, 15, 16, 17, 18, 24, 25].contains(
+                    Int(model.selectedLook.values["outputColorSpace"]?.intValue ?? 25))
+                {
+                    Label(
+                        "Nonstandard output transfer: false color is not calibrated for this output space",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.caption2).foregroundStyle(.orange)
                 }
             } else if model.project.preferences.scopeMode == .saturation {
-                Text("HSV saturation \u{00B7} gray: low \u{00B7} teal: moderate \u{00B7} amber: strong \u{00B7} orange: high \u{00B7} pink: very high. Not a creative judgment.")
-                    .font(.caption2).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text(
+                    "HSV saturation \u{00B7} gray: low \u{00B7} teal: moderate \u{00B7} amber: strong \u{00B7} orange: high \u{00B7} pink: very high. Not a creative judgment."
+                )
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.horizontal, 8)
@@ -345,20 +373,21 @@ struct EditorScopePanelView: View {
     }
 
     /// Redlamp prints the *tuned* value under the histogram while dragging, not the
-/// clipped-pixel percentage, so the number moves as you drag.
+    /// clipped-pixel percentage, so the number moves as you drag.
     private func tuningName(for zone: Int) -> String {
         ["Blacks", "Shadows", "Exposure", "Highlights", "Whites"][min(max(0, zone), 4)]
     }
 
     private func tuningValue(for zone: Int) -> String {
         let tone = model.selectedLook.tone ?? ToneSettings()
-        let raw: Double = switch zone {
-        case 0: tone.blacks
-        case 1: tone.shadows
-        case 2: tone.exposureEV
-        case 3: tone.highlights
-        default: tone.whites
-        }
+        let raw: Double =
+            switch zone {
+            case 0: tone.blacks
+            case 1: tone.shadows
+            case 2: tone.exposureEV
+            case 3: tone.highlights
+            default: tone.whites
+            }
         return String(format: "%+.0f", raw)
     }
 
@@ -366,7 +395,6 @@ struct EditorScopePanelView: View {
         if histogramZone != nil { model.endEditGesture() }
         histogramZone = nil; histogramPhoto = nil
     }
-
 
     private var skinReadout: some View {
         VStack(spacing: 0) {

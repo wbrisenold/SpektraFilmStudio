@@ -8,10 +8,10 @@ import Foundation
 extension PixelBufferF32 {
     func referenceFilmExposureShape(_ settings: ToneSettings?) -> PixelBufferF32 {
         guard let settings else { return self }
-        let hasManual = abs(settings.highlights) > 1e-9 || abs(settings.shadows) > 1e-9 ||
-            abs(settings.whites) > 1e-9 || abs(settings.blacks) > 1e-9 ||
-            abs(settings.brightness) > 1e-9 || abs(settings.contrast) > 1e-9 ||
-            settings.highlightRecovery > 1e-9 || settings.shadowRecovery > 1e-9
+        let hasManual =
+            abs(settings.highlights) > 1e-9 || abs(settings.shadows) > 1e-9 || abs(settings.whites) > 1e-9
+            || abs(settings.blacks) > 1e-9 || abs(settings.brightness) > 1e-9 || abs(settings.contrast) > 1e-9
+            || settings.highlightRecovery > 1e-9 || settings.shadowRecovery > 1e-9
         guard hasManual || settings.autoContrast else { return self }
         guard width > 0, height > 0, pixels.count == width * height * 4 else { return self }
 
@@ -23,7 +23,9 @@ extension PixelBufferF32 {
             for y in stride(from: 0, to: height, by: step) {
                 for x in stride(from: 0, to: width, by: step) {
                     let p = (y * width + x) * 4
-                    let luma = max(1e-8, 0.2126 * Double(pixels[p]) + 0.7152 * Double(pixels[p+1]) + 0.0722 * Double(pixels[p+2]))
+                    let luma = max(
+                        1e-8,
+                        0.2126 * Double(pixels[p]) + 0.7152 * Double(pixels[p + 1]) + 0.0722 * Double(pixels[p + 2]))
                     samples.append(log2(luma))
                 }
             }
@@ -32,8 +34,12 @@ extension PixelBufferF32 {
                 let lo = samples[Int(Double(samples.count - 1) * 0.02)]
                 let hi = samples[Int(Double(samples.count - 1) * 0.98)]
                 autoMap = hi - lo > 0.5 ? (lo, hi) : nil
-            } else { autoMap = nil }
-        } else { autoMap = nil }
+            } else {
+                autoMap = nil
+            }
+        } else {
+            autoMap = nil
+        }
 
         @inline(__always) func gaussian(_ ev: Double, _ center: Double, _ sigma: Double) -> Double {
             let d = (ev - center) / max(0.05, sigma)
@@ -44,8 +50,8 @@ extension PixelBufferF32 {
         }
 
         for p in stride(from: 0, to: pixels.count, by: 4) {
-            let r = Double(pixels[p]), g = Double(pixels[p+1]), b = Double(pixels[p+2])
-            let luma = max(1e-8, 0.2126*r + 0.7152*g + 0.0722*b)
+            let r = Double(pixels[p]), g = Double(pixels[p + 1]), b = Double(pixels[p + 2])
+            let luma = max(1e-8, 0.2126 * r + 0.7152 * g + 0.0722 * b)
             let ev = max(-12.0, min(4.0, log2(luma)))
             var correction = 0.0
 
@@ -72,8 +78,8 @@ extension PixelBufferF32 {
             correction = max(-2.5, min(2.5, correction))
             let gain = exp2(correction)
             out[p] = Float(r * gain)
-            out[p+1] = Float(g * gain)
-            out[p+2] = Float(b * gain)
+            out[p + 1] = Float(g * gain)
+            out[p + 2] = Float(b * gain)
         }
         return PixelBufferF32(width: width, height: height, pixels: out)
     }

@@ -110,8 +110,12 @@ struct StudioImportWizard: View {
                 chooseSource()
             }
             HStack {
-                Text(pickedURLs.isEmpty ? "No source selected" : pickedURLs.count == 1 ? pickedURLs[0].path : "\(pickedURLs.count) photos selected")
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle)
+                Text(
+                    pickedURLs.isEmpty
+                        ? "No source selected"
+                        : pickedURLs.count == 1 ? pickedURLs[0].path : "\(pickedURLs.count) photos selected"
+                )
+                .font(.caption).foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle)
                 Spacer()
                 Button(pickedURLs.isEmpty ? "Choose…" : "Change…") { chooseSource() }
             }
@@ -127,18 +131,25 @@ struct StudioImportWizard: View {
             Text(isCloudOnly ? "Cloud library location" : "Where should the originals live?")
                 .font(.title3.weight(.semibold))
             if !isCloudOnly && !isLightroom {
-                storageRow(.reference,
-                           subtitle: "Instant, non-destructive indexing; source files are never moved.")
+                storageRow(
+                    .reference,
+                    subtitle: "Instant, non-destructive indexing; source files are never moved.")
                 if source == .folder {
-                    storageRow(.verified,
-                               subtitle: "Managed import with separate working and backup folders, verified by SHA-256.")
+                    storageRow(
+                        .verified,
+                        subtitle: "Managed import with separate working and backup folders, verified by SHA-256.")
                 }
-                storageRow(.cloud,
-                           subtitle: "Transfer this project and its originals into a SpektraFilm library in iCloud Drive.")
+                storageRow(
+                    .cloud,
+                    subtitle: "Transfer this project and its originals into a SpektraFilm library in iCloud Drive.")
             } else {
-                Label(isLightroom ? "Lightroom catalog + originals will be migrated into iCloud Drive." : "Open an existing synced library without copying its originals.",
-                      systemImage: "icloud")
-                    .font(.subheadline)
+                Label(
+                    isLightroom
+                        ? "Lightroom catalog + originals will be migrated into iCloud Drive."
+                        : "Open an existing synced library without copying its originals.",
+                    systemImage: "icloud"
+                )
+                .font(.subheadline)
             }
 
             if storage == .verified && source == .folder {
@@ -151,8 +162,10 @@ struct StudioImportWizard: View {
                 }
             }
             if storage == .cloud {
-                Text("iCloud Drive manages device-to-device file delivery. Keep an independent backup of your originals during migration.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text(
+                    "iCloud Drive manages device-to-device file delivery. Keep an independent backup of your originals during migration."
+                )
+                .font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -195,7 +208,8 @@ struct StudioImportWizard: View {
         guard let first = pickedURLs.first else { problem = "Choose photos or a folder first."; return }
         if storage == .verified && source == .folder {
             guard let primaryURL, let backupURL,
-                  primaryURL.standardizedFileURL != backupURL.standardizedFileURL else {
+                primaryURL.standardizedFileURL != backupURL.standardizedFileURL
+            else {
                 problem = "Choose separate working and backup folders."; return
             }
         }
@@ -215,7 +229,8 @@ struct StudioImportWizard: View {
             }
         case .folder:
             if storage == .verified,
-               let primaryURL, let backupURL {
+                let primaryURL, let backupURL
+            {
                 model.beginManagedIngest(source: first, primary: primaryURL, backup: backupURL)
             } else {
                 model.importFolder(at: first, cloudParent: storage == .cloud ? cloudParentURL : nil)
@@ -227,15 +242,19 @@ struct StudioImportWizard: View {
     private func chooseSource() {
         switch source {
         case .folder, .cloudLibrary:
-            SpektraFilePanel.chooseFolder(title: source == .cloudLibrary ? "Choose Existing iCloud Library" : "Choose Photo Folder") { url in
+            SpektraFilePanel.chooseFolder(
+                title: source == .cloudLibrary ? "Choose Existing iCloud Library" : "Choose Photo Folder"
+            ) { url in
                 pickedURLs = [url]
                 problem = nil
             }
         case .files, .lightroom:
             let isLightroom = source == .lightroom
-            SpektraFilePanel.chooseFiles(title: isLightroom ? "Choose Lightroom Classic Catalog" : "Choose Photos",
-                                         types: isLightroom ? nil : [.image, .rawImage],
-                                         multiple: !isLightroom) { urls in
+            SpektraFilePanel.chooseFiles(
+                title: isLightroom ? "Choose Lightroom Classic Catalog" : "Choose Photos",
+                types: isLightroom ? nil : [.image, .rawImage],
+                multiple: !isLightroom
+            ) { urls in
                 guard !urls.isEmpty else { return }
                 if isLightroom && (urls.count != 1 || urls[0].pathExtension.lowercased() != "lrcat") {
                     problem = "Choose one Lightroom Classic .lrcat catalog."
@@ -248,8 +267,10 @@ struct StudioImportWizard: View {
     }
 
     private func chooseDestination(_ target: String) {
-        SpektraFilePanel.chooseFolder(title: target == "working" ? "Choose Working Folder" :
-                                     target == "backup" ? "Choose Backup Folder" : "Choose iCloud Destination") { url in
+        SpektraFilePanel.chooseFolder(
+            title: target == "working"
+                ? "Choose Working Folder" : target == "backup" ? "Choose Backup Folder" : "Choose iCloud Destination"
+        ) { url in
             switch target {
             case "working": primaryURL = url
             case "backup": backupURL = url

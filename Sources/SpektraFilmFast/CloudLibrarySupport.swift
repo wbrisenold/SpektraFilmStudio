@@ -163,7 +163,8 @@ extension AppModel {
 
                 let report = result.1
                 let missing = report.missingOriginals.count
-                cloudLibraryStatus = missing == 0
+                cloudLibraryStatus =
+                    missing == 0
                     ? "Lightroom migration complete · \(report.importedPhotos) photos"
                     : "Migration complete · \(report.importedPhotos) photos · \(missing) originals missing"
                 startCloudSyncLoop()
@@ -172,11 +173,11 @@ extension AppModel {
                     let alert = NSAlert()
                     alert.messageText = "Lightroom migration completed with notes"
                     alert.informativeText = """
-                    Imported \(report.importedPhotos) photo records and \(report.collections) collections.
-                    Copied \(report.copiedOriginals) unique originals and reused \(report.reusedOriginals) for virtual copies.
-                    Missing originals: \(missing).
-                    Lightroom's original develop payloads were preserved in the Migration folder even when a setting could not be translated.
-                    """
+                        Imported \(report.importedPhotos) photo records and \(report.collections) collections.
+                        Copied \(report.copiedOriginals) unique originals and reused \(report.reusedOriginals) for virtual copies.
+                        Missing originals: \(missing).
+                        Lightroom's original develop payloads were preserved in the Migration folder even when a setting could not be translated.
+                        """
                     alert.addButton(withTitle: "OK")
                     alert.runModal()
                 }
@@ -304,7 +305,8 @@ extension AppModel {
             cloudSyncProgress = 1
             cloudLastSync = Date()
             isProjectDirty = false
-            cloudLibraryStatus = result.pushedOperations == 0 && result.pulledOperations == 0
+            cloudLibraryStatus =
+                result.pushedOperations == 0 && result.pulledOperations == 0
                 ? "iCloud Library up to date"
                 : "Synced · ↑\(result.pushedOperations) ↓\(result.pulledOperations)"
         } catch {
@@ -333,7 +335,8 @@ extension AppModel {
     func keepSelectedCloudOriginalsDownloaded() {
         // Legacy action now means only the currently edited original, never bulk pinning.
         guard page == .edit, let photo = selectedImage,
-              photo.cloudRelativePath != nil else {
+            photo.cloudRelativePath != nil
+        else {
             cloudLibraryStatus = "Open the photo in Edit to stage its original; library browsing uses previews"
             return
         }
@@ -369,7 +372,10 @@ extension AppModel {
             return true
         }
         if let staged = stagedCloudOriginals[image.id],
-           FileManager.default.fileExists(atPath: staged.path) { return false }
+            FileManager.default.fileExists(atPath: staged.path)
+        {
+            return false
+        }
         guard !externalOriginalScratchParent.isEmpty else {
             status = "Choose an external RAW scratch drive in Library before editing cloud photos"
             return true
@@ -411,8 +417,7 @@ extension AppModel {
         guard cloudLibrary != nil else { return }
         cloudSyncLoopTask = Task { [weak self] in
             while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(8)) }
-                catch { return }
+                do { try await Task.sleep(for: .seconds(8)) } catch { return }
                 guard let self, self.cloudLibrary != nil else { return }
                 if !self.isCloudSyncing && !self.isInteractiveEditActive {
                     await self.synchronizeCloudNow(userInitiated: false)
@@ -435,10 +440,12 @@ extension AppModel {
         var loaded = incoming
         loaded.migrateForV2()
         if let preferredSelection,
-           loaded.images.contains(where: { $0.id == preferredSelection }) {
+            loaded.images.contains(where: { $0.id == preferredSelection })
+        {
             loaded.selectedImageID = preferredSelection
         } else if let previousSelected,
-                  loaded.images.contains(where: { $0.id == previousSelected }) {
+            loaded.images.contains(where: { $0.id == previousSelected })
+        {
             loaded.selectedImageID = previousSelected
         } else if loaded.selectedImageID == nil {
             loaded.selectedImageID = loaded.images.first?.id
@@ -471,8 +478,9 @@ extension AppModel {
 
     func updateCloudPreview(photoID: UUID, image: CGImage) {
         guard !cloudLibraryRootPath.isEmpty,
-              let record = project.images.first(where: { $0.id == photoID }),
-              let relative = record.cloudPreviewRelativePath else { return }
+            let record = project.images.first(where: { $0.id == photoID }),
+            let relative = record.cloudPreviewRelativePath
+        else { return }
         let destination = URL(fileURLWithPath: cloudLibraryRootPath, isDirectory: true)
             .appendingPathComponent(relative)
         let payload = CloudPreviewImage(value: image)
@@ -481,7 +489,8 @@ extension AppModel {
 
     func thumbnailURL(for image: ProjectImageRecord) -> URL {
         guard let relative = image.cloudPreviewRelativePath,
-              !cloudLibraryRootPath.isEmpty else { return image.url }
+            !cloudLibraryRootPath.isEmpty
+        else { return image.url }
         let candidate = URL(fileURLWithPath: cloudLibraryRootPath, isDirectory: true)
             .appendingPathComponent(relative)
         // No preview available: show a placeholder, never trigger File Provider RAW fetch.
@@ -490,7 +499,8 @@ extension AppModel {
     }
 
     private func cloudTargetImages() -> [ProjectImageRecord] {
-        let ids = librarySelection.isEmpty
+        let ids =
+            librarySelection.isEmpty
             ? Set([project.selectedImageID].compactMap { $0 })
             : librarySelection
         return project.images.filter { ids.contains($0.id) && $0.cloudRelativePath != nil }
@@ -510,10 +520,12 @@ extension AppModel {
         )
 
         let alert = NSAlert()
-        alert.messageText = "\(missingIndices.count) Lightroom original\(missingIndices.count == 1 ? "" : "s") not found"
-        alert.informativeText = oldRoot.map {
-            "The catalog points into \($0.path). If that library moved to another drive or cloud folder, choose the replacement folder and SpektraFilm will remap the relative paths before uploading to iCloud."
-        } ?? "Choose the folder that now contains these Lightroom originals, or continue and relink them later."
+        alert.messageText =
+            "\(missingIndices.count) Lightroom original\(missingIndices.count == 1 ? "" : "s") not found"
+        alert.informativeText =
+            oldRoot.map {
+                "The catalog points into \($0.path). If that library moved to another drive or cloud folder, choose the replacement folder and SpektraFilm will remap the relative paths before uploading to iCloud."
+            } ?? "Choose the folder that now contains these Lightroom originals, or continue and relink them later."
         alert.addButton(withTitle: "Locate Replacement Root…")
         alert.addButton(withTitle: "Continue With Missing")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
@@ -572,7 +584,8 @@ extension AppModel {
         guard !SpektraCloudLibrary.looksLikeICloudDrive(url) else { return true }
         let alert = NSAlert()
         alert.messageText = "This folder does not look like iCloud Drive"
-        alert.informativeText = "SpektraFilm can use any File Provider folder, but choose iCloud Drive if you want this library to be your iCloud-synced Lightroom replacement."
+        alert.informativeText =
+            "SpektraFilm can use any File Provider folder, but choose iCloud Drive if you want this library to be your iCloud-synced Lightroom replacement."
         alert.addButton(withTitle: "Use Anyway")
         alert.addButton(withTitle: "Choose Again")
         return alert.runModal() == .alertFirstButtonReturn

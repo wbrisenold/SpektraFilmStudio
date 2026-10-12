@@ -1,7 +1,7 @@
-import Foundation
-import Network
 import AppKit
 import Darwin
+import Foundation
+import Network
 
 struct ProofPhotoRecord: Codable, Equatable, Hashable, Sendable, Identifiable {
     var id: UUID
@@ -63,7 +63,8 @@ enum ProofDockError: LocalizedError {
         case .galleryNotFound: "Proof gallery was not found."
         case .photoNotFound: "Proof photo was not found."
         case .serverUnavailable(let reason): "Proof server unavailable: \(reason)"
-        case .selectionLocked: "The client has already finished this selection. Reopen or generate a new client link first."
+        case .selectionLocked:
+            "The client has already finished this selection. Reopen or generate a new client link first."
         case .selectionLimitReached(let count): "This gallery allows a maximum of \(count) selections."
         case .badPassword: "Incorrect gallery password."
         }
@@ -81,7 +82,9 @@ enum ProofDockPaths {
     static var galleriesRoot: URL { root.appendingPathComponent("Galleries", isDirectory: true) }
     static var clientPicksRoot: URL { root.appendingPathComponent("Client Picks", isDirectory: true) }
 
-    static func galleryDirectory(_ id: UUID) -> URL { galleriesRoot.appendingPathComponent(id.uuidString, isDirectory: true) }
+    static func galleryDirectory(_ id: UUID) -> URL {
+        galleriesRoot.appendingPathComponent(id.uuidString, isDirectory: true)
+    }
 }
 
 private struct ProofHTTPResponse: Sendable {
@@ -90,7 +93,9 @@ private struct ProofHTTPResponse: Sendable {
     var headers: [String: String] = [:]
     var body = Data()
 
-    static func text(_ value: String, status: Int = 200, contentType: String = "text/plain; charset=utf-8") -> ProofHTTPResponse {
+    static func text(
+        _ value: String, status: Int = 200, contentType: String = "text/plain; charset=utf-8"
+    ) -> ProofHTTPResponse {
         ProofHTTPResponse(status: status, contentType: contentType, body: Data(value.utf8))
     }
 
@@ -149,7 +154,8 @@ private final class ProofHTTPServer: @unchecked Sendable {
     }
 
     private func receive(_ connection: NWConnection, data: Data) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 1_048_576) { [weak self] chunk, _, isComplete, error in
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 1_048_576) {
+            [weak self] chunk, _, isComplete, error in
             guard let self else { connection.cancel(); return }
             var accumulated = data
             if let chunk { accumulated.append(chunk) }
@@ -171,7 +177,8 @@ private final class ProofHTTPServer: @unchecked Sendable {
     private static func parseRequest(_ data: Data) -> ProofHTTPRequest? {
         let marker = Data("\r\n\r\n".utf8)
         guard let headerRange = data.range(of: marker),
-              let headerText = String(data: data[..<headerRange.lowerBound], encoding: .utf8) else { return nil }
+            let headerText = String(data: data[..<headerRange.lowerBound], encoding: .utf8)
+        else { return nil }
         let lines = headerText.components(separatedBy: "\r\n")
         guard let first = lines.first else { return nil }
         let parts = first.split(separator: " ")
@@ -188,8 +195,9 @@ private final class ProofHTTPServer: @unchecked Sendable {
             headers[key] = value
         }
         guard headers["transfer-encoding"] == nil,
-              let length = Int(headers["content-length"] ?? "0"),
-              length >= 0, length <= 2_097_152 else { return nil }
+            let length = Int(headers["content-length"] ?? "0"),
+            length >= 0, length <= 2_097_152
+        else { return nil }
         let bodyStart = headerRange.upperBound
         guard bodyStart <= 65_536, length <= data.count - bodyStart else { return nil }
         let body = length > 0 ? data.subdata(in: bodyStart..<(bodyStart + length)) : Data()
@@ -214,7 +222,8 @@ private final class ProofHTTPServer: @unchecked Sendable {
         let chunked = Data("POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n".utf8)
         let valid = Data("POST /test?q=yes HTTP/1.1\r\nContent-Length: 2\r\n\r\n{}".utf8)
         guard parseRequest(duplicate) == nil, parseRequest(chunked) == nil,
-              let decoded = parseRequest(valid) else { return false }
+            let decoded = parseRequest(valid)
+        else { return false }
         return decoded.path == "/test" && decoded.query["q"] == "yes" && decoded.body == Data("{}".utf8)
     }
 
@@ -263,7 +272,7 @@ private actor ProofTunnelManager {
             "-T", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
             "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
             "-o", "StrictHostKeyChecking=accept-new",
-            "-R", "80:127.0.0.1:\(port)", "nokey@localhost.run"
+            "-R", "80:127.0.0.1:\(port)", "nokey@localhost.run",
         ]
         let session = generation
         let pipe = Pipe()
@@ -302,9 +311,10 @@ private actor ProofTunnelManager {
         let text = pendingOutput
         let pattern = #"https://[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.(?:lhr\.life|localhost\.run)"#
         guard text.localizedCaseInsensitiveContains("tunneled with tls termination"),
-              let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              let range = Range(match.range, in: text) else { return }
+            let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+            let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+            let range = Range(match.range, in: text)
+        else { return }
         let candidate = String(text[range]).trimmingCharacters(in: CharacterSet(charactersIn: ".,"))
         if !candidate.localizedCaseInsensitiveContains("admin.localhost.run") { baseURL = candidate }
     }
@@ -332,7 +342,8 @@ actor ProofDockService {
         try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: ProofDockPaths.root.path)
         try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: ProofDockPaths.stateURL.path)
         if let data = try? Data(contentsOf: ProofDockPaths.stateURL),
-           let decoded = try? JSONDecoder().decode([ProofGalleryRecord].self, from: data) {
+            let decoded = try? JSONDecoder().decode([ProofGalleryRecord].self, from: data)
+        {
             galleries = decoded
         }
     }
@@ -387,16 +398,17 @@ actor ProofDockService {
                 isCover: index == 0
             )
         }
-        galleries.append(ProofGalleryRecord(
-            id: id,
-            name: name,
-            shortCode: code,
-            createdAt: Date(),
-            maxSelections: maxSelections.flatMap { $0 > 0 ? $0 : nil },
-            password: password,
-            finished: false,
-            photos: records
-        ))
+        galleries.append(
+            ProofGalleryRecord(
+                id: id,
+                name: name,
+                shortCode: code,
+                createdAt: Date(),
+                maxSelections: maxSelections.flatMap { $0 > 0 ? $0 : nil },
+                password: password,
+                finished: false,
+                photos: records
+            ))
         persist()
         return id
     }
@@ -410,7 +422,9 @@ actor ProofDockService {
     }
 
     func setCover(galleryID: UUID, photoID: UUID) throws {
-        guard let index = galleries.firstIndex(where: { $0.id == galleryID }) else { throw ProofDockError.galleryNotFound }
+        guard let index = galleries.firstIndex(where: { $0.id == galleryID }) else {
+            throw ProofDockError.galleryNotFound
+        }
         guard galleries[index].photos.contains(where: { $0.id == photoID }) else { throw ProofDockError.photoNotFound }
         for photoIndex in galleries[index].photos.indices {
             galleries[index].photos[photoIndex].isCover = galleries[index].photos[photoIndex].id == photoID
@@ -419,7 +433,9 @@ actor ProofDockService {
     }
 
     func regenerateClientLink(galleryID: UUID) throws {
-        guard let index = galleries.firstIndex(where: { $0.id == galleryID }) else { throw ProofDockError.galleryNotFound }
+        guard let index = galleries.firstIndex(where: { $0.id == galleryID }) else {
+            throw ProofDockError.galleryNotFound
+        }
         accessTokens[galleries[index].shortCode] = nil
         galleries[index].shortCode = uniqueShortCode()
         galleries[index].finished = false
@@ -427,7 +443,9 @@ actor ProofDockService {
     }
 
     func reopenSameLink(galleryID: UUID) throws {
-        guard let index = galleries.firstIndex(where: { $0.id == galleryID }) else { throw ProofDockError.galleryNotFound }
+        guard let index = galleries.firstIndex(where: { $0.id == galleryID }) else {
+            throw ProofDockError.galleryNotFound
+        }
         galleries[index].finished = false
         persist()
     }
@@ -465,8 +483,9 @@ actor ProofDockService {
     }
 
     private func persist() {
-        try? fm.createDirectory(at: ProofDockPaths.root, withIntermediateDirectories: true,
-                                attributes: [.posixPermissions: 0o700])
+        try? fm.createDirectory(
+            at: ProofDockPaths.root, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700])
         try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: ProofDockPaths.root.path)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -497,15 +516,22 @@ actor ProofDockService {
     private func handle(_ request: ProofHTTPRequest) async -> ProofHTTPResponse {
         let parts = request.path.split(separator: "/").map(String.init)
         if request.method == "GET", parts.count == 2, parts[0] == "g", let gallery = gallery(code: parts[1]) {
-            return .text(clientHTML(gallery: gallery, host: request.headers["host"] ?? "127.0.0.1:\(Self.port)"), contentType: "text/html; charset=utf-8")
+            return .text(
+                clientHTML(gallery: gallery, host: request.headers["host"] ?? "127.0.0.1:\(Self.port)"),
+                contentType: "text/html; charset=utf-8")
         }
         if request.method == "GET", parts.count == 3, parts[0] == "cover", let gallery = gallery(code: parts[1]) {
             guard isAuthorized(gallery, request: request) else { return .text("Unauthorized", status: 401) }
-            guard let cover = gallery.photos.first(where: \.isCover) ?? gallery.photos.first else { return .text("Not Found", status: 404) }
+            guard let cover = gallery.photos.first(where: \.isCover) ?? gallery.photos.first else {
+                return .text("Not Found", status: 404)
+            }
             return imageResponse(path: cover.proofPath)
         }
-        if request.method == "GET", parts.count == 4, parts[0] == "proof", let gallery = gallery(code: parts[1]), let photoID = UUID(uuidString: parts[2]) {
-            guard isAuthorized(gallery, request: request), let photo = gallery.photos.first(where: { $0.id == photoID }) else { return .text("Unauthorized", status: 401) }
+        if request.method == "GET", parts.count == 4, parts[0] == "proof", let gallery = gallery(code: parts[1]),
+            let photoID = UUID(uuidString: parts[2])
+        {
+            guard isAuthorized(gallery, request: request), let photo = gallery.photos.first(where: { $0.id == photoID })
+            else { return .text("Unauthorized", status: 401) }
             return imageResponse(path: photo.proofPath)
         }
         if parts.count >= 4, parts[0] == "api", parts[1] == "public" {
@@ -529,7 +555,9 @@ actor ProofDockService {
             if request.method == "GET", parts.count == 4, parts[3] == "gallery" {
                 return publicGalleryJSON(gallery)
             }
-            if request.method == "POST", parts.count == 5, parts[3] == "select", let photoID = UUID(uuidString: parts[4]) {
+            if request.method == "POST", parts.count == 5, parts[3] == "select",
+                let photoID = UUID(uuidString: parts[4])
+            {
                 do {
                     try toggleSelection(code: code, photoID: photoID)
                     guard let updated = self.gallery(code: code) else { throw ProofDockError.galleryNotFound }
@@ -554,28 +582,46 @@ actor ProofDockService {
     }
 
     private func toggleSelection(code: String, photoID: UUID) throws {
-        guard let galleryIndex = galleries.firstIndex(where: { $0.shortCode == code }) else { throw ProofDockError.galleryNotFound }
+        guard let galleryIndex = galleries.firstIndex(where: { $0.shortCode == code }) else {
+            throw ProofDockError.galleryNotFound
+        }
         guard !galleries[galleryIndex].finished else { throw ProofDockError.selectionLocked }
-        guard let photoIndex = galleries[galleryIndex].photos.firstIndex(where: { $0.id == photoID }) else { throw ProofDockError.photoNotFound }
+        guard let photoIndex = galleries[galleryIndex].photos.firstIndex(where: { $0.id == photoID }) else {
+            throw ProofDockError.photoNotFound
+        }
         let currentlySelected = galleries[galleryIndex].photos[photoIndex].selected
         if !currentlySelected, let limit = galleries[galleryIndex].maxSelections,
-           galleries[galleryIndex].selectedCount >= limit { throw ProofDockError.selectionLimitReached(limit) }
+            galleries[galleryIndex].selectedCount >= limit
+        {
+            throw ProofDockError.selectionLimitReached(limit)
+        }
         galleries[galleryIndex].photos[photoIndex].selected.toggle()
         persist()
     }
 
     private func publicGalleryJSON(_ gallery: ProofGalleryRecord) -> ProofHTTPResponse {
         struct PublicPhoto: Encodable { var id: String; var filename: String; var selected: Bool; var url: String }
-        struct Payload: Encodable { var name: String; var finished: Bool; var selected_count: Int; var max_selections: Int?; var photos: [PublicPhoto] }
-        let photos = gallery.photos.map { photo in
-            PublicPhoto(id: photo.id.uuidString, filename: photo.originalFilename, selected: photo.selected, url: "/proof/\(gallery.shortCode)/\(photo.id.uuidString)/image.jpg")
+        struct Payload: Encodable {
+            var name: String; var finished: Bool; var selected_count: Int; var max_selections: Int?;
+            var photos: [PublicPhoto]
         }
-        return .json(Payload(name: gallery.name, finished: gallery.finished, selected_count: gallery.selectedCount, max_selections: gallery.maxSelections, photos: photos))
+        let photos = gallery.photos.map { photo in
+            PublicPhoto(
+                id: photo.id.uuidString, filename: photo.originalFilename, selected: photo.selected,
+                url: "/proof/\(gallery.shortCode)/\(photo.id.uuidString)/image.jpg")
+        }
+        return .json(
+            Payload(
+                name: gallery.name, finished: gallery.finished, selected_count: gallery.selectedCount,
+                max_selections: gallery.maxSelections, photos: photos))
     }
 
     private func imageResponse(path: String) -> ProofHTTPResponse {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return .text("Not Found", status: 404) }
-        return ProofHTTPResponse(status: 200, contentType: "image/jpeg", headers: ["Cache-Control": "private, max-age=300"], body: data)
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
+            return .text("Not Found", status: 404)
+        }
+        return ProofHTTPResponse(
+            status: 200, contentType: "image/jpeg", headers: ["Cache-Control": "private, max-age=300"], body: data)
     }
 
     private func clientHTML(gallery: ProofGalleryRecord, host: String) -> String {
@@ -585,26 +631,26 @@ actor ProofDockService {
         let code = Self.escapeJS(gallery.shortCode)
         let hasPassword = gallery.password.isEmpty ? "false" : "true"
         return """
-        <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>\(title) — ProofDock</title><meta property="og:title" content="\(title)"><meta property="og:type" content="website"><meta property="og:image" content="\(absoluteCover)">
-        <style>\(Self.clientCSS)</style></head><body><header><div><small>CLIENT PROOFS</small><h1 id="title">\(title)</h1></div><div class="pill" id="count">0 selected</div></header><main><div id="gate" class="gate hidden"><div class="gatecard"><small>PRIVATE GALLERY</small><h2>Enter gallery password</h2><input id="pw" type="password" autocomplete="current-password"><button id="unlock">Open Gallery</button><p id="gateError"></p></div></div><div id="submitted" class="submitted hidden">Selection submitted. Your photographer has your picks.</div><div id="grid" class="grid"></div></main><footer><span id="hint">Tap the heart to select. Tap the photo to preview.</span><button id="finish">Finish Selection</button></footer><div id="lightbox" class="lightbox hidden"><button class="backdrop" aria-label="Close preview"></button><div class="stage"><button class="close" aria-label="Close">×</button><img id="big"><div class="meta"><span id="bigName"></span><button id="bigHeart">♡ Select</button></div></div></div>
-        <script>
-        const code='\(code)', needsPassword=\(hasPassword); let access=sessionStorage.getItem('proof-access-'+code)||'', data=null, active=null;
-        const headers=()=>access?{'X-Proof-Access':access}:{}; const api=(path,opt={})=>fetch('/api/public/'+code+path,{...opt,headers:{...headers(),...(opt.headers||{})}});
-        async function load(){let r=await api('/gallery');if(r.status===401){gate.classList.remove('hidden');return}if(!r.ok)return;gate.classList.add('hidden');data=await r.json();render()}
-        function render(){title.textContent=data.name;count.textContent=data.selected_count+' selected'+(data.max_selections?' / '+data.max_selections:'');submitted.classList.toggle('hidden',!data.finished);finish.disabled=data.finished;grid.innerHTML=data.photos.map(p=>`<article class="card ${p.selected?'selected':''}"><button class="preview" data-id="${p.id}"><img loading="lazy" src="${p.url}?access=${encodeURIComponent(access)}"><span>${esc(p.filename)}</span></button><button class="heart ${p.selected?'on':''}" data-heart="${p.id}" ${data.finished?'disabled':''}>${p.selected?'♥':'♡'}</button></article>`).join('');document.querySelectorAll('[data-heart]').forEach(b=>b.onclick=e=>{e.stopPropagation();toggle(b.dataset.heart)});document.querySelectorAll('.preview').forEach(b=>b.onclick=()=>openBox(b.dataset.id))}
-        async function toggle(id){let r=await api('/select/'+id,{method:'POST'});let j=await r.json();if(!r.ok){alert(j.error||'Could not update selection');return}data=j;render();if(active===id)syncBox()}
-        finish.onclick=async()=>{if(!confirm('Finish and send these selections to your photographer?'))return;let r=await api('/finish',{method:'POST'});if(r.ok)load()};
-        unlock.onclick=async()=>{let r=await fetch('/api/public/'+code+'/unlock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw.value})});let j=await r.json();if(!r.ok){gateError.textContent=j.error||'Incorrect password';return}access=j.access;sessionStorage.setItem('proof-access-'+code,access);load()};pw.onkeydown=e=>{if(e.key==='Enter')unlock.click()};
-        function openBox(id){active=id;syncBox();lightbox.classList.remove('hidden');document.body.classList.add('locked')}function syncBox(){let p=data.photos.find(x=>x.id===active);if(!p)return;big.src=p.url+'?access='+encodeURIComponent(access);bigName.textContent=p.filename;bigHeart.textContent=p.selected?'♥ Selected':'♡ Select';bigHeart.classList.toggle('on',p.selected);bigHeart.disabled=data.finished}function closeBox(){lightbox.classList.add('hidden');document.body.classList.remove('locked');active=null}bigHeart.onclick=()=>active&&toggle(active);document.querySelector('.backdrop').onclick=closeBox;document.querySelector('.close').onclick=closeBox;document.onkeydown=e=>{if(e.key==='Escape')closeBox()};
-        const esc=s=>String(s).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c])); if(needsPassword&&!access)gate.classList.remove('hidden');load();setInterval(()=>{if(!data?.finished)load()},5000);
-        </script></body></html>
-        """
+            <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+            <title>\(title) — ProofDock</title><meta property="og:title" content="\(title)"><meta property="og:type" content="website"><meta property="og:image" content="\(absoluteCover)">
+            <style>\(Self.clientCSS)</style></head><body><header><div><small>CLIENT PROOFS</small><h1 id="title">\(title)</h1></div><div class="pill" id="count">0 selected</div></header><main><div id="gate" class="gate hidden"><div class="gatecard"><small>PRIVATE GALLERY</small><h2>Enter gallery password</h2><input id="pw" type="password" autocomplete="current-password"><button id="unlock">Open Gallery</button><p id="gateError"></p></div></div><div id="submitted" class="submitted hidden">Selection submitted. Your photographer has your picks.</div><div id="grid" class="grid"></div></main><footer><span id="hint">Tap the heart to select. Tap the photo to preview.</span><button id="finish">Finish Selection</button></footer><div id="lightbox" class="lightbox hidden"><button class="backdrop" aria-label="Close preview"></button><div class="stage"><button class="close" aria-label="Close">×</button><img id="big"><div class="meta"><span id="bigName"></span><button id="bigHeart">♡ Select</button></div></div></div>
+            <script>
+            const code='\(code)', needsPassword=\(hasPassword); let access=sessionStorage.getItem('proof-access-'+code)||'', data=null, active=null;
+            const headers=()=>access?{'X-Proof-Access':access}:{}; const api=(path,opt={})=>fetch('/api/public/'+code+path,{...opt,headers:{...headers(),...(opt.headers||{})}});
+            async function load(){let r=await api('/gallery');if(r.status===401){gate.classList.remove('hidden');return}if(!r.ok)return;gate.classList.add('hidden');data=await r.json();render()}
+            function render(){title.textContent=data.name;count.textContent=data.selected_count+' selected'+(data.max_selections?' / '+data.max_selections:'');submitted.classList.toggle('hidden',!data.finished);finish.disabled=data.finished;grid.innerHTML=data.photos.map(p=>`<article class="card ${p.selected?'selected':''}"><button class="preview" data-id="${p.id}"><img loading="lazy" src="${p.url}?access=${encodeURIComponent(access)}"><span>${esc(p.filename)}</span></button><button class="heart ${p.selected?'on':''}" data-heart="${p.id}" ${data.finished?'disabled':''}>${p.selected?'♥':'♡'}</button></article>`).join('');document.querySelectorAll('[data-heart]').forEach(b=>b.onclick=e=>{e.stopPropagation();toggle(b.dataset.heart)});document.querySelectorAll('.preview').forEach(b=>b.onclick=()=>openBox(b.dataset.id))}
+            async function toggle(id){let r=await api('/select/'+id,{method:'POST'});let j=await r.json();if(!r.ok){alert(j.error||'Could not update selection');return}data=j;render();if(active===id)syncBox()}
+            finish.onclick=async()=>{if(!confirm('Finish and send these selections to your photographer?'))return;let r=await api('/finish',{method:'POST'});if(r.ok)load()};
+            unlock.onclick=async()=>{let r=await fetch('/api/public/'+code+'/unlock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw.value})});let j=await r.json();if(!r.ok){gateError.textContent=j.error||'Incorrect password';return}access=j.access;sessionStorage.setItem('proof-access-'+code,access);load()};pw.onkeydown=e=>{if(e.key==='Enter')unlock.click()};
+            function openBox(id){active=id;syncBox();lightbox.classList.remove('hidden');document.body.classList.add('locked')}function syncBox(){let p=data.photos.find(x=>x.id===active);if(!p)return;big.src=p.url+'?access='+encodeURIComponent(access);bigName.textContent=p.filename;bigHeart.textContent=p.selected?'♥ Selected':'♡ Select';bigHeart.classList.toggle('on',p.selected);bigHeart.disabled=data.finished}function closeBox(){lightbox.classList.add('hidden');document.body.classList.remove('locked');active=null}bigHeart.onclick=()=>active&&toggle(active);document.querySelector('.backdrop').onclick=closeBox;document.querySelector('.close').onclick=closeBox;document.onkeydown=e=>{if(e.key==='Escape')closeBox()};
+            const esc=s=>String(s).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c])); if(needsPassword&&!access)gate.classList.remove('hidden');load();setInterval(()=>{if(!data?.finished)load()},5000);
+            </script></body></html>
+            """
     }
 
     private static let clientCSS = """
-    :root{color-scheme:dark;--bg:#0b0c0d;--panel:#111315;--line:#292c30;--muted:#9da2a8;--text:#f4f5f6}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif}body.locked{overflow:hidden}header{position:sticky;top:0;z-index:20;display:flex;align-items:end;justify-content:space-between;padding:32px max(20px,4vw) 22px;background:rgba(11,12,13,.92);backdrop-filter:blur(18px);border-bottom:1px solid var(--line)}small{font-size:10px;letter-spacing:.16em;color:var(--muted);font-weight:700}h1{margin:5px 0 0;font-size:clamp(25px,4vw,39px);letter-spacing:-.035em}.pill{padding:8px 12px;border:1px solid #363a3f;border-radius:999px;font-size:12px;font-weight:650;color:#d8dadd}main{padding:18px max(8px,2vw) 100px}.grid{columns:5 250px;column-gap:10px}.card{position:relative;break-inside:avoid;margin-bottom:10px;border-radius:7px;overflow:hidden;background:#16181a}.preview{appearance:none;padding:0;border:0;background:transparent;width:100%;display:block;cursor:zoom-in;color:white;text-align:left}.preview img{display:block;width:100%;height:auto;transition:.16s}.preview span{position:absolute;left:8px;bottom:7px;max-width:75%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;padding:4px 6px;border-radius:4px;background:rgba(0,0,0,.54);opacity:0;transition:.15s}.card:hover .preview img{filter:brightness(.86)}.card:hover .preview span{opacity:1}.card.selected{outline:2px solid rgba(255,255,255,.9);outline-offset:-2px}.heart{position:absolute;right:8px;top:8px;width:38px;height:38px;border-radius:50%;border:1px solid rgba(255,255,255,.2);background:rgba(8,9,10,.66);color:white;font-size:20px;display:grid;place-items:center;backdrop-filter:blur(9px);cursor:pointer}.heart.on{background:white;color:#101112}.heart:disabled{opacity:.6}footer{position:fixed;bottom:0;left:0;right:0;z-index:30;padding:12px max(18px,4vw);display:flex;align-items:center;justify-content:space-between;gap:16px;background:rgba(11,12,13,.94);backdrop-filter:blur(18px);border-top:1px solid var(--line);font-size:12px;color:var(--muted)}footer button,.gatecard button{appearance:none;border:0;border-radius:8px;background:white;color:#111;padding:11px 16px;font-weight:750}.submitted{max-width:800px;margin:0 auto 18px;padding:12px 15px;border:1px solid #395445;background:#152219;border-radius:9px;color:#dce9df}.hidden{display:none!important}.gate{position:fixed;inset:0;z-index:70;background:rgba(5,6,7,.96);display:grid;place-items:center;padding:20px}.gatecard{width:min(420px,100%);border:1px solid var(--line);background:#111315;border-radius:15px;padding:27px}.gatecard h2{margin:7px 0 18px}.gatecard input{width:100%;padding:12px;margin-bottom:10px;border:1px solid #3a3d42;border-radius:8px;background:#090a0b;color:white}.gatecard button{width:100%}.gatecard p{color:#d36f69;font-size:12px}.lightbox{position:fixed;inset:0;z-index:90;display:grid;place-items:center;padding:12px}.backdrop{position:absolute;inset:0;border:0;background:rgba(0,0,0,.95);cursor:zoom-out}.stage{position:relative;z-index:1;width:min(96vw,1800px);height:95vh;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none}.stage img{max-width:100%;max-height:calc(100% - 58px);object-fit:contain;pointer-events:auto}.close{pointer-events:auto;position:absolute;top:5px;right:5px;width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,.25);background:rgba(10,10,10,.6);color:white;font-size:28px}.meta{pointer-events:auto;width:min(100%,1100px);height:52px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-size:12px}.meta button{border:1px solid rgba(255,255,255,.25);background:#17191b;color:white;border-radius:999px;padding:8px 13px;font-weight:700}.meta button.on{background:white;color:#111}@media(max-width:900px){.grid{columns:3 220px}}@media(max-width:560px){header{padding:20px 16px 15px}.pill{white-space:nowrap}.grid{columns:2 145px;column-gap:7px}.card{margin-bottom:7px}.heart{width:42px;height:42px;right:6px;top:6px}footer{padding:10px 12px}footer span{max-width:55%}}
-    """
+        :root{color-scheme:dark;--bg:#0b0c0d;--panel:#111315;--line:#292c30;--muted:#9da2a8;--text:#f4f5f6}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif}body.locked{overflow:hidden}header{position:sticky;top:0;z-index:20;display:flex;align-items:end;justify-content:space-between;padding:32px max(20px,4vw) 22px;background:rgba(11,12,13,.92);backdrop-filter:blur(18px);border-bottom:1px solid var(--line)}small{font-size:10px;letter-spacing:.16em;color:var(--muted);font-weight:700}h1{margin:5px 0 0;font-size:clamp(25px,4vw,39px);letter-spacing:-.035em}.pill{padding:8px 12px;border:1px solid #363a3f;border-radius:999px;font-size:12px;font-weight:650;color:#d8dadd}main{padding:18px max(8px,2vw) 100px}.grid{columns:5 250px;column-gap:10px}.card{position:relative;break-inside:avoid;margin-bottom:10px;border-radius:7px;overflow:hidden;background:#16181a}.preview{appearance:none;padding:0;border:0;background:transparent;width:100%;display:block;cursor:zoom-in;color:white;text-align:left}.preview img{display:block;width:100%;height:auto;transition:.16s}.preview span{position:absolute;left:8px;bottom:7px;max-width:75%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;padding:4px 6px;border-radius:4px;background:rgba(0,0,0,.54);opacity:0;transition:.15s}.card:hover .preview img{filter:brightness(.86)}.card:hover .preview span{opacity:1}.card.selected{outline:2px solid rgba(255,255,255,.9);outline-offset:-2px}.heart{position:absolute;right:8px;top:8px;width:38px;height:38px;border-radius:50%;border:1px solid rgba(255,255,255,.2);background:rgba(8,9,10,.66);color:white;font-size:20px;display:grid;place-items:center;backdrop-filter:blur(9px);cursor:pointer}.heart.on{background:white;color:#101112}.heart:disabled{opacity:.6}footer{position:fixed;bottom:0;left:0;right:0;z-index:30;padding:12px max(18px,4vw);display:flex;align-items:center;justify-content:space-between;gap:16px;background:rgba(11,12,13,.94);backdrop-filter:blur(18px);border-top:1px solid var(--line);font-size:12px;color:var(--muted)}footer button,.gatecard button{appearance:none;border:0;border-radius:8px;background:white;color:#111;padding:11px 16px;font-weight:750}.submitted{max-width:800px;margin:0 auto 18px;padding:12px 15px;border:1px solid #395445;background:#152219;border-radius:9px;color:#dce9df}.hidden{display:none!important}.gate{position:fixed;inset:0;z-index:70;background:rgba(5,6,7,.96);display:grid;place-items:center;padding:20px}.gatecard{width:min(420px,100%);border:1px solid var(--line);background:#111315;border-radius:15px;padding:27px}.gatecard h2{margin:7px 0 18px}.gatecard input{width:100%;padding:12px;margin-bottom:10px;border:1px solid #3a3d42;border-radius:8px;background:#090a0b;color:white}.gatecard button{width:100%}.gatecard p{color:#d36f69;font-size:12px}.lightbox{position:fixed;inset:0;z-index:90;display:grid;place-items:center;padding:12px}.backdrop{position:absolute;inset:0;border:0;background:rgba(0,0,0,.95);cursor:zoom-out}.stage{position:relative;z-index:1;width:min(96vw,1800px);height:95vh;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none}.stage img{max-width:100%;max-height:calc(100% - 58px);object-fit:contain;pointer-events:auto}.close{pointer-events:auto;position:absolute;top:5px;right:5px;width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,.25);background:rgba(10,10,10,.6);color:white;font-size:28px}.meta{pointer-events:auto;width:min(100%,1100px);height:52px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-size:12px}.meta button{border:1px solid rgba(255,255,255,.25);background:#17191b;color:white;border-radius:999px;padding:8px 13px;font-weight:700}.meta button.on{background:white;color:#111}@media(max-width:900px){.grid{columns:3 220px}}@media(max-width:560px){header{padding:20px 16px 15px}.pill{white-space:nowrap}.grid{columns:2 145px;column-gap:7px}.card{margin-bottom:7px}.heart{width:42px;height:42px;right:6px;top:6px}footer{padding:10px 12px}footer span{max-width:55%}}
+        """
 
     private static func escapeHTML(_ value: String) -> String {
         value.replacingOccurrences(of: "&", with: "&amp;")
@@ -628,9 +674,11 @@ actor ProofDockService {
             defer { pointer = current.pointee.ifa_next }
             let flags = Int32(current.pointee.ifa_flags)
             guard flags & IFF_UP != 0, flags & IFF_LOOPBACK == 0, let sa = current.pointee.ifa_addr,
-                  sa.pointee.sa_family == UInt8(AF_INET) else { continue }
+                sa.pointee.sa_family == UInt8(AF_INET)
+            else { continue }
             var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-            let result = getnameinfo(sa, socklen_t(sa.pointee.sa_len), &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST)
+            let result = getnameinfo(
+                sa, socklen_t(sa.pointee.sa_len), &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST)
             if result == 0 {
                 let candidate = host.withUnsafeBufferPointer { buffer -> String in
                     guard let base = buffer.baseAddress else { return "" }

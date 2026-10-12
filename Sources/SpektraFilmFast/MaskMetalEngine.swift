@@ -27,11 +27,12 @@ final class MaskMetalEngine: @unchecked Sendable {
         do {
             let lib = try device.makeLibrary(source: Self.shaderSource, options: nil)
             guard let radial = lib.makeFunction(name: "mask_radial"),
-                  let gradient = lib.makeFunction(name: "mask_linear_gradient"),
-                  let raster = lib.makeFunction(name: "mask_raster"),
-                  let combine = lib.makeFunction(name: "mask_combine"),
-                  let fused = lib.makeFunction(name: "mask_fused"),
-                  let composite = lib.makeFunction(name: "mask_composite_rgba") else { return nil }
+                let gradient = lib.makeFunction(name: "mask_linear_gradient"),
+                let raster = lib.makeFunction(name: "mask_raster"),
+                let combine = lib.makeFunction(name: "mask_combine"),
+                let fused = lib.makeFunction(name: "mask_fused"),
+                let composite = lib.makeFunction(name: "mask_composite_rgba")
+            else { return nil }
             radialPSO = try device.makeComputePipelineState(function: radial)
             gradientPSO = try device.makeComputePipelineState(function: gradient)
             rasterPSO = try device.makeComputePipelineState(function: raster)
@@ -55,32 +56,37 @@ final class MaskMetalEngine: @unchecked Sendable {
     /// CPU Redlamp port is a deterministic fallback on older Intel hardware.
     func renderCoverage(grade: LocalGradeRecord, width: Int, height: Int) -> [Float]? {
         guard width > 0, height > 0, width <= 16384,
-              height <= 16384, width <= Int.max / height else { return nil }
+            height <= 16384, width <= Int.max / height
+        else { return nil }
         let count = width * height
         let sources = grade.masks.sources.filter(\.enabled).map(MaskRasterProcessing.prepared)
         if grade.masks.sources.isEmpty { return [Float](repeating: 1, count: count) }
         if sources.isEmpty { return [Float](repeating: 0, count: count) }
         if sources.count <= 16, let fused = renderFused(sources, width: width, height: height) { return fused }
         guard let commands = queue.makeCommandBuffer(),
-              var current = makeCoverageBuffer(pixelCount: count) else { return nil }
+            var current = makeCoverageBuffer(pixelCount: count)
+        else { return nil }
         memset(current.contents(), 0, count * MemoryLayout<Float>.stride)
         do {
             for (index, unprepared) in sources.enumerated() {
                 let source = MaskRasterProcessing.depthPrepared(unprepared)
                 guard let next = makeCoverageBuffer(pixelCount: count) else { return nil }
                 if source.kind == .raster {
-                    try encodeRasterSource(commandBuffer: commands, source: source,
-                                           width: width, height: height, output: next)
+                    try encodeRasterSource(
+                        commandBuffer: commands, source: source,
+                        width: width, height: height, output: next)
                 } else {
-                    try encodeGeometricSource(commandBuffer: commands, source: source,
-                                              width: width, height: height, output: next)
+                    try encodeGeometricSource(
+                        commandBuffer: commands, source: source,
+                        width: width, height: height, output: next)
                 }
                 if index == 0 {
                     if source.blendMode != .subtract { current = next }
                 } else {
                     guard let combined = makeCoverageBuffer(pixelCount: count) else { return nil }
-                    try encodeCombine(commandBuffer: commands, lhs: current, rhs: next,
-                                      destination: combined, count: count, mode: source.blendMode)
+                    try encodeCombine(
+                        commandBuffer: commands, lhs: current, rhs: next,
+                        destination: combined, count: count, mode: source.blendMode)
                     current = combined
                 }
             }
@@ -104,7 +110,8 @@ final class MaskMetalEngine: @unchecked Sendable {
     private func renderFused(_ sources: [MaskSourceRecord], width: Int, height: Int) -> [Float]? {
         let count = width * height
         guard let commands = queue.makeCommandBuffer(), let output = makeCoverageBuffer(pixelCount: count),
-              let encoder = commands.makeComputeCommandEncoder() else { return nil }
+            let encoder = commands.makeComputeCommandEncoder()
+        else { return nil }
         var uniforms: [FusedSource] = []
         var textures: [MTLTexture] = []
         textureLock.lock()
@@ -124,19 +131,24 @@ final class MaskMetalEngine: @unchecked Sendable {
                 g.p0x = Float(recipe.depthLower); g.p0y = Float(recipe.depthUpper)
                 g.feather = Float(max(0.001, recipe.depthSoftness))
             }
-            uniforms.append(FusedSource(geometry: g, kind: isDepth ? 3 : (source.kind == .radial ? 0 : (source.kind == .linearGradient ? 1 : 2)),
-                                        mode: source.blendMode == .add ? 0 : (source.blendMode == .subtract ? 1 : 2)))
+            uniforms.append(
+                FusedSource(
+                    geometry: g,
+                    kind: isDepth ? 3 : (source.kind == .radial ? 0 : (source.kind == .linearGradient ? 1 : 2)),
+                    mode: source.blendMode == .add ? 0 : (source.blendMode == .subtract ? 1 : 2)))
             let payload = source.raster ?? RasterMaskPayload(width: 1, height: 1, alpha: [0])
             if let cached = rasterTextures[source.id], cached.0 == payload { textures.append(cached.1); continue }
-            let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .r8Unorm, width: payload.width,
-                                                                height: payload.height, mipmapped: false)
+            let desc = MTLTextureDescriptor.texture2DDescriptor(
+                pixelFormat: .r8Unorm, width: payload.width,
+                height: payload.height, mipmapped: false)
             desc.storageMode = .managed; desc.usage = .shaderRead
             guard let texture = device.makeTexture(descriptor: desc) else { encoder.endEncoding(); return nil }
             let alpha = payload.decodedAlpha()
             alpha.withUnsafeBytes { bytes in
                 if let base = bytes.baseAddress {
-                    texture.replace(region: MTLRegionMake2D(0, 0, payload.width, payload.height), mipmapLevel: 0,
-                                    withBytes: base, bytesPerRow: payload.width)
+                    texture.replace(
+                        region: MTLRegionMake2D(0, 0, payload.width, payload.height), mipmapLevel: 0,
+                        withBytes: base, bytesPerRow: payload.width)
                 }
             }
             rasterTextures[source.id] = (payload, texture)
@@ -169,19 +181,22 @@ final class MaskMetalEngine: @unchecked Sendable {
         width: Int, height: Int, output: MTLBuffer
     ) throws {
         guard let payload = source.raster,
-              payload.width > 0, payload.height > 0 else { throw EngineError.unavailable }
+            payload.width > 0, payload.height > 0
+        else { throw EngineError.unavailable }
         let alpha = payload.decodedAlpha()
         guard alpha.count == payload.width * payload.height,
-              let mask = device.makeBuffer(length: alpha.count, options: .storageModeShared),
-              let encoder = commandBuffer.makeComputeCommandEncoder() else {
+            let mask = device.makeBuffer(length: alpha.count, options: .storageModeShared),
+            let encoder = commandBuffer.makeComputeCommandEncoder()
+        else {
             throw EngineError.allocationFailed
         }
         alpha.withUnsafeBytes { ptr in
             if let base = ptr.baseAddress { memcpy(mask.contents(), base, alpha.count) }
         }
-        var u = GeometryUniforms(p0x: 0, p0y: 0, p1x: 0, p1y: 0, rotation: 0,
-                                 feather: Float(source.feather), opacity: Float(source.opacity),
-                                 inverted: source.inverted ? 1 : 0)
+        var u = GeometryUniforms(
+            p0x: 0, p0y: 0, p1x: 0, p1y: 0, rotation: 0,
+            feather: Float(source.feather), opacity: Float(source.opacity),
+            inverted: source.inverted ? 1 : 0)
         var dims = SIMD2<UInt32>(UInt32(width), UInt32(height))
         var rasterDims = SIMD2<UInt32>(UInt32(payload.width), UInt32(payload.height))
         encoder.setComputePipelineState(rasterPSO)
@@ -213,11 +228,16 @@ final class MaskMetalEngine: @unchecked Sendable {
         case .radial:
             let g = source.radial ?? RadialMaskGeometry()
             pso = radialPSO
-            u = .init(p0x: Float(g.center.x), p0y: Float(g.center.y), p1x: Float(g.radiusX), p1y: Float(g.radiusY), rotation: Float(g.rotationDegrees * .pi / 180), feather: Float(source.feather), opacity: Float(source.opacity), inverted: source.inverted ? 1 : 0)
+            u = .init(
+                p0x: Float(g.center.x), p0y: Float(g.center.y), p1x: Float(g.radiusX), p1y: Float(g.radiusY),
+                rotation: Float(g.rotationDegrees * .pi / 180), feather: Float(source.feather),
+                opacity: Float(source.opacity), inverted: source.inverted ? 1 : 0)
         case .linearGradient:
             let g = source.linearGradient ?? LinearGradientMaskGeometry()
             pso = gradientPSO
-            u = .init(p0x: Float(g.start.x), p0y: Float(g.start.y), p1x: Float(g.end.x), p1y: Float(g.end.y), rotation: 0, feather: Float(source.feather), opacity: Float(source.opacity), inverted: source.inverted ? 1 : 0)
+            u = .init(
+                p0x: Float(g.start.x), p0y: Float(g.start.y), p1x: Float(g.end.x), p1y: Float(g.end.y), rotation: 0,
+                feather: Float(source.feather), opacity: Float(source.opacity), inverted: source.inverted ? 1 : 0)
         case .raster:
             encoder.endEncoding()
             throw EngineError.unavailable
@@ -232,7 +252,10 @@ final class MaskMetalEngine: @unchecked Sendable {
     }
 
     /// Ordered Add/Subtract/Intersect operation. `destination` may alias `lhs`.
-    func encodeCombine(commandBuffer: MTLCommandBuffer, lhs: MTLBuffer, rhs: MTLBuffer, destination: MTLBuffer, count: Int, mode: MaskBlendMode) throws {
+    func encodeCombine(
+        commandBuffer: MTLCommandBuffer, lhs: MTLBuffer, rhs: MTLBuffer, destination: MTLBuffer, count: Int,
+        mode: MaskBlendMode
+    ) throws {
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else { throw EngineError.unavailable }
         var u = CombineUniforms(mode: mode == .add ? 0 : (mode == .subtract ? 1 : 2))
         encoder.setComputePipelineState(combinePSO)
@@ -246,7 +269,10 @@ final class MaskMetalEngine: @unchecked Sendable {
 
     /// Composites a separately-rendered local grade through coverage without altering the
     /// underlying grade renderer. Inputs/outputs are RGBA32F buffers, four floats per pixel.
-    func encodeComposite(commandBuffer: MTLCommandBuffer, baseRGBA: MTLBuffer, gradedRGBA: MTLBuffer, coverage: MTLBuffer, outputRGBA: MTLBuffer, pixelCount: Int, opacity: Float) throws {
+    func encodeComposite(
+        commandBuffer: MTLCommandBuffer, baseRGBA: MTLBuffer, gradedRGBA: MTLBuffer, coverage: MTLBuffer,
+        outputRGBA: MTLBuffer, pixelCount: Int, opacity: Float
+    ) throws {
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else { throw EngineError.unavailable }
         var u = CompositeUniforms(opacity: max(0, min(1, opacity)))
         encoder.setComputePipelineState(compositePSO)
@@ -261,84 +287,86 @@ final class MaskMetalEngine: @unchecked Sendable {
 
     private func dispatch(_ encoder: MTLComputeCommandEncoder, pso: MTLComputePipelineState, count: Int) {
         let w = min(pso.maxTotalThreadsPerThreadgroup, max(1, pso.threadExecutionWidth * 4))
-        encoder.dispatchThreads(MTLSize(width: max(1, count), height: 1, depth: 1), threadsPerThreadgroup: MTLSize(width: w, height: 1, depth: 1))
+        encoder.dispatchThreads(
+            MTLSize(width: max(1, count), height: 1, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: w, height: 1, depth: 1))
     }
 
     private static let shaderSource = #"""
-#include <metal_stdlib>
-using namespace metal;
-struct G { float2 p0; float2 p1; float rotation; float feather; float opacity; uint inverted; };
-struct F { G g; uint kind; uint mode; uint padding0; uint padding1; };
-kernel void mask_fused(device float* out [[buffer(0)]], constant F* sources [[buffer(1)]],
-                       constant uint2& dims [[buffer(2)]], constant uint& sourceCount [[buffer(3)]],
-                       array<texture2d<float>, 16> masks [[texture(0)]], uint id [[thread_position_in_grid]]) {
-    if (id >= dims.x * dims.y) return;
-    float2 uv = (float2(id % dims.x, id / dims.x) + 0.5f) / float2(dims);
-    constexpr sampler linearSampler(coord::normalized, address::clamp_to_edge, filter::linear);
-    float result = 0;
-    for (uint i = 0; i < sourceCount; ++i) {
-        constant F& source = sources[i]; constant G& g = source.g;
-        float v = 0;
-        if (source.kind == 0) {
-            float2 d = uv - g.p0;
-            float c = cos(-g.rotation), s = sin(-g.rotation);
-            d = float2(c*d.x-s*d.y, s*d.x+c*d.y);
-            float q = length(d/max(g.p1,float2(1e-4f)));
-            float inner = min(0.999f,1.0f-clamp(g.feather,1e-5f,1.0f));
-            v = 1.0f-smoothstep(inner,1.0f,q);
-        } else if (source.kind == 1) {
-            float2 axis = g.p1-g.p0;
-            float t = dot(uv-g.p0,axis)/max(dot(axis,axis),1e-8f);
-            float feather = max(g.feather,1e-5f);
-            v = smoothstep(0.5f-feather,0.5f+feather,t);
-        } else {
-            v = masks[i].sample(linearSampler,uv).r;
-            if (source.kind == 3) {
-                float softness = max(g.feather, 0.001f);
-                v = smoothstep(g.p0.x-softness,g.p0.x,v) * (1-smoothstep(g.p0.y,g.p0.y+softness,v));
+        #include <metal_stdlib>
+        using namespace metal;
+        struct G { float2 p0; float2 p1; float rotation; float feather; float opacity; uint inverted; };
+        struct F { G g; uint kind; uint mode; uint padding0; uint padding1; };
+        kernel void mask_fused(device float* out [[buffer(0)]], constant F* sources [[buffer(1)]],
+                               constant uint2& dims [[buffer(2)]], constant uint& sourceCount [[buffer(3)]],
+                               array<texture2d<float>, 16> masks [[texture(0)]], uint id [[thread_position_in_grid]]) {
+            if (id >= dims.x * dims.y) return;
+            float2 uv = (float2(id % dims.x, id / dims.x) + 0.5f) / float2(dims);
+            constexpr sampler linearSampler(coord::normalized, address::clamp_to_edge, filter::linear);
+            float result = 0;
+            for (uint i = 0; i < sourceCount; ++i) {
+                constant F& source = sources[i]; constant G& g = source.g;
+                float v = 0;
+                if (source.kind == 0) {
+                    float2 d = uv - g.p0;
+                    float c = cos(-g.rotation), s = sin(-g.rotation);
+                    d = float2(c*d.x-s*d.y, s*d.x+c*d.y);
+                    float q = length(d/max(g.p1,float2(1e-4f)));
+                    float inner = min(0.999f,1.0f-clamp(g.feather,1e-5f,1.0f));
+                    v = 1.0f-smoothstep(inner,1.0f,q);
+                } else if (source.kind == 1) {
+                    float2 axis = g.p1-g.p0;
+                    float t = dot(uv-g.p0,axis)/max(dot(axis,axis),1e-8f);
+                    float feather = max(g.feather,1e-5f);
+                    v = smoothstep(0.5f-feather,0.5f+feather,t);
+                } else {
+                    v = masks[i].sample(linearSampler,uv).r;
+                    if (source.kind == 3) {
+                        float softness = max(g.feather, 0.001f);
+                        v = smoothstep(g.p0.x-softness,g.p0.x,v) * (1-smoothstep(g.p0.y,g.p0.y+softness,v));
+                    }
+                }
+                if (g.inverted) v = 1-v;
+                v *= clamp(g.opacity,0.0f,1.0f);
+                if (i == 0) result = source.mode == 1 ? 0 : v;
+                else if (source.mode == 0) result = max(result,v);
+                else if (source.mode == 1) result *= 1-v;
+                else result *= v;
             }
+            out[id] = result;
         }
-        if (g.inverted) v = 1-v;
-        v *= clamp(g.opacity,0.0f,1.0f);
-        if (i == 0) result = source.mode == 1 ? 0 : v;
-        else if (source.mode == 0) result = max(result,v);
-        else if (source.mode == 1) result *= 1-v;
-        else result *= v;
-    }
-    out[id] = result;
-}
-struct C { uint mode; };
-struct O { float opacity; };
-inline float apply_common(float v, constant G& g) { v = clamp(v, 0.0f, 1.0f); if (g.inverted) v = 1.0f - v; return v * clamp(g.opacity,0.0f,1.0f); }
-kernel void mask_radial(device float* out [[buffer(0)]], constant G& g [[buffer(1)]], constant uint2& dims [[buffer(2)]], uint id [[thread_position_in_grid]]) {
-    uint n=dims.x*dims.y; if(id>=n) return; uint x=id%dims.x, y=id/dims.x; float2 p=(float2(x,y)+0.5f)/float2(dims);
-    float2 d=p-g.p0; float c=cos(-g.rotation), s=sin(-g.rotation); d=float2(c*d.x-s*d.y,s*d.x+c*d.y);
-    float2 r=max(g.p1,float2(1e-4f)); float q=length(d/r); float fw=clamp(g.feather,1e-5f,1.0f); float inner=min(0.999f,1.0f-fw); float v=1.0f-smoothstep(inner,1.0f,q); out[id]=apply_common(v,g);
-}
-kernel void mask_linear_gradient(device float* out [[buffer(0)]], constant G& g [[buffer(1)]], constant uint2& dims [[buffer(2)]], uint id [[thread_position_in_grid]]) {
-    uint n=dims.x*dims.y; if(id>=n) return; uint x=id%dims.x, y=id/dims.x; float2 p=(float2(x,y)+0.5f)/float2(dims);
-    float2 axis=g.p1-g.p0; float denom=max(dot(axis,axis),1e-6f); float t=dot(p-g.p0,axis)/denom; float fw=max(g.feather,1e-5f); float v=smoothstep(0.5f-fw,0.5f+fw,t); out[id]=apply_common(v,g);
-}
-// Redlamp Masks.h bilinear raster sampling, adapted to RLE-decoded 8-bit alpha.
-kernel void mask_raster(device const uchar* alpha [[buffer(0)]], device float* out [[buffer(1)]],
-                        constant G& g [[buffer(2)]], constant uint2& dims [[buffer(3)]],
-                        constant uint2& rdims [[buffer(4)]], uint id [[thread_position_in_grid]]) {
-    uint count=dims.x*dims.y; if(id>=count) return;
-    uint x=id%dims.x,y=id/dims.x;
-    float2 uv=(float2(x,y)+0.5f)/float2(dims);
-    float2 p=clamp(uv*float2(rdims)-0.5f,float2(0.0f),float2(rdims-1));
-    uint x0=uint(p.x),y0=uint(p.y),x1=min(x0+1,rdims.x-1),y1=min(y0+1,rdims.y-1);
-    float2 t=p-float2(x0,y0);
-    float a=mix(float(alpha[y0*rdims.x+x0]),float(alpha[y0*rdims.x+x1]),t.x);
-    float b=mix(float(alpha[y1*rdims.x+x0]),float(alpha[y1*rdims.x+x1]),t.x);
-    out[id]=apply_common(mix(a,b,t.y)/255.0f,g);
-}
-kernel void mask_combine(device const float* a [[buffer(0)]], device const float* b [[buffer(1)]], device float* out [[buffer(2)]], constant C& c [[buffer(3)]], uint id [[thread_position_in_grid]]) {
-    float x=clamp(a[id],0.0f,1.0f), y=clamp(b[id],0.0f,1.0f); float v;
-    if(c.mode==0) v=max(x,y); else if(c.mode==1) v=x*(1.0f-y); else v=x*y; out[id]=clamp(v,0.0f,1.0f);
-}
-kernel void mask_composite_rgba(device const float4* base [[buffer(0)]], device const float4* grade [[buffer(1)]], device const float* coverage [[buffer(2)]], device float4* out [[buffer(3)]], constant O& o [[buffer(4)]], uint id [[thread_position_in_grid]]) {
-    float a=clamp(coverage[id]*o.opacity,0.0f,1.0f); out[id]=mix(base[id],grade[id],a);
-}
-"""#
+        struct C { uint mode; };
+        struct O { float opacity; };
+        inline float apply_common(float v, constant G& g) { v = clamp(v, 0.0f, 1.0f); if (g.inverted) v = 1.0f - v; return v * clamp(g.opacity,0.0f,1.0f); }
+        kernel void mask_radial(device float* out [[buffer(0)]], constant G& g [[buffer(1)]], constant uint2& dims [[buffer(2)]], uint id [[thread_position_in_grid]]) {
+            uint n=dims.x*dims.y; if(id>=n) return; uint x=id%dims.x, y=id/dims.x; float2 p=(float2(x,y)+0.5f)/float2(dims);
+            float2 d=p-g.p0; float c=cos(-g.rotation), s=sin(-g.rotation); d=float2(c*d.x-s*d.y,s*d.x+c*d.y);
+            float2 r=max(g.p1,float2(1e-4f)); float q=length(d/r); float fw=clamp(g.feather,1e-5f,1.0f); float inner=min(0.999f,1.0f-fw); float v=1.0f-smoothstep(inner,1.0f,q); out[id]=apply_common(v,g);
+        }
+        kernel void mask_linear_gradient(device float* out [[buffer(0)]], constant G& g [[buffer(1)]], constant uint2& dims [[buffer(2)]], uint id [[thread_position_in_grid]]) {
+            uint n=dims.x*dims.y; if(id>=n) return; uint x=id%dims.x, y=id/dims.x; float2 p=(float2(x,y)+0.5f)/float2(dims);
+            float2 axis=g.p1-g.p0; float denom=max(dot(axis,axis),1e-6f); float t=dot(p-g.p0,axis)/denom; float fw=max(g.feather,1e-5f); float v=smoothstep(0.5f-fw,0.5f+fw,t); out[id]=apply_common(v,g);
+        }
+        // Redlamp Masks.h bilinear raster sampling, adapted to RLE-decoded 8-bit alpha.
+        kernel void mask_raster(device const uchar* alpha [[buffer(0)]], device float* out [[buffer(1)]],
+                                constant G& g [[buffer(2)]], constant uint2& dims [[buffer(3)]],
+                                constant uint2& rdims [[buffer(4)]], uint id [[thread_position_in_grid]]) {
+            uint count=dims.x*dims.y; if(id>=count) return;
+            uint x=id%dims.x,y=id/dims.x;
+            float2 uv=(float2(x,y)+0.5f)/float2(dims);
+            float2 p=clamp(uv*float2(rdims)-0.5f,float2(0.0f),float2(rdims-1));
+            uint x0=uint(p.x),y0=uint(p.y),x1=min(x0+1,rdims.x-1),y1=min(y0+1,rdims.y-1);
+            float2 t=p-float2(x0,y0);
+            float a=mix(float(alpha[y0*rdims.x+x0]),float(alpha[y0*rdims.x+x1]),t.x);
+            float b=mix(float(alpha[y1*rdims.x+x0]),float(alpha[y1*rdims.x+x1]),t.x);
+            out[id]=apply_common(mix(a,b,t.y)/255.0f,g);
+        }
+        kernel void mask_combine(device const float* a [[buffer(0)]], device const float* b [[buffer(1)]], device float* out [[buffer(2)]], constant C& c [[buffer(3)]], uint id [[thread_position_in_grid]]) {
+            float x=clamp(a[id],0.0f,1.0f), y=clamp(b[id],0.0f,1.0f); float v;
+            if(c.mode==0) v=max(x,y); else if(c.mode==1) v=x*(1.0f-y); else v=x*y; out[id]=clamp(v,0.0f,1.0f);
+        }
+        kernel void mask_composite_rgba(device const float4* base [[buffer(0)]], device const float4* grade [[buffer(1)]], device const float* coverage [[buffer(2)]], device float4* out [[buffer(3)]], constant O& o [[buffer(4)]], uint id [[thread_position_in_grid]]) {
+            float a=clamp(coverage[id]*o.opacity,0.0f,1.0f); out[id]=mix(base[id],grade[id],a);
+        }
+        """#
 }

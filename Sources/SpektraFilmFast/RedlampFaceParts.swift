@@ -64,9 +64,10 @@ enum FaceParts {
             self.brows = brows.filter { $0.count >= 2 }
             self.outerLips = outerLips
             self.innerLips = innerLips
-            eyeWidth = self.eyes.map { points in
-                (points.map(\.x).max() ?? 0) - (points.map(\.x).min() ?? 0)
-            }.max() ?? 0
+            eyeWidth =
+                self.eyes.map { points in
+                    (points.map(\.x).max() ?? 0) - (points.map(\.x).min() ?? 0)
+                }.max() ?? 0
         }
 
         var irisRadius: CGFloat {
@@ -75,9 +76,10 @@ enum FaceParts {
 
         func irisDiscs(_ context: CGContext) {
             for pupil in pupils {
-                context.fillEllipse(in: CGRect(
-                    x: pupil.x - irisRadius, y: pupil.y - irisRadius, width: irisRadius * 2, height: irisRadius * 2,
-                ))
+                context.fillEllipse(
+                    in: CGRect(
+                        x: pupil.x - irisRadius, y: pupil.y - irisRadius, width: irisRadius * 2, height: irisRadius * 2,
+                    ))
             }
         }
 
@@ -103,8 +105,8 @@ enum FaceParts {
 
         func iris() -> GrayMask? {
             guard !pupils.isEmpty, irisRadius > 0,
-                  let discs = FaceParts.draw(size, irisDiscs),
-                  let eyeShapes = FaceParts.draw(size, { context in eyes.forEach { FaceParts.fill(context, $0) } })
+                let discs = FaceParts.draw(size, irisDiscs),
+                let eyeShapes = FaceParts.draw(size, { context in eyes.forEach { FaceParts.fill(context, $0) } })
             else { return nil }
             return discs.intersection(eyeShapes)
         }
@@ -125,13 +127,17 @@ enum FaceParts {
             guard contour.count >= 3, let first = contour.first, let last = contour.last else { return nil }
             let forehead = browTop + eyeWidth * 0.9
             let outline = contour + [CGPoint(x: last.x, y: forehead), CGPoint(x: first.x, y: forehead)]
-            guard var face = FaceParts.draw(size, { context in
-                FaceParts.fill(context, outline)
-                context.setBlendMode(.clear)
-                eyes.forEach { FaceParts.fill(context, $0) }
-                FaceParts.fill(context, outerLips)
-                browStrokes(context)
-            }) else { return nil }
+            guard
+                var face = FaceParts.draw(
+                    size,
+                    { context in
+                        FaceParts.fill(context, outline)
+                        context.setBlendMode(.clear)
+                        eyes.forEach { FaceParts.fill(context, $0) }
+                        FaceParts.fill(context, outerLips)
+                        browStrokes(context)
+                    })
+            else { return nil }
             if let pixels, let grown = foreheadSkin(face, pixels: pixels) {
                 face = grown
             }
@@ -145,10 +151,12 @@ enum FaceParts {
 
         /// Bright, pale pixels inside the lips.
         func teeth(_ pixels: RGBImage) -> GrayMask? {
-            guard innerLips.count >= 3, let mouth = FaceParts.draw(
-                size,
-                { context in FaceParts.fill(context, innerLips) },
-            ) else { return nil }
+            guard innerLips.count >= 3,
+                let mouth = FaceParts.draw(
+                    size,
+                    { context in FaceParts.fill(context, innerLips) },
+                )
+            else { return nil }
             var teeth = mouth.pixels
             for index in teeth.indices where teeth[index] > 0 {
                 let rgb = pixels.rgb(index % size.width, index / size.width)
@@ -167,11 +175,13 @@ enum FaceParts {
     static func draw(_ size: PixelSize, _ body: (CGContext) -> Void) -> GrayMask? {
         var pixels = [UInt8](repeating: 0, count: size.width * size.height)
         let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(
-                data: buffer.baseAddress, width: size.width, height: size.height, bitsPerComponent: 8,
-                bytesPerRow: size.width, space: CGColorSpaceCreateDeviceGray(),
-                bitmapInfo: CGImageAlphaInfo.none.rawValue,
-            ) else { return false }
+            guard
+                let context = CGContext(
+                    data: buffer.baseAddress, width: size.width, height: size.height, bitsPerComponent: 8,
+                    bytesPerRow: size.width, space: CGColorSpaceCreateDeviceGray(),
+                    bitmapInfo: CGImageAlphaInfo.none.rawValue,
+                )
+            else { return false }
             context.setFillColor(gray: 1, alpha: 1)
             context.setStrokeColor(gray: 1, alpha: 1)
             body(context)

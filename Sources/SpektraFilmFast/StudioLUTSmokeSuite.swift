@@ -1,7 +1,7 @@
-import Foundation
-@preconcurrency import Metal
 import CoreGraphics
 import CoreImage
+import Foundation
+@preconcurrency import Metal
 
 // App-level Mac/Metal smoke test. Invoked with --lut-smoke-test; no photos
 // and no user LUT assets required. It tests actual GPU output, GPU cache
@@ -27,20 +27,23 @@ enum StudioLUTSmokeSuite {
         try makeCube(path: srgb, size: 2, sceneLinear: false)
         try makeCube(path: linear, size: 17, sceneLinear: true)
         let metadata = """
-        lut_path,film_profile,print_profile,stage,status
-        portra_endura.cube,kodak_portra_400,kodak_endura,full_chain,completed
-        rec2020.cube,Fuji 400,Crystal Archive,full_chain,completed
-        """
+            lut_path,film_profile,print_profile,stage,status
+            portra_endura.cube,kodak_portra_400,kodak_endura,full_chain,completed
+            rec2020.cube,Fuji 400,Crystal Archive,full_chain,completed
+            """
         try metadata.write(to: csv, atomically: true, encoding: .utf8)
         let items = try StudioImportedLUT.discover(folder: folder)
         guard items.count == 2,
-              items.contains(where: { $0.name.contains("kodak portra 400") && $0.name.contains("kodak endura") }),
-              items.contains(where: { $0.name.contains("Fuji 400") }) else {
+            items.contains(where: { $0.name.contains("kodak portra 400") && $0.name.contains("kodak endura") }),
+            items.contains(where: { $0.name.contains("Fuji 400") })
+        else {
             throw Failure.failed("CSV LUT catalog labels do not match indexed cubes")
         }
-        let source = PixelBufferF32(width: 2, height: 1, pixels: [
-            0.18, 0.18, 0.18, 1.0, 0.41, 0.12, 0.23, 1.0
-        ])
+        let source = PixelBufferF32(
+            width: 2, height: 1,
+            pixels: [
+                0.18, 0.18, 0.18, 1.0, 0.41, 0.12, 0.23, 1.0,
+            ])
         // Fresh instance: the prepended Looks smoke shares `.shared` and its
         // cumulative upload counters would break the absolute count assertions.
         let offline = StudioImportedLUTOffline()
@@ -49,12 +52,13 @@ enum StudioLUTSmokeSuite {
         let second = try await offline.render(source, file: srgb)
         let counts2 = await offline.gpuCacheCounts()
         guard counts1.uploads == 1, counts2.uploads == 1, counts2.hits >= 1,
-              first.pixels.count == source.pixels.count,
-              first.pixels == second.pixels,
-              // Corrected shader converts linear Rec.2020 input to encoded
-              // sRGB before the LUT, so identity mid-gray ≈0.46 (not 0.18).
-              first.pixels[0].isFinite, first.pixels[0] > 0.40, first.pixels[0] < 0.52,
-              first.pixels[3] == 1 else {
+            first.pixels.count == source.pixels.count,
+            first.pixels == second.pixels,
+            // Corrected shader converts linear Rec.2020 input to encoded
+            // sRGB before the LUT, so identity mid-gray ≈0.46 (not 0.18).
+            first.pixels[0].isFinite, first.pixels[0] > 0.40, first.pixels[0] < 0.52,
+            first.pixels[3] == 1
+        else {
             throw Failure.failed("sRGB LUT Metal output/reuse/alpha validation failed")
         }
         // Test the whole path: GPU LUT -> private float32 texture -> the SAME
@@ -64,8 +68,9 @@ enum StudioLUTSmokeSuite {
         let linearResult = try await offline.render(source, file: linear)
         let counts3 = await offline.gpuCacheCounts()
         guard counts3.uploads == 2,
-              linearResult.pixels[0].isFinite,
-              abs(linearResult.pixels[0] - first.pixels[0]) < 0.07 else {
+            linearResult.pixels[0].isFinite,
+            abs(linearResult.pixels[0] - first.pixels[0]) < 0.07
+        else {
             throw Failure.failed("scene-linear Rec.2020 shaper GPU output invalid")
         }
         try "LUT_3D_SIZE 17\n0 0 0\n".write(
@@ -81,8 +86,11 @@ enum StudioLUTSmokeSuite {
         let key = StudioSpectralLUT.setting
         let oldPreference = UserDefaults.standard.object(forKey: key)
         defer {
-            if let oldPreference { UserDefaults.standard.set(oldPreference, forKey: key) }
-            else { UserDefaults.standard.removeObject(forKey: key) }
+            if let oldPreference {
+                UserDefaults.standard.set(oldPreference, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
         }
         UserDefaults.standard.set("33", forKey: key)
         var look = RenderLook.defaults()
@@ -113,10 +121,13 @@ enum StudioLUTSmokeSuite {
         }
         let output2 = try await pipeline.settledCachedFilmLUT(source, look: hostOnly)
         guard let output1, let output2, output1.pixels == output2.pixels,
-              output1.pixels.allSatisfy(\.isFinite) else {
+            output1.pixels.allSatisfy(\.isFinite)
+        else {
             throw Failure.failed("Settled generated LUT not reused across host edit")
         }
-        print("LUT_SMOKE_PASS: CSV catalog, imported sRGB/Rec.2020 Metal, GPU reuse, bad-file rejection, generated LUT no-rebake across RAW/exposure")
+        print(
+            "LUT_SMOKE_PASS: CSV catalog, imported sRGB/Rec.2020 Metal, GPU reuse, bad-file rejection, generated LUT no-rebake across RAW/exposure"
+        )
     }
 
     // A full-picture GPU test: shader computation alone is not sufficient.
@@ -137,28 +148,36 @@ enum StudioLUTSmokeSuite {
                 let light: Float = (x < width / 2 ? 0.12 : 0.63) + 0.2 * v
                 pixels.append(min(1, light + 0.13 * t))
                 pixels.append(min(1, light * 0.8 + 0.1 * v))
-                pixels.append(min(1, light * 0.65 + 0.14 * (1-t)))
+                pixels.append(min(1, light * 0.65 + 0.14 * (1 - t)))
                 pixels.append(1)
             }
         }
         let bytes = pixels.count * MemoryLayout<Float>.stride
         let texture = try gpu.makeOutputTexture(width: width, height: height)
-        guard let input = pixels.withUnsafeBytes({ ptr in
-            gpu.device.makeBuffer(bytes: ptr.baseAddress!, length: bytes,
-                                  options: .storageModeShared)
-        }), let processed = gpu.device.makeBuffer(length: bytes, options: .storageModePrivate),
-              let command = gpu.queue.makeCommandBuffer() else {
+        guard
+            let input = pixels.withUnsafeBytes({ ptr in
+                gpu.device.makeBuffer(
+                    bytes: ptr.baseAddress!, length: bytes,
+                    options: .storageModeShared)
+            }), let processed = gpu.device.makeBuffer(length: bytes, options: .storageModePrivate),
+            let command = gpu.queue.makeCommandBuffer()
+        else {
             throw Failure.failed("GPU smoke frame allocation failed")
         }
-        let outputSpace = try lut.encode(source: input, destination: processed,
+        let outputSpace = try lut.encode(
+            source: input, destination: processed,
             width: width, height: height, on: command, file: file)
         try gpu.encodeBufferToTexture(processed, destination: texture, on: command)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             command.addCompletedHandler { finished in
                 withExtendedLifetime((input, processed, texture)) {
-                    if finished.status == .completed { continuation.resume() }
-                    else { continuation.resume(throwing: Failure.failed(
-                        finished.error?.localizedDescription ?? "GPU LUT-to-texture command failed")) }
+                    if finished.status == .completed {
+                        continuation.resume()
+                    } else {
+                        continuation.resume(
+                            throwing: Failure.failed(
+                                finished.error?.localizedDescription ?? "GPU LUT-to-texture command failed"))
+                    }
                 }
             }
             command.commit()
@@ -169,45 +188,55 @@ enum StudioLUTSmokeSuite {
         // only four bytes per pixel and the getBytes() call wrote out-of-bounds.
         // A shared readback MTLBuffer is valid on discrete Intel/Radeon Macs.
         let readbackBytesPerRow = width * MemoryLayout<SIMD4<Float>>.stride
-        guard let readbackBuffer = device.makeBuffer(
-                 length: readbackBytesPerRow * height, options: .storageModeShared),
-              let readbackCmd = gpu.queue.makeCommandBuffer(),
-              let blit = readbackCmd.makeBlitCommandEncoder() else {
+        guard
+            let readbackBuffer = device.makeBuffer(
+                length: readbackBytesPerRow * height, options: .storageModeShared),
+            let readbackCmd = gpu.queue.makeCommandBuffer(),
+            let blit = readbackCmd.makeBlitCommandEncoder()
+        else {
             throw Failure.failed("GPU readback texture unavailable")
         }
-        blit.copy(from: texture, sourceSlice: 0, sourceLevel: 0,
-                  sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
-                  sourceSize: MTLSize(width: width, height: height, depth: 1),
-                  to: readbackBuffer, destinationOffset: 0,
-                  destinationBytesPerRow: readbackBytesPerRow,
-                  destinationBytesPerImage: readbackBytesPerRow * height)
+        blit.copy(
+            from: texture, sourceSlice: 0, sourceLevel: 0,
+            sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+            sourceSize: MTLSize(width: width, height: height, depth: 1),
+            to: readbackBuffer, destinationOffset: 0,
+            destinationBytesPerRow: readbackBytesPerRow,
+            destinationBytesPerImage: readbackBytesPerRow * height)
         blit.endEncoding()
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             readbackCmd.addCompletedHandler { finished in
-                if finished.status == .completed { continuation.resume() }
-                else { continuation.resume(throwing: Failure.failed(
-                    finished.error?.localizedDescription ?? "GPU readback failed")) }
+                if finished.status == .completed {
+                    continuation.resume()
+                } else {
+                    continuation.resume(
+                        throwing: Failure.failed(
+                            finished.error?.localizedDescription ?? "GPU readback failed"))
+                }
             }
             readbackCmd.commit()
         }
         let metalPixels = readbackBuffer.contents().assumingMemoryBound(to: Float.self)
         func rgbaFloat(_ x: Int, _ y: Int) -> [Float] {
             let o = (y * width + x) * 4
-            return [metalPixels[o+0], metalPixels[o+1], metalPixels[o+2], metalPixels[o+3]]
+            return [metalPixels[o + 0], metalPixels[o + 1], metalPixels[o + 2], metalPixels[o + 3]]
         }
         let a = rgbaFloat(8, 32), b = rgbaFloat(87, 32)
         let maxDiff = zip(a, b).map { abs($0 - $1) }.max() ?? 0
         // Allow for signed-log dark values - check that pixels are finite and vary
         guard maxDiff > 0.01,
-              a.allSatisfy({ $0.isFinite }),
-              b.allSatisfy({ $0.isFinite }),
-              a.contains(where: { $0 > 0 }) else {
-            throw Failure.failed("LUT_GPU_FRAME_BLANK: GPU LUT produced uniform/zero pixels (left=\(a), right=\(b), maxDiff=\(maxDiff))")
+            a.allSatisfy({ $0.isFinite }),
+            b.allSatisfy({ $0.isFinite }),
+            a.contains(where: { $0 > 0 })
+        else {
+            throw Failure.failed(
+                "LUT_GPU_FRAME_BLANK: GPU LUT produced uniform/zero pixels (left=\(a), right=\(b), maxDiff=\(maxDiff))")
         }
         // Cover the exact Core Image import + letterbox + display sRGB path.
         let converted = try MetalPreviewComposition.content(
             texture: texture, colorSpace: outputSpace.cgColorSpace)
-        let composed = MetalPreviewComposition.letterbox(converted,
+        let composed = MetalPreviewComposition.letterbox(
+            converted,
             width: width, height: height)
         // CIContext.render(to:commandBuffer:) into a Metal texture silently
         // writes zeros on Intel macOS (standalone repro: completed status,
@@ -217,20 +246,23 @@ enum StudioLUTSmokeSuite {
         let displayBytesPerRow = width * 4
         var displayStorage = [UInt8](repeating: 0, count: displayBytesPerRow * height)
         displayStorage.withUnsafeMutableBytes { raw in
-            ci.render(composed, toBitmap: raw.baseAddress!, rowBytes: displayBytesPerRow,
-                      bounds: CGRect(x: 0, y: 0, width: width, height: height),
-                      format: .BGRA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
+            ci.render(
+                composed, toBitmap: raw.baseAddress!, rowBytes: displayBytesPerRow,
+                bounds: CGRect(x: 0, y: 0, width: width, height: height),
+                format: .BGRA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
         }
         // BGRA8 with two different RGB vectors: not just a single luminance sample.
         let displayBytes = displayStorage
         func bgra(_ x: Int, _ y: Int) -> [Int] {
             let o = (y * width + x) * 4
-            return (0..<4).map { Int(displayBytes[o+$0]) }
+            return (0..<4).map { Int(displayBytes[o + $0]) }
         }
         let left = bgra(8, 32), right = bgra(87, 32)
-        guard zip(left.prefix(3), right.prefix(3)).contains(where: { abs($0.0-$0.1) > 24 }),
-              left[3] == 255, right[3] == 255 else {
-            throw Failure.failed("LUT_GPU_DISPLAY_BLANK: BGRA8/sRGB presentation lost image detail (left=\(left), right=\(right))")
+        guard zip(left.prefix(3), right.prefix(3)).contains(where: { abs($0.0 - $0.1) > 24 }),
+            left[3] == 255, right[3] == 255
+        else {
+            throw Failure.failed(
+                "LUT_GPU_DISPLAY_BLANK: BGRA8/sRGB presentation lost image detail (left=\(left), right=\(right))")
         }
         print("LUT_GPU_DISPLAY_PASS: real Core Image presentation has chroma and contrast")
         print("LUT_GPU_FRAME_PASS: Metal LUT output has detail (maxDiff=\(maxDiff))")
@@ -238,38 +270,43 @@ enum StudioLUTSmokeSuite {
 
     private static func makeCube(path: URL, size n: Int, sceneLinear: Bool) throws {
         var text = "TITLE \"Smoke test\"\nLUT_3D_SIZE \(n)\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n"
-        for b in 0..<n { for g in 0..<n { for r in 0..<n {
-            let u = Float(r)/Float(n-1), v = Float(g)/Float(n-1), w = Float(b)/Float(n-1)
-            if sceneLinear {
-                let x = SIMD3<Float>(signedLogInverse(u),signedLogInverse(v),signedLogInverse(w))
-                let c = toEncodedSRGB(x)
-                text += "\(c.x) \(c.y) \(c.z)\n"
-            } else {
-                text += "\(u) \(v) \(w)\n"
+        for b in 0..<n {
+            for g in 0..<n {
+                for r in 0..<n {
+                    let u = Float(r) / Float(n - 1), v = Float(g) / Float(n - 1), w = Float(b) / Float(n - 1)
+                    if sceneLinear {
+                        let x = SIMD3<Float>(signedLogInverse(u), signedLogInverse(v), signedLogInverse(w))
+                        let c = toEncodedSRGB(x)
+                        text += "\(c.x) \(c.y) \(c.z)\n"
+                    } else {
+                        text += "\(u) \(v) \(w)\n"
+                    }
+                }
             }
-        } } }
+        }
         try text.write(to: path, atomically: true, encoding: .utf8)
         if sceneLinear {
             let meta = """
-            {"version":1,"input":"linear-rec2020","output":"srgb","shaper":"signed-log2-v1","role":"full-film-print"}
-            """
-            try meta.write(to: URL(fileURLWithPath: path.path + ".lut.json"),
-                           atomically: true, encoding: .utf8)
+                {"version":1,"input":"linear-rec2020","output":"srgb","shaper":"signed-log2-v1","role":"full-film-print"}
+                """
+            try meta.write(
+                to: URL(fileURLWithPath: path.path + ".lut.json"),
+                atomically: true, encoding: .utf8)
         }
     }
     private static func signedLogInverse(_ u: Float) -> Float {
-        if u < 0.2 { return -(pow(2, ((0.2-u)/0.2) * log2(17)) - 1) / 8 }
-        return (pow(2, ((u-0.2)/0.8) * log2(513)) - 1) / 8
+        if u < 0.2 { return -(pow(2, ((0.2 - u) / 0.2) * log2(17)) - 1) / 8 }
+        return (pow(2, ((u - 0.2) / 0.8) * log2(513)) - 1) / 8
     }
     private static func toEncodedSRGB(_ x: SIMD3<Float>) -> SIMD3<Float> {
         let v = SIMD3<Float>(
-            1.660227*x.x - 0.587547*x.y - 0.072839*x.z,
-            -0.124554*x.x + 1.132926*x.y - 0.008349*x.z,
-            -0.018155*x.x - 0.100603*x.y + 1.118998*x.z
+            1.660227 * x.x - 0.587547 * x.y - 0.072839 * x.z,
+            -0.124554 * x.x + 1.132926 * x.y - 0.008349 * x.z,
+            -0.018155 * x.x - 0.100603 * x.y + 1.118998 * x.z
         )
         func encode(_ c: Float) -> Float {
-            let y = max(0,c)
-            return y <= 0.0031308 ? 12.92*y : 1.055*pow(y,1/2.4)-0.055
+            let y = max(0, c)
+            return y <= 0.0031308 ? 12.92 * y : 1.055 * pow(y, 1 / 2.4) - 0.055
         }
         return SIMD3<Float>(encode(v.x), encode(v.y), encode(v.z))
     }

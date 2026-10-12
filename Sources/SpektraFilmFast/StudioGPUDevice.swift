@@ -1,13 +1,14 @@
-import Metal
 import CoreML
+import Metal
 
 /// Keep image stages on the same capable GPU, including dual-GPU Intel Macs.
 enum StudioGPUDevice {
     static let shared: MTLDevice? = {
         #if os(macOS)
-        return MTLCopyAllDevices().first(where: { !$0.isLowPower && !$0.isRemovable }) ?? MTLCreateSystemDefaultDevice()
+            return MTLCopyAllDevices().first(where: { !$0.isLowPower && !$0.isRemovable })
+                ?? MTLCreateSystemDefaultDevice()
         #else
-        return MTLCreateSystemDefaultDevice()
+            return MTLCreateSystemDefaultDevice()
         #endif
     }()
     static func modelConfiguration(forSAM2: Bool = false) -> MLModelConfiguration {
@@ -17,9 +18,12 @@ enum StudioGPUDevice {
         // The same exact model passes on the paired Intel UHD 630 GPU.
         // This is GPU device selection, never a CPU-only inference retry.
         if forSAM2, shared?.name.contains("555X") == true,
-           let integrated = MTLCopyAllDevices().first(where: { $0.isLowPower }) {
+            let integrated = MTLCopyAllDevices().first(where: { $0.isLowPower })
+        {
             configuration.preferredMetalDevice = integrated
-        } else { configuration.preferredMetalDevice = shared }
+        } else {
+            configuration.preferredMetalDevice = shared
+        }
         configuration.allowLowPrecisionAccumulationOnGPU = false
         return configuration
     }

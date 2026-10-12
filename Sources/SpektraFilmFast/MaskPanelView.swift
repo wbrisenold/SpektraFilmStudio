@@ -1,7 +1,6 @@
-import SwiftUI
 import AppKit
 import CoreGraphics
-
+import SwiftUI
 
 struct MaskPanelView: View {
     @ObservedObject var model: AppModel
@@ -39,18 +38,23 @@ struct MaskPanelView: View {
                                     Button("Everyone") { model.createAIMask(AIMaskRecipe(kind: .people, part: part)) }
                                     ForEach(Array(detectedPeople.enumerated()), id: \.offset) { index, person in
                                         Button("Person \(index + 1)") {
-                                            let facePart = [.faceSkin, .eyebrows, .eyeSclera, .iris, .lips, .teeth].contains(part)
+                                            let facePart = [.faceSkin, .eyebrows, .eyeSclera, .iris, .lips, .teeth]
+                                                .contains(part)
                                             var recipe = AIMaskRecipe(kind: .people, part: part)
                                             recipe.instance = facePart ? person.faceInstance : person.instance
                                             model.createAIMask(recipe)
-                                        }.disabled([PersonPart.faceSkin, .eyebrows, .eyeSclera, .iris, .lips, .teeth].contains(part) && person.faceInstance == nil)
+                                        }.disabled(
+                                            [PersonPart.faceSkin, .eyebrows, .eyeSclera, .iris, .lips, .teeth].contains(
+                                                part) && person.faceInstance == nil)
                                     }
                                 }
                             }
                         }
                         Menu("Landscape") {
                             ForEach(LandscapeClass.allCases, id: \.self) { landscape in
-                                Button(landscape.name) { model.createAIMask(AIMaskRecipe(kind: .landscape, landscape: landscape)) }
+                                Button(landscape.name) {
+                                    model.createAIMask(AIMaskRecipe(kind: .landscape, landscape: landscape))
+                                }
                             }
                         }
                         Button("Depth Range") { model.createAIMask(AIMaskRecipe(kind: .depthRange)) }
@@ -96,11 +100,17 @@ struct MaskPanelView: View {
                 Spacer()
             }
             HStack(spacing: 10) {
-                Button { model.beginMaskBrush() } label: { Label("Brush", systemImage: "paintbrush.pointed") }
-                    .controlSize(.small).fixedSize()
+                Button {
+                    model.beginMaskBrush()
+                } label: {
+                    Label("Brush", systemImage: "paintbrush.pointed")
+                }
+                .controlSize(.small).fixedSize()
                 Button {
                     model.updateAIMasks()
-                } label: { Label("Update AI Masks", systemImage: "sparkles") }
+                } label: {
+                    Label("Update AI Masks", systemImage: "sparkles")
+                }
                 .controlSize(.small).fixedSize()
                 Spacer(minLength: 1)
                 Menu {
@@ -109,13 +119,18 @@ struct MaskPanelView: View {
                             overlayStyle = style.rawValue
                             overlayEnabled = true
                         } label: {
-                            if overlayStyle == style.rawValue { Label(style.rawValue, systemImage: "checkmark") }
-                            else { Text(style.rawValue) }
+                            if overlayStyle == style.rawValue {
+                                Label(style.rawValue, systemImage: "checkmark")
+                            } else {
+                                Text(style.rawValue)
+                            }
                         }
                     }
-                } label: { Image(systemName: "circle.lefthalf.filled") }
-                    .controlSize(.small)
-                    .help("Mask overlay appearance — adapted from Redlamp")
+                } label: {
+                    Image(systemName: "circle.lefthalf.filled")
+                }
+                .controlSize(.small)
+                .help("Mask overlay appearance — adapted from Redlamp")
             }
 
             Text(model.semanticMaskStatus)
@@ -126,8 +141,10 @@ struct MaskPanelView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Make your first mask")
                         .font(.subheadline.weight(.semibold))
-                    Text("Choose Subject, Skin, Object, or a gradient. Adjust this selection below without leaving Masks.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Text(
+                        "Choose Subject, Skin, Object, or a gradient. Adjust this selection below without leaving Masks."
+                    )
+                    .font(.caption).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
@@ -140,9 +157,11 @@ struct MaskPanelView: View {
                             overlayEnabled = true
                         } label: {
                             HStack(spacing: 7) {
-                                Image(systemName: model.activeLocalGradeID == grade.id
-                                      ? "circle.dotted.circle.fill" : "circle.dotted")
-                                    .foregroundStyle(model.activeLocalGradeID == grade.id ? .red : .secondary)
+                                Image(
+                                    systemName: model.activeLocalGradeID == grade.id
+                                        ? "circle.dotted.circle.fill" : "circle.dotted"
+                                )
+                                .foregroundStyle(model.activeLocalGradeID == grade.id ? .red : .secondary)
                                 Text(grade.name).font(.subheadline).lineLimit(1)
                                 Spacer()
                                 Text("\(grade.masks.sources.filter(\.enabled).count)")
@@ -150,14 +169,17 @@ struct MaskPanelView: View {
                             }
                         }
                         .buttonStyle(.plain)
-                        Button(role: .destructive) { model.removeLocalGrade(grade.id) } label: {
+                        Button(role: .destructive) {
+                            model.removeLocalGrade(grade.id)
+                        } label: {
                             Image(systemName: "trash").font(.caption)
                         }
                         .buttonStyle(.borderless)
                     }
                     .padding(8)
-                    .background(model.activeLocalGradeID == grade.id ? StudioPalette.selected : StudioPalette.recessed,
-                                in: RoundedRectangle(cornerRadius: 7))
+                    .background(
+                        model.activeLocalGradeID == grade.id ? StudioPalette.selected : StudioPalette.recessed,
+                        in: RoundedRectangle(cornerRadius: 7))
                 }
             }
 
@@ -185,17 +207,23 @@ struct MaskPanelView: View {
                 }
                 ForEach(grade.masks.sources) { source in
                     HStack(spacing: 5) {
-                        Toggle("", isOn: Binding(
-                            get: { source.enabled },
-                            set: { model.setMaskEnabled(gradeID: grade.id, maskID: source.id, $0) }
-                        )).labelsHidden().toggleStyle(.checkbox)
+                        Toggle(
+                            "",
+                            isOn: Binding(
+                                get: { source.enabled },
+                                set: { model.setMaskEnabled(gradeID: grade.id, maskID: source.id, $0) }
+                            )
+                        ).labelsHidden().toggleStyle(.checkbox)
                         Text(source.name).font(.caption).lineLimit(1)
                         Spacer()
                         Text(source.blendMode.rawValue).font(.caption2).foregroundStyle(.secondary)
                         if source.kind == .linearGradient {
-                            Button { model.selectedGradientMaskID = source.id; model.isGradientMaskEditing = true }
-                                label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
-                                .buttonStyle(.borderless)
+                            Button {
+                                model.selectedGradientMaskID = source.id; model.isGradientMaskEditing = true
+                            } label: {
+                                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            }
+                            .buttonStyle(.borderless)
                         }
                         if let recipe = source.aiRecipe, recipe.kind != .depthRange {
                             Button("Refine Edges") { model.refineAIMask(gradeID: grade.id, sourceID: source.id) }
@@ -203,28 +231,49 @@ struct MaskPanelView: View {
                         }
                         Button(role: .destructive) {
                             model.removeMaskSource(gradeID: grade.id, maskID: source.id)
-                        } label: { Image(systemName: "xmark") }
-                            .buttonStyle(.borderless)
+                        } label: {
+                            Image(systemName: "xmark")
+                        }
+                        .buttonStyle(.borderless)
                     }
                     if let recipe = source.aiRecipe {
                         if recipe.kind == .depthRange {
                             LabeledContent("Far limit") {
-                                Slider(value: Binding(get: { recipe.depthLower }, set: { model.setDepthMaskRange(gradeID: grade.id, sourceID: source.id, lower: $0) }), in: 0...1)
+                                Slider(
+                                    value: Binding(
+                                        get: { recipe.depthLower },
+                                        set: {
+                                            model.setDepthMaskRange(gradeID: grade.id, sourceID: source.id, lower: $0)
+                                        }), in: 0...1)
                             }
                             LabeledContent("Near limit") {
-                                Slider(value: Binding(get: { recipe.depthUpper }, set: { model.setDepthMaskRange(gradeID: grade.id, sourceID: source.id, upper: $0) }), in: 0...1)
+                                Slider(
+                                    value: Binding(
+                                        get: { recipe.depthUpper },
+                                        set: {
+                                            model.setDepthMaskRange(gradeID: grade.id, sourceID: source.id, upper: $0)
+                                        }), in: 0...1)
                             }
                         } else {
-                        HStack {
-                            Text("Feather").font(.caption).frame(width: 50, alignment: .leading)
-                            Slider(value: Binding(get: { recipe.feather }, set: { model.setAIMaskShape(gradeID: grade.id, sourceID: source.id, feather: $0) }), in: 0...100)
-                            Text("\(Int(recipe.feather))").font(.caption.monospacedDigit()).frame(width: 30)
-                        }
-                        HStack {
-                            Text("Edge").font(.caption).frame(width: 50, alignment: .leading)
-                            Slider(value: Binding(get: { recipe.edge }, set: { model.setAIMaskShape(gradeID: grade.id, sourceID: source.id, edge: $0) }), in: -100...100)
-                            Text("\(Int(recipe.edge))").font(.caption.monospacedDigit()).frame(width: 30)
-                        }
+                            HStack {
+                                Text("Feather").font(.caption).frame(width: 50, alignment: .leading)
+                                Slider(
+                                    value: Binding(
+                                        get: { recipe.feather },
+                                        set: {
+                                            model.setAIMaskShape(gradeID: grade.id, sourceID: source.id, feather: $0)
+                                        }), in: 0...100)
+                                Text("\(Int(recipe.feather))").font(.caption.monospacedDigit()).frame(width: 30)
+                            }
+                            HStack {
+                                Text("Edge").font(.caption).frame(width: 50, alignment: .leading)
+                                Slider(
+                                    value: Binding(
+                                        get: { recipe.edge },
+                                        set: { model.setAIMaskShape(gradeID: grade.id, sourceID: source.id, edge: $0) }),
+                                    in: -100...100)
+                                Text("\(Int(recipe.edge))").font(.caption.monospacedDigit()).frame(width: 30)
+                            }
                         }
                     }
                 }
@@ -232,36 +281,52 @@ struct MaskPanelView: View {
                 Divider()
                 Text("LOCAL ADJUSTMENTS").font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
-                Text("Changes below affect only the selected red area. Switching to RAW edits the complete photo automatically.")
-                    .font(.caption2).foregroundStyle(.secondary)
+                Text(
+                    "Changes below affect only the selected red area. Switching to RAW edits the complete photo automatically."
+                )
+                .font(.caption2).foregroundStyle(.secondary)
                 let tone = grade.tone ?? ToneSettings()
-                localSlider("Exposure", value: tone.exposureEV, range: -5...5,
-                            key: "exposure", gradeID: grade.id)
-                localSlider("Contrast", value: tone.contrast, range: -100...100,
-                            key: "contrast", gradeID: grade.id)
-                localSlider("Highlights", value: tone.highlights, range: -100...100,
-                            key: "highlights", gradeID: grade.id)
-                localSlider("Shadows", value: tone.shadows, range: -100...100,
-                            key: "shadows", gradeID: grade.id)
-                localSlider("Whites", value: tone.whites, range: -100...100,
-                            key: "whites", gradeID: grade.id)
-                localSlider("Blacks", value: tone.blacks, range: -100...100,
-                            key: "blacks", gradeID: grade.id)
+                localSlider(
+                    "Exposure", value: tone.exposureEV, range: -5...5,
+                    key: "exposure", gradeID: grade.id)
+                localSlider(
+                    "Contrast", value: tone.contrast, range: -100...100,
+                    key: "contrast", gradeID: grade.id)
+                localSlider(
+                    "Highlights", value: tone.highlights, range: -100...100,
+                    key: "highlights", gradeID: grade.id)
+                localSlider(
+                    "Shadows", value: tone.shadows, range: -100...100,
+                    key: "shadows", gradeID: grade.id)
+                localSlider(
+                    "Whites", value: tone.whites, range: -100...100,
+                    key: "whites", gradeID: grade.id)
+                localSlider(
+                    "Blacks", value: tone.blacks, range: -100...100,
+                    key: "blacks", gradeID: grade.id)
                 let colour = grade.localColor ?? LocalMaskColorSettings()
                 ForEach(["Saturation", "Temperature", "Texture", "Clarity"], id: \.self) { key in
-                    let value = key == "Saturation" ? colour.saturation : (key == "Temperature" ? colour.temperature : (key == "Texture" ? colour.texture : colour.clarity))
+                    let value =
+                        key == "Saturation"
+                        ? colour.saturation
+                        : (key == "Temperature"
+                            ? colour.temperature : (key == "Texture" ? colour.texture : colour.clarity))
                     HStack {
                         Text(key).font(.caption).frame(width: 80, alignment: .leading)
-                        Slider(value: Binding(get: { value }, set: { model.setLocalMaskColor(grade.id, key: key, value: $0) }), in: -100...100)
+                        Slider(
+                            value: Binding(
+                                get: { value }, set: { model.setLocalMaskColor(grade.id, key: key, value: $0) }),
+                            in: -100...100)
                         Text("\(Int(value))").font(.caption.monospacedDigit()).frame(width: 30)
                     }
                 }
                 HStack {
                     Text("Mask Amount").font(.caption)
-                    Slider(value: Binding(
-                        get: { model.activeLocalGrade?.opacity ?? 1 },
-                        set: { model.setLocalGradeOpacity(grade.id, $0) }
-                    ), in: 0...1)
+                    Slider(
+                        value: Binding(
+                            get: { model.activeLocalGrade?.opacity ?? 1 },
+                            set: { model.setLocalGradeOpacity(grade.id, $0) }
+                        ), in: 0...1)
                     Text("\(Int(grade.opacity * 100))%").font(.caption.monospacedDigit()).frame(width: 40)
                 }
             }
@@ -322,14 +387,17 @@ struct MaskPanelView: View {
         model.addMaskSource(gradeID: id, kind: kind)
     }
 
-    private func localSlider(_ label: String, value: Double, range: ClosedRange<Double>,
-                             key: String, gradeID: UUID) -> some View {
-        DraftScalarSlider(label: label, committedValue: value, range: range,
-                          precision: key == "exposure" ? 2 : 0, resetValue: 0,
-                          onReset: { model.setLocalTone(gradeID, key, 0, interactive: false) },
-                          onBegin: { model.beginEditGesture() },
-                          onChange: { model.setLocalTone(gradeID, key, $0, interactive: true) },
-                          onEnd: { model.endEditGesture() })
+    private func localSlider(
+        _ label: String, value: Double, range: ClosedRange<Double>,
+        key: String, gradeID: UUID
+    ) -> some View {
+        DraftScalarSlider(
+            label: label, committedValue: value, range: range,
+            precision: key == "exposure" ? 2 : 0, resetValue: 0,
+            onReset: { model.setLocalTone(gradeID, key, 0, interactive: false) },
+            onBegin: { model.beginEditGesture() },
+            onChange: { model.setLocalTone(gradeID, key, $0, interactive: true) },
+            onEnd: { model.endEditGesture() })
     }
 }
 // Draw only interaction handles here. RedlampMaskDisplay composites the actual coverage
@@ -338,10 +406,11 @@ struct MaskOverlayView: View {
     @ObservedObject var model: AppModel
     var body: some View {
         if model.isGradientMaskEditing,
-           let grade = model.activeLocalGrade,
-           let sourceID = model.selectedGradientMaskID,
-           let source = grade.masks.sources.first(where: { $0.id == sourceID && $0.kind == .linearGradient }),
-           let gradient = source.linearGradient {
+            let grade = model.activeLocalGrade,
+            let sourceID = model.selectedGradientMaskID,
+            let source = grade.masks.sources.first(where: { $0.id == sourceID && $0.kind == .linearGradient }),
+            let gradient = source.linearGradient
+        {
             GeometryReader { proxy in
                 let image = model.frameState.renderedPreview
                 let imageW = CGFloat(max(1, image?.width ?? 1))
@@ -351,32 +420,40 @@ struct MaskOverlayView: View {
                 let ox = (proxy.size.width - w) / 2, oy = (proxy.size.height - h) / 2
                 let start = CGPoint(x: ox + w * CGFloat(gradient.start.x), y: oy + h * CGFloat(gradient.start.y))
                 let end = CGPoint(x: ox + w * CGFloat(gradient.end.x), y: oy + h * CGFloat(gradient.end.y))
-                Path { path in path.move(to: start); path.addLine(to: end) }
-                    .stroke(.white.opacity(0.9), style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
-                    .allowsHitTesting(false)
-                pin(point: start, start: true, grade: grade, source: source, geometry: gradient,
+                Path { path in
+                    path.move(to: start); path.addLine(to: end)
+                }
+                .stroke(.white.opacity(0.9), style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+                .allowsHitTesting(false)
+                pin(
+                    point: start, start: true, grade: grade, source: source, geometry: gradient,
                     rect: CGRect(x: ox, y: oy, width: w, height: h))
-                pin(point: end, start: false, grade: grade, source: source, geometry: gradient,
+                pin(
+                    point: end, start: false, grade: grade, source: source, geometry: gradient,
                     rect: CGRect(x: ox, y: oy, width: w, height: h))
             }
         }
     }
-    private func pin(point: CGPoint, start: Bool, grade: LocalGradeRecord,
-                     source: MaskSourceRecord, geometry: LinearGradientMaskGeometry, rect: CGRect) -> some View {
+    private func pin(
+        point: CGPoint, start: Bool, grade: LocalGradeRecord,
+        source: MaskSourceRecord, geometry: LinearGradientMaskGeometry, rect: CGRect
+    ) -> some View {
         Circle()
             .fill(start ? Color.red : Color.white)
             .overlay(Circle().stroke(.black, lineWidth: 1.5))
             .frame(width: 16, height: 16)
             .position(point)
-            .gesture(DragGesture(minimumDistance: 0).onEnded { v in
-                guard rect.width > 0, rect.height > 0 else { return }
-                let u = max(0, min(1, Double((point.x + v.translation.width - rect.minX) / rect.width)))
-                let q = max(0, min(1, Double((point.y + v.translation.height - rect.minY) / rect.height)))
-                let p = NormalizedPoint(x: u, y: q)
-                model.setGradientEndpoints(gradeID: grade.id, maskID: source.id,
-                                           start: start ? p : geometry.start,
-                                           end: start ? geometry.end : p)
-            })
+            .gesture(
+                DragGesture(minimumDistance: 0).onEnded { v in
+                    guard rect.width > 0, rect.height > 0 else { return }
+                    let u = max(0, min(1, Double((point.x + v.translation.width - rect.minX) / rect.width)))
+                    let q = max(0, min(1, Double((point.y + v.translation.height - rect.minY) / rect.height)))
+                    let p = NormalizedPoint(x: u, y: q)
+                    model.setGradientEndpoints(
+                        gradeID: grade.id, maskID: source.id,
+                        start: start ? p : geometry.start,
+                        end: start ? geometry.end : p)
+                })
     }
 }
 
@@ -411,47 +488,66 @@ struct ObjectMaskPickOverlay: View {
                         case .ended: cursor = nil; model.previewObjectMask(at: nil)
                         }
                     }
-                    .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
-                        guard imageRect.contains(drag.startLocation), imageRect.width > 0, imageRect.height > 0 else { return }
-                        if stroke.isEmpty {
-                            subtract = NSEvent.modifierFlags.contains(.option)
-                            stroke = [normalized(drag.startLocation, in: imageRect)]
-                        }
-                        let point = normalized(drag.location, in: imageRect)
-                        if model.objectSelectionTool == "Box" {
-                            stroke = [stroke[0], point]
-                        } else if stroke.count < 256, let previous = stroke.last,
-                                  hypot(point.x - previous.x, point.y - previous.y) > 0.006 {
-                            stroke.append(point)
-                        }
-                    }.onEnded { _ in
-                        guard !stroke.isEmpty else { return }
-                        model.completeObjectMaskGesture(points: stroke, box: model.objectSelectionTool == "Box", subtract: subtract)
-                        stroke = []
-                    })
-                if model.objectSelectionTool == "Box", let first = stroke.first, let last = stroke.last, stroke.count > 1 {
+                    .gesture(
+                        DragGesture(minimumDistance: 0).onChanged { drag in
+                            guard imageRect.contains(drag.startLocation), imageRect.width > 0, imageRect.height > 0
+                            else { return }
+                            if stroke.isEmpty {
+                                subtract = NSEvent.modifierFlags.contains(.option)
+                                stroke = [normalized(drag.startLocation, in: imageRect)]
+                            }
+                            let point = normalized(drag.location, in: imageRect)
+                            if model.objectSelectionTool == "Box" {
+                                stroke = [stroke[0], point]
+                            } else if stroke.count < 256, let previous = stroke.last,
+                                hypot(point.x - previous.x, point.y - previous.y) > 0.006
+                            {
+                                stroke.append(point)
+                            }
+                        }.onEnded { _ in
+                            guard !stroke.isEmpty else { return }
+                            model.completeObjectMaskGesture(
+                                points: stroke, box: model.objectSelectionTool == "Box", subtract: subtract)
+                            stroke = []
+                        })
+                if model.objectSelectionTool == "Box", let first = stroke.first, let last = stroke.last,
+                    stroke.count > 1
+                {
                     Rectangle().stroke(.white, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                        .frame(width: abs(last.x - first.x) * imageRect.width, height: abs(last.y - first.y) * imageRect.height)
-                        .position(x: imageRect.minX + (first.x + last.x) / 2 * imageRect.width,
-                                  y: imageRect.minY + (first.y + last.y) / 2 * imageRect.height)
+                        .frame(
+                            width: abs(last.x - first.x) * imageRect.width,
+                            height: abs(last.y - first.y) * imageRect.height
+                        )
+                        .position(
+                            x: imageRect.minX + (first.x + last.x) / 2 * imageRect.width,
+                            y: imageRect.minY + (first.y + last.y) / 2 * imageRect.height
+                        )
                         .allowsHitTesting(false)
                 }
                 if model.objectSelectionTool == "Paint" || model.objectSelectionTool == "Brush" {
                     if let cursor {
                         Circle().stroke(.white, lineWidth: 1)
-                            .frame(width: model.maskBrushSize * max(imageRect.width, imageRect.height) * 2,
-                                   height: model.maskBrushSize * max(imageRect.width, imageRect.height) * 2)
+                            .frame(
+                                width: model.maskBrushSize * max(imageRect.width, imageRect.height) * 2,
+                                height: model.maskBrushSize * max(imageRect.width, imageRect.height) * 2
+                            )
                             .position(cursor).allowsHitTesting(false)
                     }
                     if !stroke.isEmpty {
                         Path { path in
                             for (i, point) in stroke.enumerated() {
-                                let position = CGPoint(x: imageRect.minX + point.x * imageRect.width, y: imageRect.minY + point.y * imageRect.height)
+                                let position = CGPoint(
+                                    x: imageRect.minX + point.x * imageRect.width,
+                                    y: imageRect.minY + point.y * imageRect.height)
                                 if i == 0 { path.move(to: position) } else { path.addLine(to: position) }
                             }
-                        }.stroke(subtract ? Color.blue.opacity(0.45) : Color.red.opacity(0.45),
-                                 style: StrokeStyle(lineWidth: model.maskBrushSize * max(imageRect.width, imageRect.height) * 2, lineCap: .round, lineJoin: .round))
-                         .allowsHitTesting(false)
+                        }.stroke(
+                            subtract ? Color.blue.opacity(0.45) : Color.red.opacity(0.45),
+                            style: StrokeStyle(
+                                lineWidth: model.maskBrushSize * max(imageRect.width, imageRect.height) * 2,
+                                lineCap: .round, lineJoin: .round)
+                        )
+                        .allowsHitTesting(false)
                     }
                 }
                 HStack(spacing: 10) {
@@ -479,8 +575,9 @@ struct ObjectMaskPickOverlay: View {
     }
 
     private func normalized(_ point: CGPoint, in rect: CGRect) -> CGPoint {
-        CGPoint(x: min(1, max(0, (point.x - rect.minX) / max(1, rect.width))),
-                y: min(1, max(0, (point.y - rect.minY) / max(1, rect.height))))
+        CGPoint(
+            x: min(1, max(0, (point.x - rect.minX) / max(1, rect.width))),
+            y: min(1, max(0, (point.y - rect.minY) / max(1, rect.height))))
     }
 
     private func makeHoverImage(_ payload: RasterMaskPayload) -> CGImage? {
@@ -488,18 +585,25 @@ struct ObjectMaskPickOverlay: View {
         guard size.width > 0, size.height > 0 else { return nil }
         let alpha = payload.decodedAlpha()
         var pixels = [UInt8](repeating: 0, count: size.width * size.height)
-        for y in 0..<size.height { for x in 0..<size.width {
-            let point = CGPoint(x: (Double(x) + 0.5) / Double(size.width), y: (Double(y) + 0.5) / Double(size.height))
-            guard let source = GeometryEngine.sourceNormalizedPoint(fromDisplay: point,
-                    sourceWidth: payload.width, sourceHeight: payload.height, settings: model.selectedLook.geometry) else { continue }
-            let sx = min(payload.width - 1, max(0, Int(source.x * Double(payload.width))))
-            let sy = min(payload.height - 1, max(0, Int(source.y * Double(payload.height))))
-            pixels[y * size.width + x] = alpha[sy * payload.width + sx]
-        } }
+        for y in 0..<size.height {
+            for x in 0..<size.width {
+                let point = CGPoint(
+                    x: (Double(x) + 0.5) / Double(size.width), y: (Double(y) + 0.5) / Double(size.height))
+                guard
+                    let source = GeometryEngine.sourceNormalizedPoint(
+                        fromDisplay: point,
+                        sourceWidth: payload.width, sourceHeight: payload.height, settings: model.selectedLook.geometry)
+                else { continue }
+                let sx = min(payload.width - 1, max(0, Int(source.x * Double(payload.width))))
+                let sy = min(payload.height - 1, max(0, Int(source.y * Double(payload.height))))
+                pixels[y * size.width + x] = alpha[sy * payload.width + sx]
+            }
+        }
         guard let provider = CGDataProvider(data: Data(pixels) as CFData) else { return nil }
-        return CGImage(width: size.width, height: size.height, bitsPerComponent: 8, bitsPerPixel: 8,
-                       bytesPerRow: size.width, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGBitmapInfo(rawValue: 0),
-                       provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+        return CGImage(
+            width: size.width, height: size.height, bitsPerComponent: 8, bitsPerPixel: 8,
+            bytesPerRow: size.width, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGBitmapInfo(rawValue: 0),
+            provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
     }
 
     private func fittedImageRect(in size: CGSize) -> CGRect {

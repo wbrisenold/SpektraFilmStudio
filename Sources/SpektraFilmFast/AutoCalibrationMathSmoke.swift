@@ -66,7 +66,8 @@ enum AutoCalibrationMathSmoke {
             throw RendererError.renderFailed("AUTO_CONTRAST_RAMP_FAIL: nil bounds")
         }
         guard bounds.black >= 0, bounds.white <= 1, bounds.white - bounds.black > 0.5,
-              bounds.black < 0.15, bounds.white > 0.85 else {
+            bounds.black < 0.15, bounds.white > 0.85
+        else {
             throw RendererError.renderFailed("AUTO_CONTRAST_RAMP_FAIL: \(bounds)")
         }
 
@@ -75,7 +76,8 @@ enum AutoCalibrationMathSmoke {
             throw RendererError.renderFailed("AUTO_CONTRAST_PARITY_FAIL: AutoContrastMath.bounds nil")
         }
         guard abs(bounds.black - expected.black) < 1e-9,
-              abs(bounds.white - expected.white) < 1e-9 else {
+            abs(bounds.white - expected.white) < 1e-9
+        else {
             throw RendererError.renderFailed("AUTO_CONTRAST_PARITY_FAIL: \(bounds) vs \(expected)")
         }
 
@@ -105,7 +107,8 @@ enum AutoCalibrationMathSmoke {
 
         // Idempotence on gains.
         guard let again = AutoCalibrationMath.whiteBalanceGains(width: 64, height: 64, pixels: warmPixels),
-              abs(again.r - warmGains.r) < 1e-12, abs(again.b - warmGains.b) < 1e-12 else {
+            abs(again.r - warmGains.r) < 1e-12, abs(again.b - warmGains.b) < 1e-12
+        else {
             throw RendererError.renderFailed("AUTO_WB_IDEMPOTENCE_FAIL")
         }
 
@@ -139,8 +142,9 @@ enum AutoCalibrationMathSmoke {
         if let resolvedBounds = AutoContrastMath.bounds(ramp) {
             tone = tone.applyingResolvedAutoContrast(black: resolvedBounds.black, white: resolvedBounds.white)
             guard tone.autoContrast, tone.isAutoContrastResolved,
-                  tone.resolvedAutoContrastBlack == resolvedBounds.black,
-                  tone.resolvedAutoContrastWhite == resolvedBounds.white else {
+                tone.resolvedAutoContrastBlack == resolvedBounds.black,
+                tone.resolvedAutoContrastWhite == resolvedBounds.white
+            else {
                 throw RendererError.renderFailed("AUTO_CONTRAST_RESOLVE_APPLY_FAIL: \(tone)")
             }
             // Explicit AutoContrastMath.apply with the same bounds stays finite on the ramp.
@@ -156,13 +160,15 @@ enum AutoCalibrationMathSmoke {
         }
         let cleared = tone.clearingAutoContrast()
         guard !cleared.autoContrast, !cleared.isAutoContrastResolved,
-              cleared.resolvedAutoContrastBlack == nil, cleared.resolvedAutoContrastWhite == nil else {
+            cleared.resolvedAutoContrastBlack == nil, cleared.resolvedAutoContrastWhite == nil
+        else {
             throw RendererError.renderFailed("AUTO_CONTRAST_RESOLVE_CLEAR_FAIL")
         }
         let toneRoundTrip = try JSONDecoder().decode(ToneSettings.self, from: JSONEncoder().encode(tone))
         guard toneRoundTrip.resolvedAutoContrastBlack == tone.resolvedAutoContrastBlack,
-              toneRoundTrip.resolvedAutoContrastWhite == tone.resolvedAutoContrastWhite,
-              toneRoundTrip.autoContrast == tone.autoContrast else {
+            toneRoundTrip.resolvedAutoContrastWhite == tone.resolvedAutoContrastWhite,
+            toneRoundTrip.autoContrast == tone.autoContrast
+        else {
             throw RendererError.renderFailed("AUTO_CONTRAST_RESOLVE_CODABLE_FAIL")
         }
         var raw = RawSettings()
@@ -212,7 +218,8 @@ enum AutoCalibrationMathSmoke {
             throw RendererError.renderFailed("LEGACY_AUTO_DECODE_FAIL: \(String(describing: decodedLegacy.tone))")
         }
         guard !GPULiveFramePipeline.supports(decodedLegacy) else {
-            throw RendererError.renderFailed("LEGACY_AUTO_BLOCK_FAIL: unresolved legacy auto should block the live path")
+            throw RendererError.renderFailed(
+                "LEGACY_AUTO_BLOCK_FAIL: unresolved legacy auto should block the live path")
         }
         var resolvedLook = decodedLegacy
         if let bounds = AutoContrastMath.bounds(ramp) {
@@ -228,8 +235,9 @@ enum AutoCalibrationMathSmoke {
             RenderLook.self, from: JSONEncoder().encode(resolvedLook)
         )
         guard resolvedRoundTrip.tone?.autoContrast == true,
-              resolvedRoundTrip.tone?.isAutoContrastResolved == true,
-              resolvedRoundTrip.raw.autoExposureApplied else {
+            resolvedRoundTrip.tone?.isAutoContrastResolved == true,
+            resolvedRoundTrip.raw.autoExposureApplied
+        else {
             throw RendererError.renderFailed("LEGACY_AUTO_CODABLE_FAIL: resolve lost the auto flag or bounds")
         }
 

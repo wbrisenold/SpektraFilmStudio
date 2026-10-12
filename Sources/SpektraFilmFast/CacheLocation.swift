@@ -8,7 +8,6 @@ struct CacheStoreSnapshot: Sendable {
     var diskBytes: Int64 = 0
 }
 
-
 /// Cache generation identifiers are deliberately independent from the project format.
 /// A cache hit is only valid when the code that produced those pixels/metrics is still
 /// compatible with the current build. Bump the relevant token whenever its algorithm,
@@ -62,12 +61,14 @@ enum CacheLocation {
 
     static func root(parentPath: String) throws -> URL {
         let custom = !parentPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let parent = custom
+        let parent =
+            custom
             ? URL(fileURLWithPath: parentPath, isDirectory: true).standardizedFileURL
             : defaultParentDirectory()
 
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: parent.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+        guard FileManager.default.fileExists(atPath: parent.path, isDirectory: &isDirectory), isDirectory.boolValue
+        else {
             throw CacheLocationError.unavailable(parent.path)
         }
 
@@ -99,7 +100,8 @@ enum CacheLocation {
     }
 
     static func describe(parentPath: String) -> String {
-        let parent = parentPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let parent =
+            parentPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? defaultParentDirectory()
             : URL(fileURLWithPath: parentPath, isDirectory: true)
         return parent.appendingPathComponent(folderName, isDirectory: true).path
@@ -124,15 +126,15 @@ enum CacheLocation {
 
     private static func writeMarker(root: URL, custom: Bool) {
         let text = """
-        SpektraFilmFast local cache
+            SpektraFilmFast local cache
 
-        This folder is safe to delete when SpektraFilmFast is not running.
-        It stores generated thumbnails, developed linear preview sources, exact adjusted previews,
-        and Smart Cull analysis.
-        Original photographs and project files are never stored here.
+            This folder is safe to delete when SpektraFilmFast is not running.
+            It stores generated thumbnails, developed linear preview sources, exact adjusted previews,
+            and Smart Cull analysis.
+            Original photographs and project files are never stored here.
 
-        Location type: \(custom ? "User-selected" : "macOS default cache")
-        """
+            Location type: \(custom ? "User-selected" : "macOS default cache")
+            """
         try? Data(text.utf8).write(to: root.appendingPathComponent(markerName), options: .atomic)
     }
 }
@@ -144,14 +146,15 @@ enum CacheSourceFingerprint {
             .contentModificationDateKey,
             .fileSizeKey,
             .generationIdentifierKey,
-            .documentIdentifierKey
+            .documentIdentifierKey,
         ])
         let stamp = values.contentModificationDate?.timeIntervalSince1970 ?? 0
         let size = values.fileSize ?? 0
         let documentID = values.documentIdentifier.map(String.init) ?? "no-document-id"
         let generationHash: String
         if let generation = values.generationIdentifier,
-           let archived = try? NSKeyedArchiver.archivedData(withRootObject: generation, requiringSecureCoding: true) {
+            let archived = try? NSKeyedArchiver.archivedData(withRootObject: generation, requiringSecureCoding: true)
+        {
             generationHash = String(format: "%016llx", fnv1a64(archived))
         } else {
             generationHash = "no-generation-id"
@@ -168,4 +171,3 @@ enum CacheSourceFingerprint {
         return hash
     }
 }
-

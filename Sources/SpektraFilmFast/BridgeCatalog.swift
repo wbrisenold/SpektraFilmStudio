@@ -1,5 +1,5 @@
-import Foundation
 import CSpektraBridge
+import Foundation
 
 enum AppFlavor: Int32, CaseIterable, Codable, Identifiable, Sendable {
     case flow = 0
@@ -97,10 +97,11 @@ final class BridgeCatalog: @unchecked Sendable {
         for i in 0..<SpektraAppGroupCount() {
             guard let ptr = SpektraAppGroupAt(i) else { continue }
             let raw = ptr.pointee
-            g.append(ParameterGroup(
-                id: raw.id.map(String.init(cString:)) ?? "group\(i)",
-                label: raw.label.map(String.init(cString:)) ?? "Group"
-            ))
+            g.append(
+                ParameterGroup(
+                    id: raw.id.map(String.init(cString:)) ?? "group\(i)",
+                    label: raw.label.map(String.init(cString:)) ?? "Group"
+                ))
         }
         groups = g
 
@@ -108,18 +109,19 @@ final class BridgeCatalog: @unchecked Sendable {
         for i in 0..<SpektraAppParamCount() {
             guard let ptr = SpektraAppParamAt(i), let kind = ParameterKind(rawValue: ptr.pointee.kind) else { continue }
             let raw = ptr.pointee
-            p.append(ParameterDescriptor(
-                name: raw.name.map(String.init(cString:)) ?? "param\(i)",
-                label: raw.label.map(String.init(cString:)) ?? "Parameter",
-                group: raw.group.map(String.init(cString:)) ?? "",
-                optionSet: raw.optionSet.map(String.init(cString:)) ?? "",
-                kind: kind,
-                visibilityTier: raw.visibilityTier,
-                defaultInt: raw.defaultInt,
-                defaults: (raw.defaultValue.0, raw.defaultValue.1, raw.defaultValue.2),
-                minimum: raw.minimum,
-                maximum: raw.maximum
-            ))
+            p.append(
+                ParameterDescriptor(
+                    name: raw.name.map(String.init(cString:)) ?? "param\(i)",
+                    label: raw.label.map(String.init(cString:)) ?? "Parameter",
+                    group: raw.group.map(String.init(cString:)) ?? "",
+                    optionSet: raw.optionSet.map(String.init(cString:)) ?? "",
+                    kind: kind,
+                    visibilityTier: raw.visibilityTier,
+                    defaultInt: raw.defaultInt,
+                    defaults: (raw.defaultValue.0, raw.defaultValue.1, raw.defaultValue.2),
+                    minimum: raw.minimum,
+                    maximum: raw.maximum
+                ))
         }
         parameters = p
 

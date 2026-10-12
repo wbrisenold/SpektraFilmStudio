@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "lineLength": 140,
+  "indentation": {
+    "spaces": 4
+  },
+  "tabWidth": 4,
+  "maximumBlankLines": 1,
+  "lineBreakBeforeEachArgument": false,
+  "lineBreakBeforeControlFlowKeywords": false,
+  "respectsExistingLineBreaks": true,
+  "prioritizeKeepingFunctionOutputTogether": true,
+  "spacesAroundRangeFormationOperators": false,
+  "spacesBeforeEndOfLineComments": 2,
+  "rules": {
+    "AllPublicDeclarationsHaveDocumentation": false,
+    "AlwaysUseLiteralForEmptyCollectionInit": false,
+    "BeginDocumentationCommentWithOneLineSummary": false,
+    "DontRepeatTypeInStaticProperties": true,
+    "FileScopedDeclarationPrivacy": false,
+    "NoBlockComments": true,
+    "NoEmptyLinesOpeningClosingBraces": false,
+    "OmitExplicitReturns": false,
+    "OrderedImports": true,
+    "UseEarlyExits": false,
+    "UseSynthesizedInitializer": true,
+    "UseWhereClausesInForLoops": false,
+    "ValidateDocumentationComments": false
+  }
+}

@@ -1,6 +1,6 @@
-import Foundation
 import CoreGraphics
 import CoreVideo
+import Foundation
 import Vision
 
 struct SubjectMaskPayload: Sendable {
@@ -11,7 +11,9 @@ struct SubjectMaskPayload: Sendable {
     let faceRects: [CGRect]
 
     static func empty(width: Int, height: Int) -> SubjectMaskPayload {
-        SubjectMaskPayload(width: width, height: height, personAlpha: [UInt8](repeating: 255, count: max(1, width * height)), faceRects: [])
+        SubjectMaskPayload(
+            width: width, height: height, personAlpha: [UInt8](repeating: 255, count: max(1, width * height)),
+            faceRects: [])
     }
 
     func alpha(x: Int, y: Int) -> UInt8 {
@@ -45,7 +47,9 @@ struct SubjectMaskPayload: Sendable {
 actor SubjectSkinMaskEngine {
     func subjectMask(from buffer: PixelBufferF32, width: Int, height: Int) throws -> SubjectMaskPayload {
         guard width > 0, height > 0,
-              let cg = buffer.makeCGImage8(colorSpace: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()) else {
+            let cg = buffer.makeCGImage8(
+                colorSpace: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB())
+        else {
             return .empty(width: width, height: height)
         }
 
@@ -121,7 +125,7 @@ struct OpenSourceSkinClassifier {
         let b = Double(max(0, min(1, displayB)))
 
         let cb = (-0.169 * r - 0.331 * g + 0.500 * b) * 255.0 + 128.0
-        let cr = ( 0.500 * r - 0.419 * g - 0.081 * b) * 255.0 + 128.0
+        let cr = (0.500 * r - 0.419 * g - 0.081 * b) * 255.0 + 128.0
         let ycbcr = cb >= 77 && cb <= 127 && cr >= 133 && cr <= 173
 
         let (h, s, v) = hsv(r: r, g: g, b: b)
@@ -133,9 +137,7 @@ struct OpenSourceSkinClassifier {
             (9, 50, 0.12, 0.88, 0.06, 0.50),
         ]
         let hsvMatch = ranges.contains {
-            h >= $0.0 && h <= $0.1 &&
-            s >= $0.2 && s <= $0.3 &&
-            v >= $0.4 && v <= $0.5
+            h >= $0.0 && h <= $0.1 && s >= $0.2 && s <= $0.3 && v >= $0.4 && v <= $0.5
         }
 
         // PrimeraHue v0.6.0 uses normalized rg chromaticity because those ratios are largely
@@ -185,16 +187,19 @@ struct OpenSourceSkinClassifier {
         return min(d, 360 - d)
     }
 
-
     private static func hsv(r: Double, g: Double, b: Double) -> (Double, Double, Double) {
         let maximum = max(r, max(g, b))
         let minimum = min(r, min(g, b))
         let delta = maximum - minimum
         var hue = 0.0
         if delta > 1e-9 {
-            if maximum == r { hue = 60 * ((g - b) / delta).truncatingRemainder(dividingBy: 6) }
-            else if maximum == g { hue = 60 * ((b - r) / delta + 2) }
-            else { hue = 60 * ((r - g) / delta + 4) }
+            if maximum == r {
+                hue = 60 * ((g - b) / delta).truncatingRemainder(dividingBy: 6)
+            } else if maximum == g {
+                hue = 60 * ((b - r) / delta + 2)
+            } else {
+                hue = 60 * ((r - g) / delta + 4)
+            }
         }
         if hue < 0 { hue += 360 }
         let saturation = maximum <= 1e-9 ? 0 : delta / maximum
