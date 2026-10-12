@@ -1,0 +1,7 @@
+module RawSpeedBridge [system] {
+  header "RawSpeedBridge.h"
+  export *
+  link "raw"
+  link "lcms2"
+  link "c++"
+}

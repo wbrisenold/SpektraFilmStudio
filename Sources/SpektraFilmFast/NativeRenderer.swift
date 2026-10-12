@@ -53,7 +53,9 @@ struct PixelBufferF32: Sendable {
     var width: Int
     var height: Int
     var pixels: [Float]
-
+    
+    var channels: Int { 4 }
+    
     init(width: Int, height: Int, pixels: [Float]? = nil) {
         self.width = width
         self.height = height
