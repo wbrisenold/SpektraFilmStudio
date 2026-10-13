@@ -25,7 +25,7 @@ final class DemosaicModule: PixelpipeModule {
     nonisolated(unsafe) var blendingOpacity: Float = 1.0
 
     // Algorithm selection (RCD is default, matching Darktable)
-    nonisolated(unsafe) var algorithm: Algorithm = .rcd
+    nonisolated(unsafe) var algorithm: Algorithm = .ppg
 
     // RCD-specific parameters
     nonisolated(unsafe) var greenEq: GreenEq = .none
@@ -101,6 +101,12 @@ final class DemosaicModule: PixelpipeModule {
         let pixels = rawInput.pixels
         let filters = rawInput.filters
 
+        // Never silently substitute PPG when another algorithm was requested.
+        // AMaZE/RCD/VNG4/LMMSE require verified implementations before enabling.
+        guard algorithm == .ppg else {
+            throw PipelineError.invalidConfiguration(
+                "Demosaic algorithm \(algorithm) is not implemented; refusing silent PPG substitution")
+        }
         // After RawPrepareModule has normalized the mosaic to [0,1+] scene-linear,
         // run demosaic. Do NOT divide by white level again — that was already done
         // in RawPrepare and doing it here would crush highlights.

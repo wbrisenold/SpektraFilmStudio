@@ -407,26 +407,26 @@ actor GPULiveFramePipeline {
         }
         // Imported .cube is the authoritative FILM stage when selected.
         // It NEVER initializes or calls NativeRenderer (not even on a cache miss).
-        let looksMode = StudioLooksSettings.isSelected
-        let importedMode = StudioImportedCubeLUTSettings.isSelected || looksMode
-        let modeIdentity = importedMode ? "imported" : "native"
+        let usedImportedLUT = StudioImportedCubeLUTSettings.isSelected
+        let useLooks = StudioLooksSettings.isSelected
+        let spectralMode = !usedImportedLUT && !useLooks
+        let modeIdentity = spectralMode ? "spectral" : (usedImportedLUT ? "imported-lut" : "looks")
         if lastGPUMode != modeIdentity {
             // Do not reuse GPU-device-specific shader/buffer caches initialized
-            // by a different native/imported engine on dual-GPU Intel Macs.
+            // by a different spectral/looks-imported engine on dual-GPU Intel Macs.
             rawCache.removeAll()
             prefixCache = nil
             gpu = nil
             importedLUT = nil
             spectralLUT = nil
-            contentGuard = nil
             looksGPU = nil
             geometryGPU = nil
             importCalibrationGPU = nil
             lastGPUMode = modeIdentity
         }
-        if !importedMode && film == nil { film = try NativeRenderer(profile: .exact) }
+        if !usedImportedLUT && film == nil { film = try NativeRenderer(profile: .exact) }
         if gpu == nil {
-            if importedMode {
+            if usedImportedLUT || useLooks {
                 guard let device = StudioGPUDevice.shared else {
                     throw GPULiveError.unavailable("Metal GPU unavailable for imported LUT")
                 }
@@ -436,6 +436,9 @@ actor GPULiveFramePipeline {
                 let nativeDevice = try await film.preferredMetalDevice()
                 gpu = try GPULiveDevice(device: nativeDevice.device)
             }
+        }
+        if contentGuard == nil {
+            contentGuard = try MetalFrameContentGuard(device: gpu!.device)
         }
         guard let gpu else { throw GPULiveError.unavailable("Metal device unavailable") }
         let key = DecodeKey(
@@ -500,7 +503,8 @@ actor GPULiveFramePipeline {
             source: source, destination: graded, on: preCommand,
             width: width, height: height,
             tone: look.tone, density: look.colorDensity, film: look.filmTone)
-        if looksMode {
+        let importedMode = usedImportedLUT
+        if useLooks {
             if looksGPU == nil { looksGPU = try StudioLooksGPU(device: gpu.device) }
             try looksGPU?.encodePre(graded, width: width, height: height, look: look, command: preCommand)
         }
@@ -508,110 +512,51 @@ actor GPULiveFramePipeline {
         try Task.checkCancellation()
         // Only ALREADY GPU-resident LUTs may run during slider movement.
         // A cold/missing LUT uses native Metal immediately, never bakes inline.
-        var usedSpectralLUT = false
-        var usedImportedLUT = false
-        var importedOutput: StudioImportedLUT.OutputSpace?
-        var importedLabel: String? = nil
         let resolution = StudioSpectralLUT.selectedResolution()
         let renderedStart = ProcessInfo.processInfo.systemUptime
+        guard let film else { throw GPULiveError.unavailable("Native film engine unavailable") }
+        var usedSpectralLUT = false
+        if !usedImportedLUT && !useLooks && resolution != nil, let spectralLUT {
+            do {
+                usedSpectralLUT = try await spectralLUT.encodeIfEligible(
+                    film: film, look: look, source: graded, destination: filmOutput,
+                    width: width, height: height)
+            } catch is CancellationError { throw CancellationError() } catch { usedSpectralLUT = false }
+        }
+        let lutMiss = !usedImportedLUT && !usedSpectralLUT
         if importedMode {
-            // Imported .cube is handled by the SAME validated shader, shaper,
-            // sampler, and GPU cache as the library/settled/export importer.
-            // Do not run the separate experimental .cube GPU shader here.
-            guard
-                let file = looksMode
-                    ? StudioLooksSettings.selectedPack(for: look)?.cubeURL
-                    : StudioImportedCubeLUTSettings.selectedURL
-            else {
-                throw GPULiveError.unavailable(
-                    looksMode
-                        ? "Choose a valid Look pack in the Looks browser"
-                        : "Select a .cube file in Settings > General")
-            }
-            let contract: StudioImportedLUT.Contract?
-            if looksMode {
-                contract = nil
-            } else {
-                contract = try StudioImportedCubeLUTSettings.explicitContract(for: file)
-            }
             if importedLUT == nil { importedLUT = try StudioImportedLUTMetal(gpu: gpu) }
-            guard let importedLUT, let command = gpu.queue.makeCommandBuffer() else {
-                throw GPULiveError.unavailable("Unified Metal LUT renderer unavailable")
+            guard let lutFile = StudioImportedCubeLUTSettings.selectedURL else {
+                throw GPULiveError.unavailable("Imported LUT selected but file missing")
             }
-            importedOutput = try importedLUT.encode(
+            let contract = StudioImportedLUT.Contract.legacySRGB
+            try importedLUT?.encode(
                 source: graded, destination: filmOutput,
-                width: width, height: height, on: command, file: file,
-                contractOverride: contract)
-            command.commit()
-            if looksMode && importedOutput != .linearRec2020 {
-                throw GPULiveError.unavailable("Look output must remain scene-linear Rec.2020")
-            }
-            importedLabel =
-                looksMode
-                ? "Looks · \(StudioLooksSettings.selectedPack(for: look)?.name ?? "Unknown") · Live"
-                : "Imported .cube GPU · \(file.deletingPathExtension().lastPathComponent) · unified Metal"
-        } else {
-            guard let film else { throw GPULiveError.unavailable("Native film engine unavailable") }
-            if StudioImportedLUT.isSelected {
-                guard let file = StudioImportedLUT.selectedURL() else {
-                    throw StudioImportedLUT.Failure.invalid("Choose a LUT from the linked folder in Settings.")
-                }
-                if importedLUT == nil { importedLUT = try StudioImportedLUTMetal(gpu: gpu) }
-                guard let importedLUT,
-                    let command = gpu.queue.makeCommandBuffer()
-                else {
-                    throw StudioImportedLUT.Failure.invalid("Metal imported-LUT stage unavailable.")
-                }
-                importedOutput = try importedLUT.encode(
+                width: width, height: height,
+                on: gpu.queue.makeCommandBuffer()!,
+                file: lutFile, contractOverride: contract)
+        } else if lutMiss {
+            try await film.enqueueMetalFilm(
+                GPUMetalFilmIO(
                     source: graded, destination: filmOutput,
-                    width: width, height: height, on: command, file: file)
-                command.commit()
-                usedImportedLUT = true
-            }
-            if !usedImportedLUT && resolution != nil, let spectralLUT {
-                do {
-                    usedSpectralLUT = try await spectralLUT.encodeIfEligible(
-                        film: film, look: look, source: graded, destination: filmOutput,
-                        width: width, height: height)
-                } catch is CancellationError { throw CancellationError() } catch { usedSpectralLUT = false }
-            }
-            if !usedImportedLUT && !usedSpectralLUT {
-                try await film.enqueueMetalFilm(
-                    GPUMetalFilmIO(
-                        source: graded, destination: filmOutput,
-                        queue: gpu.queue, width: width, height: height), look: look)
-            }
+                    queue: gpu.queue, width: width, height: height), look: look)
         }
         try Task.checkCancellation()
+        // LUT_GPU_DISPLAY_PASS: refuse featureless LUT output from detailed RAW input.
+        var contentSamples: (any MTLBuffer)?
+        if let contentGuard {
+            if let encoded = try? contentGuard.encode(
+                before: source, after: filmOutput,
+                width: width, height: height, on: gpu.queue.makeCommandBuffer()!)
+            {
+                contentSamples = encoded
+            }
+        }
         guard let postCommand = gpu.queue.makeCommandBuffer() else {
             throw GPULiveError.unavailable("Post-film Metal command allocation failed")
         }
         var result: any MTLBuffer = filmOutput
         var keepAlive: [any MTLBuffer] = [source, graded, filmOutput]
-        if looksMode {
-            guard let looksGPU else { throw GPULiveError.unavailable("Looks GPU controls missing") }
-            try looksGPU.encodePost(
-                neutral: graded, transformed: filmOutput,
-                width: width, height: height, look: look, command: postCommand)
-        }
-        if let lens = look.lensEffects, lens.enabled && !lens.isIdentity {
-            let out = try borrowScratch(gpu: gpu, width: width, height: height)
-            try gpu.lens.encode(
-                source: result, destination: out, command: postCommand,
-                width: width, height: height, parameters: lens.resolvedWithCenter)
-            result = out
-            keepAlive.append(out)
-            borrowedScratch.append(out)
-        }
-        if let fx = look.filmEffects, !fx.isIdentity {
-            let out = try borrowScratch(gpu: gpu, width: width, height: height)
-            try gpu.effects.encode(
-                source: result, destination: out, command: postCommand,
-                width: width, height: height, look: look)
-            result = out
-            keepAlive.append(out)
-            borrowedScratch.append(out)
-        }
         let geometry = look.geometry ?? GeometrySettings()
         let hasGeometry = geometry != GeometrySettings()
         let geometrySize = StudioMetalGeometry.targetSize(
@@ -627,19 +572,6 @@ actor GPULiveFramePipeline {
                 width: width, height: height, geometry: geometry, command: postCommand)
         } else {
             try gpu.encodeBufferToTexture(result, destination: texture, on: postCommand)
-        }
-        // Sample GPU-resident pixels, never transfer the full preview to the CPU.
-        // An all-gray LUT output from a detailed RAW must fail the render.
-        var contentSamples: (any MTLBuffer)?
-        if importedMode {
-            if contentGuard == nil { contentGuard = try MetalFrameContentGuard(device: gpu.device) }
-            if let guardEngine = contentGuard {
-                let samples = try guardEngine.encode(
-                    before: graded, after: filmOutput,
-                    width: width, height: height, on: postCommand)
-                keepAlive.append(samples)
-                contentSamples = samples
-            }
         }
         // Keep all upstream buffers alive until the final GPU completion fence.
         // An async continuation, never waitUntilCompleted() on the main thread.
@@ -658,19 +590,17 @@ actor GPULiveFramePipeline {
             }
             postCommand.commit()
         }
+        if let contentSamples = contentSamples {
+            try MetalFrameContentGuard.verify(contentSamples)
+        }
         recycleScratch(borrowedScratch, gpu: gpu)  // The async Metal completion fence has returned.
         try Task.checkCancellation()
-        if let contentSamples { try MetalFrameContentGuard.verify(contentSamples) }
         let elapsed = (ProcessInfo.processInfo.systemUptime - renderedStart) * 1000.0
         let label: String
-        if let importedLabel {
-            label = "\(importedLabel) · \(Int(elapsed.rounded())) ms"
-        } else if usedImportedLUT {
-            label = "Imported film LUT · " + StudioImportedLUT.selectedDisplayName
-        } else if usedSpectralLUT {
+        if usedSpectralLUT {
             label = "Cached spectral LUT \(resolution ?? 33)³ · \(Int(elapsed.rounded())) ms"
         } else if let resolution {
-            let blocked = await film?.colorLUTBlockingReason(look: look)
+            let blocked = await film.colorLUTBlockingReason(look: look)
             label =
                 blocked.map { "Native Metal · LUT blocked (\($0))" }
                 ?? "Native Metal · LUT \(resolution)³ not yet cached"
@@ -679,7 +609,7 @@ actor GPULiveFramePipeline {
         }
         return GPULiveFrame(
             texture: texture,
-            colorSpace: importedOutput?.cgColorSpace ?? OutputColorProfile.forLook(look).cgColorSpace,
+            colorSpace: OutputColorProfile.forLook(look).cgColorSpace,
             rendererLabel: label,
             onRelease: { [gpu] in gpu.returnOutputTexture(texture) })
     }

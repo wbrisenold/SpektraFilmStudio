@@ -536,8 +536,7 @@ actor ImageDecoder {
         // domain, where bilinear/bicubic resampling is color-safe.
         //
         // If a smaller proxy is needed, the caller (ImageDecoder.decode)
-        // should use the developed RGB buffer and resize that instead.        let samples = rawImage.data
-        
+        // should use the developed RGB buffer and resize that instead.
         let samples = rawImage.data
         let mosaic = RawMosaicF32(
             width: width, height: height,

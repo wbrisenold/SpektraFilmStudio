@@ -11,6 +11,14 @@ enum StudioImportedLUT {
     static let selectionKey = "SpektraFilmStudio.lutLibrary.selected.v1"
     static let modeKey = "SpektraFilmStudio.preview.spectralLUT.v1"
     static let displayNameKey = "SpektraFilmStudio.lutLibrary.selectedDisplayName.v1"
+    static let strengthKey = "SpektraFilmStudio.importedLUT.strength.v1"
+
+    // Stored outside RenderLook: independent grading strength never changes LUT content.
+    static var strength: Float {
+        guard UserDefaults.standard.object(forKey: strengthKey) != nil else { return 1 }
+        let value = UserDefaults.standard.double(forKey: strengthKey)
+        return value.isFinite ? Float(min(1, max(0, value))) : 1
+    }
 
     enum InputSpace: String, Codable, Sendable {
         case encodedSRGB = "srgb"
@@ -261,7 +269,20 @@ enum StudioImportedLUT {
 final class StudioImportedLUTMetal: @unchecked Sendable {
     private let gpu: GPULiveDevice
     private let kernel: any MTLComputePipelineState
-    private var cached: (key: String, cube: StudioImportedLUT.Cube, texture: any MTLTexture)?
+    // Multiple immutable GPU-resident finished looks. A → B → A must hit the
+    // resident cache, not parse/upload the first file again. Retain metadata only;
+    // parsed CPU cube samples can be released after the initial GPU upload.
+    private struct ResidentLUT {
+        let key: String
+        let texture: any MTLTexture
+        let contract: StudioImportedLUT.Contract
+        let domainMin: SIMD3<Float>
+        let domainMax: SIMD3<Float>
+        let bytes: Int
+    }
+    private var residents: [ResidentLUT] = []  // MRU first
+    private let maxResidentEntries = 8
+    private let maxResidentBytes = 64 * 1024 * 1024
     private(set) var lutUploadCount = 0
     private(set) var lutCacheHitCount = 0
 
@@ -277,7 +298,8 @@ final class StudioImportedLUTMetal: @unchecked Sendable {
     func encode(
         source: any MTLBuffer, destination: any MTLBuffer,
         width: Int, height: Int, on command: any MTLCommandBuffer,
-        file: URL, contractOverride: StudioImportedLUT.Contract? = nil
+        file: URL, contractOverride: StudioImportedLUT.Contract? = nil,
+        strength: Float = 1
     ) throws -> StudioImportedLUT.OutputSpace {
         let fileInfo = try file.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
         let sidecar = URL(fileURLWithPath: file.path + ".lut.json")
@@ -294,8 +316,12 @@ final class StudioImportedLUTMetal: @unchecked Sendable {
             } ?? "file-sidecar"
         let stamp =
             "\(file.standardizedFileURL.path)|\(fileInfo.contentModificationDate?.timeIntervalSince1970 ?? 0)|\(fileInfo.fileSize ?? 0)|\(sideInfo?.contentModificationDate?.timeIntervalSince1970 ?? 0)|\(sideInfo?.fileSize ?? 0)|\(overrideIdentity)|\(manifestStamp)"
-        let reused = cached?.key == stamp
-        if !reused {
+        if let index = residents.firstIndex(where: { $0.key == stamp }) {
+            // Recency changes alone never re-upload or re-parse immutable LUTs.
+            let hit = residents.remove(at: index)
+            residents.insert(hit, at: 0)
+            lutCacheHitCount += 1
+        } else {
             let cube = try StudioImportedLUT.load(url: file, contractOverride: contractOverride)
             let descriptor = MTLTextureDescriptor()
             descriptor.textureType = .type3D
@@ -323,15 +349,34 @@ final class StudioImportedLUTMetal: @unchecked Sendable {
                 to: texture, destinationSlice: 0, destinationLevel: 0,
                 destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0))
             blit.endEncoding()
-            // Upload and lookup share one command buffer and preserve strict
-            // GPU ordering even during the first live frame; retain staging
-            // until that command buffer finishes. No extra GPU fence required.
+            // GPU reads the staging memory asynchronously; do not release it
+            // before this command completes.
             command.addCompletedHandler { _ in withExtendedLifetime(staging) {} }
-            cached = (stamp, cube, texture)
+            let resident = ResidentLUT(
+                key: stamp, texture: texture, contract: cube.contract,
+                domainMin: cube.domainMin, domainMax: cube.domainMax,
+                bytes: cube.values.count * MemoryLayout<SIMD4<Float>>.stride)
+            // Replacing the same path with a different file stamp invalidates the
+            // stale resident. Different selected looks remain reusable.
+            residents.removeAll(where: {
+                $0.key.hasPrefix(file.standardizedFileURL.path + "|")
+            })
+            residents.insert(resident, at: 0)
+            var total = residents.reduce(0) { $0 + $1.bytes }
+            while residents.count > maxResidentEntries ||
+                (residents.count > 1 && total > maxResidentBytes)
+            {
+                let removed = residents.removeLast()
+                total -= removed.bytes
+            }
             lutUploadCount += 1
         }
-        guard let entry = cached else { throw StudioImportedLUT.Failure.invalid("No uploaded LUT.") }
-        if reused { lutCacheHitCount += 1 }
+        guard let entry = residents.first else {
+            throw StudioImportedLUT.Failure.invalid("No uploaded LUT.")
+        }
+        // Eviction on another render cannot invalidate a resource still used
+        // by this command buffer.
+        command.addCompletedHandler { _ in withExtendedLifetime(entry.texture) {} }
         let count = width.multipliedReportingOverflow(by: height)
         guard width > 0, height > 0, !count.overflow,
             count.partialValue <= Int.max / 16,
@@ -344,10 +389,12 @@ final class StudioImportedLUTMetal: @unchecked Sendable {
             throw StudioImportedLUT.Failure.invalid("Metal LUT encoder failed.")
         }
         var dims = SIMD2<UInt32>(UInt32(width), UInt32(height))
-        var inputMode: UInt32 = entry.cube.contract.input == .linearRec2020 ? 0 : 1
-        var shaperMode: UInt32 = entry.cube.contract.shaper == .signedLog2 ? 1 : 0
-        var boundsMin = entry.cube.domainMin
-        var boundsMax = entry.cube.domainMax
+        var inputMode: UInt32 = entry.contract.input == .linearRec2020 ? 0 : 1
+        var shaperMode: UInt32 = entry.contract.shaper == .signedLog2 ? 1 : 0
+        var outputMode: UInt32 = entry.contract.output == .encodedSRGB ? 1 : 0
+        var lutStrength = strength.isFinite ? min(1, max(0, strength)) : 1
+        var boundsMin = entry.domainMin
+        var boundsMax = entry.domainMax
         encoder.setComputePipelineState(kernel)
         encoder.setBuffer(source, offset: 0, index: 0)
         encoder.setBuffer(destination, offset: 0, index: 1)
@@ -357,11 +404,13 @@ final class StudioImportedLUTMetal: @unchecked Sendable {
         encoder.setBytes(&shaperMode, length: MemoryLayout<UInt32>.stride, index: 4)
         encoder.setBytes(&boundsMin, length: MemoryLayout<SIMD3<Float>>.stride, index: 5)
         encoder.setBytes(&boundsMax, length: MemoryLayout<SIMD3<Float>>.stride, index: 6)
+        encoder.setBytes(&outputMode, length: MemoryLayout<UInt32>.stride, index: 7)
+        encoder.setBytes(&lutStrength, length: MemoryLayout<Float>.stride, index: 8)
         encoder.dispatchThreads(
             MTLSize(width: width, height: height, depth: 1),
             threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
         encoder.endEncoding()
-        return entry.cube.contract.output
+        return entry.contract.output
     }
 
     private static let source = #"""
@@ -416,6 +465,8 @@ final class StudioImportedLUTMetal: @unchecked Sendable {
                                            constant uint& shaperMode [[buffer(4)]],
                                            constant float3& domainMin [[buffer(5)]],
                                            constant float3& domainMax [[buffer(6)]],
+                                           constant uint& outputMode [[buffer(7)]],
+                                           constant float& lutStrength [[buffer(8)]],
                                            uint2 xy [[thread_position_in_grid]]) {
             if (xy.x>=dims.x || xy.y>=dims.y) return;
             uint index=xy.y*dims.x+xy.x;
@@ -427,7 +478,12 @@ final class StudioImportedLUTMetal: @unchecked Sendable {
             else if (shaperMode==1) v=float3(signedLog(x.r),signedLog(x.g),signedLog(x.b));
             else v=x.rgb;
             v=(v-domainMin)/(domainMax-domainMin);
-            dst[index]=float4(tetra(lut,v),x.a);
+            // Blend within the declared output encoding. For display-sRGB LUTs,
+            // convert the untouched scene-linear input to display-sRGB first.
+            // No LUT data or film-chemistry parameters change with strength.
+            float3 neutral = outputMode == 1 ? rec2020ToSRGB(x.rgb) : x.rgb;
+            float3 color = tetra(lut,v);
+            dst[index] = float4(mix(neutral, color, clamp(lutStrength, 0.f, 1.f)), x.a);
         }
         """#
 }
@@ -485,7 +541,8 @@ actor StudioImportedLUTOffline {
         let outputSpace = try stage.encode(
             source: source, destination: destination,
             width: input.width, height: input.height,
-            on: command, file: file, contractOverride: contractOverride)
+            on: command, file: file, contractOverride: contractOverride,
+            strength: look == nil ? StudioImportedLUT.strength : 1)
         if let look {
             guard outputSpace == .linearRec2020 else {
                 throw StudioImportedLUT.Failure.invalid("Look pack must output linear Rec.2020")

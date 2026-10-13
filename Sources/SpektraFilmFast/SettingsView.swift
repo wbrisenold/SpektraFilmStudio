@@ -23,12 +23,11 @@ struct SettingsView: View {
     @AppStorage("SpektraFilmStudio.ui.collapsedFilmSections") private var collapsedFilmSections = ""
     @AppStorage("SpektraFilmStudio.ai.depthProvider") private var depthProvider = "automatic"
     @AppStorage(StudioSpectralLUT.setting) private var spectralPreviewLUT = "native"
-    @AppStorage(StudioImportedCubeLUTSettings.inputKey) private var inputContract = "auto"
-    @AppStorage(StudioImportedCubeLUTSettings.outputKey) private var outputContract = "auto"
-    @AppStorage(StudioImportedLUT.folderKey) private var lutLibraryFolder = ""
-    @AppStorage(StudioImportedLUT.selectionKey) private var importedLUTSelection = ""
+    @State private var importedLUTFolder = ""
     @State private var importedLUTs: [StudioImportedLUT.Item] = []
     @State private var importedLUTStatus = ""
+    @State private var recordedLUTID: String = ""
+    @State private var recordedLUTItem: StudioImportedLUT.Item?
 
     var body: some View {
         // Redlamp uses the macOS 26 `Tab` API ("Appearance", "Models") rather than
@@ -62,19 +61,24 @@ struct SettingsView: View {
             model.rendererPolicyDidChange()
         }
         .onChange(of: spectralPreviewLUT) { _, _ in model.rendererPolicyDidChange() }
-        .onChange(of: importedLUTSelection) { _, _ in model.rendererPolicyDidChange() }
-        .onAppear { refreshImportedLUTs() }
+        .onChange(of: importedLUTFolder) { _, _ in refreshImportedLUTs() }
+        .onChange(of: importedLUTs) { _, _ in syncRecordedLUTItem() }
+        .onAppear { refreshImportedLUTs(); syncRecordedLUTItem() }
+    }
+
+    private func syncRecordedLUTItem() {
+        recordedLUTItem = recordedLUTID.isEmpty ? nil : importedLUTs.first { $0.id == recordedLUTID }
     }
 
     private func refreshImportedLUTs() {
-        guard !lutLibraryFolder.isEmpty else {
+        guard !importedLUTFolder.isEmpty else {
             importedLUTs = []
             importedLUTStatus = "Choose a folder with exported .cube LUTs."
             return
         }
         do {
             importedLUTs = try StudioImportedLUT.discover(
-                folder: URL(fileURLWithPath: lutLibraryFolder, isDirectory: true))
+                folder: URL(fileURLWithPath: importedLUTFolder, isDirectory: true))
             importedLUTStatus = "Indexed \(importedLUTs.count) LUTs · LUT_Catalog.csv names take priority"
         } catch {
             importedLUTs = []
@@ -84,9 +88,8 @@ struct SettingsView: View {
 
     private func chooseImportedLUTFolder() {
         Task { @MainActor in
-            guard let chosen = await SpektraFilePanel.folder(title: "Choose Imported LUT Library") else { return }
-            lutLibraryFolder = chosen.standardizedFileURL.path
-            importedLUTSelection = ""
+            guard let chosen = await SpektraFilePanel.folder(title: "Choose LUT Library Folder") else { return }
+            importedLUTFolder = chosen.standardizedFileURL.path
             refreshImportedLUTs()
         }
     }
@@ -100,95 +103,44 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 Picker("Live film renderer", selection: $spectralPreviewLUT) {
+                    Text("Cached film LUT 33³").tag("cached-33")
                     Text("Native spectral (exact)").tag("native")
-                    Text("Looks · finished assets").tag("looks")
-                    Text("Imported .cube · GPU only").tag("imported-cube")
-                    // Generated whole-film 33/65 caches are kept for backwards
-                    // compatibility but are no longer offered as "fast" modes.
-                    // Fixed pre-baked Looks are the fast editing path.
-                    Text("Cached film LUT 33³ (experimental)").tag("33")
-                    Text("Cached film LUT 65³ (experimental)").tag("65")
-                    Text("Imported film + print LUT").tag("imported")
                 }
                 Text(
-                    "Imported .cube now uses the same color-managed Metal LUT shader as Imported film + print LUT, with a single GPU cache and validated input/output contract. No native fallback or re-baking during sliders. For full-resolution export, use Imported film + print LUT until the direct .cube export entry point is unified."
+                    "The editor now uses the native spectral renderer only. Imported LUT and Looks GPU preview paths are no longer part of the Edit preview path."
                 )
                 .font(.caption).foregroundStyle(.secondary)
-                if spectralPreviewLUT == "imported-cube" {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(
-                            "Input/output contract for the selected .cube. A .cube.lut.json sidecar takes priority; otherwise both default to sRGB."
-                        )
-                        .font(.caption2).foregroundStyle(.secondary)
-                        Picker("LUT input", selection: $inputContract) {
-                            Text("Automatic · file sidecar / untagged sRGB").tag("auto")
-                            Text("Display sRGB").tag("display-srgb")
-                            Text("Signed log Rec.2020").tag("signed-log-rec2020")
-                            Text("Linear Rec.2020").tag("linear-rec2020")
-                        }
-                        Picker("LUT output", selection: $outputContract) {
-                            Text("Automatic · file sidecar / untagged sRGB").tag("auto")
-                            Text("Display sRGB").tag("display-srgb")
-                            Text("Linear Rec.2020").tag("linear-rec2020")
-                        }
-                        Text("Contradictory IN-sRGB filenames are rejected rather than rendered gray.")
-                            .font(.caption2).foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 4)
-                }
-                Text("LUT cache: \(model.lutPreparationStatus.isEmpty ? "not prepared" : model.lutPreparationStatus)")
-                    .font(.caption2).foregroundStyle(.secondary)
-                if spectralPreviewLUT == "imported" {
-                    Text(
-                        "Imported LUTs are already baked. Choose one below to load it into Metal; no Prepare step is needed."
-                    )
-                    .font(.caption2).foregroundStyle(.secondary)
-                } else {
-                    HStack {
-                        Button(model.lutIsPreparing ? "Preparing…" : "Prepare Selected Film LUT") {
-                            model.prepareSelectedFilmLUT()
-                        }
-                        .disabled(
-                            spectralPreviewLUT == "native" || spectralPreviewLUT == "imported"
-                                || spectralPreviewLUT == "imported-cube" || model.selectedImage == nil
-                                || model.lutIsPreparing)
-                        if model.lutIsPreparing { ProgressView().controlSize(.mini) }
-                    }
-                }
-                Text(
-                    "When a film has spatial DIR, halation, grain, or automatic image statistics, a single color LUT cannot represent the whole look. Preparation will explain the exact blocking stage. Enable Fast DIR color in FILM → Negative if you want to test a color-only LUT without DIR diffusion."
-                )
-                .font(.caption2).foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Text("Imported LUT Library")
+                        Text("Recorded LUT Library (reference only)")
                         Spacer()
                         Button("Choose Folder…") { chooseImportedLUTFolder() }
                         Button("Rescan") { refreshImportedLUTs() }
-                            .disabled(lutLibraryFolder.isEmpty)
+                            .disabled(importedLUTFolder.isEmpty)
                     }
-                    if !lutLibraryFolder.isEmpty {
-                        Text(lutLibraryFolder)
+                    if !importedLUTFolder.isEmpty {
+                        Text(importedLUTFolder)
                             .font(.caption2).foregroundStyle(.secondary)
                             .lineLimit(2).truncationMode(.middle)
                     }
-                    Picker("Film + Print LUT", selection: $importedLUTSelection) {
-                        Text("Choose LUT").tag("")
+                    Picker("Recorded LUT", selection: $recordedLUTID) {
+                        Text("None").tag("")
                         ForEach(importedLUTs) { item in
-                            Text(
-                                item.name
-                                    + (item.assumedSRGB
-                                        ? " · sRGB" : " · " + item.input.rawValue + " / " + item.shaper.rawValue)
-                            )
-                            .tag(item.id)
+                            Text(item.name).tag(item.id)
                         }
+                    }
+                    if let item = recordedLUTItem {
+                        Text("Selected LUT: \(item.name)")
+                            .font(.caption2).foregroundStyle(.secondary)
                     }
                     Text(importedLUTStatus)
                         .font(.caption2).foregroundStyle(.secondary)
-                    Text(
-                        "Legacy .cube files remain sRGB→sRGB. To use scene-linear Rec.2020, the LUT must be BAKED on the matching signed-log input grid and include a .cube.lut.json contract. Never relabel an sRGB LUT as scene-linear. Only full film+print LUTs are used; native film+print is bypassed when selected."
-                    )
-                    .font(.caption2).foregroundStyle(.secondary)
+                    Button("Prepare LUT") { model.prepareSelectedFilmLUT() }
+                        .disabled(model.lutIsPreparing || recordedLUTItem == nil)
+                    if model.lutIsPreparing {
+                        Text("Preparing LUT…")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
                 Toggle("Paper background", isOn: $model.project.preferences.paperBackground)
                 DisclosureGroup("Advanced color handling") {
