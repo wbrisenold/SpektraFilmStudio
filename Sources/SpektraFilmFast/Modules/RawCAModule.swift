@@ -84,29 +84,33 @@ final class RawCAModule: PixelpipeModule {
 
         // Tile-based CA shift detection
         let tileSize = ts
-        let vertTiles = (height + tileSize - border2 - 1) / (tileSize - border2) + 1
-        let horizTiles = (width + tileSize - border2 - 1) / (tileSize - border2) + 1
+        let step = tileSize - border2
+        guard width > 0, height > 0, step > 0 else { return input }
+        let horizontalStarts = (width + step - 1) / step
+        let verticalStarts = (height + step - 1) / step
 
-        // Store CA shifts per tile [vblock * horizTiles + hblock][R/B][vert/hor]
-        var blockShifts = [[[Float]]](repeating: [[0, 0], [0, 0]], count: vertTiles * horizTiles)
-        var blockWeights = [Float](repeating: 0, count: vertTiles * horizTiles)
+        // Store CA shifts per tile [vblock * horizontalStarts + hblock][R/B][vert/hor]
+        var blockShifts = [[[Float]]](repeating: [[0, 0], [0, 0]], count: verticalStarts * horizontalStarts)
+        var blockWeights = [Float](repeating: 0, count: verticalStarts * horizontalStarts)
 
         // Process tiles to detect CA shifts
-        for vblock in 0..<vertTiles {
-            let top = vblock * (tileSize - border2) - border
+        for vblock in 0..<verticalStarts {
+            let top = vblock * step - border
 
-            for hblock in 0..<horizTiles {
-                let left = hblock * (tileSize - border2) - border
+            for hblock in 0..<horizontalStarts {
+                let left = hblock * step - border
                 let bottom = min(top + tileSize, height + border)
                 let right = min(left + tileSize, width + border)
 
-                _ = max(top, 0)
-                _ = min(bottom, height)
-                _ = max(left, 0)
-                _ = min(right, width)
-
                 let tileW = right - left
                 let tileH = bottom - top
+
+                // CRITICAL: Guard against negative/zero tile dimensions
+                // which can occur at image edges with certain dimensions.
+                // Skip invalid tiles rather than crashing.
+                guard tileW > 0, tileH > 0,
+                      tileW <= tileSize, tileH <= tileSize
+                else { continue }
 
                 // Extract tile data with borders
                 var tileR = [Float](repeating: 0, count: tileH * tileSize)
@@ -145,7 +149,7 @@ final class RawCAModule: PixelpipeModule {
                     tileW: tileW, tileH: tileH, tileSize: tileSize, border: border
                 )
 
-                let tileIdx = vblock * horizTiles + hblock
+                let tileIdx = vblock * horizontalStarts + hblock
                 blockShifts[tileIdx] = [[shiftV[0], shiftH[0]], [shiftV[1], shiftH[1]]]
                 blockWeights[tileIdx] = weight
             }
@@ -155,7 +159,7 @@ final class RawCAModule: PixelpipeModule {
         let (polyCoeffsR, polyCoeffsB) = fitPolynomialToShifts(
             blockShifts: blockShifts,
             blockWeights: blockWeights,
-            vertTiles: vertTiles, horizTiles: horizTiles
+            vertTiles: verticalStarts, horizTiles: horizontalStarts
         )
 
         // Apply correction
@@ -163,7 +167,7 @@ final class RawCAModule: PixelpipeModule {
             pixelsCopy, width: width, height: height, filters: filters,
             green: green, red: red, blue: blue,
             polyCoeffsR: polyCoeffsR, polyCoeffsB: polyCoeffsB,
-            vertTiles: vertTiles, horizTiles: horizTiles,
+            vertTiles: verticalStarts, horizTiles: horizontalStarts,
             tileSize: tileSize, border2: border2
         )
 
@@ -213,23 +217,32 @@ final class RawCAModule: PixelpipeModule {
         tileR: inout [Float], tileG: inout [Float], tileB: inout [Float],
         tileW: Int, tileH: Int, tileSize: Int, border: Int
     ) {
+        // Only fill borders if tile is large enough to have interior pixels
+        guard tileH > 2 * border, tileW > 2 * border else { return }
+        
         // Top border
         for r in 0..<border {
             for c in 0..<tileSize {
                 let srcR = min(border2 - r, tileH - 1)
-                tileR[r * tileSize + c] = tileR[srcR * tileSize + c]
-                tileG[r * tileSize + c] = tileG[srcR * tileSize + c]
-                tileB[r * tileSize + c] = tileB[srcR * tileSize + c]
+                let dstIdx = r * tileSize + c
+                let srcIdx = srcR * tileSize + c
+                guard srcIdx >= 0 && srcIdx < tileR.count else { continue }
+                tileR[dstIdx] = tileR[srcIdx]
+                tileG[dstIdx] = tileG[srcIdx]
+                tileB[dstIdx] = tileB[srcIdx]
             }
         }
 
         // Bottom border
-        for r in 0..<min(border, tileH - (tileH - border)) {
+        for r in 0..<border {
             let srcR = max(tileH - 1 - r, 0)
             for c in 0..<tileSize {
-                tileR[(tileH - 1 - r) * tileSize + c] = tileR[srcR * tileSize + c]
-                tileG[(tileH - 1 - r) * tileSize + c] = tileG[srcR * tileSize + c]
-                tileB[(tileH - 1 - r) * tileSize + c] = tileB[srcR * tileSize + c]
+                let dstIdx = (tileH - 1 - r) * tileSize + c
+                let srcIdx = srcR * tileSize + c
+                guard dstIdx >= 0 && dstIdx < tileR.count && srcIdx >= 0 && srcIdx < tileR.count else { continue }
+                tileR[dstIdx] = tileR[srcIdx]
+                tileG[dstIdx] = tileG[srcIdx]
+                tileB[dstIdx] = tileB[srcIdx]
             }
         }
 
@@ -237,19 +250,25 @@ final class RawCAModule: PixelpipeModule {
         for r in 0..<tileH {
             for c in 0..<border {
                 let srcC = min(border2 - c, tileSize - 1)
-                tileR[r * tileSize + c] = tileR[r * tileSize + srcC]
-                tileG[r * tileSize + c] = tileG[r * tileSize + srcC]
-                tileB[r * tileSize + c] = tileB[r * tileSize + srcC]
+                let dstIdx = r * tileSize + c
+                let srcIdx = r * tileSize + srcC
+                guard dstIdx >= 0 && dstIdx < tileR.count && srcIdx >= 0 && srcIdx < tileR.count else { continue }
+                tileR[dstIdx] = tileR[srcIdx]
+                tileG[dstIdx] = tileG[srcIdx]
+                tileB[dstIdx] = tileB[srcIdx]
             }
         }
 
         // Right border
         for r in 0..<tileH {
-            for c in 0..<min(border, tileSize - (tileSize - border)) {
+            for c in 0..<border {
                 let srcC = max(tileSize - 1 - c, 0)
-                tileR[r * tileSize + tileSize - 1 - c] = tileR[r * tileSize + srcC]
-                tileG[r * tileSize + tileSize - 1 - c] = tileG[r * tileSize + srcC]
-                tileB[r * tileSize + tileSize - 1 - c] = tileB[r * tileSize + srcC]
+                let dstIdx = r * tileSize + (tileSize - 1 - c)
+                let srcIdx = r * tileSize + srcC
+                guard dstIdx >= 0 && dstIdx < tileR.count && srcIdx >= 0 && srcIdx < tileR.count else { continue }
+                tileR[dstIdx] = tileR[srcIdx]
+                tileG[dstIdx] = tileG[srcIdx]
+                tileB[dstIdx] = tileB[srcIdx]
             }
         }
     }
@@ -262,6 +281,11 @@ final class RawCAModule: PixelpipeModule {
         var shiftV = [Float](repeating: 0, count: 2)  // R, B
         var shiftH = [Float](repeating: 0, count: 2)
         var weight: Float = 0
+
+        // Skip processing if tile is too small for meaningful CA detection
+        guard tileH > 2 * border, tileW > 2 * border else {
+            return (shiftV, shiftH, 0)
+        }
 
         // Compute high-pass filtered color differences
         let tileCount = tileH * tileSize
@@ -276,8 +300,10 @@ final class RawCAModule: PixelpipeModule {
         var rblpfh = [Float](repeating: 0, count: tileCount / 2)
 
         // Process interior of tile (avoiding borders)
-        for r in border..<tileH - border {
-            for c in border..<tileSize - border {
+        for r in border..<(tileH - border) {
+            guard r >= 0, r < tileH else { continue }
+            for c in border..<(tileSize - border) {
+                guard c >= 0, c < tileSize else { continue }
                 let cfa = (r & 1) * 2 + (c & 1)  // Simplified - would use actual CFA
                 if cfa != 1 {  // Only R/B positions
                     let idx = r * tileSize + c
@@ -464,10 +490,4 @@ final class RawCAModule: PixelpipeModule {
     }
 }
 
-// Constants for the module
-private let ts = 128
-private let tsh = 64
-private let border = 8
-private let border2 = 16
-private let eps: Float = 1e-5
-private let eps2: Float = 1e-10
+// Constants for the module - defined at file scope for use across extensions

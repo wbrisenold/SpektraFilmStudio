@@ -4250,9 +4250,16 @@ final class AppModel: ObservableObject {
         if ImageDecoder.isSensorRAW(url) {
             let (mosaic, metadata) = try ImageDecoder.decodeRawSpeedMosaic(url: url, longEdge: longEdge)
             let engine = PixelpipeEngine()
-            return try await engine.execute(
+            var result = try await engine.execute(
                 rawMosaic: mosaic, rawSettings: raw, look: look, metadata: metadata,
                 ciContext: ImageDecoder.sharedCIContext)
+            // RAW mosaics must be demosaiced at full sensor resolution, but the resulting
+            // RGB buffer should be scaled down for previews to match the non-RAW path.
+            // Full-resolution exports keep the native resolution.
+            if longEdge != Int.max {
+                result = try result.resized(longEdge: longEdge)
+            }
+            return result
         } else {
             return try await decoder.decode(
                 url: url,

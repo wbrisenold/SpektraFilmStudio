@@ -47,7 +47,7 @@ extension PixelpipeRegistry {
 
     private func enableSceneReferredFilmic() {
         let modules = [
-            "rawprepare", "whitebalance", "highlights", "cacorrect", "hotpixels",
+            "rawprepare", "whitebalance", "highlights", "hotpixels",
             "rawdenoise", "demosaic", "denoiseprofile", "lens", "exposure",
             "colorin", "colorcalibration", "filmicrgb",
         ]
@@ -56,7 +56,7 @@ extension PixelpipeRegistry {
 
     private func enableSceneReferredAgX() {
         let modules = [
-            "rawprepare", "whitebalance", "highlights", "cacorrect", "hotpixels",
+            "rawprepare", "whitebalance", "highlights", "hotpixels",
             "rawdenoise", "demosaic", "denoiseprofile", "lens", "exposure",
             "colorin", "colorcalibration", "agx",
         ]
@@ -65,7 +65,7 @@ extension PixelpipeRegistry {
 
     private func enableSceneReferredSigmoid() {
         let modules = [
-            "rawprepare", "whitebalance", "highlights", "cacorrect", "hotpixels",
+            "rawprepare", "whitebalance", "highlights", "hotpixels",
             "rawdenoise", "demosaic", "denoiseprofile", "lens", "exposure",
             "colorin", "colorcalibration", "sigmoid",
         ]
