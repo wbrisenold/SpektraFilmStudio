@@ -1,9 +1,10 @@
-import Accelerate
-import CSpektraBridge
-import CoreGraphics
-import Darwin
 import Foundation
+import Darwin
+import CoreGraphics
+import CSpektraBridge
+import Accelerate
 import Metal
+
 
 struct FloatImagePayload: Sendable {
     let width: Int
@@ -27,10 +28,10 @@ struct FloatImagePayload: Sendable {
     func makeCGImage(colorSpace: CGColorSpace) -> CGImage? {
         guard width > 0, height > 0, data.count == expectedByteCount else { return nil }
         guard let provider = CGDataProvider(data: data as CFData) else { return nil }
-        let bitmap = CGBitmapInfo(
-            rawValue:
-                CGImageAlphaInfo.last.rawValue | CGBitmapInfo.floatComponents.rawValue
-                | CGBitmapInfo.byteOrder32Little.rawValue
+        let bitmap = CGBitmapInfo(rawValue:
+            CGImageAlphaInfo.last.rawValue |
+            CGBitmapInfo.floatComponents.rawValue |
+            CGBitmapInfo.byteOrder32Little.rawValue
         )
         return CGImage(
             width: width,
@@ -48,83 +49,10 @@ struct FloatImagePayload: Sendable {
     }
 }
 
-/// Single-channel RAW sensor mosaic (pre-demosaic)
-/// Represents raw CFA data with associated metadata for proper processing
-struct RawMosaicF32: Sendable, PipelineBuffer {
-    var width: Int
-    var height: Int
-    var pixels: [Float]  // width * height samples (one per sensor site)
-    var filters: UInt32  // CFA pattern (Bayer: 0-3 encoding, X-Trans: 9)
-    var xtrans: [[UInt8]]?  // 6x6 X-Trans pattern if filters == 9
-    var blackLevel: [Float]  // Per-channel black levels (4 for Bayer, 9 for X-Trans)
-    var whiteLevel: Float  // Saturation level (per sensor)
-    var cfaPhase: CFAPhase  // CFA origin alignment
-    var orientation: Int  // EXIF orientation (1-8)
-
-    var channels: Int { 1 }
-    var count: Int { width * height }
-
-    init(
-        width: Int,
-        height: Int,
-        pixels: [Float]? = nil,
-        filters: UInt32 = 0,
-        xtrans: [[UInt8]]? = nil,
-        blackLevel: [Float] = [0, 0, 0, 0],
-        whiteLevel: Float = 16383,
-        cfaPhase: CFAPhase = .topLeft,
-        orientation: Int = 1
-    ) {
-        self.width = width
-        self.height = height
-        self.pixels = pixels ?? Array(repeating: 0, count: width * height)
-        self.filters = filters
-        self.xtrans = xtrans
-        self.blackLevel = blackLevel
-        self.whiteLevel = whiteLevel
-        self.cfaPhase = cfaPhase
-        self.orientation = orientation
-    }
-
-    /// Get the CFA channel index (0=R, 1=G, 2=B, 3=G2 for Bayer; 0-2 for X-Trans) at (x, y)
-    func cfaChannel(x: Int, y: Int) -> Int {
-        if filters == 9, let xtrans = xtrans {
-            return Int(xtrans[y % 6][x % 6])
-        }
-        // Bayer: filters encodes 2x2 pattern in 4 2-bit fields
-        let pattern = (filters >> ((y & 1) * 2 + (x & 1)) * 2) & 3
-        return Int(pattern)
-    }
-}
-
-enum CFAPhase: Sendable {
-    case topLeft  // Red at (0,0) for RGGB
-    case topRight  // Red at (0,1) for GRBG
-    case bottomLeft  // Red at (1,0) for GBRG
-    case bottomRight  // Red at (1,1) for BGGR
-
-    static func fromFilters(_ filters: UInt32) -> CFAPhase {
-        // Decode the 2x2 pattern from filters
-        let tl = (filters >> 0) & 3
-        let tr = (filters >> 2) & 3
-        let bl = (filters >> 4) & 3
-
-        // Find where Red (0) is
-        if tl == 0 { return .topLeft }
-        if tr == 0 { return .topRight }
-        if bl == 0 { return .bottomLeft }
-        // bottom-right, including patterns with no red site at all
-        return .bottomRight
-    }
-}
-
-/// Multi-channel image buffer (post-demosaic, scene-linear RGB/RGBA)
-struct PixelBufferF32: Sendable, PipelineBuffer {
+struct PixelBufferF32: Sendable {
     var width: Int
     var height: Int
     var pixels: [Float]
-
-    var channels: Int { 4 }
 
     init(width: Int, height: Int, pixels: [Float]? = nil) {
         self.width = width
@@ -133,9 +61,9 @@ struct PixelBufferF32: Sendable, PipelineBuffer {
     }
 
     func displayCGImage(colorSpace: CGColorSpace? = nil) -> CGImage? {
-        makeCGImage8(
-            colorSpace: colorSpace ?? (CGColorSpace(name: CGColorSpace.itur_709) ?? CGColorSpaceCreateDeviceRGB()))
+        makeCGImage8(colorSpace: colorSpace ?? (CGColorSpace(name: CGColorSpace.itur_709) ?? CGColorSpaceCreateDeviceRGB()))
     }
+
 
     func makeFloatImagePayload() -> FloatImagePayload? {
         guard width > 0, height > 0, pixels.count == width * height * 4 else { return nil }
@@ -163,9 +91,8 @@ struct PixelBufferF32: Sendable, PipelineBuffer {
             bytes.withUnsafeMutableBufferPointer { destination in
                 scratch.withUnsafeMutableBufferPointer { temp in
                     guard let src = source.baseAddress,
-                        let dst = destination.baseAddress,
-                        let tmp = temp.baseAddress
-                    else { return }
+                          let dst = destination.baseAddress,
+                          let tmp = temp.baseAddress else { return }
 
                     var offset = 0
                     while offset < source.count {
@@ -208,9 +135,8 @@ struct PixelBufferF32: Sendable, PipelineBuffer {
             words.withUnsafeMutableBufferPointer { destination in
                 scratch.withUnsafeMutableBufferPointer { temp in
                     guard let src = source.baseAddress,
-                        let dst = destination.baseAddress,
-                        let tmp = temp.baseAddress
-                    else { return }
+                          let dst = destination.baseAddress,
+                          let tmp = temp.baseAddress else { return }
 
                     var offset = 0
                     while offset < source.count {
@@ -273,9 +199,7 @@ actor NativeRenderer {
 
     init(profile: Profile = .exact) throws {
         Self.configurePinnedCorePerformanceDefaults(profile: profile)
-        guard let renderer = SpektraRendererCreate() else {
-            throw RendererError.unavailable("Could not create renderer")
-        }
+        guard let renderer = SpektraRendererCreate() else { throw RendererError.unavailable("Could not create renderer") }
         handle = renderer
         guard SpektraRendererIsAvailable(renderer) != 0 else {
             let message = SpektraRendererLastError(renderer).map(String.init(cString:)) ?? "Unknown Metal error"
@@ -283,6 +207,7 @@ actor NativeRenderer {
             throw RendererError.unavailable(message)
         }
     }
+
 
     /// Configure the pinned native renderer for exact processing. Preview speed is handled by
     /// decode/render caching and by a transient pointer-rate proxy, not by a second approximate
@@ -310,8 +235,7 @@ actor NativeRenderer {
     /// on an Intel machine with both integrated and discrete graphics.
     func preferredMetalDevice() throws -> GPUMetalDeviceToken {
         guard let pointer = SpektraRendererMetalDevice(handle),
-            let device = Unmanaged<AnyObject>.fromOpaque(pointer).takeUnretainedValue() as? (any MTLDevice)
-        else {
+              let device = Unmanaged<AnyObject>.fromOpaque(pointer).takeUnretainedValue() as? (any MTLDevice) else {
             throw RendererError.unavailable("Native film Metal device not available")
         }
         return GPUMetalDeviceToken(device: device)
@@ -333,20 +257,18 @@ actor NativeRenderer {
         if params.halationEnabled != 0 { return "halation" }
         if params.cameraDiffusionEnabled != 0 { return "camera diffusion" }
         if params.printDiffusionEnabled != 0 { return "print diffusion" }
-        if params.dirCouplersAmount > 0 && (params.dirCouplersDiffusionUm > 0 || params.dirCouplersDiffusionTailUm > 0) {
+        if params.dirCouplersAmount > 0 &&
+            (params.dirCouplersDiffusionUm > 0 || params.dirCouplersDiffusionTailUm > 0) {
             return "spatial DIR"
         }
-        if params.scannerEnabled != 0
-            && (params.glarePercent > 0 || params.scannerUnsharpAmount > 0 || params.scannerMtf50LpMm > 0)
-        {
-            return "spatial scanner"
-        }
+        if params.scannerEnabled != 0 &&
+            (params.glarePercent > 0 || params.scannerUnsharpAmount > 0 ||
+             params.scannerMtf50LpMm > 0) { return "spatial scanner" }
         if params.scannerWhiteCorrection != 0 || params.scannerBlackCorrection != 0 {
             return "image-wide scanner statistics"
         }
-        if params.enlargerScale != 1 || params.enlargerOffsetXPercent != 0 || params.enlargerOffsetYPercent != 0 {
-            return "enlarger geometry"
-        }
+        if params.enlargerScale != 1 || params.enlargerOffsetXPercent != 0 ||
+            params.enlargerOffsetYPercent != 0 { return "enlarger geometry" }
         return nil
     }
 
@@ -369,23 +291,21 @@ actor NativeRenderer {
         let queue = resources.queue, width = resources.width, height = resources.height
         try Task.checkCancellation()
         guard width > 0, height > 0, width <= Int(Int32.max) / 16,
-            height <= Int(Int32.max),
-            let byteCount = UInt64(exactly: width).flatMap({ w in
-                UInt64(exactly: height).flatMap({ h in
-                    w.multipliedReportingOverflow(by: h).overflow ? nil : w * h
-                })
-            }).flatMap({ count -> UInt64? in
-                let result = count.multipliedReportingOverflow(by: 16)
-                return result.overflow ? nil : result.partialValue
-            }), byteCount <= UInt64(Int.max),
-            source.length >= Int(byteCount), destination.length >= Int(byteCount),
-            ObjectIdentifier(source.device as AnyObject) == ObjectIdentifier(queue.device as AnyObject),
-            ObjectIdentifier(destination.device as AnyObject) == ObjectIdentifier(queue.device as AnyObject)
-        else {
+              height <= Int(Int32.max),
+              let byteCount = UInt64(exactly: width).flatMap({ w in
+                  UInt64(exactly: height).flatMap({ h in
+                      w.multipliedReportingOverflow(by: h).overflow ? nil : w * h
+                  })
+              }).flatMap({ count -> UInt64? in
+                  let result = count.multipliedReportingOverflow(by: 16)
+                  return result.overflow ? nil : result.partialValue
+              }), byteCount <= UInt64(Int.max),
+              source.length >= Int(byteCount), destination.length >= Int(byteCount),
+              ObjectIdentifier(source.device as AnyObject) == ObjectIdentifier(queue.device as AnyObject),
+              ObjectIdentifier(destination.device as AnyObject) == ObjectIdentifier(queue.device as AnyObject) else {
             throw RendererError.renderFailed("GPU buffer dimensions, length, or device mismatch")
         }
-        SpektraRendererSetPerformanceOptions(
-            handle,
+        SpektraRendererSetPerformanceOptions(handle,
             look.values["fastSpatial"] == .bool(true) ? 1 : 0, 1)
         SpektraRendererSetDensityLutsEnabled(handle, 0)
         var params = SpektraAppMakeDefaultRenderParams()
@@ -409,16 +329,12 @@ actor NativeRenderer {
         }
     }
 
-    func render(
-        _ input: PixelBufferF32, look: RenderLook, time: Double = 0, useDensityLuts: Bool = false,
-        useStageCache: Bool = true
-    ) throws -> (PixelBufferF32, RenderDiagnosticsView) {
+    func render(_ input: PixelBufferF32, look: RenderLook, time: Double = 0, useDensityLuts: Bool = false, useStageCache: Bool = true) throws -> (PixelBufferF32, RenderDiagnosticsView) {
         // A cancelled request that was waiting for the actor must not become another
         // expensive Metal render after it finally reaches the front of the queue.
         try Task.checkCancellation()
 
-        SpektraRendererSetPerformanceOptions(
-            handle,
+        SpektraRendererSetPerformanceOptions(handle,
             look.values["fastSpatial"] == .bool(true) ? 1 : 0, useStageCache ? 1 : 0)
         SpektraRendererSetDensityLutsEnabled(handle, useDensityLuts ? 1 : 0)
         var params = SpektraAppMakeDefaultRenderParams()
@@ -487,19 +403,5 @@ actor NativeRenderer {
                 }
             }
         }
-    }
-}
-
-// MARK: - PipelineBuffer Type Erasure Support
-
-extension PipelineBuffer {
-    /// Attempt to convert to RawMosaicF32
-    var asRawMosaic: RawMosaicF32? {
-        self as? RawMosaicF32
-    }
-
-    /// Attempt to convert to PixelBufferF32
-    var asPixelBuffer: PixelBufferF32? {
-        self as? PixelBufferF32
     }
 }
