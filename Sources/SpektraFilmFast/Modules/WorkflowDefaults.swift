@@ -1,91 +1,8 @@
-// Module registration and auto-apply workflow defaults
+// Minimal WorkflowPreset enum for compatibility.
+// The Darktable v5.0 pipeline modules have been removed.
+// Rendering uses the native ImageDecoder path directly.
 
 import Foundation
-
-extension PixelpipeRegistry {
-    func registerBuiltinModules() {
-        // RAW preparation
-        register(RawPrepareModule())
-        register(WhiteBalanceModule())
-        register(HighlightReconstructionModule())
-        register(HotPixelModule())
-        register(RawDenoiseModule())
-        register(RawCAModule())
-        register(DemosaicModule())
-        register(ExposureModule())
-        register(ColorCalibrationModule())
-
-        // Tone mappers (only one should be enabled at a time)
-        register(FilmicRGBModule())
-        register(AgXModule())
-        register(SigmoidModule())
-
-        // More modules to be added...
-    }
-
-    /// Apply auto-apply pixel workflow defaults (Darktable style)
-    func applyWorkflowDefaults(_ workflow: WorkflowPreset) {
-        // Disable all first. Go through setEnabled so mutation happens under the
-        // registry lock rather than on loop-local copies of the existentials.
-        for module in getAllModules() {
-            setEnabled(module.name, false)
-        }
-
-        switch workflow {
-        case .sceneReferredFilmic:
-            enableSceneReferredFilmic()
-        case .sceneReferredAgX:
-            enableSceneReferredAgX()
-        case .sceneReferredSigmoid:
-            enableSceneReferredSigmoid()
-        case .displayReferredLegacy:
-            enableDisplayReferredLegacy()
-        case .none:
-            enableNone()
-        }
-    }
-
-    private func enableSceneReferredFilmic() {
-        let modules = [
-            "rawprepare", "whitebalance", "highlights", "hotpixels",
-            "rawdenoise", "demosaic", "denoiseprofile", "lens", "exposure",
-            "colorin", "colorcalibration", "filmicrgb",
-        ]
-        for name in modules { setEnabled(name, true) }
-    }
-
-    private func enableSceneReferredAgX() {
-        let modules = [
-            "rawprepare", "whitebalance", "highlights", "hotpixels",
-            "rawdenoise", "demosaic", "denoiseprofile", "lens", "exposure",
-            "colorin", "colorcalibration", "agx",
-        ]
-        for name in modules { setEnabled(name, true) }
-    }
-
-    private func enableSceneReferredSigmoid() {
-        let modules = [
-            "rawprepare", "whitebalance", "highlights", "hotpixels",
-            "rawdenoise", "demosaic", "denoiseprofile", "lens", "exposure",
-            "colorin", "colorcalibration", "sigmoid",
-        ]
-        for name in modules { setEnabled(name, true) }
-    }
-
-    private func enableDisplayReferredLegacy() {
-        let modules = [
-            "rawprepare", "whitebalance", "basecurve",
-        ]
-        for name in modules { setEnabled(name, true) }
-    }
-
-    private func enableNone() {
-        let modules = [
-            "rawprepare", "whitebalance",
-        ]
-        for name in modules { setEnabled(name, true) }
-    }
-}
 
 enum WorkflowPreset: String, CaseIterable, Codable, Sendable, Identifiable {
     var id: String { rawValue }
@@ -98,15 +15,35 @@ enum WorkflowPreset: String, CaseIterable, Codable, Sendable, Identifiable {
     var description: String {
         switch self {
         case .sceneReferredFilmic:
-            return "Scene-referred workflow with Filmic RGB tone mapping (recommended)"
+            return "Scene-referred workflow with Filmic RGB tone mapping"
         case .sceneReferredAgX:
             return "Scene-referred workflow with AgX tone mapping"
         case .sceneReferredSigmoid:
             return "Scene-referred workflow with Sigmoid tone mapping"
         case .displayReferredLegacy:
-            return "Legacy display-referred workflow with Base Curve"
+            return "Legacy display-referred workflow"
         case .none:
-            return "Minimal workflow - only raw preparation"
+            return "Minimal workflow"
         }
     }
+}
+
+// MARK: - PixelpipeRegistry stub (compatibility only)
+// Thread-safe stub since the real registry was removed with the Darktable pipeline.
+
+final class PixelpipeRegistry: @unchecked Sendable {
+    static let shared = PixelpipeRegistry()
+    private let lock = NSLock()
+    private init() {}
+
+    func register(_: any Any) {}
+    func getEnabledModules() -> [any Any] { [] }
+    func getAllModules() -> [any Any] { [] }
+    func module(named _: String) -> (any Any)? { nil }
+    func setEnabled(_: String, _: Bool) {}
+
+    func applyWorkflowDefaults(_: WorkflowPreset) {}
+    func registerBuiltinModules() {}
+    func enableDefaultSceneReferred() {}
+    func registerDefaults() {}
 }

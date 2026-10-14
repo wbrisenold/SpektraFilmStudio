@@ -412,6 +412,17 @@ struct CullWorkspaceView: View {
                             meter("Face focus", cull.faceSharpness)
                         }
                         meter("Exposure", cull.exposureQuality)
+                        meter("Contrast", cull.contrast)
+
+                        if let dr = cull.dynamicRangeStops {
+                            info("Dynamic range", String(format: "%.1f stops", dr))
+                        }
+                        if let ch = cull.colorHarmony {
+                            info("Color harmony", String(format: "%.0f%%", ch * 100))
+                        }
+                        if let comp = cull.compositionScore {
+                            info("Composition", String(format: "%.0f%%", comp * 10))
+                        }
 
                         info("Faces", "\(cull.faceCount)")
                         info(

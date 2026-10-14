@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import Vision
+import ImageIO
 
 // MARK: - Facet-style composition analysis ported from ncoevoet/facet
 // analyzers/composition.py: subject-region detection (edge contour + saliency),

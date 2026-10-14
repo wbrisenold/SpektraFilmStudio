@@ -1,6 +1,60 @@
 {
   "version": 1,
   "skills": {
+    "context-mode": {
+      "source": "mksglu/context-mode",
+      "sourceType": "github",
+      "skillPath": "skills/context-mode/SKILL.md",
+      "computedHash": "1962755c8f5995762dff3e14b1d2703ae15c37e83fb10d5077ce2ddc595538e7"
+    },
+    "context-mode-ops": {
+      "source": "mksglu/context-mode",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/context-mode-ops/SKILL.md",
+      "computedHash": "f8dadffd7296e0e01de5b7b8d467ee96b92bc14c1f9249980ddeac67612e2544"
+    },
+    "ctx-doctor": {
+      "source": "mksglu/context-mode",
+      "sourceType": "github",
+      "skillPath": "skills/ctx-doctor/SKILL.md",
+      "computedHash": "0a3a57087267cb07f85bdf102f6b0778e1464a2e0a3f6383730f4aa2748c8cae"
+    },
+    "ctx-index": {
+      "source": "mksglu/context-mode",
+      "sourceType": "github",
+      "skillPath": "skills/ctx-index/SKILL.md",
+      "computedHash": "dba5f2756b7d23408f140f919bfc468c4af82d05763bd2f7a9c35f8e7b370577"
+    },
+    "ctx-insight": {
+      "source": "mksglu/context-mode",
+      "sourceType": "github",
+      "skillPath": "skills/ctx-insight/SKILL.md",
+      "computedHash": "b0e1ea8adc8cbf74bb72d82703d506be70675fdd3c557c47e6d873d23a7fece6"
+    },
+    "ctx-purge": {
+      "source": "mksglu/context-mode",
+      "sourceType": "github",
+      "skillPath": "skills/ctx-purge/SKILL.md",
+      "computedHash": "885b7538bfb20d315cd200ddd74ae6c621885d5d022dae964391837437b498d3"
+    },
+    "ctx-search": {
+      "source": "mksglu/context-mode",
+      "sourceType": "github",
+      "skillPath": "skills/ctx-search/SKILL.md",
+      "computedHash": "c5f9ef3719d2e0f5d6eb9c972f7bc464b5305b5c8e8e4017e51458a6eecc60c8"
+    },
+    "ctx-stats": {
+      "source": "mksglu/context-mode",
+      "sourceType": "github",
+      "skillPath": "skills/ctx-stats/SKILL.md",
+      "computedHash": "688761c1b6590738855da468c51acd855f19dd686fcd9f14c0e83cc89aaf6008"
+    },
+    "ctx-upgrade": {
+      "source": "mksglu/context-mode",
+      "sourceType": "github",
+      "skillPath": "skills/ctx-upgrade/SKILL.md",
+      "computedHash": "2113c6b0d6dbf0efbac1a611a4bd142be7ca9b3f1431bd5d065806525bd9bcce"
+    },
     "swift-formatstyle": {
       "source": "dpearson2699/swift-ios-skills",
       "sourceType": "github",

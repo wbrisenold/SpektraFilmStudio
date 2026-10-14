@@ -1,5 +1,20 @@
 import SwiftUI
 
+extension String {
+    func uppercasedFirstLetter() -> String {
+        guard let firstChar = self.prefix(1).first else { return self }
+        return String(firstChar).uppercased() + self.dropFirst()
+    }
+}
+
+extension PipeStage {
+    var displayName: String { self.rawValue.uppercasedFirstLetter() }
+}
+
+extension ToneEngineSelection {
+    var displayName: String { self.rawValue.uppercasedFirstLetter() }
+}
+
 struct ControlsView: View {
     @ObservedObject var model: AppModel
     var mode: StudioInspectorMode = .adjust
@@ -79,8 +94,13 @@ struct ControlsView: View {
                     Text("Light").tag("tone")
                     Text("Crop").tag("geometry")
                     Text("Optics").tag("lens")
+                    Text("GPU").tag("pipe")
                 }
                 .pickerStyle(.segmented).padding(.horizontal, 9).padding(.top, 8)
+            }
+            if mode == .adjust && openAdjustment == "pipe" {
+                PipeToggleRow(model: model)
+                PipeParamSliders(model: model)
             }
             if mode == .film {
                 Toggle(
@@ -142,6 +162,15 @@ struct ControlsView: View {
                                     ])
                             {
                                 inspectorSection("Crop & Geometry", id: "geometry") { geometrySection }
+                            }
+                        case "pipe":
+                            if panelVisible("pipe")
+                                && sectionMatches(
+                                    "pipe",
+                                    terms: ["gpu", "nlmeans", "bilateral", "lens", "sigmoid", "agx", "filmic", "pipeline", "denoise"]
+                                )
+                            {
+                                inspectorSection("GPU Filter Pipeline", id: "pipe") { pipeSection }
                             }
                         default:
                             if panelVisible("lens")
@@ -884,6 +913,81 @@ struct ControlsView: View {
         .background(Color.clear)
         .overlay {
             Rectangle().stroke(Color.clear, lineWidth: 0)
+        }
+    }
+
+    private var pipeSection: some View {
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("GPU Filter Pipeline")
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Button {
+                    model.resetPipe()
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                }
+                .buttonStyle(.plain)
+                .help("Reset all GPU pipe stages and params to off/identity.")
+            }
+
+            Text("Live Metal image-processing stages injected after the film pass on the interactive preview path. These are preview-side filters independent of RAW develop denoise and the exact export path.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            ForEach(PipeStage.allCases) { stage in
+                HStack(spacing: 8) {
+                    Toggle(isOn: Binding(
+                        get: { model.selectedLook.pipe?.stages[stage] == true },
+                        set: { model.setPipeStage(stage, enabled: $0) }
+                    )) {
+                        Text(stage.rawValue.uppercasedFirstLetter())
+                            .font(.caption.weight(.medium))
+                    }
+                    .controlSize(.small)
+                    .help(pipeStageHelp(for: stage))
+                    if model.selectedLook.pipe?.stages[stage] == true {
+                        Button("Params") { }
+                            .controlSize(.mini)
+                            .buttonStyle(.bordered)
+                            .help("Adjust this stage's parameters below.")
+                    }
+                }
+            }
+
+            if model.selectedLook.pipe?.toneEngine != .off {
+                Divider().opacity(0.5)
+                HStack {
+                    Text("Tone engine").font(.caption.weight(.medium))
+                    Spacer()
+                    Picker("Tone engine", selection: Binding(
+                        get: { model.selectedLook.pipe?.toneEngine ?? .sigmoid },
+                        set: { model.setPipeToneEngine($0) }
+                    )) {
+                        ForEach(ToneEngineSelection.allCases) { Text($0.rawValue.uppercasedFirstLetter()).tag($0) }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .controlSize(.small)
+                }
+                .help("Active tone-mapping engine for the live preview when a tone stage is enabled.")
+            }
+
+            PipeParamSliders(model: model)
+        }
+        .padding(10)
+        .background(Color.clear)
+    }
+
+    private func pipeStageHelp(for stage: PipeStage) -> String {
+        switch stage {
+        case .nlmeans: return "Non-local means denoise preview. Radius, strength, luma and chroma are adjustable in the sliders below."
+        case .bilateral: return "Bilateral blur preview. Controls spatial radius and per-channel sigma."
+        case .lens: return "Ported Lightamer lens correction preview: distortion, TCA and vignette applied after the film pass."
+        case .sigmoid: return "Sigmoid tone-mapping preview. Replaces the film LUT for the live preview when enabled."
+        case .agx: return "AgX tone-mapping preview. Replaces the film LUT for the live preview when enabled."
+        case .filmicRGB: return "FilmicRGB tone-mapping preview. Replaces the film LUT for the live preview when enabled."
         }
     }
 
@@ -1838,5 +1942,455 @@ private struct ToneCurveEditorView: View {
         next = ToneCurveMath.normalize(next)
         draftPoints = next
         model.setRawDevelopCurvePoints(next, interactive: false)
+    }
+}
+
+// MARK: - GPU Filter Pipeline UI
+
+struct PipeToggleRow: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 8) {
+                ForEach(PipeStage.allCases) { stage in
+                    PipeToggleButton(stage: stage, model: model)
+                }
+            }
+            Text("GPU preview stages: live only — they do not change the settled/export path.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 4)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
+}
+
+struct PipeToggleButton: View {
+    let stage: PipeStage
+    @ObservedObject var model: AppModel
+
+    var isOn: Bool {
+        model.selectedLook.pipe?.stages[stage] == true
+    }
+
+    var body: some View {
+        Button {
+            model.setPipeStage(stage, enabled: !isOn)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: isOn ? "checkmark.square.fill" : "square")
+                    .foregroundStyle(isOn ? .green : .secondary)
+                Text(stage.uppercaseLabel())
+                    .font(.caption.weight(.medium))
+            }
+        }
+        .controlSize(.small)
+        .buttonStyle(.bordered)
+        .help(stage.helpText())
+    }
+}
+
+extension PipeStage {
+    func uppercaseLabel() -> String { self.rawValue.uppercasedFirstLetter() }
+    func helpText() -> String {
+        switch self {
+        case .nlmeans: return "Non-local means denoise preview."
+        case .bilateral: return "Bilateral blur preview."
+        case .lens: return "Ported lens correction preview (distortion + TCA + vignette)."
+        case .sigmoid: return "Sigmoid tone-mapping preview."
+        case .agx: return "AgX tone-mapping preview."
+        case .filmicRGB: return "FilmicRGB tone-mapping preview."
+        }
+    }
+}
+
+struct PipeParamSliders: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Stage Parameters")
+                .font(.caption.weight(.semibold))
+                .padding(.top, 4)
+
+            if let pipe = model.selectedLook.pipe {
+                // NLMeans params
+                if pipe.stages[.nlmeans] == true {
+                    NLMeansParamSliders(model: model, pipe: pipe.nlmeans)
+                }
+                // Bilateral params
+                if pipe.stages[.bilateral] == true {
+                    BilateralParamSliders(model: model, pipe: pipe.bilateral)
+                }
+                // Lens params
+                if pipe.stages[.lens] == true {
+                    LensParamSliders(model: model, pipe: pipe.lens)
+                }
+                // Sigmoid params
+                if pipe.stages[.sigmoid] == true {
+                    SigmoidParamSliders(model: model, pipe: pipe.sigmoid)
+                }
+                // AgX params
+                if pipe.stages[.agx] == true {
+                    AgxParamSliders(model: model, pipe: pipe.agx)
+                }
+                // FilmicRGB params
+                if pipe.stages[.filmicRGB] == true {
+                    FilmicRGBParamSliders(model: model, pipe: pipe.filmicRGB)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Per-stage param sliders
+
+struct NLMeansParamSliders: View {
+    @ObservedObject var model: AppModel
+    let pipe: NLMeansPipeParams
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            PipelineFloatSlider(
+                label: "Radius",
+                value: pipe.radius,
+                range: 1...10,
+                key: "nlmeans.radius",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Strength",
+                value: pipe.strength,
+                range: 1...200,
+                key: "nlmeans.strength",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Luma",
+                value: pipe.luma,
+                range: 0...1,
+                key: "nlmeans.luma",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Chroma",
+                value: pipe.chroma,
+                range: 0...1,
+                key: "nlmeans.chroma",
+                model: model
+            )
+        }
+        .padding(8)
+        .background(StudioPalette.recessed.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+struct BilateralParamSliders: View {
+    @ObservedObject var model: AppModel
+    let pipe: BilateralPipeParams
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            PipelineFloatSlider(
+                label: "Radius",
+                value: pipe.radius,
+                range: 1...50,
+                key: "bilateral.radius",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Red Sigma",
+                value: pipe.redSigma,
+                range: 0...0.05,
+                key: "bilateral.redSigma",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Green Sigma",
+                value: pipe.greenSigma,
+                range: 0...0.05,
+                key: "bilateral.greenSigma",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Blue Sigma",
+                value: pipe.blueSigma,
+                range: 0...0.05,
+                key: "bilateral.blueSigma",
+                model: model
+            )
+        }
+        .padding(8)
+        .background(StudioPalette.recessed.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+struct LensParamSliders: View {
+    @ObservedObject var model: AppModel
+    let pipe: LensPipeParams
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            PipelineFloatSlider(
+                label: "Distortion K1",
+                value: pipe.distortionK1,
+                range: -1...1,
+                key: "lens.distortionK1",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Distortion K2",
+                value: pipe.distortionK2,
+                range: -1...1,
+                key: "lens.distortionK2",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "TCA Red",
+                value: pipe.tcaRed,
+                range: -100...100,
+                key: "lens.tcaRed",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "TCA Blue",
+                value: pipe.tcaBlue,
+                range: -100...100,
+                key: "lens.tcaBlue",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Vignette K1",
+                value: pipe.vignetteK1,
+                range: -1...1,
+                key: "lens.vignetteK1",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Vignette K2",
+                value: pipe.vignetteK2,
+                range: -1...1,
+                key: "lens.vignetteK2",
+                model: model
+            )
+        }
+        .padding(8)
+        .background(StudioPalette.recessed.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+struct SigmoidParamSliders: View {
+    @ObservedObject var model: AppModel
+    let pipe: SigmoidPipeParams
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            PipelineFloatSlider(
+                label: "Contrast",
+                value: pipe.contrast,
+                range: 0.5...4,
+                key: "sigmoid.contrast",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Skewness",
+                value: pipe.skewness,
+                range: -1...1,
+                key: "sigmoid.skewness",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "White Target",
+                value: pipe.whiteTarget,
+                range: 50...200,
+                key: "sigmoid.whiteTarget",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Black Target",
+                value: pipe.blackTarget,
+                range: 0.001...0.1,
+                key: "sigmoid.blackTarget",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Hue Preservation",
+                value: pipe.huePreservation,
+                range: 0...100,
+                key: "sigmoid.huePreservation",
+                model: model
+            )
+        }
+        .padding(8)
+        .background(StudioPalette.recessed.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+struct AgxParamSliders: View {
+    @ObservedObject var model: AppModel
+    let pipe: AgXPipeParams
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            PipelineFloatSlider(
+                label: "Exposure EV",
+                value: pipe.exposureEV,
+                range: -3...3,
+                key: "agx.exposureEV",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Output Power",
+                value: pipe.outputPower,
+                range: 0.5...2,
+                key: "agx.outputPower",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Saturation",
+                value: pipe.saturation,
+                range: 0...2,
+                key: "agx.saturation",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Look Power",
+                value: pipe.lookPower,
+                range: 0.5...2,
+                key: "agx.lookPower",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Log Range EV",
+                value: pipe.logRangeEV,
+                range: 2...12,
+                key: "agx.logRangeEV",
+                model: model
+            )
+            PipelineBoolToggle(
+                label: "Enable Look",
+                key: "agx.enableLook",
+                model: model,
+                getBool: { pipe.enableLook },
+                setBool: { model.setPipeBoolParam(key: "agx.enableLook", value: $0) }
+            )
+            PipelineBoolToggle(
+                label: "Gamut Compression",
+                key: "agx.gamutCompression",
+                model: model,
+                getBool: { pipe.gamutCompression },
+                setBool: { model.setPipeBoolParam(key: "agx.gamutCompression", value: $0) }
+            )
+        }
+        .padding(8)
+        .background(StudioPalette.recessed.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+struct FilmicRGBParamSliders: View {
+    @ObservedObject var model: AppModel
+    let pipe: FilmicRGBPipeParams
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            PipelineFloatSlider(
+                label: "Dynamic Range",
+                value: pipe.dynamicRange,
+                range: 2...15,
+                key: "filmicRGB.dynamicRange",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Black Exposure",
+                value: pipe.blackExposure,
+                range: -1...1,
+                key: "filmicRGB.blackExposure",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Grey Value",
+                value: pipe.greyValue,
+                range: 0.05...0.5,
+                key: "filmicRGB.greyValue",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Output Power",
+                value: pipe.outputPower,
+                range: 0.5...2,
+                key: "filmicRGB.outputPower",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Saturation",
+                value: pipe.saturation,
+                range: -1...1,
+                key: "filmicRGB.saturation",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Type Toe",
+                value: pipe.typeToe,
+                range: 0.5...4,
+                key: "filmicRGB.typeToe",
+                model: model
+            )
+            PipelineFloatSlider(
+                label: "Type Shoulder",
+                value: pipe.typeShoulder,
+                range: 0.5...4,
+                key: "filmicRGB.typeShoulder",
+                model: model
+            )
+        }
+        .padding(8)
+        .background(StudioPalette.recessed.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+// MARK: - Bool toggle for pipe params
+
+struct PipelineBoolToggle: View {
+    let label: String
+    let key: String
+    @ObservedObject var model: AppModel
+    let getBool: () -> Bool
+    let setBool: (Bool) -> Void
+
+    var body: some View {
+        Toggle(isOn: Binding(get: getBool, set: setBool)) {
+            Text(label).font(.caption.weight(.medium))
+        }
+        .controlSize(.small)
+    }
+}
+
+// MARK: - Shared pipeline slider
+
+struct PipelineFloatSlider: View {
+    let label: String
+    let value: Float
+    let range: ClosedRange<Float>
+    let key: String
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+                .frame(width: 80, alignment: .leading)
+            Slider(value: Binding(
+                get: { value },
+                set: { model.setPipeParam(key: key, value: $0) }
+            ), in: range)
+            .controlSize(.small)
+            Text(String(format: "%.3g", value))
+                .font(.caption2.monospacedDigit())
+                .frame(width: 44, alignment: .trailing)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 4)
     }
 }

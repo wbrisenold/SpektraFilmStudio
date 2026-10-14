@@ -3136,6 +3136,140 @@ final class AppModel: ObservableObject {
         scheduleIdleRefinement(changedParameter: "density", delayMilliseconds: 20)
     }
 
+    // MARK: - GPU Filter Pipeline (PipeSettings) setters
+
+    func setPipeStage(_ stage: PipeStage, enabled: Bool) {
+        guard let i = selectedIndex else { return }
+        if gestureWorkingLook == nil { beginEditGesture() }
+        if var working = gestureWorkingLook {
+            if working.pipe == nil { working.pipe = PipeSettings() }
+            working.pipe?.enable(stage, enabled: enabled)
+            gestureWorkingLook = working
+            activeEditChangedParameter = "pipe.\(stage.rawValue)"
+            publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
+        }
+        cancelIdleRefinement()
+        if activeEditBaseline == nil {
+            undoStack.append(project.images[i].look)
+            redoStack.removeAll()
+        }
+        if project.images[i].look.pipe == nil { project.images[i].look.pipe = PipeSettings() }
+        project.images[i].look.pipe?.enable(stage, enabled: enabled)
+        propagateBatchEdit(
+            from: project.images[i].look,
+            activeIndex: i,
+            changedParameter: "pipe.\(stage.rawValue)"
+        )
+        scheduleIdleRefinement(changedParameter: "pipe.\(stage.rawValue)", delayMilliseconds: 30)
+    }
+
+    func setPipeParam(key: String, value: Float) {
+        guard let i = selectedIndex else { return }
+        if gestureWorkingLook == nil { beginEditGesture() }
+        if var working = gestureWorkingLook {
+            if working.pipe == nil { working.pipe = PipeSettings() }
+            setPipeParamInSettings(&working.pipe!, key: key, value: value)
+            gestureWorkingLook = working
+            activeEditChangedParameter = "pipe.\(key)"
+            publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
+        }
+        cancelIdleRefinement()
+        if activeEditBaseline == nil {
+            undoStack.append(project.images[i].look)
+            redoStack.removeAll()
+        }
+        if project.images[i].look.pipe == nil { project.images[i].look.pipe = PipeSettings() }
+        var pipe = project.images[i].look.pipe!
+        setPipeParamInSettings(&pipe, key: key, value: value)
+        project.images[i].look.pipe = pipe
+        propagateBatchEdit(
+            from: project.images[i].look,
+            activeIndex: i,
+            changedParameter: "pipe.\(key)"
+        )
+        scheduleIdleRefinement(changedParameter: "pipe.\(key)", delayMilliseconds: 30)
+    }
+
+    private func setPipeParamInSettings(_ settings: inout PipeSettings, key: String, value: Float) {
+        switch key {
+        case "nlmeans.radius": settings.nlmeans.radius = value
+        case "nlmeans.strength": settings.nlmeans.strength = value
+        case "nlmeans.luma": settings.nlmeans.luma = value
+        case "nlmeans.chroma": settings.nlmeans.chroma = value
+        case "bilateral.radius": settings.bilateral.radius = value
+        case "bilateral.redSigma": settings.bilateral.redSigma = value
+        case "bilateral.greenSigma": settings.bilateral.greenSigma = value
+        case "bilateral.blueSigma": settings.bilateral.blueSigma = value
+        case "lens.distortionK1": settings.lens.distortionK1 = value
+        case "lens.distortionK2": settings.lens.distortionK2 = value
+        case "lens.tcaRed": settings.lens.tcaRed = value
+        case "lens.tcaBlue": settings.lens.tcaBlue = value
+        case "lens.vignetteK1": settings.lens.vignetteK1 = value
+        case "lens.vignetteK2": settings.lens.vignetteK2 = value
+        case "sigmoid.contrast": settings.sigmoid.contrast = value
+        case "sigmoid.skewness": settings.sigmoid.skewness = value
+        case "sigmoid.whiteTarget": settings.sigmoid.whiteTarget = value
+        case "sigmoid.blackTarget": settings.sigmoid.blackTarget = value
+        case "sigmoid.huePreservation": settings.sigmoid.huePreservation = value
+        case "agx.exposureEV": settings.agx.exposureEV = value
+        case "agx.outputPower": settings.agx.outputPower = value
+        case "agx.saturation": settings.agx.saturation = value
+        case "agx.lookPower": settings.agx.lookPower = value
+        case "agx.logRangeEV": settings.agx.logRangeEV = value
+        case "agx.enableLook": settings.agx.enableLook = value != 0
+        case "agx.gamutCompression": settings.agx.gamutCompression = value != 0
+        case "filmicRGB.dynamicRange": settings.filmicRGB.dynamicRange = value
+        case "filmicRGB.blackExposure": settings.filmicRGB.blackExposure = value
+        case "filmicRGB.greyValue": settings.filmicRGB.greyValue = value
+        case "filmicRGB.outputPower": settings.filmicRGB.outputPower = value
+        case "filmicRGB.saturation": settings.filmicRGB.saturation = value
+        case "filmicRGB.typeToe": settings.filmicRGB.typeToe = value
+        case "filmicRGB.typeShoulder": settings.filmicRGB.typeShoulder = value
+        default: return
+        }
+    }
+
+    func setPipeToneEngine(_ engine: ToneEngineSelection) {
+        guard let i = selectedIndex else { return }
+        if gestureWorkingLook == nil { beginEditGesture() }
+        if var working = gestureWorkingLook {
+            if working.pipe == nil { working.pipe = PipeSettings() }
+            working.pipe?.toneEngine = engine
+            gestureWorkingLook = working
+            activeEditChangedParameter = "pipe.toneEngine"
+            publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
+        }
+        cancelIdleRefinement()
+        if activeEditBaseline == nil {
+            undoStack.append(project.images[i].look)
+            redoStack.removeAll()
+        }
+        if project.images[i].look.pipe == nil { project.images[i].look.pipe = PipeSettings() }
+        project.images[i].look.pipe?.toneEngine = engine
+        propagateBatchEdit(
+            from: project.images[i].look,
+            activeIndex: i,
+            changedParameter: "pipe.toneEngine"
+        )
+        scheduleIdleRefinement(changedParameter: "pipe.toneEngine", delayMilliseconds: 30)
+    }
+
+    func resetPipe() {
+        guard let i = selectedIndex else { return }
+        cancelIdleRefinement()
+        undoStack.append(project.images[i].look)
+        redoStack.removeAll()
+        project.images[i].look.pipe = PipeSettings()
+        status = "GPU Pipeline reset"
+        scheduleIdleRefinement(changedParameter: "pipe", delayMilliseconds: 20)
+    }
+
+    func setPipeBoolParam(key: String, value: Bool) {
+        _ = selectedIndex
+        let floatValue: Float = value ? 1 : 0
+        setPipeParam(key: key, value: floatValue)
+    }
+
     func setGeometrySettings(
         interactive: Bool,
         changedParameter: String = "geometry",

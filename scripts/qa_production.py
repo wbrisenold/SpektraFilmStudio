@@ -480,7 +480,7 @@ require(
     "settled RAW WB is not owned by the CIRAWFilter path"
 )
 require(
-    "exactLinear = try await developSceneReferred(" in app,
+    "exactLinear = try await decoder.decode(" in app,
     "Skin WB still chooses its correction from the interactive RGB proxy"
 )
 require(

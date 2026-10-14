@@ -390,6 +390,7 @@ struct ProductionSelfTest {
                 highlightClipPercent: 0,
                 shadowClipPercent: 0,
                 noiseEstimate: 0.05,
+                contrast: 0.72,
                 faceCount: 1,
                 possibleBlink: false,
                 perceptualHash: 0x1234,

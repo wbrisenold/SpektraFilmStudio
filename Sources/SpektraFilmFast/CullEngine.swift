@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import Vision
+import MetalKit
 
 struct DetectedFace: Sendable {
     var bounds: CGRect
@@ -10,6 +11,145 @@ struct DetectedFace: Sendable {
     var rightMouth: CGPoint
     var leftMouth: CGPoint
     var confidence: Double
+}
+
+// MARK: - Facet-style technical metrics ported from ncoevoet/facet
+// analyzers/technical.py: sharpness (Laplacian variance), exposure (clipping),
+// color harmony (HSV entropy), dynamic range (p2/p98 stops), noise (Immerkaer),
+// contrast (percentile + RMS).
+
+// MARK: - Facet-style composition metrics ported from ncoevoet/facet
+// analyzers/composition.py: subject-region detection (edge contour + saliency),
+// rule-of-thirds placement score, leading-lines detection (Hough-like).
+
+extension CullEngine {
+    /// Laplacian-variance sharpness normalized to 0-1, matching Facet's
+    /// ``TechnicalAnalyzer.get_sharpness_score`` (variance / 50, capped at 10)
+    /// then rescaled to our 0-1 range for score blending.
+    private static func facetSharpness(laplacianVariance: Double) -> Double {
+        // Facet: min(10.0, variance / 50.0)  -> 0-10 scale
+        // We map 10 -> 1.0, and treat >= 500 variance as "perfectly sharp"
+        // (Laplacian variance of a crisp 8-bit photo routinely exceeds 500).
+        let raw = min(10.0, laplacianVariance / 50.0)
+        return raw / 10.0
+    }
+
+    /// Facet-style color harmony from HSV hue/sat entropy.
+    /// Mirrors ``TechnicalAnalyzer.get_color_harmony``: 180x256 hue/sat histogram,
+    /// Shannon entropy, scaled so 15.5 bits -> 10.0.
+    private static func facetColorHarmony(rgba: [UInt8], width: Int, height: Int) -> Double {
+        precondition(width > 0 && height > 0)
+        let binH = 180, binS = 256
+        var hist = [Double](repeating: 0, count: binH * binS)
+        for py in 0..<height {
+            for px in 0..<width {
+                let idx = (py * width + px) * 4
+                let r = Double(rgba[idx]) / 255.0
+                let g = Double(rgba[idx + 1]) / 255.0
+                let b = Double(rgba[idx + 2]) / 255.0
+                // RGB -> HSV (Facet uses OpenCV cvtColor BGR->HSV then H/S bins)
+                let mx = max(r, g, b), mn = min(r, g, b)
+                let d = mx - mn
+                let s = mx > 0 ? d / mx : 0
+                var h2: Double
+                if d == 0 { h2 = 0 }
+                else if mx == r { h2 = ((g - b) / d).truncatingRemainder(dividingBy: 6) + (g < b ? 6 : 0) }
+                else if mx == g { h2 = ((b - r) / d) + 2 }
+                else { h2 = ((r - g) / d) + 4 }
+                h2 *= 60
+                if h2 < 0 { h2 += 360 }
+                let hi = Int(h2 / 360.0 * Double(binH)).clamped(to: 0..<binH)
+                let si = Int(s * 255).clamped(to: 0..<binS)
+                hist[hi * binS + si] += 1
+            }
+        }
+        var sum = 0.0
+        for v in hist { sum += v }
+        guard sum > 0 else { return 0 }
+        var entropy = 0.0
+        for v in hist {
+            let p = v / sum
+            if p > 0 { entropy -= p * log2(p) }
+        }
+        // Facet caps at 15.5 bits max entropy for 180*256 bins
+        let normalized = min(10.0, entropy * 10.0 / 15.5)
+        return normalized / 10.0
+    }
+
+    /// Facet-style dynamic range: log2(p98 / max(p2, 1)) on grayscale.
+    /// Mirrors ``TechnicalAnalyzer.get_dynamic_range``.
+    private static func facetDynamicRange(luma: [Double], count: Int) -> Double {
+        guard count > 0 else { return 0 }
+        let sorted = luma.sorted()
+        let p2 = percentile(sorted, p: 0.02)
+        let p98 = percentile(sorted, p: 0.98)
+        let base = max(p2, 1.0)
+        return log2(max(p98, 1.0) / base)
+    }
+
+    /// Facet-style Immerkaer noise estimation on grayscale.
+    /// Mirrors ``TechnicalAnalyzer.get_noise_estimate``.
+    private static func facetNoiseEstimate(luma: [Double], width: Int, height: Int) -> Double {
+        guard width > 2 && height > 2 else { return 0 }
+        let M: [Int] = [-1, 2, -1, 2, -4, 2, -1, 2, -1] // 3x3 Immerkaer kernel
+        var sigma = 0.0
+        for py in 1..<(height - 1) {
+            for px in 1..<(width - 1) {
+                let i = py * width + px
+                var ksum = 0.0
+                ksum += Double(M[0]) * luma[i - width - 1]
+                ksum += Double(M[1]) * luma[i - width]
+                ksum += Double(M[2]) * luma[i - width + 1]
+                ksum += Double(M[3]) * luma[i - 1]
+                ksum += Double(M[4]) * luma[i]
+                ksum += Double(M[5]) * luma[i + 1]
+                ksum += Double(M[6]) * luma[i + width - 1]
+                ksum += Double(M[7]) * luma[i + width]
+                ksum += Double(M[8]) * luma[i + width + 1]
+                sigma += abs(ksum)
+            }
+        }
+        let w = Double(width - 2), h = Double(height - 2)
+        let noise = sigma * sqrt(0.5 * .pi) / (6.0 * w * h)
+        return noise
+    }
+
+    /// Facet-style contrast: percentile (p5/p95) + RMS, from
+    /// ``TechnicalAnalyzer.get_contrast_score``.
+    private static func facetContrast(luma: [Double], count: Int) -> Double {
+        guard count > 0 else { return 0 }
+        let sorted = luma.sorted()
+        let p5 = percentile(sorted, p: 0.05)
+        let p95 = percentile(sorted, p: 0.95)
+        let percentileContrast = (p95 - p5) / 255.0
+        // RMS: std dev / 255
+        let mean = luma.reduce(0, +) / Double(count)
+        var varSum = 0.0
+        for v in luma { varSum += (v - mean) * (v - mean) }
+        let rms = sqrt(varSum / Double(count)) / 255.0
+        // Facet: min(10, percentile*5 + rms*20)
+        return min(10.0, percentileContrast * 5.0 + rms * 20.0) / 10.0
+    }
+
+    /// Percentile of sorted values.
+    private static func percentile(_ sorted: [Double], p: Double) -> Double {
+        guard !sorted.isEmpty else { return 0 }
+        let idx = (Double(sorted.count - 1) * p).rounded(.toNearestOrEven)
+        let i = Int(idx).clamped(to: 0..<sorted.count)
+        return sorted[i]
+    }
+}
+
+extension Int {
+    func clamped(to range: Range<Int>) -> Int {
+        return Swift.min(Swift.max(self, range.lowerBound), range.upperBound - 1)
+    }
+}
+
+extension Double {
+    func clamped(to range: Range<Double>) -> Double {
+        return Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
+    }
 }
 
 actor CullEngine {
@@ -31,6 +171,19 @@ actor CullEngine {
         let faceCaptureQuality = Self.faceCaptureQuality(payload)
         // Learned on-device scene aesthetics, independent of technical sharpness.
         let aestheticScore = Self.aestheticQuality(payload)
+
+        // Facet-style supplementary metrics (computed on the same downsample).
+        let (colorHarmony, dynamicRange, noiseEstimateFacet, contrastFacet) = await Task.detached(priority: .utility) {
+            Self.facetSupplementaryMetrics(payload)
+        }.value
+
+        // Facet-style composition analysis.
+        let subjectRegion = Self.detectSubjectRegion(payload)
+        let (compScore, _, _, _) = Self.placementScore(
+            region: subjectRegion, imgW: payload.width, imgH: payload.height)
+        let (leadingLinesScore, _) = Self.detectLeadingLines(payload)
+        let integratedComp = Self.integrateLeadingLines(
+            baseScore: compScore, leadingLinesScore: leadingLinesScore, hasFaces: face.count > 0)
 
         return try await Task.detached(priority: .utility) {
             try Task.checkCancellation()
@@ -75,6 +228,12 @@ actor CullEngine {
                         : (aestheticScore < -0.30 ? "Lower aesthetic model score" : "Moderate aesthetic model score"))
             }
             if metrics.noise > 0.42 { reasons.append("High fine-detail noise") }
+            if contrastFacet < 0.35 { reasons.append("Low contrast") }
+            if dynamicRange < 5.0 { reasons.append("Narrow dynamic range") }
+            if colorHarmony > 0.65 { reasons.append("Rich color variety") }
+            if noiseEstimateFacet > 8.0 { reasons.append("High sensor noise (Immerkaer)") }
+            if integratedComp >= 7.5 { reasons.append("Strong composition") }
+            else if integratedComp < 4.0 { reasons.append("Weak composition") }
             if reasons.isEmpty { reasons.append("Balanced technical quality") }
 
             let recommendation: CullRecommendation
@@ -95,6 +254,7 @@ actor CullEngine {
                 highlightClipPercent: metrics.highlightClip * 100,
                 shadowClipPercent: metrics.shadowClip * 100,
                 noiseEstimate: metrics.noise,
+                contrast: contrastFacet,
                 faceCount: face.count,
                 possibleBlink: face.possibleBlink,
                 perceptualHash: hash,
@@ -103,11 +263,38 @@ actor CullEngine {
                 stackCount: nil,
                 faceCaptureQuality: faceCaptureQuality,
                 aestheticScore: aestheticScore,
+                expressionScore: nil,
+                eyesOpenScore: nil,
+                compositionScore: integratedComp,
+                dynamicRangeStops: dynamicRange,
+                colorHarmony: colorHarmony,
                 reasons: reasons,
                 analyzedAt: Date()
             )
             return Result(record: record)
         }.value
+    }
+
+    /// Compute Facet-style supplementary metrics from the same thumbnail pixels.
+    /// Returns (colorHarmony 0-1, dynamicRange stops, noise sigma, contrast 0-1).
+    private static func facetSupplementaryMetrics(_ payload: ThumbnailPayload) -> (Double, Double, Double, Double) {
+        let w = payload.width, h = payload.height
+        guard w > 4 && h > 4 else { return (0, 0, 0, 0) }
+        // Build grayscale luma array for DR / noise / contrast.
+        var luma = [Double](repeating: 0, count: w * h)
+        for i in 0..<(w * h) {
+            let p = i * 4
+            let r = Double(payload.rgba[p]) / 255.0
+            let g = Double(payload.rgba[p + 1]) / 255.0
+            let b = Double(payload.rgba[p + 2]) / 255.0
+            luma[i] = (0.2126 * r + 0.7152 * g + 0.0722 * b) * 255.0
+        }
+        // Subsample for color harmony (HSV histogram) — full res is fine for small thumbs.
+        let colorHarmony = facetColorHarmony(rgba: payload.rgba, width: w, height: h)
+        let dynamicRange = facetDynamicRange(luma: luma, count: w * h)
+        let noiseEstimate = facetNoiseEstimate(luma: luma, width: w, height: h)
+        let contrast = facetContrast(luma: luma, count: w * h)
+        return (colorHarmony, dynamicRange, noiseEstimate, contrast)
     }
 
     private struct BasicMetrics {

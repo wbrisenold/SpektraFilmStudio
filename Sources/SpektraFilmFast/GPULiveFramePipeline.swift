@@ -1,7 +1,8 @@
 import CoreGraphics
 import CoreImage
 import Foundation
-import Metal
+import MetalKit
+import simd
 
 // SpektraFilmStudio GPL-3.0 — production-facing experimental live GPU pipeline.
 // No full-frame CPU RGBA readback between RAW development, host grade, spectral
@@ -72,6 +73,7 @@ final class GPULiveDevice: @unchecked Sendable {
     let host: GPUHostGradeEngine
     let lens: LensOpticalMetal
     let effects: RedlampFilmEffectsEngine
+
     private let outputLock = NSLock()
     private var availableOutputTextures: [String: [any MTLTexture]] = [:]
     private var outputPoolBytes = 0
@@ -530,7 +532,7 @@ actor GPULiveFramePipeline {
                 throw GPULiveError.unavailable("Imported LUT selected but file missing")
             }
             let contract = StudioImportedLUT.Contract.legacySRGB
-            try importedLUT?.encode(
+            _ = try importedLUT?.encode(
                 source: graded, destination: filmOutput,
                 width: width, height: height,
                 on: gpu.queue.makeCommandBuffer()!,
@@ -555,8 +557,159 @@ actor GPULiveFramePipeline {
         guard let postCommand = gpu.queue.makeCommandBuffer() else {
             throw GPULiveError.unavailable("Post-film Metal command allocation failed")
         }
-        var result: any MTLBuffer = filmOutput
-        var keepAlive: [any MTLBuffer] = [source, graded, filmOutput]
+        var renderBuffer: any MTLBuffer = filmOutput
+        var renderKeepAlive: [any MTLBuffer] = [source, graded, filmOutput]
+        // Ported Lightamer GPU filter pipeline (PipeSettings). When the user has
+        // enabled any stage in the Cull/Edit UI, inject the enabled stages AFTER the
+        // film pass and BEFORE geometry, on the same serial Metal queue.
+        //
+        // NLMeans/Bilateral are preview-only image-processing filters. The existing
+        // look.raw.denoiseMode gate is left untouched: it still forces the exact
+        // renderer for RAW development, so `supports()` keeps returning false when
+        // denoiseMode != .off. These pipe stages are an opt-in live path.
+        //
+        // Lens here is the *ported Lightamer lens kernel* (distortion + TCA + vignette),
+        // independent of LensOpticalMetal / LensCharacterPanel which live in the
+        // exact/spectral path today. When both are enabled we apply the ported kernel
+        // as a non-destructive preview filter.
+        //
+        // Tone stages (sigmoid/agx/filmicRGB) replace the film LUT for the live preview
+        // only when explicitly selected; they never change the settled/export path.
+        if let pipe = look.pipe, !pipe.isEmpty {
+            // Extra scratch buffers needed for the pipeline: one working buffer per
+            // stage. Borrow from the same scratch pool; the fence still owns them.
+            var pipeScratch: [any MTLBuffer] = []
+            for _ in 1...4 { pipeScratch.append(try borrowScratch(gpu: gpu, width: width, height: height)) }
+            renderKeepAlive.append(contentsOf: pipeScratch)
+            // Single command buffer for the pipeline so all stages submit atomically.
+            guard let pipeCommand = gpu.queue.makeCommandBuffer() else {
+                throw GPULiveError.unavailable("Pipe command allocation failed")
+            }
+            let pipeSource = renderBuffer
+            let pipeDest = pipeScratch[0]
+            let pipeWidth = width
+            let pipeHeight = height
+
+            var pipeTextures: [any MTLTexture] = []                // Convert the current source buffer → texture for the pipe chain.
+                let pipeInputTexture = try gpu.makeOutputTexture(width: pipeWidth, height: pipeHeight)
+                pipeTextures.append(pipeInputTexture)
+                try gpu.encodeBufferToTexture(pipeSource, destination: pipeInputTexture, on: pipeCommand)
+
+                var currentPipeTexture = pipeInputTexture
+                let pipeSettings = pipe
+                let pipeDevice = gpu.device
+
+            // NLMeans denoise (preview-only). Skips if disabled.
+            if pipeSettings.stages[.nlmeans] == true {
+                let nl = NLMeansDenoiseModule(device: gpu.device)
+                nl.commitParams(NLMeansDenoiseModule.Params(
+                    radius: pipeSettings.nlmeans.radius,
+                    strength: pipeSettings.nlmeans.strength,
+                    luma: pipeSettings.nlmeans.luma,
+                    chroma: pipeSettings.nlmeans.chroma
+                ))
+                let nlOutput = try gpu.makeOutputTexture(width: pipeWidth, height: pipeHeight)
+                pipeTextures.append(nlOutput)
+                try nl.encode(commandBuffer: pipeCommand, input: currentPipeTexture, output: nlOutput, width: pipeWidth, height: pipeHeight)
+                currentPipeTexture = nlOutput
+            }
+            // Bilateral blur (preview-only). Skips if disabled.
+            if pipeSettings.stages[.bilateral] == true {
+                let bl = BilateralBlurModule(device: gpu.device)
+                bl.commitParams(BilateralBlurModule.Params(
+                    radius: pipeSettings.bilateral.radius,
+                    redSigma: pipeSettings.bilateral.redSigma,
+                    greenSigma: pipeSettings.bilateral.greenSigma,
+                    blueSigma: pipeSettings.bilateral.blueSigma
+                ))
+                let blOutput = try gpu.makeOutputTexture(width: pipeWidth, height: pipeHeight)
+                pipeTextures.append(blOutput)
+                try bl.encode(commandBuffer: pipeCommand, input: currentPipeTexture, output: blOutput, width: pipeWidth, height: pipeHeight)
+                currentPipeTexture = blOutput
+            }
+            // Ported Lightamer lens correction (distortion + TCA + vignette).
+            if pipeSettings.stages[.lens] == true {
+                let lc = LensCorrectionModule(device: gpu.device)
+                lc.commitParams(LensCorrectionModule.Params(
+                    distortionK1: pipeSettings.lens.distortionK1, distortionK2: pipeSettings.lens.distortionK2,
+                    distortionK3: pipeSettings.lens.distortionK3, distortionK4: pipeSettings.lens.distortionK4,
+                    tcaRed: pipeSettings.lens.tcaRed, tcaBlue: pipeSettings.lens.tcaBlue,
+                    vignetteK1: pipeSettings.lens.vignetteK1, vignetteK2: pipeSettings.lens.vignetteK2,
+                    vignetteK3: pipeSettings.lens.vignetteK3, vignetteK4: pipeSettings.lens.vignetteK4
+                ))
+                let lensOutput = try gpu.makeOutputTexture(width: pipeWidth, height: pipeHeight)
+                pipeTextures.append(lensOutput)
+                try lc.encode(commandBuffer: pipeCommand, input: currentPipeTexture, output: lensOutput, width: pipeWidth, height: pipeHeight)
+                currentPipeTexture = lensOutput
+            }
+            // Tone mapping stage. Exactly ONE of sigmoid/agx/filmicRGB may be active;
+            // the UI enforces that. If none, skip.
+            let engine = pipeSettings.toneEngine
+            if engine != .off {
+                switch engine {
+                case .sigmoid:
+                    if pipeSettings.stages[.sigmoid] == true {
+                        let sg = SigmoidToneModule(device: pipeDevice)
+                        sg.commitParams(SigmoidToneModule.Params(
+                            contrast: pipeSettings.sigmoid.contrast, skewness: pipeSettings.sigmoid.skewness,
+                            whiteTarget: pipeSettings.sigmoid.whiteTarget, blackTarget: pipeSettings.sigmoid.blackTarget,
+                            huePreservation: pipeSettings.sigmoid.huePreservation, basePrimaries: 0
+                        ))
+                        let toneOutput = try gpu.makeOutputTexture(width: pipeWidth, height: pipeHeight)
+                        pipeTextures.append(toneOutput)
+                        try sg.encode(commandBuffer: pipeCommand, input: currentPipeTexture, output: toneOutput)
+                        currentPipeTexture = toneOutput
+                    }
+                case .agx:
+                    if pipeSettings.stages[.agx] == true || true {
+                        let agx = AgXModule(device: pipeDevice)
+                        agx.commitParams(AgXModule.Params(
+                            exposureEV: pipeSettings.agx.exposureEV, outputPower: pipeSettings.agx.outputPower,
+                            saturation: pipeSettings.agx.saturation, huePreservation: pipeSettings.agx.huePreservation,
+                            lookPower: pipeSettings.agx.lookPower, lookSlope: pipeSettings.agx.lookSlope,
+                            lookLift: pipeSettings.agx.lookLift, logRangeEV: pipeSettings.agx.logRangeEV,
+                            logMinEV: pipeSettings.agx.logMinEV, gamutCompression: pipeSettings.agx.gamutCompression,
+                            enableLook: pipeSettings.agx.enableLook, enableHuePreservation: pipeSettings.agx.enableHuePreservation
+                        ))
+                        let toneOutput = try gpu.makeOutputTexture(width: pipeWidth, height: pipeHeight)
+                        pipeTextures.append(toneOutput)
+                        try agx.encode(commandBuffer: pipeCommand, input: currentPipeTexture, output: toneOutput, width: pipeWidth, height: pipeHeight)
+                        currentPipeTexture = toneOutput
+                    }
+                case .filmicRGB:
+                    if pipeSettings.stages[.filmicRGB] == true || true {
+                        let identity3x3 = simd_float3x3(SIMD3<Float>(1, 0, 0), SIMD3<Float>(0, 1, 0), SIMD3<Float>(0, 0, 1))
+                        let fr = FilmicRGBModule(device: pipeDevice)
+                        fr.commitParams(FilmicRGBModule.Params(
+                            dynamicRange: pipeSettings.filmicRGB.dynamicRange, blackExposure: pipeSettings.filmicRGB.blackExposure,
+                            greyValue: pipeSettings.filmicRGB.greyValue, outputPower: pipeSettings.filmicRGB.outputPower,
+                            saturation: pipeSettings.filmicRGB.saturation, normMin: pipeSettings.filmicRGB.normMin,
+                            normMax: pipeSettings.filmicRGB.normMax, latitudeMin: pipeSettings.filmicRGB.latitudeMin,
+                            latitudeMax: pipeSettings.filmicRGB.latitudeMax, displayBlack: pipeSettings.filmicRGB.displayBlack,
+                            displayWhite: pipeSettings.filmicRGB.displayWhite, typeToe: pipeSettings.filmicRGB.typeToe,
+                            typeShoulder: pipeSettings.filmicRGB.typeShoulder,
+                            splineM1: SIMD3<Float>(1, 0, 0), splineM2: SIMD3<Float>(0, 1, 0),
+                            splineM3: SIMD3<Float>(0, 0, 1), splineM4: SIMD3<Float>(0, 0, 0),
+                            splineM5: SIMD3<Float>(0, 0, 0),
+                            inputPrimaries: identity3x3, outputPrimaries: identity3x3
+                        ))
+                        let toneOutput = try gpu.makeOutputTexture(width: pipeWidth, height: pipeHeight)
+                        pipeTextures.append(toneOutput)
+                        try fr.encode(commandBuffer: pipeCommand, input: currentPipeTexture, output: toneOutput, width: pipeWidth, height: pipeHeight)
+                        currentPipeTexture = toneOutput
+                    }
+                case .off:
+                    break
+                }
+            }
+            // Convert the final pipe texture back to a buffer for the geometry pass.
+            try gpu.encodeTextureToBuffer(currentPipeTexture, destination: pipeDest, on: pipeCommand)
+            pipeCommand.commit()
+            try Task.checkCancellation()
+            // After the pipe command completes, pipeDest holds the filtered result.
+            renderBuffer = pipeDest
+            renderKeepAlive.append(pipeScratch[1])
+        }
         let geometry = look.geometry ?? GeometrySettings()
         let hasGeometry = geometry != GeometrySettings()
         let geometrySize = StudioMetalGeometry.targetSize(
@@ -568,14 +721,14 @@ actor GPULiveFramePipeline {
         if hasGeometry {
             if geometryGPU == nil { geometryGPU = try StudioMetalGeometry(device: gpu.device) }
             try geometryGPU?.encode(
-                source: result, destination: texture,
+                source: renderBuffer, destination: texture,
                 width: width, height: height, geometry: geometry, command: postCommand)
         } else {
-            try gpu.encodeBufferToTexture(result, destination: texture, on: postCommand)
+            try gpu.encodeBufferToTexture(renderBuffer, destination: texture, on: postCommand)
         }
         // Keep all upstream buffers alive until the final GPU completion fence.
         // An async continuation, never waitUntilCompleted() on the main thread.
-        let retained = GPUBufferLifetime(keepAlive)
+        let retained = GPUBufferLifetime(renderKeepAlive)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             postCommand.addCompletedHandler { command in
                 withExtendedLifetime(retained) {

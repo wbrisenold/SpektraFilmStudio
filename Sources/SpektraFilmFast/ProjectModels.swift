@@ -64,15 +64,22 @@ struct CullAnalysisRecord: Codable, Equatable, Hashable, Sendable {
     var highlightClipPercent: Double
     var shadowClipPercent: Double
     var noiseEstimate: Double
+    var contrast: Double
     var faceCount: Int
     var possibleBlink: Bool
     var perceptualHash: UInt64
     var stackID: UUID?
     var stackRank: Int?
     var stackCount: Int?
-    // Optional: synthesized Codable remains backward-compatible with old cull cache records.
+    // Facet-style supplementary signals. Optional so old cache records decode
+    // cleanly; synthesized Codable stays backward-compatible with existing cull caches.
     var faceCaptureQuality: Double? = nil
     var aestheticScore: Double? = nil
+    var expressionScore: Double? = nil
+    var eyesOpenScore: Double? = nil
+    var compositionScore: Double? = nil
+    var dynamicRangeStops: Double? = nil
+    var colorHarmony: Double? = nil
     var reasons: [String]
     var analyzedAt: Date
 }
@@ -706,6 +713,12 @@ struct RenderLook: Codable, Equatable, Hashable, Sendable {
     // Stable per-photo selection; old project JSON decodes absent optional IDs as nil.
     var studioLookID: String? = nil
 
+    // Ported Lightamer GPU filter pipeline (NLMeans / Bilateral / Lens / Sigmoid / AgX / FilmicRGB).
+    // Optional so old project/preset JSON decodes cleanly as nil → pipeline off.
+    // When non-nil and at least one stage is enabled, GPULiveFramePipeline injects the
+    // enabled stages after the film pass on the live preview path.
+    var pipe: PipeSettings? = nil
+
     static func defaults(catalog: BridgeCatalog = .shared) -> RenderLook {
         var look = RenderLook(flavor: .pro)
         look.tone = ToneSettings()
@@ -714,6 +727,7 @@ struct RenderLook: Codable, Equatable, Hashable, Sendable {
         look.lensEffects = LensEffectsSettings()
         look.localGrades = []
         look.filmTone = ToneSettings()
+        look.pipe = PipeSettings()
         for descriptor in catalog.parameters {
             look.values[descriptor.name] = descriptor.defaultValue
         }
@@ -728,8 +742,179 @@ struct RenderLook: Codable, Equatable, Hashable, Sendable {
         if lensEffects == nil { lensEffects = LensEffectsSettings() }
         if localGrades == nil { localGrades = [] }
         if filmTone == nil { filmTone = ToneSettings() }
+        if pipe == nil { pipe = PipeSettings() }
         for index in localGrades!.indices { localGrades![index].normalize() }
     }
+}
+
+// MARK: - Ported GPU filter pipeline (Lightamer modules)
+/// Stages the user can enable in the Cull/Edit UI and that GPULiveFramePipeline
+/// injects after the film pass on the live preview path.
+enum PipeStage: String, Codable, CaseIterable, Identifiable, Sendable {
+    case nlmeans = "nlmeans"
+    case bilateral = "bilateral"
+    case lens = "lens"
+    case sigmoid = "sigmoid"
+    case agx = "agx"
+    case filmicRGB = "filmicRGB"
+    var id: String { rawValue }
+}
+
+/// Per-module param blobs. Each module's wrapper owns its own Params type;
+/// this registry holds the active params keyed by stage so the UI and the
+/// render path share one serializable struct.
+struct PipeSettings: Codable, Equatable, Hashable, Sendable {
+    /// Whether each stage is enabled. Off by default.
+    var stages: [PipeStage: Bool] = [:]
+    /// NLMeans params (used when nlmeans enabled).
+    var nlmeans: NLMeansPipeParams = NLMeansPipeParams()
+    /// Bilateral params (used when bilateral enabled).
+    var bilateral: BilateralPipeParams = BilateralPipeParams()
+    /// Lens correction params (used when lens enabled).
+    var lens: LensPipeParams = LensPipeParams()
+    /// Sigmoid tone params (used when sigmoid enabled). When off, the film pass is used.
+    var sigmoid: SigmoidPipeParams = SigmoidPipeParams()
+    /// AgX params (used when agx enabled).
+    var agx: AgXPipeParams = AgXPipeParams()
+    /// FilmicRGB params (used when filmicRGB enabled).
+    var filmicRGB: FilmicRGBPipeParams = FilmicRGBPipeParams()
+    /// Active tone-mapping engine when a tone stage is enabled. Defaults to sigmoid;
+    /// AgX and FilmicRGB are alternatives to the sigmoid stage, not additive to it.
+    var toneEngine: ToneEngineSelection = .sigmoid
+
+    var isEmpty: Bool {
+        stages.values.allSatisfy { !$0 } && nlmeans.isIdentity && bilateral.isIdentity
+            && lens.isIdentity && sigmoid.isIdentity && agx.isIdentity && filmicRGB.isIdentity
+    }
+
+    init() {}
+}
+
+extension PipeSettings {
+    mutating func enable(_ stage: PipeStage, enabled: Bool) {
+        if enabled { stages[stage] = true } else { stages[stage] = false }
+    }
+
+    mutating func reset() {
+        stages = [:]
+        nlmeans = NLMeansPipeParams()
+        bilateral = BilateralPipeParams()
+        lens = LensPipeParams()
+        sigmoid = SigmoidPipeParams()
+        agx = AgXPipeParams()
+        filmicRGB = FilmicRGBPipeParams()
+        toneEngine = .sigmoid
+    }
+}
+
+// MARK: - Per-module pipe param blobs (serializable subsets of each module's Params)
+
+struct NLMeansPipeParams: Codable, Equatable, Hashable, Sendable {
+    var radius: Float = 2
+    var strength: Float = 50
+    var luma: Float = 0.5
+    var chroma: Float = 1.0
+
+    var isIdentity: Bool {
+        radius == 2 && strength == 50 && luma == 0.5 && chroma == 1.0
+    }
+}
+
+struct BilateralPipeParams: Codable, Equatable, Hashable, Sendable {
+    var radius: Float = 15
+    var redSigma: Float = 0.005
+    var greenSigma: Float = 0.005
+    var blueSigma: Float = 0.005
+
+    var isIdentity: Bool {
+        radius == 15 && redSigma == 0.005 && greenSigma == 0.005 && blueSigma == 0.005
+    }
+}
+
+struct LensPipeParams: Codable, Equatable, Hashable, Sendable {
+    var distortionK1: Float = 0
+    var distortionK2: Float = 0
+    var distortionK3: Float = 0
+    var distortionK4: Float = 0
+    var tcaRed: Float = 0
+    var tcaBlue: Float = 0
+    var vignetteK1: Float = 0
+    var vignetteK2: Float = 0
+    var vignetteK3: Float = 0
+    var vignetteK4: Float = 0
+
+    var isIdentity: Bool {
+        distortionK1 == 0 && distortionK2 == 0 && distortionK3 == 0 && distortionK4 == 0
+            && tcaRed == 0 && tcaBlue == 0 && vignetteK1 == 0 && vignetteK2 == 0
+            && vignetteK3 == 0 && vignetteK4 == 0
+    }
+}
+
+struct SigmoidPipeParams: Codable, Equatable, Hashable, Sendable {
+    var contrast: Float = 1.0
+    var skewness: Float = 0.0
+    var whiteTarget: Float = 100.0
+    var blackTarget: Float = 0.01517634
+    var huePreservation: Float = 100.0
+
+    var isIdentity: Bool {
+        contrast == 1.0 && skewness == 0.0 && whiteTarget == 100.0
+            && blackTarget == 0.01517634 && huePreservation == 100.0
+    }
+}
+
+struct AgXPipeParams: Codable, Equatable, Hashable, Sendable {
+    var exposureEV: Float = 0
+    var outputPower: Float = 1.0
+    var saturation: Float = 1.0
+    var huePreservation: Float = 0.0
+    var lookPower: Float = 1.0
+    var lookSlope: Float = 1.0
+    var lookLift: Float = 0.0
+    var logRangeEV: Float = 6.0
+    var logMinEV: Float = -6.0
+    var gamutCompression: Bool = true
+    var enableLook: Bool = false
+    var enableHuePreservation: Bool = false
+
+    var isIdentity: Bool {
+        exposureEV == 0 && outputPower == 1.0 && saturation == 1.0 && huePreservation == 0.0
+            && lookPower == 1.0 && lookSlope == 1.0 && lookLift == 0.0
+            && logRangeEV == 6.0 && logMinEV == -6.0 && gamutCompression == true
+            && enableLook == false && enableHuePreservation == false
+    }
+}
+
+struct FilmicRGBPipeParams: Codable, Equatable, Hashable, Sendable {
+    var dynamicRange: Float = 6.0
+    var blackExposure: Float = 0.0
+    var greyValue: Float = 0.18
+    var outputPower: Float = 1.0
+    var saturation: Float = 0.0
+    var normMin: Float = 0.0
+    var normMax: Float = 1.0
+    var latitudeMin: Float = 0.0
+    var latitudeMax: Float = 1.0
+    var displayBlack: Float = 0.0
+    var displayWhite: Float = 1.0
+    var typeToe: Float = 2.0
+    var typeShoulder: Float = 2.0
+
+    var isIdentity: Bool {
+        dynamicRange == 6.0 && blackExposure == 0.0 && greyValue == 0.18
+            && outputPower == 1.0 && saturation == 0.0 && normMin == 0.0
+            && normMax == 1.0 && latitudeMin == 0.0 && latitudeMax == 1.0
+            && displayBlack == 0.0 && displayWhite == 1.0
+            && typeToe == 2.0 && typeShoulder == 2.0
+    }
+}
+
+enum ToneEngineSelection: String, Codable, CaseIterable, Identifiable, Sendable {
+    case off = "off"
+    case sigmoid = "sigmoid"
+    case agx = "agx"
+    case filmicRGB = "filmicRGB"
+    var id: String { rawValue }
 }
 
 struct PhotoMetadata: Codable, Equatable, Hashable, Sendable {

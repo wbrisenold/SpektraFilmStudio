@@ -208,7 +208,7 @@ kernel void spektra_nlmeans_finish(
     }
 
     public func encode(commandBuffer: MTLCommandBuffer, input: MTLTexture, output: MTLTexture, width: Int, height: Int) throws {
-        guard let buffer = pieceBuffer else { return }
+        guard pieceBuffer != nil else { return }
         let library = try device.makeLibrary(source: Self.kernels, options: nil)
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else { return }
         encoder.setComputePipelineState(try device.makeComputePipelineState(function: library.makeFunction(name: "spektra_nlmeans_lab_forward")!))
