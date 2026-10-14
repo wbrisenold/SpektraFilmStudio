@@ -55,6 +55,12 @@
       "skillPath": "skills/ctx-upgrade/SKILL.md",
       "computedHash": "2113c6b0d6dbf0efbac1a611a4bd142be7ca9b3f1431bd5d065806525bd9bcce"
     },
+    "swift-api-design-guidelines-skill": {
+      "source": "Erikote04/Swift-API-Design-Guidelines-Agent-Skill",
+      "sourceType": "github",
+      "skillPath": "swift-api-design-guidelines-skill/SKILL.md",
+      "computedHash": "aea51903f26bb8771e292a9e5c1ad0d5731224620fd764f7e3db1236e086d356"
+    },
     "swift-formatstyle": {
       "source": "dpearson2699/swift-ios-skills",
       "sourceType": "github",

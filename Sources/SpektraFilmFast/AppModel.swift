@@ -352,11 +352,6 @@ final class AppModel: ObservableObject {
     // Latest-only GPU render queue, independent of CPU image packaging.
     @Published var liveGPUFrame: GPULiveFrame?
     @Published var rendererPathStatus = "Native spectral Metal · exact"
-    @Published var lutPreparationStatus = ""
-    @Published var lutIsPreparing = false
-    private var lutPrewarmTask: Task<Void, Never>?
-    private var lastPreparedLUTSignature: String?
-    private var preparingLUTSignature: String?
     private let gpuLivePipeline = GPULiveFramePipeline()
     private var pendingGPUPreview: GPULivePreviewRequest?
     private var gpuPreviewTask: Task<Void, Never>?
@@ -397,7 +392,7 @@ final class AppModel: ObservableObject {
         configureCaches()
         installCacheVolumeObservers()
 
-        if CommandLine.arguments.contains(where: { ["--picker-smoke-test", "--ux-smoke-test", "--export-smoke-test", "--lut-smoke-test", "--self-test", "--studio-soak-test"].contains($0) }) {
+        if CommandLine.arguments.contains(where: { ["--picker-smoke-test", "--ux-smoke-test", "--export-smoke-test", "--render-integrity-test", "--self-test", "--studio-soak-test"].contains($0) }) {
             didStartProjectWorkflow = true
             return
         }
@@ -1283,7 +1278,6 @@ final class AppModel: ObservableObject {
     // MARK: - Edit gestures
 
     func beginEditGesture() {
-        lutPrewarmTask?.cancel() // Prevent a new LUT bake from contending with live input.
         cancelIdleRefinement()
         if project.preferences.fullResolutionPreview { project.preferences.fullResolutionPreview = false }
         invalidateNativePreviewForInteraction()
@@ -1357,12 +1351,6 @@ final class AppModel: ObservableObject {
         // A new pointer gesture then remains coalesced behind the old GPU fence.
 
         guard let baselineLook, baselineLook != committedLook else { return }
-        if (StudioImportedCubeLUTSettings.isSelected || StudioLooksSettings.isSelected) {
-            // No exact/native settled render after a LUT slider gesture.
-            // Keep using the same GPU-only imported LUT graph for the final value.
-            scheduleGPULivePreview(look: committedLook)
-            return
-        }
         scheduleIdleRefinement(
             baselineRaw: rawField == nil ? nil : baselineLook.raw,
             rawField: rawField,
@@ -1372,20 +1360,7 @@ final class AppModel: ObservableObject {
     }
 
     func setSelectedLooksPack(_ id: String) {
-        guard let i = selectedIndex,
-              id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }),
-              StudioLooksPack.discover(in: URL(fileURLWithPath: UserDefaults.standard.string(forKey: StudioLooksSettings.folderKey) ?? "")).contains(where: { $0.id == id }) else {
-            status = "Select a valid Look pack"
-            return
-        }
-        if project.images[i].look.studioLookID != id {
-            undoStack.append(project.images[i].look)
-            redoStack.removeAll()
-            project.images[i].look.studioLookID = id
-        }
-        UserDefaults.standard.set(id, forKey: StudioLooksSettings.selectedIDKey)
-        UserDefaults.standard.set("looks", forKey: StudioSpectralLUT.setting)
-        rendererPolicyDidChange()
+        status = "Look packs removed — native spectral film is now the only film stage"
     }
 
     func setParameter(_ name: String, value: ParameterValue, interactive: Bool) {
@@ -3234,7 +3209,7 @@ final class AppModel: ObservableObject {
         if gestureWorkingLook == nil { beginEditGesture() }
         if var working = gestureWorkingLook {
             if working.pipe == nil { working.pipe = PipeSettings() }
-            working.pipe?.toneEngine = engine
+            working.pipe?.selectTone(engine)
             gestureWorkingLook = working
             activeEditChangedParameter = "pipe.toneEngine"
             publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
@@ -3245,7 +3220,7 @@ final class AppModel: ObservableObject {
             redoStack.removeAll()
         }
         if project.images[i].look.pipe == nil { project.images[i].look.pipe = PipeSettings() }
-        project.images[i].look.pipe?.toneEngine = engine
+        project.images[i].look.pipe?.selectTone(engine)
         propagateBatchEdit(
             from: project.images[i].look,
             activeIndex: i,
@@ -3689,150 +3664,18 @@ final class AppModel: ObservableObject {
     // MARK: - Latest-render-wins preview scheduler
 
     private func scheduleLUTPrewarm(look: RenderLook, imageID: UUID, immediate: Bool = false) {
-        if (StudioImportedCubeLUTSettings.isSelected || StudioLooksSettings.isSelected) {
-            lutPrewarmTask?.cancel()
-            lutIsPreparing = false
-            lutPreparationStatus = "Imported .cube loaded by Metal on first use; no film LUT baking"
-            return
-        }
-        if StudioImportedLUT.isSelected {
-            lutPrewarmTask?.cancel()
-            lutIsPreparing = false
-            preparingLUTSignature = nil
-            lutPreparationStatus = "Imported LUT already baked · no native LUT preparation"
-            return
-        }
-        // Raw development and host tone changes do not change film chemistry.
-        let signature = StudioSpectralLUT.bakeSignature(for: look)
-        if !immediate, signature != nil, signature == lastPreparedLUTSignature {
-            lutIsPreparing = false
-            lutPreparationStatus = "Ready: cached film LUT unchanged · no rebake"
-            return
-        }
-        if signature != nil, signature == preparingLUTSignature, lutIsPreparing {
-            // Leave an already-running bake alive when only host controls changed.
-            return
-        }
-        lutPrewarmTask?.cancel()
-        lutIsPreparing = false
-        preparingLUTSignature = nil
-        guard StudioSpectralLUT.selectedResolution() != nil else {
-            lutPreparationStatus = "Native mode selected"
-            return
-        }
-        guard GPULiveFramePipeline.supports(look), currentSourceSupportsGPULive,
-              !project.preferences.bypassImportTransform else {
-            lutPreparationStatus = "LUT unavailable for this RAW/effect configuration"
-            return
-        }
-        // Automatic prep yields to interaction; pressing Prepare checks now.
-        // Neither path ever runs from the pointer-rate live render callback.
-        lutPreparationStatus = immediate ? "Checking LUT eligibility…" : "LUT queued for idle check"
-        lutIsPreparing = true
-        preparingLUTSignature = signature
-        lutPrewarmTask = Task(priority: .utility) { [weak self] in
-            guard let self else { return }
-            do {
-                if !immediate { try await Task.sleep(for: .milliseconds(750)) }
-                guard !Task.isCancelled, project.selectedImageID == imageID else { return }
-                if let reason = try await gpuLivePipeline.lutBlockReason(look: look) {
-                    guard !Task.isCancelled else { return }
-                    lutPreparationStatus = "Cannot bake this look: \(reason). Native spectral processing remains active."
-                    if preparingLUTSignature == signature { preparingLUTSignature = nil }
-                    lutIsPreparing = false
-                    return
-                }
-                lutPreparationStatus = "Loading cached LUT or generating film LUT…"
-                let prepared = try await gpuLivePipeline.prewarmLUT(look: look)
-                guard !Task.isCancelled, project.selectedImageID == imageID else { return }
-                let newlyPrepared = prepared != nil && signature != lastPreparedLUTSignature
-                if prepared != nil { lastPreparedLUTSignature = signature }
-                if preparingLUTSignature == signature { preparingLUTSignature = nil }
-                switch prepared {
-                case .inMemory?: lutPreparationStatus = "Ready: GPU LUT already resident · live and settled previews"
-                case .loadedFromDisk?: lutPreparationStatus = "Ready: LUT loaded from disk to GPU · next live edit"
-                case .generatedAndSaved?: lutPreparationStatus = "Ready: LUT generated and saved · next live edit"
-                case .generatedButNotSaved?: lutPreparationStatus = "Ready: GPU LUT generated; disk save failed"
-                case nil: lutPreparationStatus = "Cannot use LUT for current look; see native renderer settings"
-                }
-                lutIsPreparing = false
-                // One refresh when a previously missing LUT first becomes available;
-                // the next settled pass uses its resident texture, not the native renderer.
-                if newlyPrepared && page == .edit && !isRendering,
-                   project.selectedImageID == imageID {
-                    requestPreviewRefresh()
-                }
-            } catch is CancellationError {
-                // Superseded by a newer edit or photo selection.
-                if !Task.isCancelled { lutIsPreparing = false }
-            } catch {
-                if !Task.isCancelled && project.selectedImageID == imageID {
-                    lutPreparationStatus = "LUT preparation failed: \(error.localizedDescription)"
-                    if preparingLUTSignature == signature { preparingLUTSignature = nil }
-                    lutIsPreparing = false
-                }
-            }
-        }
+        // LUT/looks modes removed; no film LUT baking. The native spectral
+        // renderer is always used and does not require prewarm.
     }
 
     func rendererPolicyDidChange() {
-        lutPrewarmTask?.cancel()
-        lutPrewarmTask = nil
-        lutIsPreparing = false
-        lastPreparedLUTSignature = nil
-        preparingLUTSignature = nil
         cancelIdleRefinement()
-        // Request after cancelling prior GPU work. The previous ordering
-        // scheduled a new frame and then cancelled that same request.
-        if StudioImportedLUT.isSelected {
-            if selectedImage != nil { requestPreviewRefresh() }
-            lutPreparationStatus = StudioImportedLUT.selectedURL() == nil
-                ? "Imported LUT missing: choose a file in Settings"
-                : "Imported LUT selected · active on next render"
-            return
-        }
-        // A changed LUT file, shaper, or output profile must never leave an
-        // unrelated frame on the Metal canvas. Also clear imported frames when
-        // returning to the native renderer.
-        gpuPreviewGeneration &+= 1
-        pendingGPUPreview = nil
-        gpuPreviewTask?.cancel()
-        liveGPUFrame = nil
-        guard let selected = selectedImage else {
-            lutPreparationStatus = "Select a photograph to prepare a LUT"
-            return
-        }
-        if (StudioImportedCubeLUTSettings.isSelected || StudioLooksSettings.isSelected) {
-            lutPreparationStatus = StudioLooksSettings.isSelected
-                ? (StudioLooksSettings.selectedPack(for: selectedLook).map { "Looks · \($0.name) · GPU resident after first use" }
-                    ?? "Select a Look pack from the left browser")
-                : (StudioImportedCubeLUTSettings.selectedURL.map {
-                    "Imported .cube · \($0.lastPathComponent) · resident after first GPU use"
-                  } ?? "Choose a .cube file in General > LUT Library")
-            // The prior native CPU frame must not masquerade as the new GPU
-            // output in scope/false-color monitors.
-            editorScopeImage = nil
-            analysisOverlay = nil
-            if currentSourceSupportsGPULive, !project.preferences.bypassImportTransform,
-               GPULiveFramePipeline.supports(selectedLook) {
-                scheduleGPULivePreview(look: selectedLook)
-            }
-            return
-        }
-        // Restore native preview immediately when imported mode is turned off.
-        // A renderer setting is a display identity change, not only a prewarm request.
-        if page == .edit { scheduleRender(interactive: false, reason: "renderer policy changed") }
-        scheduleLUTPrewarm(look: selectedLook, imageID: selected.id)
+        requestPreviewRefresh()
     }
 
-    /// Explicit Settings action: starts immediately and reports the exact reason
-    /// it cannot run; unlike the automatic idle scheduler, it does not sleep.
+    /// LUT modes removed; no film LUT preparation. Kept as a no-op for callers.
     func prepareSelectedFilmLUT() {
-        guard let selected = selectedImage else {
-            lutPreparationStatus = "Select a photo first"
-            return
-        }
-        scheduleLUTPrewarm(look: selectedLook, imageID: selected.id, immediate: true)
+        // LUT modes removed — native spectral film is always used.
     }
 
     func scheduleRender(
@@ -3849,34 +3692,12 @@ final class AppModel: ObservableObject {
     ) {
         guard let image = selectedImage, renderer != nil else { return }
         let previewLook = lookOverride ?? gestureWorkingLook ?? selectedLook
-        if (StudioImportedCubeLUTSettings.isSelected || StudioLooksSettings.isSelected) && !fullResolutionRequest && page == .edit {
-            // A single GPU renderer owns BOTH live and settled 1080px previews.
-            // Never run the native exact-preview queue behind the imported LUT.
-            guard currentSourceSupportsGPULive, !project.preferences.bypassImportTransform,
-                  GPULiveFramePipeline.supports(previewLook) else {
-                // Never leave a pre-edit LUT image on-screen after a rejected
-                // mask/denoise/Auto Contrast state. The ungraded source is a
-                // visible, explicitly labeled safety fallback, not a fake LUT.
-                gpuPreviewGeneration &+= 1
-                pendingGPUPreview = nil
-                gpuPreviewTask?.cancel()
-                liveGPUFrame = nil
-                renderedPreview = sourcePreview
-                editorScopeImage = nil
-                rendererPathStatus = "LOOK ERROR · unsupported GPU edit; original shown"
-                status = "This edit needs the exact Lab renderer; open in Lab"
-                return
-            }
+        if interactive && currentSourceSupportsGPULive &&
+           GPULiveFramePipeline.supports(previewLook) {
             renderGeneration &+= 1
             pendingRenderRequest = nil
             renderLoopTask?.cancel()
             scheduleGPULivePreview(look: previewLook)
-            return
-        }
-        if interactive && currentSourceSupportsGPULive &&
-           GPULiveFramePipeline.supports(previewLook) {
-            // AppModel's live Metal queue supersedes the 720px CPU-packaged
-            // interactive exact render. The normal settled exact render remains.
             return
         }
         if interactive { cancelIdleRefinement() }
@@ -3996,9 +3817,9 @@ final class AppModel: ObservableObject {
             } catch {
                 if request.generation == gpuPreviewGeneration {
                     liveGPUFrame = nil
-                    rendererPathStatus = "LUT ERROR · \(error.localizedDescription)"
+                    rendererPathStatus = "Metal unavailable: \(error.localizedDescription)"
                     editorScopeImage = nil
-                    if (StudioImportedCubeLUTSettings.isSelected || StudioLooksSettings.isSelected), let sourcePreview {
+                    if let sourcePreview {
                         renderedPreview = sourcePreview
                     }
                     status = "Metal live unavailable: \(error.localizedDescription)"
@@ -4150,10 +3971,6 @@ final class AppModel: ObservableObject {
     }
 
     func requestFullResolutionPreview() {
-        if (StudioImportedCubeLUTSettings.isSelected || StudioLooksSettings.isSelected) {
-            status = "Full-resolution imported LUT preview is not implemented; preserving the live Metal preview"
-            return
-        }
         cancelIdleRefinement()
         project.preferences.fullResolutionPreview = true
         scheduleRender(
@@ -4259,34 +4076,11 @@ final class AppModel: ObservableObject {
                 try GPUProcessingFailure.requireSuccess(after: hostCheckpoint)
                 let filmOutput: PixelBufferF32
                 let d: RenderDiagnosticsView
-                if StudioImportedLUT.isSelected {
-                    guard let file = StudioImportedLUT.selectedURL() else {
-                        throw StudioImportedLUT.Failure.invalid("Link and select a LUT in Settings.")
-                    }
-                    let lutStarted = ProcessInfo.processInfo.systemUptime
-                    filmOutput = try await StudioImportedLUTOffline.shared.render(renderInput, file: file)
-                    d = RenderDiagnosticsView(cpuSetupMs: 0, sourceCopyMs: 0,
-                         commandBufferMs: (ProcessInfo.processInfo.systemUptime - lutStarted) * 1000,
-                         outputCopyMs: 0, passCount: 1, uploadBytes: 0)
-                } else {
-                    let lutStart = ProcessInfo.processInfo.systemUptime
-                    let settledLUT = !useFull && !isFastPath && StudioSpectralLUT.selectedResolution() != nil
-                        ? try await gpuLivePipeline.settledCachedFilmLUT(renderInput, look: renderLook)
-                        : nil
-                    if let settledLUT {
-                        filmOutput = settledLUT
-                        d = RenderDiagnosticsView(cpuSetupMs: 0, sourceCopyMs: 0,
-                            commandBufferMs: (ProcessInfo.processInfo.systemUptime - lutStart) * 1000,
-                            outputCopyMs: 0, passCount: 1, uploadBytes: 0)
-                        rendererPathStatus = "Cached film LUT · settled frame"
-                    } else {
-                        let exact = try await activeRenderer.render(renderInput, look: renderLook)
-                        filmOutput = exact.0
-                        d = exact.1
-                        rendererPathStatus = StudioSpectralLUT.selectedResolution() == nil
-                            ? "Native spectral Metal · exact" : "Native spectral Metal · LUT missing or unsupported"
-                    }
-                }
+                let lutStart = ProcessInfo.processInfo.systemUptime
+                let exact = try await activeRenderer.render(renderInput, look: renderLook)
+                filmOutput = exact.0
+                d = exact.1
+                rendererPathStatus = "Native spectral Metal · \(Int((ProcessInfo.processInfo.systemUptime - lutStart) * 1000)) ms"
                 if Task.isCancelled { break }
                 // Geometry is deliberately post-render and color-neutral. Crop/straighten/keystone
                 // therefore never changes SpektraFilm's spectral processing and can be previewed
@@ -4334,7 +4128,7 @@ final class AppModel: ObservableObject {
                     lastSourcePreviewKey = sourceKey
                 }
 
-                let profile = StudioImportedLUT.isSelected ? CGColorSpace(name: CGColorSpace.sRGB)! : OutputColorProfile.forLook(request.look).cgColorSpace
+                let profile = OutputColorProfile.forLook(request.look).cgColorSpace
                 // The O(n) float-array -> Data copy is performed off the main actor. Keeping
                 // this copy away from the event thread is critical for smooth pointer tracking.
                 let renderedPayload = await Task.detached(priority: .userInitiated) {
@@ -4348,12 +4142,7 @@ final class AppModel: ObservableObject {
                     throw RendererError.renderFailed("Could not create preview image")
                 }
                 renderedPreview = newRenderedPreview
-                // An exact settled render must never be labeled as a live LUT frame.
-                if StudioImportedLUT.isSelected {
-                    rendererPathStatus = "Imported film LUT · settled frame"
-                } else if StudioSpectralLUT.selectedResolution() == nil {
-                    rendererPathStatus = "Native spectral Metal · settled exact"
-                }
+                rendererPathStatus = "Native spectral Metal · settled"
                 liveGPUFrame = nil
                 if !request.interactive {
                     updateCloudPreview(photoID: request.imageID, image: newRenderedPreview)
@@ -4437,8 +4226,8 @@ final class AppModel: ObservableObject {
                 }
                 refreshStudioAnalysis(interactive: isFastPath)
                 requestEditorScopeUpdate()
-                if !request.interactive && !useFull && !StudioImportedLUT.isSelected {
-                    scheduleLUTPrewarm(look: request.look, imageID: request.imageID)
+                if !request.interactive && !useFull {
+                    scheduleLUTPrewarm(look: request.look, imageID: request.imageID) // no-op: LUT modes removed
                 }
             } catch is CancellationError {
                 // Cancellation is expected when navigating or closing a project.
@@ -4463,11 +4252,7 @@ final class AppModel: ObservableObject {
     }
 
     private func cancelPreviewForNavigation() {
-        lutPrewarmTask?.cancel()
-        lutPrewarmTask = nil
-        lutIsPreparing = false
         rendererPathStatus = "No active frame"
-        lutPreparationStatus = ""
         cancelIdleRefinement()
         renderGeneration += 1
         pendingRenderRequest = nil
@@ -5552,10 +5337,6 @@ final class AppModel: ObservableObject {
     }
 
     func exportSelected() {
-        guard !StudioImportedCubeLUTSettings.isSelected else {
-            status = "Export blocked: direct .cube export requires a verified output contract"
-            return
-        }
         guard !isExporting, exactRenderer != nil else { return }
         let selected = project.images.filter(\.selectedForExport)
         guard !selected.isEmpty else { status = "No images selected for export"; return }
@@ -5580,10 +5361,6 @@ final class AppModel: ObservableObject {
     }
 
     func exportImage(_ id: UUID, settings: ExportSettings) {
-        guard !StudioImportedCubeLUTSettings.isSelected else {
-            status = "Export blocked: direct .cube export requires a verified output contract"
-            return
-        }
         guard !isExporting, exactRenderer != nil,
               let image = project.images.first(where: { $0.id == id }) else { return }
         var effective = settings
@@ -5989,43 +5766,15 @@ final class AppModel: ObservableObject {
                 try Task.checkCancellation()
 
                 var exportLook = item.look
-                // Looks is produced as encoded sRGB here; ImageIO must
-                // embed the corresponding sRGB ICC profile, not Rec.709 2.4.
-                if job.settings.colorMode == .sRGB || StudioImportedLUT.isSelected || StudioLooksSettings.isSelected {
-                    exportLook.values["outputColorSpace"] = .int(17)
-                    exportLook.values["outputRole"] = .int(0)
-                }
 
                 status = "SpektraFilm simulation (full resolution) · \(item.sourceFileName)"
                 let renderStarted = ProcessInfo.processInfo.systemUptime
                 let filmOutput: PixelBufferF32
                 let renderDiagnostics: RenderDiagnosticsView
-                if StudioLooksSettings.isSelected {
-                    guard let file = StudioLooksSettings.selectedPack(for: item.look)?.cubeURL else {
-                        throw GPULiveError.unavailable("Look pack missing for exported photo")
-                    }
-                    let lutStarted = ProcessInfo.processInfo.systemUptime
-                    filmOutput = try await StudioImportedLUTOffline.shared.render(renderInput,
-                        file: file, looks: item.look, photoSRGB: true)
-                    renderDiagnostics = RenderDiagnosticsView(cpuSetupMs: 0, sourceCopyMs: 0,
-                        commandBufferMs: (ProcessInfo.processInfo.systemUptime - lutStarted) * 1000,
-                        outputCopyMs: 0, passCount: 3, uploadBytes: 0)
-                } else if StudioImportedLUT.isSelected {
-                    guard let file = StudioImportedLUT.selectedURL() else {
-                        throw StudioImportedLUT.Failure.invalid("Selected export LUT is missing.")
-                    }
-                    let lutStarted = ProcessInfo.processInfo.systemUptime
-                    filmOutput = try await StudioImportedLUTOffline.shared.render(renderInput,
-                        file: file, photoSRGB: true)
-                    renderDiagnostics = RenderDiagnosticsView(cpuSetupMs: 0, sourceCopyMs: 0,
-                        commandBufferMs: (ProcessInfo.processInfo.systemUptime - lutStarted) * 1000,
-                        outputCopyMs: 0, passCount: 1, uploadBytes: 0)
-                } else {
-                    let exact = try await exactRenderer.render(renderInput,
-                        look: exportLook, useDensityLuts: false, useStageCache: false)
-                    filmOutput = exact.0
-                    renderDiagnostics = exact.1
-                }
+                let exact = try await exactRenderer.render(renderInput,
+                    look: exportLook, useDensityLuts: false, useStageCache: false)
+                filmOutput = exact.0
+                renderDiagnostics = exact.1
                 timings.renderMs = Self.msSince(renderStarted)
                 timings.renderGpuMs = renderDiagnostics.commandBufferMs
                 timings.renderPassCount = renderDiagnostics.passCount

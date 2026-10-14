@@ -962,7 +962,7 @@ struct ControlsView: View {
                     Text("Tone engine").font(.caption.weight(.medium))
                     Spacer()
                     Picker("Tone engine", selection: Binding(
-                        get: { model.selectedLook.pipe?.toneEngine ?? .sigmoid },
+                        get: { model.selectedLook.pipe?.toneEngine ?? .off },
                         set: { model.setPipeToneEngine($0) }
                     )) {
                         ForEach(ToneEngineSelection.allCases) { Text($0.rawValue.uppercasedFirstLetter()).tag($0) }
@@ -984,10 +984,9 @@ struct ControlsView: View {
         switch stage {
         case .nlmeans: return "Non-local means denoise preview. Radius, strength, luma and chroma are adjustable in the sliders below."
         case .bilateral: return "Bilateral blur preview. Controls spatial radius and per-channel sigma."
-        case .lens: return "Ported Lightamer lens correction preview: distortion, TCA and vignette applied after the film pass."
-        case .sigmoid: return "Sigmoid tone-mapping preview. Replaces the film LUT for the live preview when enabled."
-        case .agx: return "AgX tone-mapping preview. Replaces the film LUT for the live preview when enabled."
-        case .filmicRGB: return "FilmicRGB tone-mapping preview. Replaces the film LUT for the live preview when enabled."
+        case .lens: return "Ported Lightamer lens correction preview: distortion, TCA and vignette applied after the film pass."         case .sigmoid: return "Sigmoid tone-mapping. Applied before the native spectral film stage when enabled."
+         case .agx: return "AgX tone-mapping. Applied before the native spectral film stage when enabled."
+         case .filmicRGB: return "FilmicRGB tone-mapping. Applied before the native spectral film stage when enabled."
         }
     }
 

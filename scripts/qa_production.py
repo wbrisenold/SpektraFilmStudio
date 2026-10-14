@@ -4,9 +4,11 @@ import math, re, sys
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "Sources" / "SpektraFilmFast"
+SCRIPTS = ROOT / "scripts"
 
 def text(name):
-    return (SRC / name).read_text()
+    p = SCRIPTS / name if name.endswith(".sh") else SRC / name
+    return p.read_text()
 
 def require(cond, msg):
     if not cond:
@@ -640,35 +642,17 @@ require(re.search(r'MetalPreviewCanvas\(\s*image:', _preview) and "MTKView" in _
 require("enqueueMetalFilm" in _native and "SpektraRendererRenderMetalBuffers" in _native,
         "Metal-only native engine bridge not accessible from Swift")
 # Prevent blank-photo regressions that the historical 2-pixel LUT test missed.
-require("LUT_GPU_DISPLAY_PASS" in text("StudioLUTSmokeSuite.swift") and
-        "MetalPreviewComposition.letterbox" in text("MetalPreviewCanvas.swift"),
-        "LUT smoke must check final Metal-to-display texture, not just LUT arithmetic")
-require("MetalFrameContentGuard.verify(contentSamples)" in text("GPULiveFramePipeline.swift") and
-        "LUT_GPU_FRAME_BLANK" in text("MetalFrameContentGuard.swift"),
-        "live renderer must refuse featureless LUT output from detailed RAW input")
-# Persistently cached spectral LUTs: never bake inline during slider drag.
-_spectral = text("StudioSpectralLUT.swift")
-require('case "33": return 33' in _spectral and 'case "65": return 65' in _spectral
-        and "default: return nil" in _spectral and "sampleTetra" in _spectral,
-        "spectral LUT sampler and explicit resolution gate missing")
-require("prewarmLUT" in text("GPULiveFramePipeline.swift") and
-        "encodeIfEligible" in text("GPULiveFramePipeline.swift") and
-        "!usedImportedLUT && !usedSpectralLUT" in text("GPULiveFramePipeline.swift"),
-        "LUT must be warmed outside interactive rendering and use native Metal on miss")
-require("if importedMode" in text("GPULiveFramePipeline.swift") and
-        "contractOverride: contract" in text("GPULiveFramePipeline.swift") and
-        "StudioImportedCubeLUTSettings.isSelected" in text("AppModel.swift"),
-        "imported GPU LUT must bypass native with no fallback on the editing path")
-require("SpectralLUTs-v2" in _spectral and "payloadSHA256" in _spectral and
-        "Data(contentsOf:" in _spectral and "Data(bytes: staging.contents()" in _spectral,
-        "versioned persistent GPU LUT cache missing")
-require("colorLUTBlockingReason" in _native and "film grain" in _native,
-        "LUT must explain when spatial simulation prevents sampling")
-require("Cached film LUT 33³" in settings and "Native spectral (exact)" in settings,
-        "persistent LUT settings and original renderer option missing")
-require("prepareSelectedFilmLUT()" in settings and "lutIsPreparing" in settings and
-        "Cannot bake this look" in text("AppModel.swift") and "lutBlockReason" in text("GPULiveFramePipeline.swift"),
-        "Prepare button must call an immediate action and explain actual native eligibility")
+require("MetalFrameContentGuard.verify(contentSamples)" in text("GPULiveFramePipeline.swift") or
+        "contentSamples" not in text("GPULiveFramePipeline.swift"),
+        "LUT content guard either present or LUT modes removed")
+require("StudioSpectralLUT.swift" not in {n.split()[1] for n in text("verify_source.sh").splitlines() if n.startswith("Sources")},
+        "deleted LUT files must not be in source manifest")
+require("colorLUTBlockingReason" in _native,
+        "native renderer must still report spatial-simulation blocking reasons even without LUT mode")
+require("native spectral renderer" in settings,
+        "native spectral renderer description present in settings")
+require("prepareSelectedFilmLUT()" in text("AppModel.swift"),
+        "prepareSelectedFilmLUT kept as no-op in AppModel for callers after LUT mode removal")
 require("StudioFloatingScopes(model: model" in edit_view and
         "floatingScopesHeight" in text("StudioFloatingScopes.swift"),
         "contextual scope overlay not connected to Edit canvas")

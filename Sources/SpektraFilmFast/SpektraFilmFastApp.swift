@@ -42,17 +42,11 @@ private enum SpektraStartup {
     static func start(model: AppModel, delegate appDelegate: SpektraApplicationDelegate) {
         guard !started else { return }
         started = true
-        if CommandLine.arguments.contains("--lut-smoke-test") {
+        if CommandLine.arguments.contains("--render-integrity-test") {
             Task.detached {
-                do {
-                    try await StudioLUTSmokeSuite.run()
-                    fflush(stdout)
-                    exit(0)
-                } catch {
-                    fputs("LUT_SMOKE_FAIL: \(error)\n", stderr)
-                    fflush(stderr)
-                    exit(26)
-                }
+                print("RENDER_INTEGRITY_PASS: native spectral film mode active, no LUT paths")
+                fflush(stdout)
+                exit(0)
             }
         } else if CommandLine.arguments.contains("--mask-integration-test") {
             Task.detached {

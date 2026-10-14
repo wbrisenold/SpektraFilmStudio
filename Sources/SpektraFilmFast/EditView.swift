@@ -21,7 +21,6 @@ struct EditWorkspaceView: View {
     @AppStorage("SpektraFilmStudio.ui.editPhotosMinRating") private var editPhotosMinRating = 0
     @AppStorage("SpektraFilmStudio.ui.editPhotosSort") private var editPhotosSort = "library"
     @State private var editPhotosSearch = ""
-    @AppStorage(StudioSpectralLUT.setting) private var activeRenderMode = "native"
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -68,11 +67,7 @@ struct EditWorkspaceView: View {
                         if editLeftTab == "photos" && showFilmstrip {
                             filmstrip
                         } else {
-                            if activeRenderMode == "looks" {
-                                StudioLooksBrowserView(model: model)
-                            } else {
-                                PresetBrowserView(model: model)
-                            }
+                            PresetBrowserView(model: model)
                         }
                     }
                     .frame(width: StudioLayout.presetSidebarWidth)
@@ -113,9 +108,7 @@ struct EditWorkspaceView: View {
         .onChange(of: showScopes) { _, enabled in
             if enabled { model.requestEditorScopeUpdate() }
         }
-        .onChange(of: activeRenderMode) { _, next in
-            if next == "looks" { editLeftTab = "presets" }
-        }
+
     }
 
     // Edit actions now live in the macOS Workspace / Edit Look / File menus.
@@ -369,7 +362,6 @@ private struct EditorInspectorView: View {
     @ObservedObject var model: AppModel
     @Binding var mode: StudioInspectorMode
     @AppStorage(EditorPanelVisibilityStore.key) private var hiddenEditorPanels = ""
-    @AppStorage(StudioSpectralLUT.setting) private var activeRenderMode = "native"
 
     // The inspector column is for controls only. Scopes live under the canvas so
     // they never steal height from the sliders (Redlamp keeps them out of the rail).
@@ -383,16 +375,10 @@ private struct EditorInspectorView: View {
                 // on the well surface, not a full-width segmented control with
                 // labels. Clicking the active tool returns to Edit, as Redlamp does.
                 HStack(spacing: 4) {
-                    Button("Looks") {
-                        activeRenderMode = "looks"
-                        model.rendererPolicyDidChange()
-                    }
-                    .fontWeight(activeRenderMode == "looks" ? .bold : .regular)
                     Button("Lab") {
-                        activeRenderMode = "native"
                         model.rendererPolicyDidChange()
                     }
-                    .fontWeight(activeRenderMode != "looks" ? .bold : .regular)
+                    .fontWeight(.bold)
                 }
                 .controlSize(.small)
                 .padding(.horizontal, 12)
@@ -429,13 +415,7 @@ private struct EditorInspectorView: View {
                 // scope toggles live in the large monitor dock, outside this inspector.
                 Rectangle().fill(StudioPalette.divider).frame(height: 1)
 
-                Group {
-                    if activeRenderMode == "looks" {
-                        StudioLooksInspectorView(model: model)
-                    } else {
-                        ControlsView(model: model, mode: mode)
-                    }
-                }.frame(maxHeight: .infinity)
+                ControlsView(model: model, mode: mode).frame(maxHeight: .infinity)
 
                 Rectangle().fill(StudioPalette.divider).frame(height: 1)
 

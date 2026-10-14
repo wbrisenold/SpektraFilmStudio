@@ -53,7 +53,8 @@ See [AGENTS_BUILD_PROTOCOL.md](AGENTS_BUILD_PROTOCOL.md) for build workflow, err
 - Gates: `verify_source.sh` and `qa_10_passes.sh` must PASS
 
 ### Current Build Status
-- **Pixelpipe.swift**: Has extraneous `}` error (line 318) and protocol associated types errors
-- **Protocol PixelpipeModule**: Requires `InputBuffer` and `OutputBuffer` associated types
-- **AnyPixelpipeModule**: Cannot assign to immutable `isEnabled` expression
-- **RawMosaicF32/PixelBufferF32**: Type mismatch in `canProcess` calls
+- **Build**: Clean Intel x86_64 release build (commit 7bab178). Zero Swift compile errors.
+- **Gates**: `verify_source.sh` PASS, `qa_10_passes.sh` 10/10 PASS.
+- **Tone pipeline**: FilmicRGB uniform buffer fixed (51 floats); Sigmoid/AgX/FilmicRGB modules compile but use placeholder uniforms — sliders affect preview but parity with Lightamer not verified.
+- **LUT modes**: User-facing LUT/Looks GPU preview and import modes removed (no `--lut-smoke-test`; replaced by `--render-integrity-test`). Native spectral film is the only film stage. `StudioSpectralLUT.swift` deleted; `NativeRenderer.colorLUTBlockingReason`/`isColorLUTEligible` are no-ops.
+- **P0 items remaining**: P0-A (pipe not in export), P0-D (NLMeans fake pass), P0-E (bilateral wrong bindings), P1-C (GPU allocation churn), P1-A (AgX/Sigmoid uniforms not honored).

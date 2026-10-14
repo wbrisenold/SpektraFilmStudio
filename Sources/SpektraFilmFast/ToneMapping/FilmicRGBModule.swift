@@ -355,12 +355,21 @@ kernel void spektra_filmicrgb_v5(
         self.device = device
     }
 
+    private enum UniformLayout {
+        static let floatCount = 51
+        static let laneBase = 11
+        static let toeType = 31
+        static let shoulderType = 32
+        static let matrixIn = 33
+        static let matrixOut = 42
+    }
+
     public func commitParams(_ params: Params) {
         committed = params
-        // Uniform layout: u[0]..u[10], then M1..M5 (each 3 floats: [0]..[2]),
-        // then u[31] type_toe, u[32] type_shoulder, then matrix_in (9 floats), matrix_out (9 floats).
-        // Total = 11 + 15 + 2 + 9 + 9 = 46 floats.
-        var floats = [Float](repeating: 0, count: 46)
+        // Uniform layout: 51 floats (Lightamer contract): u[0]..u[10] scalars,
+        // M1..M5 lanes (5×4=20), u[31] type_toe, u[32] type_shoulder,
+        // matrix_in (9), matrix_out (9).
+        var floats = [Float](repeating: 0, count: UniformLayout.floatCount)
         floats[0] = params.dynamicRange
         floats[1] = params.blackExposure
         floats[2] = params.greyValue
@@ -373,39 +382,34 @@ kernel void spektra_filmicrgb_v5(
         floats[9] = params.displayBlack
         floats[10] = params.displayWhite
 
-        // M1..M5 (each 3 floats)
-        floats[11]  = params.splineM1.x
-        floats[12]  = params.splineM1.y
-        floats[13]  = params.splineM1.z
-        floats[14]  = 0
-        floats[15]  = params.splineM2.x
-        floats[16]  = params.splineM2.y
-        floats[17]  = params.splineM2.z
-        floats[18]  = 0
-        floats[19]  = params.splineM3.x
-        floats[20]  = params.splineM3.y
-        floats[21]  = params.splineM3.z
-        floats[22]  = 0
-        floats[23]  = params.splineM4.x
-        floats[24]  = params.splineM4.y
-        floats[25]  = params.splineM4.z
-        floats[26]  = 0
-        floats[27]  = params.splineM5.x
-        floats[28]  = params.splineM5.y
-        floats[29]  = params.splineM5.z
-        floats[30]  = 0
+        // M1..M5 lanes (each 4 floats: toe, shoulder, linear, pad)
+        let lanes = [params.splineM1, params.splineM2, params.splineM3,
+                     params.splineM4, params.splineM5]
+        for (index, lane) in lanes.enumerated() {
+            let base = UniformLayout.laneBase + index * 4
+            floats[base + 0] = lane.x
+            floats[base + 1] = lane.y
+            floats[base + 2] = lane.z
+            floats[base + 3] = 0
+        }
 
-        floats[31] = params.typeToe
-        floats[32] = params.typeShoulder
+        floats[UniformLayout.toeType] = params.typeToe
+        floats[UniformLayout.shoulderType] = params.typeShoulder
 
         let mIn = params.inputPrimaries
-        floats.replaceSubrange(33..<42, with: [mIn[0].x, mIn[0].y, mIn[0].z,
-                                                mIn[1].x, mIn[1].y, mIn[1].z,
-                                                mIn[2].x, mIn[2].y, mIn[2].z])
+        floats.replaceSubrange(UniformLayout.matrixIn..<(UniformLayout.matrixIn + 9), with: [
+            mIn[0].x, mIn[0].y, mIn[0].z,
+            mIn[1].x, mIn[1].y, mIn[1].z,
+            mIn[2].x, mIn[2].y, mIn[2].z
+        ])
         let mOut = params.outputPrimaries
-        floats.replaceSubrange(42..<51, with: [mOut[0].x, mOut[0].y, mOut[0].z,
-                                                mOut[1].x, mOut[1].y, mOut[1].z,
-                                                mOut[2].x, mOut[2].y, mOut[2].z])
+        floats.replaceSubrange(UniformLayout.matrixOut..<(UniformLayout.matrixOut + 9), with: [
+            mOut[0].x, mOut[0].y, mOut[0].z,
+            mOut[1].x, mOut[1].y, mOut[1].z,
+            mOut[2].x, mOut[2].y, mOut[2].z
+        ])
+
+        precondition(floats.count == UniformLayout.floatCount)
 
         if pieceBuffer == nil {
             pieceBuffer = device.makeBuffer(

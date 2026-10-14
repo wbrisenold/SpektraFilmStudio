@@ -778,12 +778,13 @@ struct PipeSettings: Codable, Equatable, Hashable, Sendable {
     var agx: AgXPipeParams = AgXPipeParams()
     /// FilmicRGB params (used when filmicRGB enabled).
     var filmicRGB: FilmicRGBPipeParams = FilmicRGBPipeParams()
-    /// Active tone-mapping engine when a tone stage is enabled. Defaults to sigmoid;
-    /// AgX and FilmicRGB are alternatives to the sigmoid stage, not additive to it.
-    var toneEngine: ToneEngineSelection = .sigmoid
+    /// Active tone-mapping engine. .off means no tone stage is active.
+    /// AgX and FilmicRGB are alternatives to sigmoid, not additive to it.
+    var toneEngine: ToneEngineSelection = .off
 
     var isEmpty: Bool {
-        stages.values.allSatisfy { !$0 } && nlmeans.isIdentity && bilateral.isIdentity
+        !stages.values.contains(true) && toneEngine == .off
+            && nlmeans.isIdentity && bilateral.isIdentity
             && lens.isIdentity && sigmoid.isIdentity && agx.isIdentity && filmicRGB.isIdentity
     }
 
@@ -791,8 +792,24 @@ struct PipeSettings: Codable, Equatable, Hashable, Sendable {
 }
 
 extension PipeSettings {
+    mutating func selectTone(_ engine: ToneEngineSelection) {
+        toneEngine = engine
+        stages[.sigmoid] = engine == .sigmoid
+        stages[.agx] = engine == .agx
+        stages[.filmicRGB] = engine == .filmicRGB
+    }
+
     mutating func enable(_ stage: PipeStage, enabled: Bool) {
-        if enabled { stages[stage] = true } else { stages[stage] = false }
+        switch stage {
+        case .sigmoid:
+            selectTone(enabled ? .sigmoid : (toneEngine == .sigmoid ? .off : toneEngine))
+        case .agx:
+            selectTone(enabled ? .agx : (toneEngine == .agx ? .off : toneEngine))
+        case .filmicRGB:
+            selectTone(enabled ? .filmicRGB : (toneEngine == .filmicRGB ? .off : toneEngine))
+        default:
+            stages[stage] = enabled
+        }
     }
 
     mutating func reset() {
@@ -803,7 +820,7 @@ extension PipeSettings {
         sigmoid = SigmoidPipeParams()
         agx = AgXPipeParams()
         filmicRGB = FilmicRGBPipeParams()
-        toneEngine = .sigmoid
+        toneEngine = .off
     }
 }
 

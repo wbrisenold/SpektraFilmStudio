@@ -22,12 +22,6 @@ struct SettingsView: View {
     @AppStorage("SpektraFilmStudio.designA.v3.showExportBrowser") private var exportBrowserVisible = true
     @AppStorage("SpektraFilmStudio.ui.collapsedFilmSections") private var collapsedFilmSections = ""
     @AppStorage("SpektraFilmStudio.ai.depthProvider") private var depthProvider = "automatic"
-    @AppStorage(StudioSpectralLUT.setting) private var spectralPreviewLUT = "native"
-    @State private var importedLUTFolder = ""
-    @State private var importedLUTs: [StudioImportedLUT.Item] = []
-    @State private var importedLUTStatus = ""
-    @State private var recordedLUTID: String = ""
-    @State private var recordedLUTItem: StudioImportedLUT.Item?
 
     var body: some View {
         // Redlamp uses the macOS 26 `Tab` API ("Appearance", "Models") rather than
@@ -60,38 +54,6 @@ struct SettingsView: View {
             model.refreshCacheStatus()
             model.rendererPolicyDidChange()
         }
-        .onChange(of: spectralPreviewLUT) { _, _ in model.rendererPolicyDidChange() }
-        .onChange(of: importedLUTFolder) { _, _ in refreshImportedLUTs() }
-        .onChange(of: importedLUTs) { _, _ in syncRecordedLUTItem() }
-        .onAppear { refreshImportedLUTs(); syncRecordedLUTItem() }
-    }
-
-    private func syncRecordedLUTItem() {
-        recordedLUTItem = recordedLUTID.isEmpty ? nil : importedLUTs.first { $0.id == recordedLUTID }
-    }
-
-    private func refreshImportedLUTs() {
-        guard !importedLUTFolder.isEmpty else {
-            importedLUTs = []
-            importedLUTStatus = "Choose a folder with exported .cube LUTs."
-            return
-        }
-        do {
-            importedLUTs = try StudioImportedLUT.discover(
-                folder: URL(fileURLWithPath: importedLUTFolder, isDirectory: true))
-            importedLUTStatus = "Indexed \(importedLUTs.count) LUTs · LUT_Catalog.csv names take priority"
-        } catch {
-            importedLUTs = []
-            importedLUTStatus = error.localizedDescription
-        }
-    }
-
-    private func chooseImportedLUTFolder() {
-        Task { @MainActor in
-            guard let chosen = await SpektraFilePanel.folder(title: "Choose LUT Library Folder") else { return }
-            importedLUTFolder = chosen.standardizedFileURL.path
-            refreshImportedLUTs()
-        }
     }
 
     private var generalTab: some View {
@@ -102,46 +64,10 @@ struct SettingsView: View {
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
-                Picker("Live film renderer", selection: $spectralPreviewLUT) {
-                    Text("Cached film LUT 33³").tag("cached-33")
-                    Text("Native spectral (exact)").tag("native")
-                }
                 Text(
-                    "The editor now uses the native spectral renderer only. Imported LUT and Looks GPU preview paths are no longer part of the Edit preview path."
+                    "The editor uses the native spectral renderer only. Imported LUT and Looks GPU preview paths have been removed."
                 )
                 .font(.caption).foregroundStyle(.secondary)
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("Recorded LUT Library (reference only)")
-                        Spacer()
-                        Button("Choose Folder…") { chooseImportedLUTFolder() }
-                        Button("Rescan") { refreshImportedLUTs() }
-                            .disabled(importedLUTFolder.isEmpty)
-                    }
-                    if !importedLUTFolder.isEmpty {
-                        Text(importedLUTFolder)
-                            .font(.caption2).foregroundStyle(.secondary)
-                            .lineLimit(2).truncationMode(.middle)
-                    }
-                    Picker("Recorded LUT", selection: $recordedLUTID) {
-                        Text("None").tag("")
-                        ForEach(importedLUTs) { item in
-                            Text(item.name).tag(item.id)
-                        }
-                    }
-                    if let item = recordedLUTItem {
-                        Text("Selected LUT: \(item.name)")
-                            .font(.caption2).foregroundStyle(.secondary)
-                    }
-                    Text(importedLUTStatus)
-                        .font(.caption2).foregroundStyle(.secondary)
-                    Button("Prepare LUT") { model.prepareSelectedFilmLUT() }
-                        .disabled(model.lutIsPreparing || recordedLUTItem == nil)
-                    if model.lutIsPreparing {
-                        Text("Preparing LUT…")
-                            .font(.caption2).foregroundStyle(.secondary)
-                    }
-                }
                 Toggle("Paper background", isOn: $model.project.preferences.paperBackground)
                 DisclosureGroup("Advanced color handling") {
                     Toggle("Bypass import color transform", isOn: $model.project.preferences.bypassImportTransform)

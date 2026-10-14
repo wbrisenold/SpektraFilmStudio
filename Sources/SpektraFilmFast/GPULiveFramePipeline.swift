@@ -228,13 +228,9 @@ actor GPULiveFramePipeline {
     // Keep 3 developed RAW GPU textures warm; no RAM float arrays required.
     private var rawCache: [(key: DecodeKey, frame: MetalDevelopedRAW)] = []
     private let rawCacheCapacity = 3
-    private var spectralLUT: StudioSpectralLUT?
-    private var importedLUT: StudioImportedLUTMetal?
-    private var contentGuard: MetalFrameContentGuard?
-    private var looksGPU: StudioLooksGPU?
     private var geometryGPU: StudioMetalGeometry?
     private var importCalibrationGPU: StudioImportCalibrationMetal?
-    private var lastGPUMode = ""
+    private var lastGPUMode = "spectral"
     // SFS_PREFIX_HASH_DIRTY_TAIL_V1
     // Interactive-only dirty-tail cache for the independent prefix (RAW decode →
     // texture conversion + import calibration). Tone/film/lens/effects/geometry
@@ -308,91 +304,11 @@ actor GPULiveFramePipeline {
         scratchResidentBytes = 0
     }
 
-    /// Called before Prepare: returns the actual blocking stage, not a generic
-    /// silent nil.  This does not change the spectral engine's correctness gate.
+    /// Returns the native film renderer's blocking reason, or nil when film runs.
     func lutBlockReason(look: RenderLook) async throws -> String? {
-        if !Self.supports(look) { return "masks, geometry, Auto Contrast, denoise or output role" }
-        if film == nil { film = try NativeRenderer(profile: .exact) }
-        guard let film else { return "native spectral renderer unavailable" }
-        return await film.colorLUTBlockingReason(look: look)
-    }
-
-    /// The only code path permitted to read or create LUT assets. Triggered
-    /// after an idle settled render; never on a pointer-rate live render.
-    func prewarmLUT(look: RenderLook) async throws -> StudioSpectralLUT.Prepared? {
-        guard StudioSpectralLUT.selectedResolution() != nil,
-            Self.supports(look)
-        else { return nil }
-        if film == nil { film = try NativeRenderer(profile: .exact) }
-        guard let film else { return nil }
-        guard await film.isColorLUTEligible(look: look) else { return nil }
-        if gpu == nil {
-            let nativeDevice = try await film.preferredMetalDevice()
-            gpu = try GPULiveDevice(device: nativeDevice.device)
-        }
-        guard let gpu else { return nil }
-        if spectralLUT == nil { spectralLUT = try StudioSpectralLUT(gpu: gpu) }
-        return try await spectralLUT?.prewarm(film: film, look: look)
-    }
-
-    /// Reuse the exact SAME resident film LUT for settled frames. This never
-    /// prepares or bakes LUTs. Missing/ineligible LUTs return nil explicitly.
-    /// The CPU readback is required only by the existing mask/geometry display
-    /// adapter, not by the interactive Metal view.
-    func settledCachedFilmLUT(_ input: PixelBufferF32, look: RenderLook) async throws -> PixelBufferF32? {
-        guard StudioSpectralLUT.selectedResolution() != nil,
-            Self.supports(look), let spectralLUT
-        else { return nil }
-        if film == nil { film = try NativeRenderer(profile: .exact) }
-        guard let film else { return nil }
-        if gpu == nil {
-            let device = try await film.preferredMetalDevice()
-            gpu = try GPULiveDevice(device: device.device)
-        }
-        guard let gpu else { return nil }
-        let count = input.pixels.count
-        guard input.width > 0, input.height > 0,
-            count == input.width * input.height * 4,
-            count <= Int.max / 4
-        else { throw GPULiveError.unavailable("Invalid settled LUT frame") }
-        let bytes = count * MemoryLayout<Float>.stride
-        guard
-            let source = input.pixels.withUnsafeBytes({ data in
-                gpu.device.makeBuffer(bytes: data.baseAddress!, length: bytes, options: .storageModeShared)
-            }),
-            let destination = gpu.device.makeBuffer(length: bytes, options: .storageModeShared)
-        else {
-            throw GPULiveError.unavailable("Settled LUT Metal buffers unavailable")
-        }
-        let used = try await spectralLUT.encodeIfEligible(
-            film: film, look: look,
-            source: source, destination: destination, width: input.width, height: input.height)
-        guard used else { return nil }
-        guard let fence = gpu.queue.makeCommandBuffer() else {
-            throw GPULiveError.unavailable("Settled LUT fence unavailable")
-        }
-        let retained = GPUBufferLifetime([source, destination])
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            fence.addCompletedHandler { completed in
-                withExtendedLifetime(retained) {
-                    if completed.status == .completed {
-                        continuation.resume()
-                    } else {
-                        continuation.resume(
-                            throwing: GPULiveError.unavailable(
-                                completed.error?.localizedDescription ?? "Settled LUT GPU failure"))
-                    }
-                }
-            }
-            fence.commit()  // same FIFO Metal queue; previous LUT kernel completed
-        }
-        try Task.checkCancellation()
-        var pixels = [Float](repeating: 0, count: count)
-        pixels.withUnsafeMutableBytes { dest in
-            dest.baseAddress!.copyMemory(from: destination.contents(), byteCount: bytes)
-        }
-        return PixelBufferF32(width: input.width, height: input.height, pixels: pixels)
-    }
+        guard Self.supports(look) else { return "masks, geometry, Auto Contrast, denoise or output role" }
+        guard film != nil else { return "native spectral renderer unavailable" }
+        return nil    }
 
     func render(
         url: URL, look: RenderLook, bypassImportTransform: Bool,
@@ -407,40 +323,20 @@ actor GPULiveFramePipeline {
         if look.tone?.autoContrast == true || look.filmTone?.autoContrast == true {
             throw GPULiveError.unavailable("Auto Contrast requires full-frame analysis")
         }
-        // Imported .cube is the authoritative FILM stage when selected.
-        // It NEVER initializes or calls NativeRenderer (not even on a cache miss).
-        let usedImportedLUT = StudioImportedCubeLUTSettings.isSelected
-        let useLooks = StudioLooksSettings.isSelected
-        let spectralMode = !usedImportedLUT && !useLooks
-        let modeIdentity = spectralMode ? "spectral" : (usedImportedLUT ? "imported-lut" : "looks")
-        if lastGPUMode != modeIdentity {
-            // Do not reuse GPU-device-specific shader/buffer caches initialized
-            // by a different spectral/looks-imported engine on dual-GPU Intel Macs.
+        // Always run the native spectral film engine; no imported-LUT/looks modes.
+        if lastGPUMode != "spectral" {
             rawCache.removeAll()
             prefixCache = nil
             gpu = nil
-            importedLUT = nil
-            spectralLUT = nil
-            looksGPU = nil
             geometryGPU = nil
             importCalibrationGPU = nil
-            lastGPUMode = modeIdentity
+            lastGPUMode = "spectral"
         }
-        if !usedImportedLUT && film == nil { film = try NativeRenderer(profile: .exact) }
+        if film == nil { film = try NativeRenderer(profile: .exact) }
         if gpu == nil {
-            if usedImportedLUT || useLooks {
-                guard let device = StudioGPUDevice.shared else {
-                    throw GPULiveError.unavailable("Metal GPU unavailable for imported LUT")
-                }
-                gpu = try GPULiveDevice(device: device)
-            } else {
-                guard let film else { throw GPULiveError.unavailable("Native film engine unavailable") }
-                let nativeDevice = try await film.preferredMetalDevice()
-                gpu = try GPULiveDevice(device: nativeDevice.device)
-            }
-        }
-        if contentGuard == nil {
-            contentGuard = try MetalFrameContentGuard(device: gpu!.device)
+            guard let film else { throw GPULiveError.unavailable("Native film engine unavailable") }
+            let nativeDevice = try await film.preferredMetalDevice()
+            gpu = try GPULiveDevice(device: nativeDevice.device)
         }
         guard let gpu else { throw GPULiveError.unavailable("Metal device unavailable") }
         let key = DecodeKey(
@@ -505,55 +401,16 @@ actor GPULiveFramePipeline {
             source: source, destination: graded, on: preCommand,
             width: width, height: height,
             tone: look.tone, density: look.colorDensity, film: look.filmTone)
-        let importedMode = usedImportedLUT
-        if useLooks {
-            if looksGPU == nil { looksGPU = try StudioLooksGPU(device: gpu.device) }
-            try looksGPU?.encodePre(graded, width: width, height: height, look: look, command: preCommand)
-        }
         preCommand.commit()
         try Task.checkCancellation()
-        // Only ALREADY GPU-resident LUTs may run during slider movement.
-        // A cold/missing LUT uses native Metal immediately, never bakes inline.
-        let resolution = StudioSpectralLUT.selectedResolution()
         let renderedStart = ProcessInfo.processInfo.systemUptime
         guard let film else { throw GPULiveError.unavailable("Native film engine unavailable") }
-        var usedSpectralLUT = false
-        if !usedImportedLUT && !useLooks && resolution != nil, let spectralLUT {
-            do {
-                usedSpectralLUT = try await spectralLUT.encodeIfEligible(
-                    film: film, look: look, source: graded, destination: filmOutput,
-                    width: width, height: height)
-            } catch is CancellationError { throw CancellationError() } catch { usedSpectralLUT = false }
-        }
-        let lutMiss = !usedImportedLUT && !usedSpectralLUT
-        if importedMode {
-            if importedLUT == nil { importedLUT = try StudioImportedLUTMetal(gpu: gpu) }
-            guard let lutFile = StudioImportedCubeLUTSettings.selectedURL else {
-                throw GPULiveError.unavailable("Imported LUT selected but file missing")
-            }
-            let contract = StudioImportedLUT.Contract.legacySRGB
-            _ = try importedLUT?.encode(
+        try await film.enqueueMetalFilm(
+            GPUMetalFilmIO(
                 source: graded, destination: filmOutput,
-                width: width, height: height,
-                on: gpu.queue.makeCommandBuffer()!,
-                file: lutFile, contractOverride: contract)
-        } else if lutMiss {
-            try await film.enqueueMetalFilm(
-                GPUMetalFilmIO(
-                    source: graded, destination: filmOutput,
-                    queue: gpu.queue, width: width, height: height), look: look)
-        }
+                queue: gpu.queue, width: width, height: height), look: look)
         try Task.checkCancellation()
-        // LUT_GPU_DISPLAY_PASS: refuse featureless LUT output from detailed RAW input.
         var contentSamples: (any MTLBuffer)?
-        if let contentGuard {
-            if let encoded = try? contentGuard.encode(
-                before: source, after: filmOutput,
-                width: width, height: height, on: gpu.queue.makeCommandBuffer()!)
-            {
-                contentSamples = encoded
-            }
-        }
         guard let postCommand = gpu.queue.makeCommandBuffer() else {
             throw GPULiveError.unavailable("Post-film Metal command allocation failed")
         }
@@ -750,16 +607,7 @@ actor GPULiveFramePipeline {
         try Task.checkCancellation()
         let elapsed = (ProcessInfo.processInfo.systemUptime - renderedStart) * 1000.0
         let label: String
-        if usedSpectralLUT {
-            label = "Cached spectral LUT \(resolution ?? 33)³ · \(Int(elapsed.rounded())) ms"
-        } else if let resolution {
-            let blocked = await film.colorLUTBlockingReason(look: look)
-            label =
-                blocked.map { "Native Metal · LUT blocked (\($0))" }
-                ?? "Native Metal · LUT \(resolution)³ not yet cached"
-        } else {
-            label = "Native spectral Metal · \(Int(elapsed.rounded())) ms"
-        }
+        label = "Native spectral Metal · \(Int(elapsed.rounded())) ms"
         return GPULiveFrame(
             texture: texture,
             colorSpace: OutputColorProfile.forLook(look).cgColorSpace,

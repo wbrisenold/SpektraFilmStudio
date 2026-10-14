@@ -18,7 +18,6 @@ def main():
     ui=src('ExportView.swift')
     sheet=src('StudioRedlampExportDialog.swift')
     delivery=src('StudioExportPreview.swift')
-    lut=src('StudioSpectralLUT.swift')
     preview=src('GPULiveFramePipeline.swift')
     controls=src('StudioUI.swift')
     check('StudioExportEvents.open' in shell and 'studio.export.dialog' in shell,

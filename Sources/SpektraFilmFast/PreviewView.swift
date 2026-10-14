@@ -23,31 +23,23 @@ struct PreviewView: View {
             ZStack {
                 viewerBackground
 
-                if let image = model.showingBefore
+                let previewImage: CGImage? = model.showingBefore
                     ? frameState.sourcePreview
-                    : (frameState.renderedPreview
-                        ?? ((StudioImportedCubeLUTSettings.isSelected || StudioLooksSettings.isSelected)
-                            ? frameState.sourcePreview : nil))
-                {
+                    : (frameState.renderedPreview ?? frameState.sourcePreview)
+                if let image = previewImage {
+                    let canvasImage: CGImage = model.showingBefore ? image : (redlampCompositedFrame ?? image)
+                    let canvasLiveFrame = model.showingBefore ? nil : model.liveGPUFrame
+                    let aspectRatio: CGFloat = {
+                        let w: Int = canvasLiveFrame?.texture.width ?? image.width
+                        let h: Int = image.height
+                        return CGFloat(w) / CGFloat(max(1, h))
+                    }()
                     ZStack {
-                        // Redlamp-derived mask is composited in the image itself, not an
-                        // independent translucent view whose size can drift after crop.
                         MetalPreviewCanvas(
-                            image: model.showingBefore ? image : (redlampCompositedFrame ?? image),
-                            liveFrame: model.showingBefore ? nil : model.liveGPUFrame
+                            image: canvasImage,
+                            liveFrame: canvasLiveFrame
                         )
-                        .aspectRatio(
-                            CGFloat(
-                                model.showingBefore
-                                    ? image.width
-                                    : model.liveGPUFrame?.texture.width ?? image.width)
-                                / CGFloat(
-                                    max(
-                                        1,
-                                        model.showingBefore
-                                            ? image.height
-                                            : model.liveGPUFrame?.texture.height ?? image.height)), contentMode: .fit
-                        )
+                        .aspectRatio(aspectRatio, contentMode: .fit)
                         // Overlay follows exactly the displayed image's layout, not
                         // the size proposed by the outer viewer ZStack.
                         .overlay {
@@ -68,7 +60,7 @@ struct PreviewView: View {
                                     .background(.regularMaterial, in: Capsule())
                                     .padding(10)
                                     .allowsHitTesting(false)
-                                    .help(model.lutPreparationStatus)
+                                    .help("Native spectral film")
                             }
                         }
 

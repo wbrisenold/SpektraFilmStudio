@@ -129,30 +129,18 @@ extension AppModel {
                 url: effectiveSourceURL(for: image), longEdge: AppPreferences.editProxyLongEdge,
                 raw: look.raw, bypassImportTransform: project.preferences.bypassImportTransform,
                 cacheMode: cacheMemoryMode)
-            let graded = await Task.detached(priority: .utility) {
-                base.applyingHostGrade(tone: look.tone, density: look.colorDensity).applyingFilmExposureShape(
-                    look.filmTone)
-            }.value
-            let film: PixelBufferF32
-            if StudioImportedLUT.isSelected {
-                guard let file = StudioImportedLUT.selectedURL() else { return nil }
-                film = try await StudioImportedLUTOffline.shared.render(graded, file: file)
-            } else {
-                film = try await activeRenderer.render(graded, look: look).0
-            }
+            let graded = base.applyingHostGrade(tone: look.tone, density: look.colorDensity).applyingFilmExposureShape(
+                look.filmTone)
+            let film = try await activeRenderer.render(graded, look: look).0
             let prefs = project.preferences
-            let output = await Task.detached(priority: .utility) {
-                ExposureBoundaryEngine.apply(
-                    GeometryEngine.transformed(
-                        LensCharacterEngine.apply(
-                            MaskedLocalGradeEngine.apply(film, grades: look.localGrades), settings: look.lensEffects),
-                        settings: look.geometry), look: look, preferences: prefs)
-            }.value
-            let space =
-                StudioImportedLUT.isSelected
-                ? CGColorSpace(name: CGColorSpace.sRGB)! : OutputColorProfile.forLook(look).cgColorSpace
-            return output.makeFloatImagePayload()?.makeCGImage(colorSpace: space)
-                ?? output.makeCGImage8(colorSpace: space)
+            let output = ExposureBoundaryEngine.apply(
+                GeometryEngine.transformed(
+                    LensCharacterEngine.apply(
+                        MaskedLocalGradeEngine.apply(film, grades: look.localGrades), settings: look.lensEffects),
+                    settings: look.geometry), look: look, preferences: prefs)
+            return output.makeFloatImagePayload()?.makeCGImage(colorSpace: OutputColorProfile.forLook(look).cgColorSpace)
+                ?? output.makeCGImage8(colorSpace: OutputColorProfile.forLook(look).cgColorSpace)
         } catch { return nil }
     }
 }
+
