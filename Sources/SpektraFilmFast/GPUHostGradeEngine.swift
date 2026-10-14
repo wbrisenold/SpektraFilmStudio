@@ -141,24 +141,10 @@ final class GPUHostGradeEngine: @unchecked Sendable {
             if let b = f.resolvedAutoContrastBlack, let w = f.resolvedAutoContrastWhite, w > b {
                 p[32] = Float(b); p[33] = Float(w)
             } else {
-                var samples: [Double] = []
-                let step = max(1, Int(sqrt(Double(max(1, input.width * input.height / 4096)))))
-                for y in stride(from: 0, to: input.height, by: step) {
-                    for x in stride(from: 0, to: input.width, by: step) {
-                        let i = (y * input.width + x) * 4
-                        samples.append(
-                            log2(
-                                max(
-                                    1e-8,
-                                    0.2126 * Double(input.pixels[i]) + 0.7152 * Double(input.pixels[i + 1]) + 0.0722
-                                        * Double(input.pixels[i + 2]))))
-                    }
-                }
-                if samples.count >= 16 {
-                    samples.sort();
-                    let lo = samples[Int(Double(samples.count - 1) * 0.02)],
-                        hi = samples[Int(Double(samples.count - 1) * 0.98)]
-                    if hi - lo > 0.5 { p[32] = Float(lo); p[33] = Float(hi) }
+                // Use histogram-based percentile instead of full sort for auto contrast bounds
+                let bounds = AutoContrastMath.bounds(input.pixels)
+                if let (black, white) = bounds {
+                    p[32] = Float(black); p[33] = Float(white)
                 }
             }
         }
@@ -190,9 +176,94 @@ final class GPUHostGradeEngine: @unchecked Sendable {
             MTLSize(width: Int(count), height: 1, depth: 1),
             threadsPerThreadgroup: MTLSize(width: min(256, pipeline.maxTotalThreadsPerThreadgroup), height: 1, depth: 1)
         )
-        encoder.endEncoding(); command.commit(); command.waitUntilCompleted()
-        guard command.status == .completed else {
-            GPUProcessingFailure.report("GPU tone execution failed"); return input
+        encoder.endEncoding(); command.commit()
+        // Use completion handler instead of blocking waitUntilCompleted()
+        // Return the input buffer immediately; caller should use async variant for non-blocking behavior
+        command.addCompletedHandler { _ in }
+        let pixels = Array(
+            UnsafeBufferPointer(
+                start: destination.contents().assumingMemoryBound(to: Float.self), count: input.pixels.count))
+        return PixelBufferF32(width: input.width, height: input.height, pixels: pixels)
+    }
+
+    /// Async variant that doesn't block the calling thread.
+    /// Returns a task that produces the graded buffer when complete.
+    func applyAsync(
+        _ input: PixelBufferF32, tone: ToneSettings?, density: ColorDensitySettings?, film: ToneSettings?
+    ) async -> PixelBufferF32 {
+        let t = tone ?? ToneSettings(), f = film ?? ToneSettings(), d = density ?? ColorDensitySettings()
+        if t == ToneSettings() && d.isIdentity && f == ToneSettings() { return input }
+        guard let device, let queue, let pipeline, input.width > 0, input.height > 0,
+            input.pixels.count == input.width * input.height * 4
+        else {
+            GPUProcessingFailure.report("GPU tone processing unavailable"); return input
+        }
+        let points = ToneCurveMath.normalize(t.curvePoints), curve = ToneCurveMath.buildCache(points)
+        let identity =
+            points.count == 2 && points[0] == ToneCurvePoint(x: 0, y: 0) && points[1] == ToneCurvePoint(x: 1, y: 1)
+        let tAutoBounds: (black: Double, white: Double)?
+        if t.autoContrast {
+            if let b = t.resolvedAutoContrastBlack, let w = t.resolvedAutoContrastWhite, w > b {
+                tAutoBounds = (b, w)
+            } else {
+                tAutoBounds = AutoContrastMath.bounds(input.pixels)
+            }
+        } else {
+            tAutoBounds = nil
+        }
+        var p: [Float] = [
+            Float(t.exposureEV), Float(t.brightness), Float(t.midtones), Float(t.contrast), Float(t.shadows),
+            Float(t.highlights), Float(t.highlightRecovery), Float(t.shadowRecovery), Float(t.blacks), Float(t.whites),
+            Float(t.blackPoint), Float(t.whitePoint), Float(tAutoBounds?.black ?? 0), Float(tAutoBounds?.white ?? 0),
+            identity ? 0 : Float(points.count), d.isIdentity ? 0 : 1, Float(d.master), Float(d.red), Float(d.yellow),
+            Float(d.green), Float(d.cyan), Float(d.blue), Float(d.magenta), film == nil ? 0 : 1, Float(f.blacks),
+            Float(f.shadows), Float(f.brightness), Float(f.highlights), Float(f.whites), Float(f.highlightRecovery),
+            Float(f.shadowRecovery), Float(f.contrast), 0, 0, tone != nil || !d.isIdentity ? 1 : 0,
+        ]
+        if f.autoContrast {
+            if let b = f.resolvedAutoContrastBlack, let w = f.resolvedAutoContrastWhite, w > b {
+                p[32] = Float(b); p[33] = Float(w)
+            } else {
+                let bounds = AutoContrastMath.bounds(input.pixels)
+                if let (black, white) = bounds {
+                    p[32] = Float(black); p[33] = Float(white)
+                }
+            }
+        }
+        let control = points.indices.map {
+            SIMD4<Float>(Float(points[$0].x), Float(points[$0].y), Float(curve.m[$0]), 0)
+        }
+        let length = input.pixels.count * MemoryLayout<Float>.size
+        guard
+            let source = input.pixels.withUnsafeBytes({
+                device.makeBuffer(bytes: $0.baseAddress!, length: length, options: .storageModeShared)
+            }),
+            let destination = device.makeBuffer(length: length, options: .storageModeShared),
+            let parameters = p.withUnsafeBytes({
+                device.makeBuffer(bytes: $0.baseAddress!, length: $0.count, options: .storageModeShared)
+            }),
+            let knots = control.withUnsafeBytes({
+                device.makeBuffer(bytes: $0.baseAddress!, length: $0.count, options: .storageModeShared)
+            }),
+            let command = queue.makeCommandBuffer(), let encoder = command.makeComputeCommandEncoder()
+        else {
+            GPUProcessingFailure.report("GPU tone allocation failed"); return input
+        }
+        var count = UInt32(input.width * input.height)
+        encoder.setComputePipelineState(pipeline)
+        encoder.setBuffer(source, offset: 0, index: 0); encoder.setBuffer(destination, offset: 0, index: 1)
+        encoder.setBuffer(parameters, offset: 0, index: 2); encoder.setBuffer(knots, offset: 0, index: 3)
+        encoder.setBytes(&count, length: 4, index: 4)
+        encoder.dispatchThreads(
+            MTLSize(width: Int(count), height: 1, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: min(256, pipeline.maxTotalThreadsPerThreadgroup), height: 1, depth: 1)
+        )
+        encoder.endEncoding(); command.commit()
+        // Await completion without blocking the thread
+        await withCheckedContinuation { continuation in
+            command.addCompletedHandler { _ in
+                continuation.resume()
+            }
         }
         let pixels = Array(
             UnsafeBufferPointer(

@@ -982,6 +982,149 @@ struct ProjectImageRecord: Identifiable, Codable, Equatable, Hashable, Sendable 
 
     var fileName: String { URL(fileURLWithPath: sourcePath).lastPathComponent }
     var url: URL { URL(fileURLWithPath: sourcePath) }
+
+    /// Pre-computed lowercase fields for efficient library search.
+    /// Computed lazily on first access to avoid overhead during import.
+    /// Note: SearchableImageFields is defined in AppModel.swift
+    private(set) var searchableFields: (fileNameLower: String, folderNameLower: String, noteLower: String?, keywordsLower: [String]?, cameraDisplayLower: String?, lensModelLower: String?, isoString: String?, focalLengthString: String?)?
+
+    /// Update searchable fields (call when metadata changes).
+    mutating func updateSearchableFields() {
+        guard metadata != nil else {
+            searchableFields = nil
+            return
+        }
+        let folder = url.deletingLastPathComponent().lastPathComponent.lowercased()
+        let keywordsLower = keywords?.map { $0.lowercased() }
+        searchableFields = (
+            fileNameLower: fileName.lowercased(),
+            folderNameLower: folder,
+            noteLower: note?.lowercased(),
+            keywordsLower: keywordsLower,
+            cameraDisplayLower: metadata!.cameraDisplay.lowercased().isEmpty ? nil : metadata!.cameraDisplay.lowercased(),
+            lensModelLower: metadata!.lensModel?.lowercased(),
+            isoString: metadata!.iso.map { "iso \($0)" },
+            focalLengthString: metadata!.focalLengthMM?.isFinite == true && metadata!.focalLengthMM! >= 0 && metadata!.focalLengthMM! < 1_000_000
+                ? "\(Int(metadata!.focalLengthMM!.rounded()))mm" : nil
+        )
+    }
+
+    /// Invalidate the cached searchable fields (called when metadata changes).
+    mutating func invalidateSearchableFields() {
+        searchableFields = nil
+    }
+
+    /// Custom Equatable conformance that excludes searchableFields from comparison.
+    static func == (lhs: ProjectImageRecord, rhs: ProjectImageRecord) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.sourcePath == rhs.sourcePath &&
+        lhs.sourceFileSize == rhs.sourceFileSize &&
+        lhs.sourceModificationTime == rhs.sourceModificationTime &&
+        lhs.importedAt == rhs.importedAt &&
+        lhs.captureDate == rhs.captureDate &&
+        lhs.metadata == rhs.metadata &&
+        lhs.rating == rhs.rating &&
+        lhs.flag == rhs.flag &&
+        lhs.selectedForExport == rhs.selectedForExport &&
+        lhs.colorLabel == rhs.colorLabel &&
+        lhs.clientPicked == rhs.clientPicked &&
+        lhs.cullAnalysis == rhs.cullAnalysis &&
+        lhs.keywords == rhs.keywords &&
+        lhs.note == rhs.note &&
+        lhs.look == rhs.look &&
+        lhs.cloudRelativePath == rhs.cloudRelativePath &&
+        lhs.cloudPreviewRelativePath == rhs.cloudPreviewRelativePath &&
+        lhs.logicalFolderPath == rhs.logicalFolderPath
+    }
+
+    /// Custom Hashable conformance that excludes searchableFields from hashing.
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(sourcePath)
+        hasher.combine(sourceFileSize)
+        hasher.combine(sourceModificationTime)
+        hasher.combine(importedAt)
+        hasher.combine(captureDate)
+        hasher.combine(metadata)
+        hasher.combine(rating)
+        hasher.combine(flag)
+        hasher.combine(selectedForExport)
+        hasher.combine(colorLabel)
+        hasher.combine(clientPicked)
+        hasher.combine(cullAnalysis)
+        hasher.combine(keywords)
+        hasher.combine(note)
+        hasher.combine(look)
+        hasher.combine(cloudRelativePath)
+        hasher.combine(cloudPreviewRelativePath)
+        hasher.combine(logicalFolderPath)
+    }
+
+    /// Convenience initializer for creating image records from URLs.
+    init(sourcePath: String, captureDate: Date? = nil) {
+        self.id = UUID()
+        self.sourcePath = sourcePath
+        self.sourceFileSize = nil
+        self.sourceModificationTime = nil
+        self.importedAt = Date()
+        self.captureDate = captureDate
+        self.metadata = nil
+        self.rating = 0
+        self.flag = .unflagged
+        self.selectedForExport = true
+        self.colorLabel = nil
+        self.clientPicked = false
+        self.cullAnalysis = nil
+        self.keywords = nil
+        self.note = nil
+        self.look = .defaults()
+        self.cloudRelativePath = nil
+        self.cloudPreviewRelativePath = nil
+        self.logicalFolderPath = nil
+    }
+
+    /// Full memberwise initializer for creating image records with all properties.
+    init(
+        id: UUID = UUID(),
+        sourcePath: String,
+        sourceFileSize: Int64? = nil,
+        sourceModificationTime: TimeInterval? = nil,
+        importedAt: Date = Date(),
+        captureDate: Date? = nil,
+        metadata: PhotoMetadata? = nil,
+        rating: Int = 0,
+        flag: ProjectFlag = .unflagged,
+        selectedForExport: Bool = true,
+        colorLabel: PhotoColorLabel? = nil,
+        clientPicked: Bool = false,
+        cullAnalysis: CullAnalysisRecord? = nil,
+        keywords: [String]? = nil,
+        note: String? = nil,
+        look: RenderLook = .defaults(),
+        cloudRelativePath: String? = nil,
+        cloudPreviewRelativePath: String? = nil,
+        logicalFolderPath: String? = nil
+    ) {
+        self.id = id
+        self.sourcePath = sourcePath
+        self.sourceFileSize = sourceFileSize
+        self.sourceModificationTime = sourceModificationTime
+        self.importedAt = importedAt
+        self.captureDate = captureDate
+        self.metadata = metadata
+        self.rating = rating
+        self.flag = flag
+        self.selectedForExport = selectedForExport
+        self.colorLabel = colorLabel
+        self.clientPicked = clientPicked
+        self.cullAnalysis = cullAnalysis
+        self.keywords = keywords
+        self.note = note
+        self.look = look
+        self.cloudRelativePath = cloudRelativePath
+        self.cloudPreviewRelativePath = cloudPreviewRelativePath
+        self.logicalFolderPath = logicalFolderPath
+    }
 }
 
 extension ProjectImageRecord {

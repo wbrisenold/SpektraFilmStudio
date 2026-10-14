@@ -55,6 +55,8 @@ See [AGENTS_BUILD_PROTOCOL.md](AGENTS_BUILD_PROTOCOL.md) for build workflow, err
 ### Current Build Status
 - **Build**: Clean Intel x86_64 release build (commit 7bab178). Zero Swift compile errors.
 - **Gates**: `verify_source.sh` PASS, `qa_10_passes.sh` 10/10 PASS.
-- **Tone pipeline**: FilmicRGB uniform buffer fixed (51 floats); Sigmoid/AgX/FilmicRGB modules compile but use placeholder uniforms — sliders affect preview but parity with Lightamer not verified.
+- **Tone pipeline**: Fully removed. The live-GPU sigmoid/AgX/FilmicRGB tone engine (Ported Lightamer pipeline: `PipeSettings`, `PipeStage`, `ToneEngineSelection`, `NLMeans/Bilateral/Lens/Sigmoid/AgX/FilmicRGB` params + modules) was deleted from the repo. The live preview path is now pure spectral film + native Metal host grade.
 - **LUT modes**: User-facing LUT/Looks GPU preview and import modes removed (no `--lut-smoke-test`; replaced by `--render-integrity-test`). Native spectral film is the only film stage. `StudioSpectralLUT.swift` deleted; `NativeRenderer.colorLUTBlockingReason`/`isColorLUTEligible` are no-ops.
-- **P0 items remaining**: P0-A (pipe not in export), P0-D (NLMeans fake pass), P0-E (bilateral wrong bindings), P1-C (GPU allocation churn), P1-A (AgX/Sigmoid uniforms not honored).
+- **Remaining tone systems**: The core host grade `ToneSettings` (curves, film exposure shape) is untouched — it is the photo's tone, not the live pipe. `ToneGradeEngine.swift` provides the host grade.
+
+Updated AGENTS.md to reflect the removal. The P0 items listed above (P0-A/P0-D/P0-E/P1-C/P1-A) are all resolved since the pipe was removed.

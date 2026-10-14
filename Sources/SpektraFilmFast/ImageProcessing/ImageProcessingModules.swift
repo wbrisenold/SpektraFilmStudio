@@ -185,6 +185,9 @@ kernel void spektra_nlmeans_finish(
     private var pieceBuffer: MTLBuffer?
     private let device: any MTLDevice
     private var committed: Params?
+    // Cached pipeline state to avoid recompiling the kernel on every encode
+    private var cachedPipelineState: MTLComputePipelineState?
+    private var cachedLibrary: MTLLibrary?
 
     public init(device: any MTLDevice) {
         self.device = device
@@ -209,13 +212,24 @@ kernel void spektra_nlmeans_finish(
 
     public func encode(commandBuffer: MTLCommandBuffer, input: MTLTexture, output: MTLTexture, width: Int, height: Int) throws {
         guard pieceBuffer != nil else { return }
-        let library = try device.makeLibrary(source: Self.kernels, options: nil)
+        // Use cached pipeline state to avoid recompiling the kernel every call
+        let pipelineState = getCachedPipelineState()
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else { return }
-        encoder.setComputePipelineState(try device.makeComputePipelineState(function: library.makeFunction(name: "spektra_nlmeans_lab_forward")!))
+        encoder.setComputePipelineState(pipelineState)
         encoder.setTexture(input, index: 0)
         encoder.setTexture(output, index: 1)
         encoder.dispatchThreads(MTLSize(width: width, height: height, depth: 1), threadsPerThreadgroup: MTLSize(width: 8, height: 8, depth: 1))
         encoder.endEncoding()
+    }
+
+    private func getCachedPipelineState() -> MTLComputePipelineState {
+        if let cached = cachedPipelineState { return cached }
+        let library = try! device.makeLibrary(source: Self.kernels, options: nil)
+        cachedLibrary = library
+        let function = library.makeFunction(name: "spektra_nlmeans_lab_forward")!
+        let pipelineState = try! device.makeComputePipelineState(function: function)
+        cachedPipelineState = pipelineState
+        return pipelineState
     }
 
 }
@@ -425,6 +439,9 @@ kernel void spektra_bilateral5d_slice(
     private var pieceBuffer: MTLBuffer?
     private let device: any MTLDevice
     private var committed: Params?
+    // Cached pipeline state to avoid recompiling the kernel on every encode
+    private var cachedPipelineState: MTLComputePipelineState?
+    private var cachedLibrary: MTLLibrary?
 
     public init(device: any MTLDevice) {
         self.device = device
@@ -442,15 +459,25 @@ kernel void spektra_bilateral5d_slice(
         var u = BilateralDirectUniforms(width: Int32(width), height: Int32(height), radius: Int32(3 * 15 + 1), isig2r: Float(1 / (2 * 0.005 * 0.005)), isig2g: Float(1 / (2 * 0.005 * 0.005)), isig2b: Float(1 / (2 * 0.005 * 0.005)))
         buffer.contents().copyMemory(from: &u, byteCount: MemoryLayout<BilateralDirectUniforms>.stride)
 
-        let library = try device.makeLibrary(source: Self.kernels, options: nil)
+        let pipelineState = getCachedPipelineState()
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else { return }
-        encoder.setComputePipelineState(try device.makeComputePipelineState(function: library.makeFunction(name: "spektra_bilateral_direct")!))
+        encoder.setComputePipelineState(pipelineState)
         encoder.setTexture(input, index: 0)
         encoder.setTexture(output, index: 1)
         encoder.setBuffer(buffer, offset: 0, index: 0)
         encoder.setBuffer(nil, offset: 0, index: 1) // weights buffer would go here
         encoder.dispatchThreads(MTLSize(width: width, height: height, depth: 1), threadsPerThreadgroup: MTLSize(width: 8, height: 8, depth: 1))
         encoder.endEncoding()
+    }
+
+    private func getCachedPipelineState() -> MTLComputePipelineState {
+        if let cached = cachedPipelineState { return cached }
+        let library = try! device.makeLibrary(source: Self.kernels, options: nil)
+        cachedLibrary = library
+        let function = library.makeFunction(name: "spektra_bilateral_direct")!
+        let pipelineState = try! device.makeComputePipelineState(function: function)
+        cachedPipelineState = pipelineState
+        return pipelineState
     }
 
 }
@@ -546,6 +573,9 @@ kernel void spektra_lens_correct(
     private var pieceBuffer: MTLBuffer?
     private let device: any MTLDevice
     private var committed: Params?
+    // Cached pipeline state to avoid recompiling the kernel on every encode
+    private var cachedPipelineState: MTLComputePipelineState?
+    private var cachedLibrary: MTLLibrary?
 
     public init(device: any MTLDevice) {
         self.device = device
@@ -593,14 +623,24 @@ kernel void spektra_lens_correct(
 
         buffer.contents().copyMemory(from: &u, byteCount: MemoryLayout<LensUniforms>.stride)
 
-        let library = try device.makeLibrary(source: Self.kernels, options: nil)
+        let pipelineState = getCachedPipelineState()
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else { return }
-        encoder.setComputePipelineState(try device.makeComputePipelineState(function: library.makeFunction(name: "spektra_lens_correct")!))
+        encoder.setComputePipelineState(pipelineState)
         encoder.setTexture(input, index: 0)
         encoder.setTexture(output, index: 1)
         encoder.setBuffer(buffer, offset: 0, index: 0)
         encoder.dispatchThreads(MTLSize(width: width, height: height, depth: 1), threadsPerThreadgroup: MTLSize(width: 8, height: 8, depth: 1))
         encoder.endEncoding()
+    }
+
+    private func getCachedPipelineState() -> MTLComputePipelineState {
+        if let cached = cachedPipelineState { return cached }
+        let library = try! device.makeLibrary(source: Self.kernels, options: nil)
+        cachedLibrary = library
+        let function = library.makeFunction(name: "spektra_lens_correct")!
+        let pipelineState = try! device.makeComputePipelineState(function: function)
+        cachedPipelineState = pipelineState
+        return pipelineState
     }
 
 }

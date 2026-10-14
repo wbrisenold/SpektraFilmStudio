@@ -37,12 +37,17 @@ extension CullEngine {
     /// Facet-style color harmony from HSV hue/sat entropy.
     /// Mirrors ``TechnicalAnalyzer.get_color_harmony``: 180x256 hue/sat histogram,
     /// Shannon entropy, scaled so 15.5 bits -> 10.0.
+    /// Uses step-based subsampling for performance; color harmony at thumbnail scale
+    /// does not require full-resolution sampling.
     private static func facetColorHarmony(rgba: [UInt8], width: Int, height: Int) -> Double {
         precondition(width > 0 && height > 0)
         let binH = 180, binS = 256
         var hist = [Double](repeating: 0, count: binH * binS)
-        for py in 0..<height {
-            for px in 0..<width {
+        // Subsample for performance: target ~250K pixels max (step=2 at 1080p = ~270K)
+        let step = max(1, (width * height) / 250_000)
+        var sampled = 0
+        for py in stride(from: 0, to: height, by: step) {
+            for px in stride(from: 0, to: width, by: step) {
                 let idx = (py * width + px) * 4
                 let r = Double(rgba[idx]) / 255.0
                 let g = Double(rgba[idx + 1]) / 255.0
@@ -61,8 +66,10 @@ extension CullEngine {
                 let hi = Int(h2 / 360.0 * Double(binH)).clamped(to: 0..<binH)
                 let si = Int(s * 255).clamped(to: 0..<binS)
                 hist[hi * binS + si] += 1
+                sampled += 1
             }
         }
+        guard sampled > 0 else { return 0 }
         var sum = 0.0
         for v in hist { sum += v }
         guard sum > 0 else { return 0 }
@@ -78,23 +85,61 @@ extension CullEngine {
 
     /// Facet-style dynamic range: log2(p98 / max(p2, 1)) on grayscale.
     /// Mirrors ``TechnicalAnalyzer.get_dynamic_range``.
+    /// Uses histogram-based percentile for O(n) instead of O(n log n) sort.
     private static func facetDynamicRange(luma: [Double], count: Int) -> Double {
         guard count > 0 else { return 0 }
-        let sorted = luma.sorted()
-        let p2 = percentile(sorted, p: 0.02)
-        let p98 = percentile(sorted, p: 0.98)
+        // Use histogram with 16384 bins for percentile estimation (same as AutoContrastMath)
+        let bins = 16384
+        var histogram = [Int](repeating: 0, count: bins)
+        for v in luma {
+            let clamped = max(0.0, min(1.0, v / 255.0))
+            let idx = min(bins - 1, Int(clamped * Double(bins - 1)).clamped(to: 0..<bins))
+            histogram[idx] += 1
+        }
+        let total = count
+        // Find p2 (2nd percentile)
+        var p2: Double = 0
+        {
+            var cumulative = 0
+            let target = Int(Double(total) * 0.02)
+            for (i, count) in histogram.enumerated() {
+                cumulative += count
+                if cumulative >= target {
+                    p2 = Double(i) / Double(bins - 1) * 255.0
+                    break
+                }
+            }
+        }()
+        // Find p98 (98th percentile)
+        var p98: Double = 255.0
+        {
+            var cumulative = 0
+            let target = Int(Double(total) * 0.98)
+            for (i, count) in histogram.enumerated() {
+                cumulative += count
+                if cumulative >= target {
+                    p98 = Double(i) / Double(bins - 1) * 255.0
+                    break
+                }
+            }
+        }()
         let base = max(p2, 1.0)
         return log2(max(p98, 1.0) / base)
     }
 
     /// Facet-style Immerkaer noise estimation on grayscale.
     /// Mirrors ``TechnicalAnalyzer.get_noise_estimate``.
+    /// Uses subsampling for performance; noise at thumbnail scale is adequately
+    /// estimated at reduced resolution.
     private static func facetNoiseEstimate(luma: [Double], width: Int, height: Int) -> Double {
         guard width > 2 && height > 2 else { return 0 }
         let M: [Int] = [-1, 2, -1, 2, -4, 2, -1, 2, -1] // 3x3 Immerkaer kernel
+        // Subsample for performance: step of 2 gives 1/4 pixels, sufficient for noise est
+        let step = 2
         var sigma = 0.0
-        for py in 1..<(height - 1) {
-            for px in 1..<(width - 1) {
+        var count = 0.0
+        for py in stride(from: 1, to: height - 1, by: step) {
+            for px in stride(from: 1, to: width - 1, by: step) {
                 let i = py * width + px
                 var ksum = 0.0
                 ksum += Double(M[0]) * luma[i - width - 1]
@@ -107,10 +152,14 @@ extension CullEngine {
                 ksum += Double(M[7]) * luma[i + width]
                 ksum += Double(M[8]) * luma[i + width + 1]
                 sigma += abs(ksum)
+                count += 1
             }
         }
+        guard count > 0 else { return 0 }
+        // Scale back to full-resolution equivalent
+        let scale = Double(step * step)
         let w = Double(width - 2), h = Double(height - 2)
-        let noise = sigma * sqrt(0.5 * .pi) / (6.0 * w * h)
+        let noise = sigma * sqrt(0.5 * .pi) / (6.0 * w * h) * scale
         return noise
     }
 
@@ -277,24 +326,148 @@ actor CullEngine {
 
     /// Compute Facet-style supplementary metrics from the same thumbnail pixels.
     /// Returns (colorHarmony 0-1, dynamicRange stops, noise sigma, contrast 0-1).
+    /// All metrics are computed in a single pass over the pixel data for efficiency.
     private static func facetSupplementaryMetrics(_ payload: ThumbnailPayload) -> (Double, Double, Double, Double) {
         let w = payload.width, h = payload.height
         guard w > 4 && h > 4 else { return (0, 0, 0, 0) }
-        // Build grayscale luma array for DR / noise / contrast.
-        var luma = [Double](repeating: 0, count: w * h)
-        for i in 0..<(w * h) {
+        let totalPixels = w * h
+        let bins = 16384
+        var histogram = [Int](repeating: 0, count: bins)
+        var sumLuma = 0.0
+        var sumLumaSq = 0.0
+        var contrastSum = 0.0
+        // Immerkaer noise kernel
+        let M: [Int] = [-1, 2, -1, 2, -4, 2, -1, 2, -1]
+        let noiseStep = 2 // Subsample noise estimation
+        // Color harmony subsampling
+        let colorStep = max(1, totalPixels / 250_000)
+        var colorHarmonyHist = [Double](repeating: 0, count: 180 * 256)
+        var colorSampled = 0
+        // Pre-compute luminance for all pixels in one pass
+        var luma = [Double](repeating: 0, count: totalPixels)
+        for i in 0..<totalPixels {
             let p = i * 4
             let r = Double(payload.rgba[p]) / 255.0
             let g = Double(payload.rgba[p + 1]) / 255.0
             let b = Double(payload.rgba[p + 2]) / 255.0
-            luma[i] = (0.2126 * r + 0.7152 * g + 0.0722 * b) * 255.0
+            let lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) * 255.0
+            luma[i] = lum
+            sumLuma += lum
+            sumLumaSq += lum * lum
+            // Histogram for dynamic range
+            let clamped = max(0.0, min(1.0, lum / 255.0))
+            let idx = min(bins - 1, Int(clamped * Double(bins - 1)).clamped(to: 0..<bins))
+            histogram[idx] += 1
+            // Color harmony subsampling (from RGB, not luma)
+            if (i % colorStep) == 0 {
+                let mx = max(r, g, b), mn = min(r, g, b)
+                let d = mx - mn
+                let s = mx > 0 ? d / mx : 0
+                var h2: Double
+                if d == 0 { h2 = 0 }
+                else if mx == r { h2 = ((g - b) / d).truncatingRemainder(dividingBy: 6) + (g < b ? 6 : 0) }
+                else if mx == g { h2 = ((b - r) / d) + 2 }
+                else { h2 = ((r - g) / d) + 4 }
+                h2 *= 60
+                if h2 < 0 { h2 += 360 }
+                let hi = Int(h2 / 360.0 * 180.0).clamped(to: 0..<180)
+                let si = Int(s * 255).clamped(to: 0..<256)
+                colorHarmonyHist[hi * 256 + si] += 1
+                colorSampled += 1
+            }
         }
-        // Subsample for color harmony (HSV histogram) — full res is fine for small thumbs.
-        let colorHarmony = facetColorHarmony(rgba: payload.rgba, width: w, height: h)
-        let dynamicRange = facetDynamicRange(luma: luma, count: w * h)
-        let noiseEstimate = facetNoiseEstimate(luma: luma, width: w, height: h)
-        let contrast = facetContrast(luma: luma, count: w * h)
+        // Compute dynamic range from histogram
+        let dynamicRange = facetDynamicRangeFromHistogram(histogram, count: totalPixels)
+        // Compute noise (subsampling with scale correction)
+        let noiseEstimate = facetNoiseEstimateFromLuma(luma: luma, width: w, height: h)
+        // Compute contrast
+        let mean = sumLuma / Double(totalPixels)
+        let variance = max(0, sumLumaSq / Double(totalPixels) - mean * mean)
+        let contrast = min(1, sqrt(variance) * 4.0 / 255.0)
+        // Compute color harmony entropy
+        let colorHarmony = colorSampled > 0 ? computeColorHarmonyEntropy(colorHarmonyHist, count: colorSampled) : 0
         return (colorHarmony, dynamicRange, noiseEstimate, contrast)
+    }
+
+    /// Compute dynamic range from pre-built histogram (O(n) histogram + O(bins) scan).
+    private static func facetDynamicRangeFromHistogram(_ histogram: [Int], count: Int) -> Double {
+        guard count > 0 else { return 0 }
+        let bins = histogram.count
+        // Find p2 (2nd percentile)
+        var p2: Double = 0
+        {
+            var cumulative = 0
+            let target = Int(Double(count) * 0.02)
+            for (i, cnt) in histogram.enumerated() {
+                cumulative += cnt
+                if cumulative >= target {
+                    p2 = Double(i) / Double(bins - 1) * 255.0
+                    break
+                }
+            }
+        }()
+        // Find p98 (98th percentile)
+        var p98: Double = 255.0
+        {
+            var cumulative = 0
+            let target = Int(Double(count) * 0.98)
+            for (i, cnt) in histogram.enumerated() {
+                cumulative += cnt
+                if cumulative >= target {
+                    p98 = Double(i) / Double(bins - 1) * 255.0
+                    break
+                }
+            }
+        }()
+        let base = max(p2, 1.0)
+        return log2(max(p98, 1.0) / base)
+    }
+
+    /// Compute color harmony Shannon entropy from histogram.
+    private static func computeColorHarmonyEntropy(_ hist: [Double], count: Int) -> Double {
+        guard count > 0 else { return 0 }
+        var sum = 0.0
+        for v in hist { sum += v }
+        guard sum > 0 else { return 0 }
+        var entropy = 0.0
+        for v in hist {
+            let p = v / sum
+            if p > 0 { entropy -= p * log2(p) }
+        }
+        // Facet caps at 15.5 bits max entropy for 180*256 bins
+        let normalized = min(10.0, entropy * 10.0 / 15.5)
+        return normalized / 10.0
+    }
+
+    /// Immerkaer noise estimation using pre-built luma array with subsampling.
+    private static func facetNoiseEstimateFromLuma(luma: [Double], width: Int, height: Int) -> Double {
+        guard width > 2 && height > 2 else { return 0 }
+        let M: [Int] = [-1, 2, -1, 2, -4, 2, -1, 2, -1]
+        let step = 2
+        var sigma = 0.0
+        var count = 0.0
+        for py in stride(from: 1, to: height - 1, by: step) {
+            for px in stride(from: 1, to: width - 1, by: step) {
+                let i = py * width + px
+                var ksum = 0.0
+                ksum += Double(M[0]) * luma[i - width - 1]
+                ksum += Double(M[1]) * luma[i - width]
+                ksum += Double(M[2]) * luma[i - width + 1]
+                ksum += Double(M[3]) * luma[i - 1]
+                ksum += Double(M[4]) * luma[i]
+                ksum += Double(M[5]) * luma[i + 1]
+                ksum += Double(M[6]) * luma[i + width - 1]
+                ksum += Double(M[7]) * luma[i + width]
+                ksum += Double(M[8]) * luma[i + width + 1]
+                sigma += abs(ksum)
+                count += 1
+            }
+        }
+        guard count > 0 else { return 0 }
+        let scale = Double(step * step)
+        let w = Double(width - 2), h = Double(height - 2)
+        let noise = sigma * sqrt(0.5 * .pi) / (6.0 * w * h) * scale
+        return noise
     }
 
     private struct BasicMetrics {

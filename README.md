@@ -49,10 +49,7 @@ The controls stay visible within the selected tab. Switching tabs does not lose 
 
 This tab is for optional effects that run on the graphics processor for fast preview. They are **off by default** and only affect what you see on screen until you enable them.
 
-- **NLMeans Denoise** — reduces grain and noise. Use a small radius for light cleanup, larger for stronger smoothing.
-- **Bilateral Blur** — smooths while keeping edges. Good for softening skin or backgrounds.
-- **Lens Correction** — fixes distortion (bowl-shaped straight lines), chromatic aberration (color fringing at edges), and vignetting (dark corners).
-- **Tone Presets** — three tone engines (Sigmoid, AgX, Filmic RGB) that reshape the whole tonal curve. Only one can be active at a time. Pick one and adjust its sliders to taste.
+- **Tone Presets** — none. (The built-in tone/shaping is now in the RAW tab.)
 
 These filters are for preview. They do not change the photo on disk until you export with them enabled. If you want the effect in the final file, leave the toggle on when you export.
 

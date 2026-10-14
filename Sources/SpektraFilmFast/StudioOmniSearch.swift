@@ -6,7 +6,7 @@ import SwiftUI
 enum StudioOmniEvents {
     static let open = Notification.Name("SpektraFilmStudio.Omni.open")
     static let focusAdjustment = Notification.Name("SpektraFilmStudio.Omni.focusAdjustment")
-    static let openSceneAssistant = Notification.Name("SpektraFilmStudio.SceneAssistant.open")
+    // Scene assistant is removed
 }
 
 private enum OmniCommand: Hashable {
@@ -62,7 +62,7 @@ struct StudioOmniSearch: View {
         }
         result += [
             OmniEntry(
-                title: "Scene Intelligence", context: "Group shoots · recommend film and paper",
+                title: "Scene Intelligence", context: "Scene Intelligence removed",
                 icon: "sparkles.rectangle.stack", keywords: "ai similar studio shots stock print scene",
                 action: .task("scenes")),
             OmniEntry(
@@ -235,7 +235,7 @@ struct StudioOmniSearch: View {
             }
         case .task(let command):
             switch command {
-            case "scenes": NotificationCenter.default.post(name: StudioOmniEvents.openSceneAssistant, object: nil)
+            case "scenes": break
             case "import": model.importImages()
             case "new": model.newProject()
             case "save": model.saveProject()

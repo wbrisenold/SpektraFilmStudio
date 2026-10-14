@@ -210,6 +210,12 @@ final class AppModel: ObservableObject {
     // filters do not dirty a project merely because the photographer changes views.
     // Project launchers are always available, even with a populated photo library.
     @Published var showProjectHome = true
+
+    // Cache for visibleImages to avoid recomputing on every filter change.
+    // Invalidated when any filter or sort setting changes.
+    private var visibleImagesCache: [ProjectImageRecord]?
+    private var visibleImagesCacheGeneration: UUID?
+    private var lastVisibleFilterState: FilterState?
     // Lightroom opens its existing guided import sheet; file picking is centralized
     // in SpektraFilePanel, not independent Published booleans on ContentView.
     @Published var showingLightroomImportWizard = false
@@ -422,7 +428,8 @@ final class AppModel: ObservableObject {
                 self?.handleMemoryPressure(level)
             }
         }
-    }
+        
+
 
     private func installCacheVolumeObservers() {
         let center = NSWorkspace.shared.notificationCenter
@@ -493,6 +500,18 @@ final class AppModel: ObservableObject {
     }
 
     var visibleImages: [ProjectImageRecord] {
+        // Check if cached result is still valid
+        let currentFilterState = FilterState(
+            search: librarySearch, filter: libraryFilter, folder: libraryFolderFilter,
+            album: libraryAlbumFilter, smart: librarySmartCollectionFilter,
+            people: libraryPeopleGroupFilter, rating: project.filterRating,
+            flag: project.filterFlag
+        )
+        if let cached = visibleImagesCache,
+           visibleImagesCacheGeneration == workspaceGeneration,
+           lastVisibleFilterState == currentFilterState {
+            return cached
+        }
         let query = librarySearch.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let activeAlbumIDs = libraryAlbumFilter.flatMap { id in project.albums.first(where: { $0.id == id })?.imageIDs }
         let activeSmart = librarySmartCollectionFilter.flatMap { id in project.smartCollections.first(where: { $0.id == id }) }
@@ -514,7 +533,7 @@ final class AppModel: ObservableObject {
                 case .missing: return !FileManager.default.fileExists(atPath: image.sourcePath)
                 }
             }()
-            let searchPass: Bool = Self.matchesLibrarySearch(image, query: query)
+            let searchPass: Bool = Self.matchesLibrarySearchCache(image, query: query)
             let albumPass = activeAlbumIDs == nil || activeAlbumIDs!.contains(image.id)
             let peoplePass = activePeopleIDs == nil || activePeopleIDs!.contains(image.id)
             let smartPass: Bool = {
@@ -524,7 +543,7 @@ final class AppModel: ObservableObject {
                 if let label = smart.colorLabel, image.colorLabel != label { return false }
                 if let recommendation = smart.cullRecommendation, image.cullAnalysis?.recommendation != recommendation { return false }
                 let smartQuery = smart.searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                return Self.matchesLibrarySearch(image, query: smartQuery)
+                return Self.matchesLibrarySearchCache(image, query: smartQuery)
             }()
             return ratingPass && flagPass && folderPass && libraryPass && searchPass && albumPass && peoplePass && smartPass
         }
@@ -540,20 +559,59 @@ final class AppModel: ObservableObject {
         case .aiScore:
             values.sort { ($0.cullAnalysis?.score ?? -1) > ($1.cullAnalysis?.score ?? -1) }
         }
+        // Cache the result
+        visibleImagesCache = values
+        visibleImagesCacheGeneration = workspaceGeneration
+        lastVisibleFilterState = FilterState(
+            search: librarySearch, filter: libraryFilter, folder: libraryFolderFilter,
+            album: libraryAlbumFilter, smart: librarySmartCollectionFilter,
+            people: libraryPeopleGroupFilter, rating: project.filterRating,
+            flag: project.filterFlag
+        )
         return values
     }
 
-    private static func matchesLibrarySearch(_ image: ProjectImageRecord, query: String) -> Bool {
+    /// Invalidate the visibleImages cache when filters or project change.
+    private func invalidateVisibleImagesCache() {
+        visibleImagesCache = nil
+    }
+
+    /// Filter state struct for cache comparison (Equatable).
+    private struct FilterState: Equatable {
+        let search: String
+        let filter: LibraryFilter
+        let folder: String?
+        let album: UUID?
+        let smart: UUID?
+        let people: UUID?
+        let rating: Int
+        let flag: ProjectFlag?
+    }
+
+    private static func matchesLibrarySearchCache(_ image: ProjectImageRecord, query: String) -> Bool {
         guard !query.isEmpty else { return true }
-        if image.fileName.lowercased().contains(query) { return true }
-        if image.url.deletingLastPathComponent().lastPathComponent.lowercased().contains(query) { return true }
-        if image.note?.lowercased().contains(query) == true { return true }
-        if image.keywords?.contains(where: { $0.lowercased().contains(query) }) == true { return true }
-        if image.metadata?.cameraDisplay.lowercased().contains(query) == true { return true }
-        if image.metadata?.lensModel?.lowercased().contains(query) == true { return true }
-        if let iso = image.metadata?.iso, "iso \(iso)".contains(query) || "\(iso)" == query { return true }
-        if let focal = image.metadata?.focalLengthMM, focal.isFinite, focal >= 0, focal < 1_000_000,
-           "\(Int(focal.rounded()))mm".contains(query) { return true }
+        // Use pre-computed lowercase fields when available
+        if let searchable = image.searchableFields {
+            if searchable.fileNameLower.contains(query) { return true }
+            if searchable.folderNameLower.contains(query) { return true }
+            if let note = searchable.noteLower, note.contains(query) { return true }
+            if let keywords = searchable.keywordsLower, keywords.contains(where: { $0.contains(query) }) { return true }
+            if let camera = searchable.cameraDisplayLower, camera.contains(query) { return true }
+            if let lens = searchable.lensModelLower, lens.contains(query) { return true }
+            if let iso = searchable.isoString, iso.contains(query) { return true }
+            if let focal = searchable.focalLengthString, focal.contains(query) { return true }
+        } else {
+            // Fallback for images without pre-computed fields
+            if image.fileName.lowercased().contains(query) { return true }
+            if image.url.deletingLastPathComponent().lastPathComponent.lowercased().contains(query) { return true }
+            if image.note?.lowercased().contains(query) == true { return true }
+            if image.keywords?.contains(where: { $0.lowercased().contains(query) }) == true { return true }
+            if image.metadata?.cameraDisplay.lowercased().contains(query) == true { return true }
+            if image.metadata?.lensModel?.lowercased().contains(query) == true { return true }
+            if let iso = image.metadata?.iso, "iso \(iso)".contains(query) || "\(iso)" == query { return true }
+            if let focal = image.metadata?.focalLengthMM, focal.isFinite, focal >= 0, focal < 1_000_000,
+               "\(Int(focal.rounded()))mm".contains(query) { return true }
+        }
         return false
     }
 
@@ -4728,7 +4786,7 @@ final class AppModel: ObservableObject {
         cacheStatus = "RAM cache policy updated"
         refreshCacheStatus()
     }
-
+    
     func setLocalDiskCacheGB(_ value: Int) {
         let clamped = min(100, max(2, value))
         guard localDiskCacheGB != clamped else { return }
@@ -4738,7 +4796,7 @@ final class AppModel: ObservableObject {
         cacheStatus = "Local cache budget updated"
         refreshCacheStatus()
     }
-
+    
     func revealCacheInFinder() {
         do {
             let root = try CacheLocation.root(parentPath: cacheDirectoryParentPath)
@@ -6150,3 +6208,4 @@ private static func approximatePixelCount(_ url: URL) -> Int64 {
         return Int64(w.intValue) * Int64(h.intValue)
     }
 }
+

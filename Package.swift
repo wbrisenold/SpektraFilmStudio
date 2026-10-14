@@ -37,9 +37,6 @@ let package = Package(
                 .process("ImageProcessing/BilateralKernels.metal"),
                 .process("ImageProcessing/LensKernels.metal"),
                 .process("ImageProcessing/NLMeansKernels.metal"),
-                .process("ToneMapping/AgXKernels.metal"),
-                .process("ToneMapping/FilmicRGBKernels.metal"),
-                .process("ToneMapping/SigmoidKernels.metal"),
             ],
             linkerSettings: [
                 .unsafeFlags(["-L\(nativeLib)", "-lSpektraFilmNativeCore"]),

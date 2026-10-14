@@ -17,7 +17,6 @@ struct ContentView: View {
     @ObservedObject private var frameState: PreviewFrameState
     @State private var showingCloudTransfer = false
     @State private var showingOmni = false
-    @State private var showingSceneAssistant = false
     // One export sheet shared by Library, Cull, Proofs, Edit and command search.
     @State private var showingExportDialog = false
     @State private var quickExportRequest: QuickExportRequest?
@@ -53,9 +52,7 @@ struct ContentView: View {
         .sheet(isPresented: $showingCloudTransfer) {
             NativeCloudTransferView(model: model)
         }
-        .sheet(isPresented: $showingSceneAssistant) {
-            StudioSceneAssistantView(model: model)
-        }
+
         .sheet(item: $quickExportRequest) { request in
             QuickExportSheet(model: model, imageID: request.id)
         }
@@ -67,9 +64,6 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: StudioExportEvents.open)) { _ in
             openExportDialog()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: StudioOmniEvents.openSceneAssistant)) { _ in
-            showingSceneAssistant = true
         }
         .onReceive(NotificationCenter.default.publisher(for: StudioEditEvents.exportCurrentPhoto)) { _ in
             // Legacy File menu event now opens THE SAME export dialog used everywhere.
