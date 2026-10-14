@@ -750,13 +750,12 @@ struct RenderLook: Codable, Equatable, Hashable, Sendable {
 // MARK: - Ported GPU filter pipeline (Lightamer modules)
 /// Stages the user can enable in the Cull/Edit UI and that GPULiveFramePipeline
 /// injects after the film pass on the live preview path.
+/// Tone mapping (sigmoid/AgX/FilmicRGB) was removed: the native spectral film
+/// pass owns tone now, so only preview-side filters remain.
 enum PipeStage: String, Codable, CaseIterable, Identifiable, Sendable {
     case nlmeans = "nlmeans"
     case bilateral = "bilateral"
     case lens = "lens"
-    case sigmoid = "sigmoid"
-    case agx = "agx"
-    case filmicRGB = "filmicRGB"
     var id: String { rawValue }
 }
 
@@ -772,44 +771,36 @@ struct PipeSettings: Codable, Equatable, Hashable, Sendable {
     var bilateral: BilateralPipeParams = BilateralPipeParams()
     /// Lens correction params (used when lens enabled).
     var lens: LensPipeParams = LensPipeParams()
-    /// Sigmoid tone params (used when sigmoid enabled). When off, the film pass is used.
-    var sigmoid: SigmoidPipeParams = SigmoidPipeParams()
-    /// AgX params (used when agx enabled).
-    var agx: AgXPipeParams = AgXPipeParams()
-    /// FilmicRGB params (used when filmicRGB enabled).
-    var filmicRGB: FilmicRGBPipeParams = FilmicRGBPipeParams()
-    /// Active tone-mapping engine. .off means no tone stage is active.
-    /// AgX and FilmicRGB are alternatives to sigmoid, not additive to it.
-    var toneEngine: ToneEngineSelection = .off
 
     var isEmpty: Bool {
-        !stages.values.contains(true) && toneEngine == .off
-            && nlmeans.isIdentity && bilateral.isIdentity
-            && lens.isIdentity && sigmoid.isIdentity && agx.isIdentity && filmicRGB.isIdentity
+        !stages.values.contains(true)
+            && nlmeans.isIdentity && bilateral.isIdentity && lens.isIdentity
     }
 
     init() {}
+
+    /// Projects saved before the tone stages were removed still carry
+    /// `"sigmoid"`/`"agx"`/`"filmicRGB"` keys in `stages`, plus toneEngine and
+    /// per-engine params. A synthesized decoder throws on those unknown keys, so
+    /// drop them instead of failing the whole project load.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        nlmeans = try container.decodeIfPresent(NLMeansPipeParams.self, forKey: .nlmeans) ?? NLMeansPipeParams()
+        bilateral = try container.decodeIfPresent(BilateralPipeParams.self, forKey: .bilateral) ?? BilateralPipeParams()
+        lens = try container.decodeIfPresent(LensPipeParams.self, forKey: .lens) ?? LensPipeParams()
+        stages = [:]
+        if let raw = try? container.decodeIfPresent([String: Bool].self, forKey: .stages) {
+            for (key, value) in raw {
+                guard let stage = PipeStage(rawValue: key) else { continue }
+                stages[stage] = value
+            }
+        }
+    }
 }
 
 extension PipeSettings {
-    mutating func selectTone(_ engine: ToneEngineSelection) {
-        toneEngine = engine
-        stages[.sigmoid] = engine == .sigmoid
-        stages[.agx] = engine == .agx
-        stages[.filmicRGB] = engine == .filmicRGB
-    }
-
     mutating func enable(_ stage: PipeStage, enabled: Bool) {
-        switch stage {
-        case .sigmoid:
-            selectTone(enabled ? .sigmoid : (toneEngine == .sigmoid ? .off : toneEngine))
-        case .agx:
-            selectTone(enabled ? .agx : (toneEngine == .agx ? .off : toneEngine))
-        case .filmicRGB:
-            selectTone(enabled ? .filmicRGB : (toneEngine == .filmicRGB ? .off : toneEngine))
-        default:
-            stages[stage] = enabled
-        }
+        stages[stage] = enabled
     }
 
     mutating func reset() {
@@ -817,10 +808,6 @@ extension PipeSettings {
         nlmeans = NLMeansPipeParams()
         bilateral = BilateralPipeParams()
         lens = LensPipeParams()
-        sigmoid = SigmoidPipeParams()
-        agx = AgXPipeParams()
-        filmicRGB = FilmicRGBPipeParams()
-        toneEngine = .off
     }
 }
 
@@ -924,14 +911,6 @@ struct FilmicRGBPipeParams: Codable, Equatable, Hashable, Sendable {
             && displayBlack == 0.0 && displayWhite == 1.0
             && typeToe == 2.0 && typeShoulder == 2.0
     }
-}
-
-enum ToneEngineSelection: String, Codable, CaseIterable, Identifiable, Sendable {
-    case off = "off"
-    case sigmoid = "sigmoid"
-    case agx = "agx"
-    case filmicRGB = "filmicRGB"
-    var id: String { rawValue }
 }
 
 struct PhotoMetadata: Codable, Equatable, Hashable, Sendable {

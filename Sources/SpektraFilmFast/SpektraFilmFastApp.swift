@@ -61,9 +61,13 @@ private enum SpektraStartup {
                 fflush(stdout)
                 exit(result)
             }
-        }
-        }
-
+        } else if CommandLine.arguments.contains("--export-smoke-test") {
+            Task { @MainActor in
+                let passed = await ProductionSelfTest.runOriginalExport(model: model)
+                fflush(stdout)
+                fflush(stderr)
+                exit(passed ? 0 : 24)
+            }
         } else if CommandLine.arguments.contains("--picker-smoke-test") {
             Task { @MainActor in
                 let passed = await SpektraFilePanel.runSmokeTest(model: model)
@@ -126,9 +130,6 @@ struct SpektraCommands: Commands {
                 .disabled(model.page != .edit)
             Toggle("Scopes Dock", isOn: $showScopes)
                 .disabled(model.page != .edit)
-            Divider()
-            Text("Scene Intelligence removed")            }
-            .disabled(model.page != .edit)
         }
         CommandMenu("Find") {
             Button("Omni Search…") {

@@ -335,10 +335,6 @@ actor CullEngine {
         var histogram = [Int](repeating: 0, count: bins)
         var sumLuma = 0.0
         var sumLumaSq = 0.0
-        var contrastSum = 0.0
-        // Immerkaer noise kernel
-        let M: [Int] = [-1, 2, -1, 2, -4, 2, -1, 2, -1]
-        let noiseStep = 2 // Subsample noise estimation
         // Color harmony subsampling
         let colorStep = max(1, totalPixels / 250_000)
         var colorHarmonyHist = [Double](repeating: 0, count: 180 * 256)

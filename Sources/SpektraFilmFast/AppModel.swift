@@ -428,8 +428,7 @@ final class AppModel: ObservableObject {
                 self?.handleMemoryPressure(level)
             }
         }
-        
-
+    }
 
     private func installCacheVolumeObservers() {
         let center = NSWorkspace.shared.notificationCenter
@@ -3239,53 +3238,10 @@ final class AppModel: ObservableObject {
         case "lens.tcaBlue": settings.lens.tcaBlue = value
         case "lens.vignetteK1": settings.lens.vignetteK1 = value
         case "lens.vignetteK2": settings.lens.vignetteK2 = value
-        case "sigmoid.contrast": settings.sigmoid.contrast = value
-        case "sigmoid.skewness": settings.sigmoid.skewness = value
-        case "sigmoid.whiteTarget": settings.sigmoid.whiteTarget = value
-        case "sigmoid.blackTarget": settings.sigmoid.blackTarget = value
-        case "sigmoid.huePreservation": settings.sigmoid.huePreservation = value
-        case "agx.exposureEV": settings.agx.exposureEV = value
-        case "agx.outputPower": settings.agx.outputPower = value
-        case "agx.saturation": settings.agx.saturation = value
-        case "agx.lookPower": settings.agx.lookPower = value
-        case "agx.logRangeEV": settings.agx.logRangeEV = value
-        case "agx.enableLook": settings.agx.enableLook = value != 0
-        case "agx.gamutCompression": settings.agx.gamutCompression = value != 0
-        case "filmicRGB.dynamicRange": settings.filmicRGB.dynamicRange = value
-        case "filmicRGB.blackExposure": settings.filmicRGB.blackExposure = value
-        case "filmicRGB.greyValue": settings.filmicRGB.greyValue = value
-        case "filmicRGB.outputPower": settings.filmicRGB.outputPower = value
-        case "filmicRGB.saturation": settings.filmicRGB.saturation = value
-        case "filmicRGB.typeToe": settings.filmicRGB.typeToe = value
-        case "filmicRGB.typeShoulder": settings.filmicRGB.typeShoulder = value
         default: return
         }
     }
 
-    func setPipeToneEngine(_ engine: ToneEngineSelection) {
-        guard let i = selectedIndex else { return }
-        if gestureWorkingLook == nil { beginEditGesture() }
-        if var working = gestureWorkingLook {
-            if working.pipe == nil { working.pipe = PipeSettings() }
-            working.pipe?.selectTone(engine)
-            gestureWorkingLook = working
-            activeEditChangedParameter = "pipe.toneEngine"
-            publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
-        }
-        cancelIdleRefinement()
-        if activeEditBaseline == nil {
-            undoStack.append(project.images[i].look)
-            redoStack.removeAll()
-        }
-        if project.images[i].look.pipe == nil { project.images[i].look.pipe = PipeSettings() }
-        project.images[i].look.pipe?.selectTone(engine)
-        propagateBatchEdit(
-            from: project.images[i].look,
-            activeIndex: i,
-            changedParameter: "pipe.toneEngine"
-        )
-        scheduleIdleRefinement(changedParameter: "pipe.toneEngine", delayMilliseconds: 30)
-    }
 
     func resetPipe() {
         guard let i = selectedIndex else { return }
@@ -5823,7 +5779,7 @@ final class AppModel: ObservableObject {
                 timings.gradeMs = Self.msSince(gradeStarted)
                 try Task.checkCancellation()
 
-                var exportLook = item.look
+                let exportLook = item.look
 
                 status = "SpektraFilm simulation (full resolution) · \(item.sourceFileName)"
                 let renderStarted = ProcessInfo.processInfo.systemUptime

@@ -13,7 +13,7 @@
 2. Opencode (this agent): extract, `apply.py --check` on current HEAD → must be 0. Apply, delete backups, inspect build errors, fix **only patch-introduced** build issues (document pre-existing warnings).
 3. Build Intel x86_64 (`./scripts/build_app.sh`), 0 warnings/errors target (ship with pre-existing warnings only if explicitly decided).
 4. Gates: `bash scripts/verify_source.sh` and `bash scripts/qa_10_passes.sh` both PASS.
-5. Regenerate `SOURCE_MANIFEST.sha256`, commit (concise msg referencing patch), push `main`, force-push tag `v0.6.8` if still patching same release line.
+5. Regenerate `SOURCE_MANIFEST.sha256` (`./scripts/refresh_source_manifest.sh`), commit (concise msg referencing patch), push `main`, force-push tag `v0.6.8` if still patching same release line. The `pre-commit` and `pre-push` git hooks repack `repomix-output.xml` and restage the manifest automatically (installed by `./scripts/install_repomix_hooks.sh`); run that script once per clone.
 6. Build zip + `dist/SHA256SUMS.txt` updated; upload to release `v0.6.8` with `--clobber` (detached for large files). Poll until digest matches.
 7. Update `AI_HANDOFF.md` with commit, build sha, elapsed, gates, warnings (pre-existing vs new).
 

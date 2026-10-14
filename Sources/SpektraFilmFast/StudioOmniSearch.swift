@@ -66,8 +66,9 @@ struct StudioOmniSearch: View {
                 icon: "sparkles.rectangle.stack", keywords: "ai similar studio shots stock print scene",
                 action: .task("scenes")),
             OmniEntry(
-                title: "Import Photos", context: "Library", icon: "plus", keywords: "add files", action: .task("import")
-            ),
+                title: "Import Photos", context: "Library", icon: "plus", keywords: "add files",
+                action: .task("import")
+        ),
             OmniEntry(
                 title: "New Project", context: "Project", icon: "folder.badge.plus", keywords: "create",
                 action: .task("new")),
@@ -82,7 +83,8 @@ struct StudioOmniSearch: View {
                 action: .task("paste")),
             OmniEntry(
                 title: "Sync Look to Highlighted", context: "Edit · keep individual WB and crop",
-                icon: "square.stack.3d.up", keywords: "batch edit apply", action: .task("sync")),
+                icon: "square.stack.3d.up", keywords: "batch edit apply",
+                action: .task("sync")),
             OmniEntry(
                 title: "Export Selected", context: "Export", icon: "square.and.arrow.up", keywords: "queue deliver",
                 action: .task("export")),

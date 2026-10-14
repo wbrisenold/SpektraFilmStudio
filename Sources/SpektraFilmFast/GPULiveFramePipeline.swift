@@ -410,7 +410,6 @@ actor GPULiveFramePipeline {
                 source: graded, destination: filmOutput,
                 queue: gpu.queue, width: width, height: height), look: look)
         try Task.checkCancellation()
-        var contentSamples: (any MTLBuffer)?
         guard let postCommand = gpu.queue.makeCommandBuffer() else {
             throw GPULiveError.unavailable("Post-film Metal command allocation failed")
         }
@@ -454,7 +453,6 @@ actor GPULiveFramePipeline {
 
                 var currentPipeTexture = pipeInputTexture
                 let pipeSettings = pipe
-                let pipeDevice = gpu.device
 
             // NLMeans denoise (preview-only). Skips if disabled.
             if pipeSettings.stages[.nlmeans] == true {
@@ -499,66 +497,8 @@ actor GPULiveFramePipeline {
                 try lc.encode(commandBuffer: pipeCommand, input: currentPipeTexture, output: lensOutput, width: pipeWidth, height: pipeHeight)
                 currentPipeTexture = lensOutput
             }
-            // Tone mapping stage. Exactly ONE of sigmoid/agx/filmicRGB may be active;
-            // the UI enforces that. If none, skip.
-            let engine = pipeSettings.toneEngine
-            if engine != .off {
-                switch engine {
-                case .sigmoid:
-                    if pipeSettings.stages[.sigmoid] == true {
-                        let sg = SigmoidToneModule(device: pipeDevice)
-                        sg.commitParams(SigmoidToneModule.Params(
-                            contrast: pipeSettings.sigmoid.contrast, skewness: pipeSettings.sigmoid.skewness,
-                            whiteTarget: pipeSettings.sigmoid.whiteTarget, blackTarget: pipeSettings.sigmoid.blackTarget,
-                            huePreservation: pipeSettings.sigmoid.huePreservation, basePrimaries: 0
-                        ))
-                        let toneOutput = try gpu.makeOutputTexture(width: pipeWidth, height: pipeHeight)
-                        pipeTextures.append(toneOutput)
-                        try sg.encode(commandBuffer: pipeCommand, input: currentPipeTexture, output: toneOutput)
-                        currentPipeTexture = toneOutput
-                    }
-                case .agx:
-                    if pipeSettings.stages[.agx] == true || true {
-                        let agx = AgXModule(device: pipeDevice)
-                        agx.commitParams(AgXModule.Params(
-                            exposureEV: pipeSettings.agx.exposureEV, outputPower: pipeSettings.agx.outputPower,
-                            saturation: pipeSettings.agx.saturation, huePreservation: pipeSettings.agx.huePreservation,
-                            lookPower: pipeSettings.agx.lookPower, lookSlope: pipeSettings.agx.lookSlope,
-                            lookLift: pipeSettings.agx.lookLift, logRangeEV: pipeSettings.agx.logRangeEV,
-                            logMinEV: pipeSettings.agx.logMinEV, gamutCompression: pipeSettings.agx.gamutCompression,
-                            enableLook: pipeSettings.agx.enableLook, enableHuePreservation: pipeSettings.agx.enableHuePreservation
-                        ))
-                        let toneOutput = try gpu.makeOutputTexture(width: pipeWidth, height: pipeHeight)
-                        pipeTextures.append(toneOutput)
-                        try agx.encode(commandBuffer: pipeCommand, input: currentPipeTexture, output: toneOutput, width: pipeWidth, height: pipeHeight)
-                        currentPipeTexture = toneOutput
-                    }
-                case .filmicRGB:
-                    if pipeSettings.stages[.filmicRGB] == true || true {
-                        let identity3x3 = simd_float3x3(SIMD3<Float>(1, 0, 0), SIMD3<Float>(0, 1, 0), SIMD3<Float>(0, 0, 1))
-                        let fr = FilmicRGBModule(device: pipeDevice)
-                        fr.commitParams(FilmicRGBModule.Params(
-                            dynamicRange: pipeSettings.filmicRGB.dynamicRange, blackExposure: pipeSettings.filmicRGB.blackExposure,
-                            greyValue: pipeSettings.filmicRGB.greyValue, outputPower: pipeSettings.filmicRGB.outputPower,
-                            saturation: pipeSettings.filmicRGB.saturation, normMin: pipeSettings.filmicRGB.normMin,
-                            normMax: pipeSettings.filmicRGB.normMax, latitudeMin: pipeSettings.filmicRGB.latitudeMin,
-                            latitudeMax: pipeSettings.filmicRGB.latitudeMax, displayBlack: pipeSettings.filmicRGB.displayBlack,
-                            displayWhite: pipeSettings.filmicRGB.displayWhite, typeToe: pipeSettings.filmicRGB.typeToe,
-                            typeShoulder: pipeSettings.filmicRGB.typeShoulder,
-                            splineM1: SIMD3<Float>(1, 0, 0), splineM2: SIMD3<Float>(0, 1, 0),
-                            splineM3: SIMD3<Float>(0, 0, 1), splineM4: SIMD3<Float>(0, 0, 0),
-                            splineM5: SIMD3<Float>(0, 0, 0),
-                            inputPrimaries: identity3x3, outputPrimaries: identity3x3
-                        ))
-                        let toneOutput = try gpu.makeOutputTexture(width: pipeWidth, height: pipeHeight)
-                        pipeTextures.append(toneOutput)
-                        try fr.encode(commandBuffer: pipeCommand, input: currentPipeTexture, output: toneOutput, width: pipeWidth, height: pipeHeight)
-                        currentPipeTexture = toneOutput
-                    }
-                case .off:
-                    break
-                }
-            }
+            // Tone mapping (sigmoid/AgX/FilmicRGB) was removed: the native spectral
+            // film pass owns tone, so the pipe injects preview filters only.
             // Convert the final pipe texture back to a buffer for the geometry pass.
             try gpu.encodeTextureToBuffer(currentPipeTexture, destination: pipeDest, on: pipeCommand)
             pipeCommand.commit()
@@ -599,9 +539,6 @@ actor GPULiveFramePipeline {
                 }
             }
             postCommand.commit()
-        }
-        if let contentSamples = contentSamples {
-            try MetalFrameContentGuard.verify(contentSamples)
         }
         recycleScratch(borrowedScratch, gpu: gpu)  // The async Metal completion fence has returned.
         try Task.checkCancellation()

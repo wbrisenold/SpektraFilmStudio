@@ -11,10 +11,6 @@ extension PipeStage {
     var displayName: String { self.rawValue.uppercasedFirstLetter() }
 }
 
-extension ToneEngineSelection {
-    var displayName: String { self.rawValue.uppercasedFirstLetter() }
-}
-
 struct ControlsView: View {
     @ObservedObject var model: AppModel
     var mode: StudioInspectorMode = .adjust
@@ -956,24 +952,6 @@ struct ControlsView: View {
                 }
             }
 
-            if model.selectedLook.pipe?.toneEngine != .off {
-                Divider().opacity(0.5)
-                HStack {
-                    Text("Tone engine").font(.caption.weight(.medium))
-                    Spacer()
-                    Picker("Tone engine", selection: Binding(
-                        get: { model.selectedLook.pipe?.toneEngine ?? .off },
-                        set: { model.setPipeToneEngine($0) }
-                    )) {
-                        ForEach(ToneEngineSelection.allCases) { Text($0.rawValue.uppercasedFirstLetter()).tag($0) }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .controlSize(.small)
-                }
-                .help("Active tone-mapping engine for the live preview when a tone stage is enabled.")
-            }
-
             PipeParamSliders(model: model)
         }
         .padding(10)
@@ -984,9 +962,7 @@ struct ControlsView: View {
         switch stage {
         case .nlmeans: return "Non-local means denoise preview. Radius, strength, luma and chroma are adjustable in the sliders below."
         case .bilateral: return "Bilateral blur preview. Controls spatial radius and per-channel sigma."
-        case .lens: return "Ported Lightamer lens correction preview: distortion, TCA and vignette applied after the film pass."         case .sigmoid: return "Sigmoid tone-mapping. Applied before the native spectral film stage when enabled."
-         case .agx: return "AgX tone-mapping. Applied before the native spectral film stage when enabled."
-         case .filmicRGB: return "FilmicRGB tone-mapping. Applied before the native spectral film stage when enabled."
+        case .lens: return "Ported Lightamer lens correction preview: distortion, TCA and vignette applied after the film pass."
         }
     }
 
@@ -1999,9 +1975,6 @@ extension PipeStage {
         case .nlmeans: return "Non-local means denoise preview."
         case .bilateral: return "Bilateral blur preview."
         case .lens: return "Ported lens correction preview (distortion + TCA + vignette)."
-        case .sigmoid: return "Sigmoid tone-mapping preview."
-        case .agx: return "AgX tone-mapping preview."
-        case .filmicRGB: return "FilmicRGB tone-mapping preview."
         }
     }
 }
@@ -2027,18 +2000,6 @@ struct PipeParamSliders: View {
                 // Lens params
                 if pipe.stages[.lens] == true {
                     LensParamSliders(model: model, pipe: pipe.lens)
-                }
-                // Sigmoid params
-                if pipe.stages[.sigmoid] == true {
-                    SigmoidParamSliders(model: model, pipe: pipe.sigmoid)
-                }
-                // AgX params
-                if pipe.stages[.agx] == true {
-                    AgxParamSliders(model: model, pipe: pipe.agx)
-                }
-                // FilmicRGB params
-                if pipe.stages[.filmicRGB] == true {
-                    FilmicRGBParamSliders(model: model, pipe: pipe.filmicRGB)
                 }
             }
         }
@@ -2180,187 +2141,22 @@ struct LensParamSliders: View {
         .background(StudioPalette.recessed.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
     }
 }
-
-struct SigmoidParamSliders: View {
-    @ObservedObject var model: AppModel
-    let pipe: SigmoidPipeParams
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            PipelineFloatSlider(
-                label: "Contrast",
-                value: pipe.contrast,
-                range: 0.5...4,
-                key: "sigmoid.contrast",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Skewness",
-                value: pipe.skewness,
-                range: -1...1,
-                key: "sigmoid.skewness",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "White Target",
-                value: pipe.whiteTarget,
-                range: 50...200,
-                key: "sigmoid.whiteTarget",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Black Target",
-                value: pipe.blackTarget,
-                range: 0.001...0.1,
-                key: "sigmoid.blackTarget",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Hue Preservation",
-                value: pipe.huePreservation,
-                range: 0...100,
-                key: "sigmoid.huePreservation",
-                model: model
-            )
-        }
-        .padding(8)
-        .background(StudioPalette.recessed.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
-    }
-}
-
-struct AgxParamSliders: View {
-    @ObservedObject var model: AppModel
-    let pipe: AgXPipeParams
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            PipelineFloatSlider(
-                label: "Exposure EV",
-                value: pipe.exposureEV,
-                range: -3...3,
-                key: "agx.exposureEV",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Output Power",
-                value: pipe.outputPower,
-                range: 0.5...2,
-                key: "agx.outputPower",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Saturation",
-                value: pipe.saturation,
-                range: 0...2,
-                key: "agx.saturation",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Look Power",
-                value: pipe.lookPower,
-                range: 0.5...2,
-                key: "agx.lookPower",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Log Range EV",
-                value: pipe.logRangeEV,
-                range: 2...12,
-                key: "agx.logRangeEV",
-                model: model
-            )
-            PipelineBoolToggle(
-                label: "Enable Look",
-                key: "agx.enableLook",
-                model: model,
-                getBool: { pipe.enableLook },
-                setBool: { model.setPipeBoolParam(key: "agx.enableLook", value: $0) }
-            )
-            PipelineBoolToggle(
-                label: "Gamut Compression",
-                key: "agx.gamutCompression",
-                model: model,
-                getBool: { pipe.gamutCompression },
-                setBool: { model.setPipeBoolParam(key: "agx.gamutCompression", value: $0) }
-            )
-        }
-        .padding(8)
-        .background(StudioPalette.recessed.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
-    }
-}
-
-struct FilmicRGBParamSliders: View {
-    @ObservedObject var model: AppModel
-    let pipe: FilmicRGBPipeParams
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            PipelineFloatSlider(
-                label: "Dynamic Range",
-                value: pipe.dynamicRange,
-                range: 2...15,
-                key: "filmicRGB.dynamicRange",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Black Exposure",
-                value: pipe.blackExposure,
-                range: -1...1,
-                key: "filmicRGB.blackExposure",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Grey Value",
-                value: pipe.greyValue,
-                range: 0.05...0.5,
-                key: "filmicRGB.greyValue",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Output Power",
-                value: pipe.outputPower,
-                range: 0.5...2,
-                key: "filmicRGB.outputPower",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Saturation",
-                value: pipe.saturation,
-                range: -1...1,
-                key: "filmicRGB.saturation",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Type Toe",
-                value: pipe.typeToe,
-                range: 0.5...4,
-                key: "filmicRGB.typeToe",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Type Shoulder",
-                value: pipe.typeShoulder,
-                range: 0.5...4,
-                key: "filmicRGB.typeShoulder",
-                model: model
-            )
-        }
-        .padding(8)
-        .background(StudioPalette.recessed.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
-    }
-}
-
 // MARK: - Bool toggle for pipe params
 
 struct PipelineBoolToggle: View {
     let label: String
+    let value: Bool
     let key: String
     @ObservedObject var model: AppModel
-    let getBool: () -> Bool
-    let setBool: (Bool) -> Void
 
+    // Mirrors PipelineFloatSlider: take the value, build the Binding in body.
+    // Storing get/set closures here would force them to match SwiftUI's
+    // @isolated(any) @Sendable signature while they touch @MainActor AppModel.
     var body: some View {
-        Toggle(isOn: Binding(get: getBool, set: setBool)) {
+        Toggle(isOn: Binding(
+            get: { value },
+            set: { model.setPipeBoolParam(key: key, value: $0) }
+        )) {
             Text(label).font(.caption.weight(.medium))
         }
         .controlSize(.small)

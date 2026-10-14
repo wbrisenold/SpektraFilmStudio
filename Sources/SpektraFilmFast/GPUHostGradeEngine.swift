@@ -176,10 +176,10 @@ final class GPUHostGradeEngine: @unchecked Sendable {
             MTLSize(width: Int(count), height: 1, depth: 1),
             threadsPerThreadgroup: MTLSize(width: min(256, pipeline.maxTotalThreadsPerThreadgroup), height: 1, depth: 1)
         )
-        encoder.endEncoding(); command.commit()
-        // Use completion handler instead of blocking waitUntilCompleted()
-        // Return the input buffer immediately; caller should use async variant for non-blocking behavior
-        command.addCompletedHandler { _ in }
+        encoder.endEncoding(); command.commit(); command.waitUntilCompleted()
+        guard command.status == .completed else {
+            GPUProcessingFailure.report("GPU tone execution failed"); return input
+        }
         let pixels = Array(
             UnsafeBufferPointer(
                 start: destination.contents().assumingMemoryBound(to: Float.self), count: input.pixels.count))
@@ -258,12 +258,16 @@ final class GPUHostGradeEngine: @unchecked Sendable {
             MTLSize(width: Int(count), height: 1, depth: 1),
             threadsPerThreadgroup: MTLSize(width: min(256, pipeline.maxTotalThreadsPerThreadgroup), height: 1, depth: 1)
         )
-        encoder.endEncoding(); command.commit()
-        // Await completion without blocking the thread
+        encoder.endEncoding()
+        // addCompletedHandler must be registered before commit().
         await withCheckedContinuation { continuation in
             command.addCompletedHandler { _ in
                 continuation.resume()
             }
+            command.commit()
+        }
+        guard command.status == .completed else {
+            GPUProcessingFailure.report("GPU tone execution failed"); return input
         }
         let pixels = Array(
             UnsafeBufferPointer(

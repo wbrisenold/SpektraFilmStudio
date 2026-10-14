@@ -380,8 +380,15 @@ actor ImageDecoder {
 
         let outExtent = scaled.extent.integral
         guard outExtent.width.isFinite, outExtent.height.isFinite,
-              outExtent.width > 0, outExtent.height > 0,
-              outExtent.width <= 16384, outExtent.height <= 16384,
+              outExtent.width > 0, outExtent.height > 0 else {
+            // CIRAWFilter returns a degenerate (inf, inf, 0, 0) extent when the RAW
+            // codec cannot read the file at all. That is an unreadable source, not
+            // an oversized one — reporting it as a memory limit hides the real cause.
+            throw NSError(domain: "SpektraFilm.Decode", code: 4,
+                          userInfo: [NSLocalizedDescriptionKey:
+                            "This RAW file could not be decoded by macOS. It may be corrupt, truncated, or an unsupported camera format."])
+        }
+        guard outExtent.width <= 16384, outExtent.height <= 16384,
               outExtent.width * outExtent.height * 16 <= Double(ProcessInfo.processInfo.physicalMemory) / 3 else {
             throw NSError(domain: "SpektraFilm.Decode", code: 3,
                           userInfo: [NSLocalizedDescriptionKey: "Photo dimensions exceed the safe decoding memory limit."])

@@ -40,10 +40,17 @@ enum GPUGradeRegressionTests {
             }
             let fused = input.applyingHostAndFilmGrade(tone: tone, density: density, film: tone)
             let staged = input.referenceHostGrade(tone: tone, density: density).referenceFilmExposureShape(tone)
+            var fusedWorst = 0.0, fusedWorstA: Float = 0, fusedWorstB: Float = 0
             for (a, b) in zip(fused.pixels, staged.pixels) {
-                guard a.isFinite, abs(a - b) < 0.0003 * max(1, abs(b)) else {
-                    throw RendererError.renderFailed("Fused GPU host/film parity failed")
-                }
+                let e = Double(abs(a - b)) / max(1, Double(abs(b)))
+                if e > fusedWorst { fusedWorst = e; fusedWorstA = a; fusedWorstB = b }
+            }
+            guard fused.pixels.allSatisfy(\.isFinite), fusedWorst < 0.0003 else {
+                throw RendererError.renderFailed(
+                    "Fused GPU host/film parity failed: worst rel err \(fusedWorst) "
+                        + "gpu=\(fusedWorstA) ref=\(fusedWorstB) exposureEV=\(tone.exposureEV) "
+                        + "contrast=\(tone.contrast) shadows=\(tone.shadows) highlights=\(tone.highlights) "
+                        + "curve=\(tone.curvePoints.count) autoContrast=\(tone.autoContrast)")
             }
             let actual = input.applyingFilmExposureShape(tone), expected = input.referenceFilmExposureShape(tone)
             for (a, b) in zip(actual.pixels, expected.pixels) {
