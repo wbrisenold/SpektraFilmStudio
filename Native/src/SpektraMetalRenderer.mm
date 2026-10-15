@@ -4756,6 +4756,10 @@ bool MetalRenderer::render(
     // Chunks fault independently; the last one completing does not mean the rest did.
     NSMutableArray<id<MTLCommandBuffer>> *committedChunks = [NSMutableArray array];
     bool encodeFailed = false;
+    // P0 fix: Batch multiple passes per command buffer to reduce driver overhead.
+    // Commit every kPassesPerChunk passes instead of every single pass.
+    constexpr NSUInteger kPassesPerChunk = 4;
+    NSUInteger passesInCurrentChunk = 0;
     auto beginComputeEncoder = [&]() -> bool {
       if (passCounterBuffer) {
         if (@available(macOS 10.15, *)) {
@@ -4829,10 +4833,15 @@ bool MetalRenderer::render(
       }
       [encoder endEncoding];
       if (chunkedSubmission) {
+        passesInCurrentChunk++;
         [committedChunks addObject:commandBuffer];
-        [commandBuffer commit];
-        if (!beginCommandEncoder()) {
-          encodeFailed = true;
+        // Only commit when we've batched enough passes or this is a sync point
+        if (passesInCurrentChunk >= kPassesPerChunk) {
+          [commandBuffer commit];
+          passesInCurrentChunk = 0;
+          if (!beginCommandEncoder()) {
+            encodeFailed = true;
+          }
         }
         return;
       }

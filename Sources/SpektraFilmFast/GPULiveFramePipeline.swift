@@ -3,12 +3,9 @@ import CoreImage
 import Foundation
 import MetalKit
 import simd
+import os.signpost
 
-// SpektraFilmStudio GPL-3.0 — production-facing experimental live GPU pipeline.
-// No full-frame CPU RGBA readback between RAW development, host grade, spectral
-// film simulation, lens character, film effects, and preview publication.
-// Advanced local masks / geometric transforms / Auto Contrast remain on the
-// original exact renderer until identical GPU equivalents pass color parity.
+let gpuLivePipelineLog = OSLog(subsystem: "com.spektrafilm", category: "gpu_pipeline")
 
 enum GPULiveError: LocalizedError {
     case unavailable(String)
@@ -331,6 +328,10 @@ actor GPULiveFramePipeline {
         url: URL, look: RenderLook, bypassImportTransform: Bool,
         decoder: ImageDecoder, longEdge: Int = 1080
     ) async throws -> GPULiveFrame {
+        let signpostID = OSSignpostID(log: gpuLivePipelineLog)
+        os_signpost(.begin, log: gpuLivePipelineLog, name: "GPULiveFramePipeline.render", signpostID: signpostID, "longEdge=%d", longEdge)
+        defer { os_signpost(.end, log: gpuLivePipelineLog, name: "GPULiveFramePipeline.render", signpostID: signpostID) }
+        
         // The exact code path remains authoritative when an unsupported stage
         // is active; DO NOT ignore layers or geometry to fake a fast preview.
         if look.localGrades?.contains(where: { $0.enabled && $0.opacity > 0 }) == true {

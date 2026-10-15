@@ -4,6 +4,9 @@ import CoreGraphics
 import CSpektraBridge
 import Accelerate
 import Metal
+import os.signpost
+
+let nativeRendererLog = OSLog(subsystem: "com.spektrafilm", category: "native_renderer")
 
 
 struct FloatImagePayload: Sendable {
@@ -301,6 +304,10 @@ actor NativeRenderer {
     }
 
     func render(_ input: PixelBufferF32, look: RenderLook, time: Double = 0, useDensityLuts: Bool = false, useStageCache: Bool = true) throws -> (PixelBufferF32, RenderDiagnosticsView) {
+        let signpostID = OSSignpostID(log: nativeRendererLog)
+        os_signpost(.begin, log: nativeRendererLog, name: "NativeRenderer.render", signpostID: signpostID, "w=%d h=%d", input.width, input.height)
+        defer { os_signpost(.end, log: nativeRendererLog, name: "NativeRenderer.render", signpostID: signpostID) }
+        
         // A cancelled request that was waiting for the actor must not become another
         // expensive Metal render after it finally reaches the front of the queue.
         try Task.checkCancellation()
@@ -367,6 +374,10 @@ actor NativeRenderer {
         _ input: PixelBufferF32, look: RenderLook, time: Double = 0,
         useDensityLuts: Bool = false, useStageCache: Bool = true
     ) throws -> (PixelBufferF32, RenderDiagnosticsView) {
+        let signpostID = OSSignpostID(log: nativeRendererLog)
+        os_signpost(.begin, log: nativeRendererLog, name: "NativeRenderer.renderMetal", signpostID: signpostID, "w=%d h=%d", input.width, input.height)
+        defer { os_signpost(.end, log: nativeRendererLog, name: "NativeRenderer.renderMetal", signpostID: signpostID) }
+        
         try Task.checkCancellation()
 
         guard let device = try? preferredMetalDevice().device,
@@ -398,15 +409,8 @@ actor NativeRenderer {
 
         // Copy back the rendered result.
         var outputPixels = [Float](repeating: 0, count: input.pixels.count)
-        let copyCommand = queue.makeCommandBuffer()!
-        let blit = copyCommand.makeBlitCommandEncoder()!
-        blit.copy(from: destBuffer, sourceOffset: 0,
-                  to: destBuffer, destinationOffset: 0, size: byteCount)
-        blit.endEncoding()
-        copyCommand.commit()
-        copyCommand.waitUntilCompleted()
 
-        // Read back from the dest buffer (now contains rendered output)
+        // Read back from the dest buffer (now contains rendered output) — single blit, no no-op copy.
         let readCommand = queue.makeCommandBuffer()!
         let readBlit = readCommand.makeBlitCommandEncoder()!
         let stagingBuffer = device.makeBuffer(length: byteCount, options: .storageModeShared)!

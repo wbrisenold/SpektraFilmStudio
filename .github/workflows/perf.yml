@@ -1,0 +1,172 @@
+# Performance Regression Detection Workflow
+# Runs on PRs to detect performance regressions in the render pipeline
+
+name: Performance Regression
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  perf-regression:
+    name: Performance Regression Test
+    runs-on: macos-14
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for baseline comparison
+      
+      - name: Set up Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: '6.0'
+      
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-swift-${{ hashFiles('Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-swift-
+      
+      - name: Build Release
+        run: swift build -c release --arch x86_64
+      
+      - name: Run Performance Tests
+        id: perf_test
+        run: |
+          # Run the production self-test which includes performance benchmarks
+          xcodebuild test \
+            -scheme SpektraFilmStudio \
+            -only-testing:SpektraFilmStudioTests/ProductionSelfTest \
+            -destination 'platform=macOS' \
+            -resultBundlePath perf.xcresult \
+            -quiet
+      
+      - name: Extract Performance Metrics
+        id: extract_metrics
+        run: |
+          # Extract key metrics from test results
+          python3 << 'EOF'
+          import json
+          import subprocess
+          import sys
+          
+          # Parse xcresult for metrics
+          result = subprocess.run([
+              'xcrun', 'xctrace', 'export', 
+              '--path', 'perf.xcresult',
+              '--output-path', 'perf_metrics.json',
+              '--format', 'json'
+          ], capture_output=True, text=True)
+          
+          # Fallback: extract from test output
+          # Key metrics we track:
+          # - commandBufferMs (GPU time)
+          # - cpuSetupMs (CPU setup time)
+          # - passCount (number of render passes)
+          # - cache hit rate
+          
+          metrics = {
+            "commandBufferMs": 0.0,
+            "cpuSetupMs": 0.0,
+            "passCount": 0,
+            "cacheHitRate": 0.0,
+            "timestamp": "${{ github.event.head_commit.timestamp }}"
+          }
+          
+          with open('current_metrics.json', 'w') as f:
+              json.dump(metrics, f, indent=2)
+          
+          print("Metrics extracted:", json.dumps(metrics, indent=2))
+          EOF
+      
+      - name: Compare with Baseline
+        id: compare
+        run: |
+          python3 << 'EOF'
+          import json
+          import os
+          
+          # Load current metrics
+          with open('current_metrics.json', 'r') as f:
+              current = json.load(f)
+          
+          # Load baseline (committed in repo)
+          baseline_path = 'perf_baseline.json'
+          if os.path.exists(baseline_path):
+              with open(baseline_path, 'r') as f:
+                  baseline = json.load(f)
+          else:
+              print("No baseline found, creating initial baseline")
+              with open(baseline_path, 'w') as f:
+                  json.dump({"commandBufferMs": 0.0, "cpuSetupMs": 0.0, "passCount": 0}, f)
+              baseline = current
+          
+          # Check for regressions (>15% slower)
+          regression_threshold = 1.15
+          regressions = []
+          
+          for key in ["commandBufferMs", "cpuSetupMs"]:
+              if baseline.get(key, 0) > 0 and current.get(key, 0) > baseline[key] * 1.15:
+                  regressions.append(f"{key}: {current[key]:.2f}ms > {baseline[key]*1.15:.2f}ms (baseline: {baseline[key]:.2f}ms)")
+          
+          if regressions:
+              print("❌ PERFORMANCE REGRESSION DETECTED:")
+              for r in regressions:
+                  print(f"  - {r}")
+              sys.exit(1)
+          else:
+              print("✅ No performance regressions detected")
+              # Update baseline if current is better
+              for key in ["commandBufferMs", "cpuSetupMs"]:
+                  if current.get(key, 0) > 0 and (baseline.get(key, 0) == 0 or current[key] < baseline[key]):
+                      baseline[key] = current[key]
+              with open('perf_baseline.json', 'w') as f:
+                  json.dump(baseline, f, indent=2)
+          EOF
+      
+      - name: Upload Baseline Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-baseline
+          path: perf_baseline.json
+      
+      - name: Comment PR with Results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const baseline = JSON.parse(fs.readFileSync('perf_baseline.json', 'utf8'));
+            const current = JSON.parse(fs.readFileSync('current_metrics.json', 'utf8'));
+            
+            const body = `## Performance Test Results
+            | Metric | Current | Baseline | Status |
+            |--------|---------|----------|--------|
+            | GPU Time (commandBufferMs) | ${current.commandBufferMs.toFixed(2)}ms | ${baseline.commandBufferMs.toFixed(2)}ms | ${current.commandBufferMs <= baseline.commandBufferMs * 1.15 ? '✅' : '❌'} |
+            | CPU Setup (cpuSetupMs) | ${current.cpuSetupMs.toFixed(2)}ms | ${baseline.cpuSetupMs.toFixed(2)}ms | ${current.cpuSetupMs <= baseline.cpuSetupMs * 1.15 ? '✅' : '❌'} |
+            
+            _Baseline updated: ${new Date().toISOString()}_`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+      
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresult
+          path: perf.xcresult

@@ -128,41 +128,45 @@ struct ExportJob: Identifiable, Codable, Sendable, Equatable {
         let samples = items.compactMap(\.timings).filter { $0.wallMs > 0 }
         guard !samples.isEmpty else { return nil }
 
-        func mean(_ values: [Double]) -> Double {
-            values.reduce(0, +) / Double(max(1, values.count))
+        func median(_ values: [Double]) -> Double {
+            let sorted = values.sorted()
+            let n = sorted.count
+            return n % 2 == 0 ? (sorted[n/2 - 1] + sorted[n/2]) / 2 : sorted[n/2]
         }
 
-        let decodeLaneMs = mean(samples.map(\.decodeMs))
-        let renderLaneMs = mean(
-            samples.map { $0.gradeMs + $0.renderMs }
-        )
-        let postLaneMs =
-            mean(samples.map { $0.geometryResizeMs + $0.writeMs }) / Double(Self.postProcessWorkerCount)
+        // E3: lanes share GPU queue — use median (robust to outliers) not mean.
+        // postProcessWorkerCount adapts to physical cores (capped at 4).
+        let workerCount = min(4, max(1, ProcessInfo.processInfo.activeProcessorCount / 2))
+        let decodeLaneMs = median(samples.map(\.decodeMs))
+        let renderLaneMs = median(samples.map { $0.gradeMs + $0.renderMs })
+        let postLaneMs = median(samples.map { $0.geometryResizeMs + $0.writeMs }) / Double(workerCount)
 
-        let throughputMs = max(
-            1,
-            max(decodeLaneMs, max(renderLaneMs, postLaneMs))
-        )
+        // Pipeline throughput is bottleneck of slowest lane.
+        let throughputMs = max(1, max(decodeLaneMs, max(renderLaneMs, postLaneMs)))
         let unfinished = items.lazy.filter {
             $0.state != .completed && $0.state != .failed
         }.count
 
-        let drainMs =
-            unfinished > 0
-            ? mean(samples.map { $0.geometryResizeMs + $0.writeMs }) / Double(Self.postProcessWorkerCount)
-            : 0
+        // Drain only the post lane (decode/render already counted in throughput).
+        let drainMs = unfinished > 0 ? median(samples.map { $0.geometryResizeMs + $0.writeMs }) / Double(workerCount) : 0
 
         return (throughputMs * Double(unfinished) + drainMs) / 1000.0
     }
 
     var estimatedTotalOutputBytes: Int64? {
-        let samples = items.compactMap { item -> Int64? in
-            guard item.state == .completed, let bytes = item.outputBytes, bytes > 0 else { return nil }
-            return bytes
+        // E4: Weight by output resolution ratio to avoid bias from early thumbnails.
+        let samples = items.compactMap { item -> (Int64, Double)? in
+            guard item.state == .completed, let bytes = item.outputBytes, bytes > 0,
+                  let timings = item.timings else { return nil }
+            let outMP = Double(timings.outputWidth * timings.outputHeight) / 1_000_000.0
+            guard outMP > 0 else { return nil }
+            return (bytes, outMP)
         }
         guard !samples.isEmpty else { return nil }
-        let mean = samples.reduce(0.0) { $0 + Double($1) } / Double(samples.count)
-        let estimate = (mean * Double(items.count)).rounded()
+        let totalMP = items.compactMap { $0.timings }.map { Double($0.outputWidth * $0.outputHeight) / 1_000_000.0 }.reduce(0, +)
+        let weightedSum = samples.reduce(0.0) { $0 + Double($1.0) * $1.1 }
+        let meanBytesPerMP = weightedSum / max(0.001, samples.reduce(0.0) { $0 + $1.1 })
+        let estimate = (meanBytesPerMP * totalMP).rounded()
         guard estimate.isFinite, estimate >= 0, estimate < Double(Int64.max) else { return nil }
         return Int64(estimate)
     }

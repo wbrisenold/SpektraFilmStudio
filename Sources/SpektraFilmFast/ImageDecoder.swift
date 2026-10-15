@@ -4,6 +4,9 @@ import CoreGraphics
 import Metal
 import ImageIO
 import UniformTypeIdentifiers
+import os.signpost
+
+let imageDecoderLog = OSLog(subsystem: "com.spektrafilm", category: "decode")
 
 struct DecodeKey: Hashable, Sendable {
     var path: String
@@ -87,6 +90,10 @@ actor ImageDecoder {
         bypassImportTransform: Bool,
         cacheMode: PreviewCacheMemoryMode
     ) async throws -> PixelBufferF32 {
+        let signpostID = OSSignpostID(log: imageDecoderLog)
+        os_signpost(.begin, log: imageDecoderLog, name: "ImageDecoder.decode", signpostID: signpostID, "path=%{public}s, longEdge=%d", url.lastPathComponent, longEdge)
+        defer { os_signpost(.end, log: imageDecoderLog, name: "ImageDecoder.decode", signpostID: signpostID) }
+        
         let key = DecodeKey(
             path: url.path, longEdge: longEdge, raw: raw,
             bypassImportTransform: bypassImportTransform,
