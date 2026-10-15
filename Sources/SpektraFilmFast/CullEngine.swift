@@ -584,73 +584,7 @@ actor CullEngine {
         )
     }
 
-    /// Native Apple Vision quality model. Returns a conservative average across
-    /// faces: an unsharp person in a group photo should matter to the decision.
-    private nonisolated static func faceCaptureQuality(_ payload: ThumbnailPayload) -> Double? {
-        guard let cgImage = payload.makeCGImage() else { return nil }
-        let request = VNDetectFaceCaptureQualityRequest()
-        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-        guard (try? handler.perform([request])) != nil else { return nil }
-        let scores = (request.results ?? []).compactMap { $0.faceCaptureQuality.map(Double.init) }
-        guard !scores.isEmpty else { return nil }
-        return scores.reduce(0, +) / Double(scores.count)
-    }
-
-    /// Apple Vision's macOS 15+ aesthetic-scoring neural model, -1...+1.
-    private nonisolated static func aestheticQuality(_ payload: ThumbnailPayload) -> Double? {
-        guard let image = payload.makeCGImage() else { return nil }
-        let request = VNCalculateImageAestheticsScoresRequest()
-        guard (try? VNImageRequestHandler(cgImage: image, options: [:]).perform([request])) != nil,
-            let result = request.results?.first
-        else { return nil }
-        return Double(result.overallScore)
-    }
-
-    private nonisolated static func detectFacesVision(_ payload: ThumbnailPayload) -> [DetectedFace] {
-        guard let cgImage = payload.makeCGImage() else { return [] }
-        let request = VNDetectFaceRectanglesRequest()
-        if #available(macOS 13.0, *) {
-            request.revision = VNDetectFaceRectanglesRequestRevision2
-        }
-
-        var faces: [DetectedFace] = []
-        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-        do {
-            try handler.perform([request])
-            if let results = request.results {
-                for face in results {
-                    let bounds = face.boundingBox
-                    let w = Double(payload.width)
-                    let h = Double(payload.height)
-                    let rect = CGRect(
-                        x: bounds.minX * w,
-                        y: (1 - bounds.maxY) * h,
-                        width: bounds.width * w,
-                        height: bounds.height * h
-                    )
-                    let leftEye = CGPoint(x: rect.minX + rect.width * 0.3, y: rect.minY + rect.height * 0.35)
-                    let rightEye = CGPoint(x: rect.minX + rect.width * 0.7, y: rect.minY + rect.height * 0.35)
-                    let nose = CGPoint(x: rect.midX, y: rect.minY + rect.height * 0.55)
-                    let rightMouth = CGPoint(x: rect.minX + rect.width * 0.35, y: rect.minY + rect.height * 0.75)
-                    let leftMouth = CGPoint(x: rect.minX + rect.width * 0.65, y: rect.minY + rect.height * 0.75)
-                    faces.append(
-                        DetectedFace(
-                            bounds: rect,
-                            rightEye: rightEye,
-                            leftEye: leftEye,
-                            nose: nose,
-                            rightMouth: rightMouth,
-                            leftMouth: leftMouth,
-                            confidence: 1.0
-                        ))
-                }
-            }
-        } catch {
-            // Face detection is an advisory culling signal. A detector failure must
-            // never prevent technical scoring or user-driven culling.
-        }
-        return faces
-    }
+    
 
     private nonisolated static func faceMetrics(_ payload: ThumbnailPayload, faces: [DetectedFace]) -> FaceMetrics {
         guard !faces.isEmpty else { return FaceMetrics(count: 0, sharpness: 0, possibleBlink: false) }

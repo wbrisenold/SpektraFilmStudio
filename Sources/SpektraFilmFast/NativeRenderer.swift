@@ -361,6 +361,79 @@ actor NativeRenderer {
         )
     }
 
+    /// Metal-backed export path: renders directly into private MTLBuffers to avoid
+    /// full-frame Swift float array allocation. Copies result back once at the end.
+    func renderMetal(
+        _ input: PixelBufferF32, look: RenderLook, time: Double = 0,
+        useDensityLuts: Bool = false, useStageCache: Bool = true
+    ) throws -> (PixelBufferF32, RenderDiagnosticsView) {
+        try Task.checkCancellation()
+
+        guard let device = try? preferredMetalDevice().device,
+              let queue = device.makeCommandQueue(),
+              input.width > 0, input.height > 0,
+              input.pixels.count == input.width * input.height * 4
+        else {
+            throw RendererError.renderFailed("Metal device/queue unavailable for export")
+        }
+
+        let byteCount = input.width * input.height * 4 * MemoryLayout<Float>.size
+        guard let sourceBuffer = device.makeBuffer(
+            bytes: input.pixels, length: byteCount, options: .storageModePrivate
+        ) else { throw RendererError.renderFailed("Source buffer allocation failed") }
+
+        guard let destBuffer = device.makeBuffer(length: byteCount, options: .storageModePrivate) else {
+            throw RendererError.renderFailed("Destination buffer allocation failed")
+        }
+
+        // Source is now in private storage; no further CPU access needed.
+        // enqueueMetalFilm handles the full pipeline on the GPU.
+        try enqueueMetalFilm(
+            GPUMetalFilmIO(
+                source: sourceBuffer, destination: destBuffer,
+                queue: queue, width: input.width, height: input.height
+            ),
+            look: look, time: time
+        )
+
+        // Copy back the rendered result.
+        var outputPixels = [Float](repeating: 0, count: input.pixels.count)
+        let copyCommand = queue.makeCommandBuffer()!
+        let blit = copyCommand.makeBlitCommandEncoder()!
+        blit.copy(from: destBuffer, sourceOffset: 0,
+                  to: destBuffer, destinationOffset: 0, size: byteCount)
+        blit.endEncoding()
+        copyCommand.commit()
+        copyCommand.waitUntilCompleted()
+
+        // Read back from the dest buffer (now contains rendered output)
+        let readCommand = queue.makeCommandBuffer()!
+        let readBlit = readCommand.makeBlitCommandEncoder()!
+        let stagingBuffer = device.makeBuffer(length: byteCount, options: .storageModeShared)!
+        readBlit.copy(from: destBuffer, sourceOffset: 0,
+                      to: stagingBuffer, destinationOffset: 0, size: byteCount)
+        readBlit.endEncoding()
+        readCommand.commit()
+        readCommand.waitUntilCompleted()
+
+        outputPixels.withUnsafeMutableBytes { dst in
+            stagingBuffer.contents().copyMemory(from: dst.baseAddress!, byteCount: byteCount)
+        }
+
+        let diag = SpektraRendererLastDiagnostics(handle)
+        return (
+            PixelBufferF32(width: input.width, height: input.height, pixels: outputPixels),
+            RenderDiagnosticsView(
+                cpuSetupMs: diag.cpuSetupMs,
+                sourceCopyMs: diag.sourceCopyMs,
+                commandBufferMs: diag.commandBufferMs,
+                outputCopyMs: diag.outputCopyMs,
+                passCount: diag.passCount,
+                uploadBytes: diag.uploadBytes
+            )
+        )
+    }
+
     private func apply(look: RenderLook, to params: inout SpektraAppRenderParams) {
         for (name, value) in look.values {
             if name.hasPrefix("raw") { continue }

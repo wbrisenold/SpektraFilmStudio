@@ -179,6 +179,8 @@ private final class ProofHTTPServer: @unchecked Sendable {
         guard let headerRange = data.range(of: marker),
             let headerText = String(data: data[..<headerRange.lowerBound], encoding: .utf8)
         else { return nil }
+        // SECURITY: Header section must be reasonably bounded to prevent OOM via huge headers.
+        guard headerRange.lowerBound <= 8_192 else { return nil }
         let lines = headerText.components(separatedBy: "\r\n")
         guard let first = lines.first else { return nil }
         let parts = first.split(separator: " ")
@@ -187,10 +189,15 @@ private final class ProofHTTPServer: @unchecked Sendable {
         let rawTarget = String(parts[1])
         guard rawTarget.hasPrefix("/"), !rawTarget.contains("\r"), !rawTarget.contains("\n") else { return nil }
         var headers: [String: String] = [:]
+        var totalHeaderBytes = 0
         for line in lines.dropFirst() {
             guard let colon = line.firstIndex(of: ":") else { continue }
             let key = line[..<colon].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            // SECURITY: Limit individual header size to prevent memory exhaustion.
+            guard key.utf8.count <= 256, value.utf8.count <= 8_192 else { return nil }
+            totalHeaderBytes += key.utf8.count + value.utf8.count
+            guard totalHeaderBytes <= 16_384 else { return nil }
             guard headers[key] == nil else { return nil }
             headers[key] = value
         }

@@ -71,6 +71,10 @@ actor ImageDecoder {
     private var cacheBytes = 0
     private var pressureConstrained = false
     private var inFlight: [DecodeKey: Task<PixelBufferF32, Error>] = [:]
+    /// Index from base key (path|sourceFingerprint|raw|bypassImportTransform) to set of longEdges for O(1) lookups.
+    private var inFlightIndex: [String: Set<Int>] = [:]
+    /// Index from base key to set of longEdges for O(1) cache lookups.
+    private var cacheIndex: [String: Set<Int>] = [:]
     private var autoNeutralCache: [String: AutoNeutralEntry] = [:]
     private var autoNeutralInFlight: [String: Task<AutoNeutralLocation?, Never>] = [:]
     private var cacheHits = 0
@@ -160,7 +164,7 @@ actor ImageDecoder {
                 task.cancel()
             }
             try Task.checkCancellation()
-            inFlight[key] = nil
+            removeInFlight(key)
             insert(result, key: key, mode: cacheMode)
             if longEdge != Int.max {
                 Task { [developedDiskCache] in
@@ -175,7 +179,7 @@ actor ImageDecoder {
             }
             return result
         } catch {
-            inFlight[key] = nil
+            removeInFlight(key)
             throw error
         }
     }
@@ -341,7 +345,7 @@ actor ImageDecoder {
         let inflightKeys = inFlight.keys.filter { $0.path == url.path && $0.raw.whiteBalanceMode == .auto }
         for key in inflightKeys {
             inFlight[key]?.cancel()
-            inFlight.removeValue(forKey: key)
+            removeInFlight(key)
         }
         // Recalculation must not race a stale persistent developed-source hit.
         await developedDiskCache.invalidate(url: url)
@@ -360,9 +364,11 @@ actor ImageDecoder {
     func clear() {
         for task in inFlight.values { task.cancel() }
         inFlight.removeAll()
+        inFlightIndex.removeAll()
         cache.removeAll()
         cacheStamps.removeAll()
         cacheBytes = 0
+        cacheIndex.removeAll()
         for task in autoNeutralInFlight.values { task.cancel() }
         autoNeutralInFlight.removeAll()
         autoNeutralCache.removeAll()
@@ -673,47 +679,59 @@ actor ImageDecoder {
     }
 
 
+    /// Base key without longEdge — shared by all decode sizes of the same source.
+    private func baseKey(for key: DecodeKey) -> String {
+        "\(key.path)|\(key.sourceFingerprint)|\(key.raw)|\(key.bypassImportTransform)"
+    }
+
     private func reusableInFlightTask(for requested: DecodeKey) -> (key: DecodeKey, task: Task<PixelBufferF32, Error>)? {
+        let base = baseKey(for: requested)
+        guard let longEdges = inFlightIndex[base] else { return nil }
         var best: (DecodeKey, Task<PixelBufferF32, Error>)?
         var bestRequestedLongEdge = Int.max
-        for (candidateKey, task) in inFlight {
-            guard candidateKey.path == requested.path,
-                  candidateKey.sourceFingerprint == requested.sourceFingerprint,
-                  candidateKey.raw == requested.raw,
-                  candidateKey.bypassImportTransform == requested.bypassImportTransform,
-                  candidateKey.longEdge >= requested.longEdge else { continue }
-            if candidateKey.longEdge < bestRequestedLongEdge {
-                best = (candidateKey, task)
-                bestRequestedLongEdge = candidateKey.longEdge
+        for longEdge in longEdges {
+            if longEdge >= requested.longEdge, longEdge < bestRequestedLongEdge {
+                let candidateKey = DecodeKey(
+                    path: requested.path, longEdge: longEdge, raw: requested.raw,
+                    bypassImportTransform: requested.bypassImportTransform,
+                    sourceFingerprint: requested.sourceFingerprint
+                )
+                if let task = inFlight[candidateKey] {
+                    best = (candidateKey, task)
+                    bestRequestedLongEdge = longEdge
+                }
             }
         }
         return best.map { (key: $0.0, task: $0.1) }
     }
 
     private func reusableCachedBuffer(for requested: DecodeKey) -> (key: DecodeKey, buffer: PixelBufferF32)? {
+        let base = baseKey(for: requested)
+        guard let longEdges = cacheIndex[base] else { return nil }
         var best: (DecodeKey, PixelBufferF32)?
         var bestRequestedLongEdge = Int.max
-        for (candidateKey, candidateBuffer) in cache {
-            guard candidateKey.path == requested.path,
-                  candidateKey.sourceFingerprint == requested.sourceFingerprint,
-                  candidateKey.raw == requested.raw,
-                  candidateKey.bypassImportTransform == requested.bypassImportTransform,
-                  candidateKey.longEdge >= requested.longEdge else { continue }
-            // Compare the requested decode sizes rather than actual pixel dimensions: a
-            // physically small source may be below both sizes but the larger decode is still
-            // already the best data that exists for that file.
-            if candidateKey.longEdge < bestRequestedLongEdge {
-                best = (candidateKey, candidateBuffer)
-                bestRequestedLongEdge = candidateKey.longEdge
+        for longEdge in longEdges {
+            if longEdge >= requested.longEdge, longEdge < bestRequestedLongEdge {
+                let candidateKey = DecodeKey(
+                    path: requested.path, longEdge: longEdge, raw: requested.raw,
+                    bypassImportTransform: requested.bypassImportTransform,
+                    sourceFingerprint: requested.sourceFingerprint
+                )
+                if let buffer = cache[candidateKey] {
+                    best = (candidateKey, buffer)
+                    bestRequestedLongEdge = longEdge
+                }
             }
         }
         return best.map { (key: $0.0, buffer: $0.1) }
     }
 
     private func insert(_ value: PixelBufferF32, key: DecodeKey, mode: PreviewCacheMemoryMode) {
+        let base = baseKey(for: key)
         if let replaced = cache[key] { cacheBytes -= byteCount(replaced) }
         cache[key] = value
         cacheBytes += byteCount(value)
+        cacheIndex[base, default: []].insert(key.longEdge)
         touch(key)
         let normalBudget = CacheBudget.decodedBytes(mode: mode)
         let budget = pressureConstrained ? min(normalBudget, CacheBudget.decodedBytes(mode: .conservative)) : normalBudget
@@ -734,6 +752,7 @@ actor ImageDecoder {
             trim(to: 0)
             for task in inFlight.values { task.cancel() }
             inFlight.removeAll()
+            inFlightIndex.removeAll()
         }
     }
 
@@ -760,8 +779,11 @@ actor ImageDecoder {
     }
 
     private func evict(_ key: DecodeKey) {
+        let base = baseKey(for: key)
         cacheStamps.removeValue(forKey: key)
         if let removed = cache.removeValue(forKey: key) { cacheBytes -= byteCount(removed) }
+        cacheIndex[base]?.remove(key.longEdge)
+        if cacheIndex[base]?.isEmpty == true { cacheIndex.removeValue(forKey: base) }
     }
 
     private func byteCount(_ value: PixelBufferF32) -> Int {
@@ -771,5 +793,17 @@ actor ImageDecoder {
     private func touch(_ key: DecodeKey) {
         touchCounter &+= 1
         cacheStamps[key] = touchCounter
+    }
+
+    private func addInFlight(_ key: DecodeKey, _ task: Task<PixelBufferF32, Error>) {
+        inFlight[key] = task
+        inFlightIndex[baseKey(for: key), default: []].insert(key.longEdge)
+    }
+
+    private func removeInFlight(_ key: DecodeKey) {
+        inFlight.removeValue(forKey: key)
+        let base = baseKey(for: key)
+        inFlightIndex[base]?.remove(key.longEdge)
+        if inFlightIndex[base]?.isEmpty == true { inFlightIndex.removeValue(forKey: base) }
     }
 }

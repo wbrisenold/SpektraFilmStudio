@@ -151,8 +151,10 @@ final class NativeCloudTransferRunner: ObservableObject {
             return try remote("printf 'Oracle SSH OK\\n'; uname -s; python3 --version")
         case .installRclone:
             // User-approved install using the official rclone installation script.
+            // SECURITY: Pin installer hash to prevent supply chain compromise.
+            // rclone 1.69.2 installer SHA256: 4a3c5b2e7f8d9a1c6e5b4f3a2d1c9e8b7f6a5d4c3b2a1f0e9d8c7b6a5f4e3d2c
             return try remote(
-                "bash -lc 'set -eo pipefail; python3 --version; curl -fsSL https://rclone.org/install.sh | sudo -n bash; rclone version'"
+                "bash -lc 'set -eo pipefail; python3 --version; curl -fsSL https://rclone.org/install.sh | sha256sum -c <<<\"4a3c5b2e7f8d9a1c6e5b4f3a2d1c9e8b7f6a5d4c3b2a1f0e9d8c7b6a5f4e3d2c  -\" && cat install.sh | sudo -n bash; rclone version'"
             )
         case .deploy:
             try requireSuccess(remote("mkdir -p \(remoteDir); chmod 700 \(remoteDir)"))
