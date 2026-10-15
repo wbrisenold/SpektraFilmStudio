@@ -1,8 +1,8 @@
-import Foundation
-import CoreImage
 import CoreGraphics
-import Metal
+import CoreImage
+import Foundation
 import ImageIO
+import Metal
 import UniformTypeIdentifiers
 import os.signpost
 
@@ -91,9 +91,11 @@ actor ImageDecoder {
         cacheMode: PreviewCacheMemoryMode
     ) async throws -> PixelBufferF32 {
         let signpostID = OSSignpostID(log: imageDecoderLog)
-        os_signpost(.begin, log: imageDecoderLog, name: "ImageDecoder.decode", signpostID: signpostID, "path=%{public}s, longEdge=%d", url.lastPathComponent, longEdge)
+        os_signpost(
+            .begin, log: imageDecoderLog, name: "ImageDecoder.decode", signpostID: signpostID, "path=%{public}s, longEdge=%d",
+            url.lastPathComponent, longEdge)
         defer { os_signpost(.end, log: imageDecoderLog, name: "ImageDecoder.decode", signpostID: signpostID) }
-        
+
         let key = DecodeKey(
             path: url.path, longEdge: longEdge, raw: raw,
             bypassImportTransform: bypassImportTransform,
@@ -101,6 +103,7 @@ actor ImageDecoder {
         )
         if let existing = cache[key] {
             cacheHits += 1
+            PerformanceMonitor.shared.recordDecodeCacheHit()
             touch(key)
             return existing
         }
@@ -135,19 +138,24 @@ actor ImageDecoder {
         // This is the important app-relaunch / RAM-eviction speed path: revisit a photo and
         // the expensive CIRAWFilter stage can be skipped entirely.
         if longEdge != Int.max,
-           let disk = await developedDiskCache.buffer(
-            url: url,
-            raw: raw,
-            longEdge: longEdge,
-            bypassImportTransform: bypassImportTransform
-           ) {
+            let disk = await developedDiskCache.buffer(
+                url: url,
+                raw: raw,
+                longEdge: longEdge,
+                bypassImportTransform: bypassImportTransform
+            )
+        {
             try Task.checkCancellation()
+            PerformanceMonitor.shared.recordDiskCacheHit()
             insert(disk, key: key, mode: cacheMode)
             return disk
         }
+        PerformanceMonitor.shared.recordDiskCacheMiss()
 
         cacheMisses += 1
-        let autoNeutral = raw.whiteBalanceMode == .auto
+        PerformanceMonitor.shared.recordDecodeCacheMiss()
+        let autoNeutral =
+            raw.whiteBalanceMode == .auto
             ? await resolvedAutoNeutralLocation(url: url, lensCorrection: raw.lensCorrection)
             : nil
         let box = contextBox
@@ -191,7 +199,6 @@ actor ImageDecoder {
         }
     }
 
-
     func decodeInteractiveWhiteBalance(
         url: URL,
         longEdge: Int,
@@ -229,15 +236,19 @@ actor ImageDecoder {
     /// Decode the SAME camera-space CIRAWFilter chain directly into a GPU texture.
     /// No toBitmap, CPU float array or Core Image software rendering is used.
     /// Unsupported non-RAW / working-space Auto WB is NOT silently approximated.
-    func decodeMetal(url: URL, longEdge: Int, raw: RawSettings,
-                     bypassImportTransform: Bool, gpu: GPULiveDevice) async throws -> MetalDevelopedRAW {
+    func decodeMetal(
+        url: URL, longEdge: Int, raw: RawSettings,
+        bypassImportTransform: Bool, gpu: GPULiveDevice
+    ) async throws -> MetalDevelopedRAW {
         try Task.checkCancellation()
-        let autoNeutral = raw.whiteBalanceMode == .auto
+        let autoNeutral =
+            raw.whiteBalanceMode == .auto
             ? await resolvedAutoNeutralLocation(url: url, lensCorrection: raw.lensCorrection)
             : nil
-        let source = try Self.sourceImage(url: url, raw: raw,
-                                          draft: longEdge <= 1024,
-                                          autoNeutralLocation: autoNeutral)
+        let source = try Self.sourceImage(
+            url: url, raw: raw,
+            draft: longEdge <= 1024,
+            autoNeutralLocation: autoNeutral)
         // Non-RAW as-shot images already carry a decoded color profile. The
         // CIContext converts them to scene-linear Rec.2020 without asking a
         // missing CIRAWFilter for camera-space WB. Custom/Auto WB still needs
@@ -247,31 +258,36 @@ actor ImageDecoder {
         }
         let extent = source.image.extent.integral
         guard extent.width.isFinite, extent.height.isFinite,
-              extent.width > 0, extent.height > 0,
-              longEdge > 0 && longEdge <= 2048 else {
+            extent.width > 0, extent.height > 0,
+            longEdge > 0 && longEdge <= 2048
+        else {
             throw GPULiveError.unavailable("unsafe GPU decode dimensions")
         }
         let scale = min(1, CGFloat(longEdge) / max(extent.width, extent.height))
-        let translated = source.image.transformed(by: CGAffineTransform(
-            translationX: -extent.minX, y: -extent.minY))
+        let translated = source.image.transformed(
+            by: CGAffineTransform(
+                translationX: -extent.minX, y: -extent.minY))
         let scaled = translated.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let width = max(1, Int((extent.width * scale).rounded()))
         let height = max(1, Int((extent.height * scale).rounded()))
         guard width <= 2048, height <= 2048 else {
             throw GPULiveError.unavailable("GPU preview exceeds 2048 px")
         }
-        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba32Float,
-                       width: width, height: height, mipmapped: false)
+        let d = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba32Float,
+            width: width, height: height, mipmapped: false)
         d.usage = [.renderTarget, .shaderRead]
         d.storageMode = .private
         guard let texture = gpu.device.makeTexture(descriptor: d),
-              let command = gpu.queue.makeCommandBuffer() else {
+            let command = gpu.queue.makeCommandBuffer()
+        else {
             throw GPULiveError.unavailable("GPU RAW development allocation failed")
         }
         let colorSpace = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
-        gpu.context.render(scaled, to: texture, commandBuffer: command,
-                           bounds: CGRect(x: 0, y: 0, width: width, height: height),
-                           colorSpace: colorSpace)
+        gpu.context.render(
+            scaled, to: texture, commandBuffer: command,
+            bounds: CGRect(x: 0, y: 0, width: width, height: height),
+            colorSpace: colorSpace)
         command.commit()
         // The queue guarantees GPU ordering; do not block for the RAW command.
         try Task.checkCancellation()
@@ -279,7 +295,8 @@ actor ImageDecoder {
     }
 
     func fullResolution(url: URL, raw: RawSettings, bypassImportTransform: Bool) async throws -> PixelBufferF32 {
-        let autoNeutral = raw.whiteBalanceMode == .auto
+        let autoNeutral =
+            raw.whiteBalanceMode == .auto
             ? await resolvedAutoNeutralLocation(url: url, lensCorrection: raw.lensCorrection)
             : nil
         let box = contextBox
@@ -304,7 +321,8 @@ actor ImageDecoder {
 
     func autoWhiteBalanceResolution(url: URL, lensCorrection: Bool) async -> AutoWhiteBalanceResolution {
         if CIRAWFilter(imageURL: url) != nil,
-           let location = await resolvedAutoNeutralLocation(url: url, lensCorrection: lensCorrection) {
+            let location = await resolvedAutoNeutralLocation(url: url, lensCorrection: lensCorrection)
+        {
             return AutoWhiteBalanceResolution(
                 method: .cameraNeutral,
                 neutralX: location.x,
@@ -318,7 +336,8 @@ actor ImageDecoder {
         if raw.whiteBalanceMode == .custom {
             return WhiteBalanceReference(temperature: raw.temperature, tint: raw.tint)
         }
-        let autoNeutral = raw.whiteBalanceMode == .auto
+        let autoNeutral =
+            raw.whiteBalanceMode == .auto
             ? await resolvedAutoNeutralLocation(url: url, lensCorrection: raw.lensCorrection)
             : nil
         return await Task.detached(priority: .utility) {
@@ -411,18 +430,24 @@ actor ImageDecoder {
 
         let outExtent = scaled.extent.integral
         guard outExtent.width.isFinite, outExtent.height.isFinite,
-              outExtent.width > 0, outExtent.height > 0 else {
+            outExtent.width > 0, outExtent.height > 0
+        else {
             // CIRAWFilter returns a degenerate (inf, inf, 0, 0) extent when the RAW
             // codec cannot read the file at all. That is an unreadable source, not
             // an oversized one — reporting it as a memory limit hides the real cause.
-            throw NSError(domain: "SpektraFilm.Decode", code: 4,
-                          userInfo: [NSLocalizedDescriptionKey:
-                            "This RAW file could not be decoded by macOS. It may be corrupt, truncated, or an unsupported camera format."])
+            throw NSError(
+                domain: "SpektraFilm.Decode", code: 4,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "This RAW file could not be decoded by macOS. It may be corrupt, truncated, or an unsupported camera format."
+                ])
         }
         guard outExtent.width <= 16384, outExtent.height <= 16384,
-              outExtent.width * outExtent.height * 16 <= Double(ProcessInfo.processInfo.physicalMemory) / 3 else {
-            throw NSError(domain: "SpektraFilm.Decode", code: 3,
-                          userInfo: [NSLocalizedDescriptionKey: "Photo dimensions exceed the safe decoding memory limit."])
+            outExtent.width * outExtent.height * 16 <= Double(ProcessInfo.processInfo.physicalMemory) / 3
+        else {
+            throw NSError(
+                domain: "SpektraFilm.Decode", code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "Photo dimensions exceed the safe decoding memory limit."])
         }
         let width = max(1, Int(outExtent.width.rounded()))
         let height = max(1, Int(outExtent.height.rounded()))
@@ -520,7 +545,8 @@ actor ImageDecoder {
             rawFilter.extendedDynamicRangeAmount = Float(min(2, max(0, raw.developHighlightHeadroom)))
 
             let rawCurve = ToneCurveMath.normalize(raw.developCurvePoints)
-            let identityCurve = rawCurve.count == 2
+            let identityCurve =
+                rawCurve.count == 2
                 && abs(rawCurve[0].x) < 1e-9 && abs(rawCurve[0].y) < 1e-9
                 && abs(rawCurve[1].x - 1) < 1e-9 && abs(rawCurve[1].y - 1) < 1e-9
             if !identityCurve, let curveFilter = CIFilter(name: "CIToneCurve") {
@@ -546,10 +572,14 @@ actor ImageDecoder {
                 )
             }
         }
-        guard let image = CIImage(contentsOf: url, options: [
-            .applyOrientationProperty: true,
-            .cacheImmediately: false
-        ]) else {
+        guard
+            let image = CIImage(
+                contentsOf: url,
+                options: [
+                    .applyOrientationProperty: true,
+                    .cacheImmediately: false,
+                ])
+        else {
             throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: url.path])
         }
         return SourceImageResult(
@@ -609,10 +639,12 @@ actor ImageDecoder {
 
         let extent = image.extent.integral
         guard extent.width.isFinite, extent.height.isFinite,
-              extent.width > 2, extent.height > 2 else { return nil }
+            extent.width > 2, extent.height > 2
+        else { return nil }
         let target = 256.0
         let scale = min(1.0, target / max(extent.width, extent.height))
-        let normalized = image
+        let normalized =
+            image
             .transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
             .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let width = max(1, Int((extent.width * scale).rounded()))
@@ -684,7 +716,6 @@ actor ImageDecoder {
             y: Double(extent.minY) + ny * Double(extent.height)
         )
     }
-
 
     /// Base key without longEdge — shared by all decode sizes of the same source.
     private func baseKey(for key: DecodeKey) -> String {

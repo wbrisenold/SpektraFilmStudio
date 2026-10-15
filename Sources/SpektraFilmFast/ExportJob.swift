@@ -131,7 +131,7 @@ struct ExportJob: Identifiable, Codable, Sendable, Equatable {
         func median(_ values: [Double]) -> Double {
             let sorted = values.sorted()
             let n = sorted.count
-            return n % 2 == 0 ? (sorted[n/2 - 1] + sorted[n/2]) / 2 : sorted[n/2]
+            return n % 2 == 0 ? (sorted[n / 2 - 1] + sorted[n / 2]) / 2 : sorted[n / 2]
         }
 
         // E3: lanes share GPU queue — use median (robust to outliers) not mean.
@@ -157,7 +157,8 @@ struct ExportJob: Identifiable, Codable, Sendable, Equatable {
         // E4: Weight by output resolution ratio to avoid bias from early thumbnails.
         let samples = items.compactMap { item -> (Int64, Double)? in
             guard item.state == .completed, let bytes = item.outputBytes, bytes > 0,
-                  let timings = item.timings else { return nil }
+                let timings = item.timings
+            else { return nil }
             let outMP = Double(timings.outputWidth * timings.outputHeight) / 1_000_000.0
             guard outMP > 0 else { return nil }
             return (bytes, outMP)

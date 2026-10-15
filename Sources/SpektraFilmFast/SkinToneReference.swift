@@ -208,9 +208,11 @@ enum SkinToneReference {
         r: Float, g: Float, b: Float,
         outputRole: Int, outputSpace: Int
     ) -> (Float, Float, Float)? {
-        guard let linear = canonicalLinearSRGBUnclamped(
-            r: r, g: g, b: b, outputRole: outputRole, outputSpace: outputSpace
-        ) else {
+        guard
+            let linear = canonicalLinearSRGBUnclamped(
+                r: r, g: g, b: b, outputRole: outputRole, outputSpace: outputSpace
+            )
+        else {
             return nil
         }
         return (
@@ -234,9 +236,11 @@ enum SkinToneReference {
         r: Float, g: Float, b: Float,
         outputRole: Int, outputSpace: Int
     ) -> (Float, Float, Float)? {
-        guard let display = canonicalDisplayRGBUnclamped(
-            r: r, g: g, b: b, outputRole: outputRole, outputSpace: outputSpace
-        ) else {
+        guard
+            let display = canonicalDisplayRGBUnclamped(
+                r: r, g: g, b: b, outputRole: outputRole, outputSpace: outputSpace
+            )
+        else {
             return nil
         }
         return (

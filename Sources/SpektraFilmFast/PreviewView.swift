@@ -23,7 +23,8 @@ struct PreviewView: View {
             ZStack {
                 viewerBackground
 
-                let previewImage: CGImage? = model.showingBefore
+                let previewImage: CGImage? =
+                    model.showingBefore
                     ? frameState.sourcePreview
                     : (frameState.renderedPreview ?? frameState.sourcePreview)
                 if let image = previewImage {

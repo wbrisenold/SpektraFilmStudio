@@ -2,8 +2,8 @@ import CoreGraphics
 import CoreImage
 import Foundation
 import MetalKit
-import simd
 import os.signpost
+import simd
 
 let gpuLivePipelineLog = OSLog(subsystem: "com.spektrafilm", category: "gpu_pipeline")
 
@@ -71,12 +71,17 @@ final class GPULiveDevice: @unchecked Sendable {
     let lens: LensOpticalMetal
     let effects: RedlampFilmEffectsEngine
 
+    // MTLHeap for efficient scratch buffer allocation (reduces driver overhead)
+    private let scratchHeap: MTLHeap
+    private let scratchHeapSize = 256 * 1024 * 1024  // 256 MB
+
     private let outputLock = NSLock()
     private var availableOutputTextures: [String: [any MTLTexture]] = [:]
     private var outputPoolBytes = 0
     private let maxOutputPoolBytes = 96 * 1024 * 1024
     private(set) var outputTextureReuses = 0
     private(set) var outputTextureAllocations = 0
+    private var seenDeviceRegistryIDs: Set<UInt64> = []
 
     init(device: any MTLDevice) throws {
         self.device = device
@@ -84,6 +89,16 @@ final class GPULiveDevice: @unchecked Sendable {
             throw GPULiveError.unavailable("Metal queue creation failed")
         }
         self.queue = queue
+
+        // Create scratch heap for efficient buffer allocation
+        let heapDesc = MTLHeapDescriptor()
+        heapDesc.size = scratchHeapSize
+        heapDesc.storageMode = .private
+        heapDesc.cpuCacheMode = .defaultCache
+        guard let heap = device.makeHeap(descriptor: heapDesc) else {
+            throw GPULiveError.unavailable("Failed to create scratch heap")
+        }
+        self.scratchHeap = heap
         self.context = CIContext(
             mtlDevice: device,
             options: [
@@ -116,15 +131,55 @@ final class GPULiveDevice: @unchecked Sendable {
         host = GPUHostGradeEngine(device: device)
         lens = LensOpticalMetal(device: device)
         effects = RedlampFilmEffectsEngine(device: device)
+
+        seenDeviceRegistryIDs.insert(device.registryID)
+    }
+
+    /// Allocate a buffer from the scratch heap (much faster than device.makeBuffer)
+    func allocateFromHeap(length: Int, options: MTLResourceOptions = []) throws -> MTLBuffer {
+        let alignedLength = (length + 255) & ~255  // 256-byte alignment
+        guard let buffer = scratchHeap.makeBuffer(length: alignedLength, options: options) else {
+            throw GPULiveError.unavailable("Scratch heap exhausted")
+        }
+        return buffer
+    }
+
+    /// Purge output texture pool for devices that are no longer active
+    func purgeStaleOutputPools(currentDeviceRegistryID: UInt64) {
+        outputLock.lock()
+        defer { outputLock.unlock() }
+
+        // Track current device
+        seenDeviceRegistryIDs.insert(currentDeviceRegistryID)
+
+        // Remove entries for stale devices
+        var totalFreed = 0
+        for key in availableOutputTextures.keys {
+            // Extract device registry ID from key format "registryID|width|height"
+            if let registryIDStr = key.split(separator: "|").first,
+                let registryID = UInt64(registryIDStr),
+                !seenDeviceRegistryIDs.contains(registryID)
+            {
+                let pool = availableOutputTextures.removeValue(forKey: key) ?? []
+                for texture in pool {
+                    outputPoolBytes -= texture.allocatedSize
+                    totalFreed += texture.allocatedSize
+                }
+            }
+        }
+        if totalFreed > 0 {
+            print("GPULiveDevice: Purged \(totalFreed / 1024 / 1024) MB of stale output textures")
+        }
     }
 
     func allocateFloatBuffer(width: Int, height: Int) throws -> any MTLBuffer {
         let product = width.multipliedReportingOverflow(by: height)
         guard width > 0, height > 0, !product.overflow,
-            product.partialValue <= Int.max / 16,
-            let buffer = device.makeBuffer(length: product.partialValue * 16, options: .storageModePrivate)
-        else { throw GPULiveError.unavailable("Float image buffer allocation failed") }
-        return buffer
+            product.partialValue <= Int.max / 16
+        else { throw GPULiveError.unavailable("Invalid GPU scratch dimensions") }
+        let bytes = product.partialValue * 16
+        // Use heap allocation for better performance
+        return try allocateFromHeap(length: bytes, options: .storageModePrivate)
     }
 
     func encodeTextureToBuffer(
@@ -160,6 +215,9 @@ final class GPULiveDevice: @unchecked Sendable {
     }
 
     func makeOutputTexture(width: Int, height: Int) throws -> any MTLTexture {
+        // Purge stale output pools for devices no longer in use
+        purgeStaleOutputPools(currentDeviceRegistryID: device.registryID)
+
         let key = "\(device.registryID)|\(width)|\(height)"
         outputLock.lock()
         if var pool = availableOutputTextures[key], let ready = pool.popLast() {
@@ -170,6 +228,7 @@ final class GPULiveDevice: @unchecked Sendable {
             }
             outputPoolBytes -= ready.allocatedSize
             outputTextureReuses += 1
+            PerformanceMonitor.shared.recordTextureReuse()
             outputLock.unlock()
             return ready
         }
@@ -184,6 +243,7 @@ final class GPULiveDevice: @unchecked Sendable {
         }
         outputLock.lock()
         outputTextureAllocations += 1
+        PerformanceMonitor.shared.recordTextureAllocation()
         outputLock.unlock()
         return texture
     }
@@ -242,6 +302,41 @@ actor GPULiveFramePipeline {
         lensPipeGPU = nil
         geometryGPU = nil
         importCalibrationGPU = nil
+        // Reset scratch pool when GPU modules are invalidated (device change)
+        scratchByBytes.removeAll()
+        scratchResidentBytes = 0
+    }
+
+    /// Pre-warm scratch pool with common buffer sizes to avoid allocation spikes
+    /// on first frames after mode switches. Call when GPU device initializes or changes.
+    private func prewarmScratchPool(gpu: GPULiveDevice) {
+        // Common preview sizes: 1080p, 1440p, 4K, 8K
+        let commonSizes = [
+            (1920, 1080),  // 1080p
+            (2560, 1440),  // 1440p
+            (3840, 2160),  // 4K
+            (7680, 4320),  // 8K
+            (1024, 1024),  // Square thumbnails
+        ]
+        for (w, h) in commonSizes {
+            let product = w.multipliedReportingOverflow(by: h)
+            guard !product.overflow,
+                product.partialValue <= Int.max / 16
+            else { continue }
+            let bytes = product.partialValue * 16
+            // Pre-allocate 3 buffers per size (enough for typical pipeline concurrency)
+            for _ in 0..<3 {
+                do {
+                    let buffer = try gpu.allocateFloatBuffer(width: w, height: h)
+                    let key = bytes
+                    scratchByBytes[key, default: []].append(buffer)
+                    scratchResidentBytes += bytes
+                } catch {
+                    // Ignore allocation failures during pre-warm
+                    break
+                }
+            }
+        }
     }
     private var lastGPUMode = "spectral"
     // SFS_PREFIX_HASH_DIRTY_TAIL_V1
@@ -322,7 +417,8 @@ actor GPULiveFramePipeline {
     func lutBlockReason(look: RenderLook) async throws -> String? {
         guard Self.supports(look) else { return "masks, geometry, Auto Contrast, denoise or output role" }
         guard film != nil else { return "native spectral renderer unavailable" }
-        return nil    }
+        return nil
+    }
 
     func render(
         url: URL, look: RenderLook, bypassImportTransform: Bool,
@@ -331,7 +427,7 @@ actor GPULiveFramePipeline {
         let signpostID = OSSignpostID(log: gpuLivePipelineLog)
         os_signpost(.begin, log: gpuLivePipelineLog, name: "GPULiveFramePipeline.render", signpostID: signpostID, "longEdge=%d", longEdge)
         defer { os_signpost(.end, log: gpuLivePipelineLog, name: "GPULiveFramePipeline.render", signpostID: signpostID) }
-        
+
         // The exact code path remains authoritative when an unsupported stage
         // is active; DO NOT ignore layers or geometry to fake a fast preview.
         if look.localGrades?.contains(where: { $0.enabled && $0.opacity > 0 }) == true {
@@ -353,9 +449,14 @@ actor GPULiveFramePipeline {
         if gpu == nil {
             guard let film else { throw GPULiveError.unavailable("Native film engine unavailable") }
             let nativeDevice = try await film.preferredMetalDevice()
-            gpu = try GPULiveDevice(device: nativeDevice.device)
+            let newGpu = try GPULiveDevice(device: nativeDevice.device)
+            gpu = newGpu
             // Cached pipeline states belong to the old device; drop them with it.
             invalidateGPUModules()
+            // Pre-warm scratch pool to avoid allocation spikes on first frames.
+            prewarmScratchPool(gpu: newGpu)
+            // Purge any stale output pools from previous device instances
+            newGpu.purgeStaleOutputPools(currentDeviceRegistryID: newGpu.device.registryID)
         }
         guard let gpu else { throw GPULiveError.unavailable("Metal device unavailable") }
         // SFS_DECODE_KEY_FINGERPRINT_V1: without the file fingerprint this key made
@@ -480,24 +581,25 @@ actor GPULiveFramePipeline {
             let pipeWidth = width
             let pipeHeight = height
 
-            var pipeTextures: [any MTLTexture] = []                // Convert the current source buffer → texture for the pipe chain.
-                let pipeInputTexture = try gpu.makeOutputTexture(width: pipeWidth, height: pipeHeight)
-                pipeTextures.append(pipeInputTexture)
-                try gpu.encodeBufferToTexture(pipeSource, destination: pipeInputTexture, on: pipeCommand)
+            var pipeTextures: [any MTLTexture] = []  // Convert the current source buffer → texture for the pipe chain.
+            let pipeInputTexture = try gpu.makeOutputTexture(width: pipeWidth, height: pipeHeight)
+            pipeTextures.append(pipeInputTexture)
+            try gpu.encodeBufferToTexture(pipeSource, destination: pipeInputTexture, on: pipeCommand)
 
-                var currentPipeTexture = pipeInputTexture
-                let pipeSettings = pipe
+            var currentPipeTexture = pipeInputTexture
+            let pipeSettings = pipe
 
             // NLMeans denoise (preview-only). Skips if disabled.
             if pipeSettings.stages[.nlmeans] == true {
                 if nlmeansGPU == nil { nlmeansGPU = NLMeansDenoiseModule(device: gpu.device) }
                 guard let nl = nlmeansGPU else { throw GPULiveError.unavailable("NLMeans module unavailable") }
-                nl.commitParams(NLMeansDenoiseModule.Params(
-                    radius: pipeSettings.nlmeans.radius,
-                    strength: pipeSettings.nlmeans.strength,
-                    luma: pipeSettings.nlmeans.luma,
-                    chroma: pipeSettings.nlmeans.chroma
-                ))
+                nl.commitParams(
+                    NLMeansDenoiseModule.Params(
+                        radius: pipeSettings.nlmeans.radius,
+                        strength: pipeSettings.nlmeans.strength,
+                        luma: pipeSettings.nlmeans.luma,
+                        chroma: pipeSettings.nlmeans.chroma
+                    ))
                 let nlOutput = try gpu.makeOutputTexture(width: pipeWidth, height: pipeHeight)
                 pipeTextures.append(nlOutput)
                 try nl.encode(commandBuffer: pipeCommand, input: currentPipeTexture, output: nlOutput, width: pipeWidth, height: pipeHeight)
@@ -507,12 +609,13 @@ actor GPULiveFramePipeline {
             if pipeSettings.stages[.bilateral] == true {
                 if bilateralGPU == nil { bilateralGPU = BilateralBlurModule(device: gpu.device) }
                 guard let bl = bilateralGPU else { throw GPULiveError.unavailable("Bilateral module unavailable") }
-                bl.commitParams(BilateralBlurModule.Params(
-                    radius: pipeSettings.bilateral.radius,
-                    redSigma: pipeSettings.bilateral.redSigma,
-                    greenSigma: pipeSettings.bilateral.greenSigma,
-                    blueSigma: pipeSettings.bilateral.blueSigma
-                ))
+                bl.commitParams(
+                    BilateralBlurModule.Params(
+                        radius: pipeSettings.bilateral.radius,
+                        redSigma: pipeSettings.bilateral.redSigma,
+                        greenSigma: pipeSettings.bilateral.greenSigma,
+                        blueSigma: pipeSettings.bilateral.blueSigma
+                    ))
                 let blOutput = try gpu.makeOutputTexture(width: pipeWidth, height: pipeHeight)
                 pipeTextures.append(blOutput)
                 try bl.encode(commandBuffer: pipeCommand, input: currentPipeTexture, output: blOutput, width: pipeWidth, height: pipeHeight)
@@ -522,16 +625,18 @@ actor GPULiveFramePipeline {
             if pipeSettings.stages[.lens] == true {
                 if lensPipeGPU == nil { lensPipeGPU = LensCorrectionModule(device: gpu.device) }
                 guard let lc = lensPipeGPU else { throw GPULiveError.unavailable("Lens correction module unavailable") }
-                lc.commitParams(LensCorrectionModule.Params(
-                    distortionK1: pipeSettings.lens.distortionK1, distortionK2: pipeSettings.lens.distortionK2,
-                    distortionK3: pipeSettings.lens.distortionK3, distortionK4: pipeSettings.lens.distortionK4,
-                    tcaRed: pipeSettings.lens.tcaRed, tcaBlue: pipeSettings.lens.tcaBlue,
-                    vignetteK1: pipeSettings.lens.vignetteK1, vignetteK2: pipeSettings.lens.vignetteK2,
-                    vignetteK3: pipeSettings.lens.vignetteK3, vignetteK4: pipeSettings.lens.vignetteK4
-                ))
+                lc.commitParams(
+                    LensCorrectionModule.Params(
+                        distortionK1: pipeSettings.lens.distortionK1, distortionK2: pipeSettings.lens.distortionK2,
+                        distortionK3: pipeSettings.lens.distortionK3, distortionK4: pipeSettings.lens.distortionK4,
+                        tcaRed: pipeSettings.lens.tcaRed, tcaBlue: pipeSettings.lens.tcaBlue,
+                        vignetteK1: pipeSettings.lens.vignetteK1, vignetteK2: pipeSettings.lens.vignetteK2,
+                        vignetteK3: pipeSettings.lens.vignetteK3, vignetteK4: pipeSettings.lens.vignetteK4
+                    ))
                 let lensOutput = try gpu.makeOutputTexture(width: pipeWidth, height: pipeHeight)
                 pipeTextures.append(lensOutput)
-                try lc.encode(commandBuffer: pipeCommand, input: currentPipeTexture, output: lensOutput, width: pipeWidth, height: pipeHeight)
+                try lc.encode(
+                    commandBuffer: pipeCommand, input: currentPipeTexture, output: lensOutput, width: pipeWidth, height: pipeHeight)
                 currentPipeTexture = lensOutput
             }
             // Tone mapping (sigmoid/AgX/FilmicRGB) was removed: the native spectral

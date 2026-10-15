@@ -927,24 +927,28 @@ struct ControlsView: View {
                 .help("Reset all GPU pipe stages and params to off/identity.")
             }
 
-            Text("Live Metal image-processing stages injected after the film pass on the interactive preview path. These are preview-side filters independent of RAW develop denoise and the exact export path.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            Text(
+                "Live Metal image-processing stages injected after the film pass on the interactive preview path. These are preview-side filters independent of RAW develop denoise and the exact export path."
+            )
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
 
             ForEach(PipeStage.allCases) { stage in
                 HStack(spacing: 8) {
-                    Toggle(isOn: Binding(
-                        get: { model.selectedLook.pipe?.stages[stage] == true },
-                        set: { model.setPipeStage(stage, enabled: $0) }
-                    )) {
+                    Toggle(
+                        isOn: Binding(
+                            get: { model.selectedLook.pipe?.stages[stage] == true },
+                            set: { model.setPipeStage(stage, enabled: $0) }
+                        )
+                    ) {
                         Text(stage.rawValue.uppercasedFirstLetter())
                             .font(.caption.weight(.medium))
                     }
                     .controlSize(.small)
                     .help(pipeStageHelp(for: stage))
                     if model.selectedLook.pipe?.stages[stage] == true {
-                        Button("Params") { }
+                        Button("Params") {}
                             .controlSize(.mini)
                             .buttonStyle(.bordered)
                             .help("Adjust this stage's parameters below.")
@@ -2153,10 +2157,12 @@ struct PipelineBoolToggle: View {
     // Storing get/set closures here would force them to match SwiftUI's
     // @isolated(any) @Sendable signature while they touch @MainActor AppModel.
     var body: some View {
-        Toggle(isOn: Binding(
-            get: { value },
-            set: { model.setPipeBoolParam(key: key, value: $0) }
-        )) {
+        Toggle(
+            isOn: Binding(
+                get: { value },
+                set: { model.setPipeBoolParam(key: key, value: $0) }
+            )
+        ) {
             Text(label).font(.caption.weight(.medium))
         }
         .controlSize(.small)
@@ -2176,10 +2182,12 @@ struct PipelineFloatSlider: View {
         HStack(spacing: 6) {
             Text(label).font(.caption2).foregroundStyle(.secondary)
                 .frame(width: 80, alignment: .leading)
-            Slider(value: Binding(
-                get: { value },
-                set: { model.setPipeParam(key: key, value: $0) }
-            ), in: range)
+            Slider(
+                value: Binding(
+                    get: { value },
+                    set: { model.setPipeParam(key: key, value: $0) }
+                ), in: range
+            )
             .controlSize(.small)
             Text(String(format: "%.3g", value))
                 .font(.caption2.monospacedDigit())

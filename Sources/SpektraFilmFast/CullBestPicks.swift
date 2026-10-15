@@ -86,10 +86,11 @@ struct CullBestPicksEngine {
         let sharpnessNorm = min(10.0, cull.sharpness * 10.0)
         let blinkScore = cull.possibleBlink ? 0 : 10.0
 
-        var score = aggregateNorm * w.aggregate
-                  + aestheticNorm * w.aesthetic
-                  + sharpnessNorm * w.sharpness
-                  + blinkScore * w.blink
+        var score =
+            aggregateNorm * w.aggregate
+            + aestheticNorm * w.aesthetic
+            + sharpnessNorm * w.sharpness
+            + blinkScore * w.blink
 
         // Per-face signals (Facet eyes_open / expression) — only if available.
         if cull.faceCount > 0 {

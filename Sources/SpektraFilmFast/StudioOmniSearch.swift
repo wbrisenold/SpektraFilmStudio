@@ -68,7 +68,7 @@ struct StudioOmniSearch: View {
             OmniEntry(
                 title: "Import Photos", context: "Library", icon: "plus", keywords: "add files",
                 action: .task("import")
-        ),
+            ),
             OmniEntry(
                 title: "New Project", context: "Project", icon: "folder.badge.plus", keywords: "create",
                 action: .task("new")),

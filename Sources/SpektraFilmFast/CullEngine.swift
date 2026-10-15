@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
-import Vision
 import MetalKit
+import Vision
 
 struct DetectedFace: Sendable {
     var bounds: CGRect
@@ -57,10 +57,15 @@ extension CullEngine {
                 let d = mx - mn
                 let s = mx > 0 ? d / mx : 0
                 var h2: Double
-                if d == 0 { h2 = 0 }
-                else if mx == r { h2 = ((g - b) / d).truncatingRemainder(dividingBy: 6) + (g < b ? 6 : 0) }
-                else if mx == g { h2 = ((b - r) / d) + 2 }
-                else { h2 = ((r - g) / d) + 4 }
+                if d == 0 {
+                    h2 = 0
+                } else if mx == r {
+                    h2 = ((g - b) / d).truncatingRemainder(dividingBy: 6) + (g < b ? 6 : 0)
+                } else if mx == g {
+                    h2 = ((b - r) / d) + 2
+                } else {
+                    h2 = ((r - g) / d) + 4
+                }
                 h2 *= 60
                 if h2 < 0 { h2 += 360 }
                 let hi = Int(h2 / 360.0 * Double(binH)).clamped(to: 0..<binH)
@@ -133,7 +138,7 @@ extension CullEngine {
     /// estimated at reduced resolution.
     private static func facetNoiseEstimate(luma: [Double], width: Int, height: Int) -> Double {
         guard width > 2 && height > 2 else { return 0 }
-        let M: [Int] = [-1, 2, -1, 2, -4, 2, -1, 2, -1] // 3x3 Immerkaer kernel
+        let M: [Int] = [-1, 2, -1, 2, -4, 2, -1, 2, -1]  // 3x3 Immerkaer kernel
         // Subsample for performance: step of 2 gives 1/4 pixels, sufficient for noise est
         let step = 2
         var sigma = 0.0
@@ -212,15 +217,21 @@ actor CullEngine {
         // Build CGImage once and share across all Vision requests (PERF-9)
         let cgImage = payload.makeCGImage()
         // Parallel Vision requests: face detection + face quality + aesthetics
-        async let facesTask = cgImage != nil ? Task.detached(priority: .utility) {
-            Self.detectFacesVisionWithImage(cgImage!, width: payload.width, height: payload.height)
-        }.value : []
-        async let faceCaptureQualityTask = cgImage != nil ? Task.detached(priority: .utility) {
-            Self.faceCaptureQualityWithImage(cgImage!)
-        }.value : nil
-        async let aestheticScoreTask = cgImage != nil ? Task.detached(priority: .utility) {
-            Self.aestheticQualityWithImage(cgImage!)
-        }.value : nil
+        async let facesTask =
+            cgImage != nil
+            ? Task.detached(priority: .utility) {
+                Self.detectFacesVisionWithImage(cgImage!, width: payload.width, height: payload.height)
+            }.value : []
+        async let faceCaptureQualityTask =
+            cgImage != nil
+            ? Task.detached(priority: .utility) {
+                Self.faceCaptureQualityWithImage(cgImage!)
+            }.value : nil
+        async let aestheticScoreTask =
+            cgImage != nil
+            ? Task.detached(priority: .utility) {
+                Self.aestheticQualityWithImage(cgImage!)
+            }.value : nil
 
         async let technicalTask = Task.detached(priority: .utility) {
             (Self.imageMetrics(payload), Self.dHash(payload))
@@ -279,7 +290,7 @@ actor CullEngine {
                 if aestheticScore >= 0.4 {
                     score += (aestheticScore - 0.4) * 25
                 } else if aestheticScore < -0.2 {
-                    score += aestheticScore * 16 // negative
+                    score += aestheticScore * 16  // negative
                 }
             }
             if metrics.highlightClip > 0.05 { score -= metrics.highlightClip * 100 }
@@ -316,8 +327,11 @@ actor CullEngine {
             if dynamicRange < 6.0 { reasons.append("Narrow dynamic range") }
             if colorHarmony > 0.70 { reasons.append("Rich color variety") }
             if noiseEstimateFacet > 6.0 { reasons.append("High sensor noise (Immerkaer)") }
-            if integratedComp >= 8.0 { reasons.append("Strong composition") }
-            else if integratedComp < 5.0 { reasons.append("Weak composition") }
+            if integratedComp >= 8.0 {
+                reasons.append("Strong composition")
+            } else if integratedComp < 5.0 {
+                reasons.append("Weak composition")
+            }
             if reasons.isEmpty { reasons.append("Balanced technical quality") }
 
             let recommendation: CullRecommendation
@@ -399,10 +413,15 @@ actor CullEngine {
                 let d = mx - mn
                 let s = mx > 0 ? d / mx : 0
                 var h2: Double
-                if d == 0 { h2 = 0 }
-                else if mx == r { h2 = ((g - b) / d).truncatingRemainder(dividingBy: 6) + (g < b ? 6 : 0) }
-                else if mx == g { h2 = ((b - r) / d) + 2 }
-                else { h2 = ((r - g) / d) + 4 }
+                if d == 0 {
+                    h2 = 0
+                } else if mx == r {
+                    h2 = ((g - b) / d).truncatingRemainder(dividingBy: 6) + (g < b ? 6 : 0)
+                } else if mx == g {
+                    h2 = ((b - r) / d) + 2
+                } else {
+                    h2 = ((r - g) / d) + 4
+                }
                 h2 *= 60
                 if h2 < 0 { h2 += 360 }
                 let hi = Int(h2 / 360.0 * 180.0).clamped(to: 0..<180)
@@ -583,8 +602,6 @@ actor CullEngine {
             contrast: contrast
         )
     }
-
-    
 
     private nonisolated static func faceMetrics(_ payload: ThumbnailPayload, faces: [DetectedFace]) -> FaceMetrics {
         guard !faces.isEmpty else { return FaceMetrics(count: 0, sharpness: 0, possibleBlink: false) }

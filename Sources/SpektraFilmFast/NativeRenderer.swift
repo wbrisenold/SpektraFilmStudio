@@ -1,13 +1,12 @@
-import Foundation
-import Darwin
-import CoreGraphics
-import CSpektraBridge
 import Accelerate
+import CSpektraBridge
+import CoreGraphics
+import Darwin
+import Foundation
 import Metal
 import os.signpost
 
 let nativeRendererLog = OSLog(subsystem: "com.spektrafilm", category: "native_renderer")
-
 
 struct FloatImagePayload: Sendable {
     let width: Int
@@ -31,10 +30,9 @@ struct FloatImagePayload: Sendable {
     func makeCGImage(colorSpace: CGColorSpace) -> CGImage? {
         guard width > 0, height > 0, data.count == expectedByteCount else { return nil }
         guard let provider = CGDataProvider(data: data as CFData) else { return nil }
-        let bitmap = CGBitmapInfo(rawValue:
-            CGImageAlphaInfo.last.rawValue |
-            CGBitmapInfo.floatComponents.rawValue |
-            CGBitmapInfo.byteOrder32Little.rawValue
+        let bitmap = CGBitmapInfo(
+            rawValue:
+                CGImageAlphaInfo.last.rawValue | CGBitmapInfo.floatComponents.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
         )
         return CGImage(
             width: width,
@@ -67,7 +65,6 @@ struct PixelBufferF32: Sendable {
         makeCGImage8(colorSpace: colorSpace ?? (CGColorSpace(name: CGColorSpace.itur_709) ?? CGColorSpaceCreateDeviceRGB()))
     }
 
-
     func makeFloatImagePayload() -> FloatImagePayload? {
         guard width > 0, height > 0, pixels.count == width * height * 4 else { return nil }
         return FloatImagePayload(
@@ -94,8 +91,9 @@ struct PixelBufferF32: Sendable {
             bytes.withUnsafeMutableBufferPointer { destination in
                 scratch.withUnsafeMutableBufferPointer { temp in
                     guard let src = source.baseAddress,
-                          let dst = destination.baseAddress,
-                          let tmp = temp.baseAddress else { return }
+                        let dst = destination.baseAddress,
+                        let tmp = temp.baseAddress
+                    else { return }
 
                     var offset = 0
                     while offset < source.count {
@@ -138,8 +136,9 @@ struct PixelBufferF32: Sendable {
             words.withUnsafeMutableBufferPointer { destination in
                 scratch.withUnsafeMutableBufferPointer { temp in
                     guard let src = source.baseAddress,
-                          let dst = destination.baseAddress,
-                          let tmp = temp.baseAddress else { return }
+                        let dst = destination.baseAddress,
+                        let tmp = temp.baseAddress
+                    else { return }
 
                     var offset = 0
                     while offset < source.count {
@@ -214,7 +213,6 @@ actor NativeRenderer {
         handle = renderer
     }
 
-
     /// Configure the pinned native renderer for exact processing. Preview speed is handled by
     /// decode/render caching and by a transient pointer-rate proxy, not by a second approximate
     /// renderer configuration.
@@ -241,7 +239,8 @@ actor NativeRenderer {
     /// on an Intel machine with both integrated and discrete graphics.
     func preferredMetalDevice() throws -> GPUMetalDeviceToken {
         guard let pointer = SpektraRendererMetalDevice(handle),
-              let device = Unmanaged<AnyObject>.fromOpaque(pointer).takeUnretainedValue() as? (any MTLDevice) else {
+            let device = Unmanaged<AnyObject>.fromOpaque(pointer).takeUnretainedValue() as? (any MTLDevice)
+        else {
             throw RendererError.unavailable("Native film Metal device not available")
         }
         return GPUMetalDeviceToken(device: device)
@@ -265,21 +264,23 @@ actor NativeRenderer {
         let queue = resources.queue, width = resources.width, height = resources.height
         try Task.checkCancellation()
         guard width > 0, height > 0, width <= Int(Int32.max) / 16,
-              height <= Int(Int32.max),
-              let byteCount = UInt64(exactly: width).flatMap({ w in
-                  UInt64(exactly: height).flatMap({ h in
-                      w.multipliedReportingOverflow(by: h).overflow ? nil : w * h
-                  })
-              }).flatMap({ count -> UInt64? in
-                  let result = count.multipliedReportingOverflow(by: 16)
-                  return result.overflow ? nil : result.partialValue
-              }), byteCount <= UInt64(Int.max),
-              source.length >= Int(byteCount), destination.length >= Int(byteCount),
-              ObjectIdentifier(source.device as AnyObject) == ObjectIdentifier(queue.device as AnyObject),
-              ObjectIdentifier(destination.device as AnyObject) == ObjectIdentifier(queue.device as AnyObject) else {
+            height <= Int(Int32.max),
+            let byteCount = UInt64(exactly: width).flatMap({ w in
+                UInt64(exactly: height).flatMap({ h in
+                    w.multipliedReportingOverflow(by: h).overflow ? nil : w * h
+                })
+            }).flatMap({ count -> UInt64? in
+                let result = count.multipliedReportingOverflow(by: 16)
+                return result.overflow ? nil : result.partialValue
+            }), byteCount <= UInt64(Int.max),
+            source.length >= Int(byteCount), destination.length >= Int(byteCount),
+            ObjectIdentifier(source.device as AnyObject) == ObjectIdentifier(queue.device as AnyObject),
+            ObjectIdentifier(destination.device as AnyObject) == ObjectIdentifier(queue.device as AnyObject)
+        else {
             throw RendererError.renderFailed("GPU buffer dimensions, length, or device mismatch")
         }
-        SpektraRendererSetPerformanceOptions(handle,
+        SpektraRendererSetPerformanceOptions(
+            handle,
             look.values["fastSpatial"] == .bool(true) ? 1 : 0, 1)
         SpektraRendererSetDensityLutsEnabled(handle, 0)
         var params = SpektraAppMakeDefaultRenderParams()
@@ -303,16 +304,20 @@ actor NativeRenderer {
         }
     }
 
-    func render(_ input: PixelBufferF32, look: RenderLook, time: Double = 0, useDensityLuts: Bool = false, useStageCache: Bool = true) throws -> (PixelBufferF32, RenderDiagnosticsView) {
+    func render(
+        _ input: PixelBufferF32, look: RenderLook, time: Double = 0, useDensityLuts: Bool = false, useStageCache: Bool = true
+    ) throws -> (PixelBufferF32, RenderDiagnosticsView) {
         let signpostID = OSSignpostID(log: nativeRendererLog)
-        os_signpost(.begin, log: nativeRendererLog, name: "NativeRenderer.render", signpostID: signpostID, "w=%d h=%d", input.width, input.height)
+        os_signpost(
+            .begin, log: nativeRendererLog, name: "NativeRenderer.render", signpostID: signpostID, "w=%d h=%d", input.width, input.height)
         defer { os_signpost(.end, log: nativeRendererLog, name: "NativeRenderer.render", signpostID: signpostID) }
-        
+
         // A cancelled request that was waiting for the actor must not become another
         // expensive Metal render after it finally reaches the front of the queue.
         try Task.checkCancellation()
 
-        SpektraRendererSetPerformanceOptions(handle,
+        SpektraRendererSetPerformanceOptions(
+            handle,
             look.values["fastSpatial"] == .bool(true) ? 1 : 0, useStageCache ? 1 : 0)
         SpektraRendererSetDensityLutsEnabled(handle, useDensityLuts ? 1 : 0)
         var params = SpektraAppMakeDefaultRenderParams()
@@ -375,23 +380,27 @@ actor NativeRenderer {
         useDensityLuts: Bool = false, useStageCache: Bool = true
     ) throws -> (PixelBufferF32, RenderDiagnosticsView) {
         let signpostID = OSSignpostID(log: nativeRendererLog)
-        os_signpost(.begin, log: nativeRendererLog, name: "NativeRenderer.renderMetal", signpostID: signpostID, "w=%d h=%d", input.width, input.height)
+        os_signpost(
+            .begin, log: nativeRendererLog, name: "NativeRenderer.renderMetal", signpostID: signpostID, "w=%d h=%d", input.width,
+            input.height)
         defer { os_signpost(.end, log: nativeRendererLog, name: "NativeRenderer.renderMetal", signpostID: signpostID) }
-        
+
         try Task.checkCancellation()
 
         guard let device = try? preferredMetalDevice().device,
-              let queue = device.makeCommandQueue(),
-              input.width > 0, input.height > 0,
-              input.pixels.count == input.width * input.height * 4
+            let queue = device.makeCommandQueue(),
+            input.width > 0, input.height > 0,
+            input.pixels.count == input.width * input.height * 4
         else {
             throw RendererError.renderFailed("Metal device/queue unavailable for export")
         }
 
         let byteCount = input.width * input.height * 4 * MemoryLayout<Float>.size
-        guard let sourceBuffer = device.makeBuffer(
-            bytes: input.pixels, length: byteCount, options: .storageModePrivate
-        ) else { throw RendererError.renderFailed("Source buffer allocation failed") }
+        guard
+            let sourceBuffer = device.makeBuffer(
+                bytes: input.pixels, length: byteCount, options: .storageModePrivate
+            )
+        else { throw RendererError.renderFailed("Source buffer allocation failed") }
 
         guard let destBuffer = device.makeBuffer(length: byteCount, options: .storageModePrivate) else {
             throw RendererError.renderFailed("Destination buffer allocation failed")
@@ -414,8 +423,9 @@ actor NativeRenderer {
         let readCommand = queue.makeCommandBuffer()!
         let readBlit = readCommand.makeBlitCommandEncoder()!
         let stagingBuffer = device.makeBuffer(length: byteCount, options: .storageModeShared)!
-        readBlit.copy(from: destBuffer, sourceOffset: 0,
-                      to: stagingBuffer, destinationOffset: 0, size: byteCount)
+        readBlit.copy(
+            from: destBuffer, sourceOffset: 0,
+            to: stagingBuffer, destinationOffset: 0, size: byteCount)
         readBlit.endEncoding()
         readCommand.commit()
         readCommand.waitUntilCompleted()

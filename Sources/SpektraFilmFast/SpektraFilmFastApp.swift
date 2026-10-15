@@ -1,6 +1,6 @@
-import SwiftUI
 import AppKit
 import Darwin
+import SwiftUI
 
 @main
 struct SpektraFilmFastApp: App {
@@ -79,7 +79,8 @@ private enum SpektraStartup {
             exit(Int32(RedlampMaskSmokeTest.run()))
         } else if CommandLine.arguments.contains("--self-test") || CommandLine.arguments.contains("--studio-soak-test") {
             Task {
-                let result = CommandLine.arguments.contains("--studio-soak-test")
+                let result =
+                    CommandLine.arguments.contains("--studio-soak-test")
                     ? await ProductionSelfTest.runSoak()
                     : await ProductionSelfTest.run()
                 fflush(stdout)
@@ -171,10 +172,12 @@ struct SpektraCommands: Commands {
             Button("Paste Look") { model.pasteLook() }.keyboardShortcut("v", modifiers: [.command, .option])
             Menu("Copy / Paste Categories") {
                 ForEach(LookCopyCategory.allCases) { category in
-                    Toggle(category.rawValue, isOn: Binding(
-                        get: { model.lookCopyCategoryEnabled(category) },
-                        set: { model.setLookCopyCategory(category, enabled: $0) }
-                    ))
+                    Toggle(
+                        category.rawValue,
+                        isOn: Binding(
+                            get: { model.lookCopyCategoryEnabled(category) },
+                            set: { model.setLookCopyCategory(category, enabled: $0) }
+                        ))
                 }
             }
             Button("Reset Look") { model.resetLook() }
@@ -213,8 +216,9 @@ final class SpektraApplicationDelegate: NSObject, NSApplicationDelegate {
             NSApp.activate(ignoringOtherApps: true)
             return
         }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820),
-                              styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.title = "SpektraFilm Studio"
         window.contentView = NSHostingView(rootView: ContentView(model: model))
@@ -224,13 +228,13 @@ final class SpektraApplicationDelegate: NSObject, NSApplicationDelegate {
         fallbackWindow = window
     }
 
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         // SwiftPM is packaged into a hand-built .app bundle. Set the Dock/app-switcher
         // icon explicitly so Finder, the Dock, and the in-app brand mark all use the
         // bundled SpektraFilm artwork instead of the generic executable icon.
         if let url = Bundle.main.url(forResource: "SpektraFilm", withExtension: "icns"),
-           let icon = NSImage(contentsOfFile: url.path) {
+            let icon = NSImage(contentsOfFile: url.path)
+        {
             NSApp.applicationIconImage = icon
         }
     }
@@ -242,7 +246,7 @@ final class SpektraApplicationDelegate: NSObject, NSApplicationDelegate {
                 guard allowed else { sender.reply(toApplicationShouldTerminate: false); return }
                 Task {
                     await Task.detached {
-                        while !Inference.shared.stop(waitingAtMost: 0.25) { }
+                        while !Inference.shared.stop(waitingAtMost: 0.25) {}
                     }.value
                     sender.reply(toApplicationShouldTerminate: true)
                 }
@@ -266,7 +270,8 @@ final class ShortcutMonitor {
             // Return Bool (not NSEvent) so the non-Sendable event never crosses the
             // isolation boundary; the outer closure maps it back to nil/event.
             let handled: Bool = MainActor.assumeIsolated {
-                guard let model, !SpektraFilePanel.isPickerVisible, NSApp.keyWindow?.attachedSheet == nil, !(NSApp.keyWindow is NSPanel) else { return false }
+                guard let model, !SpektraFilePanel.isPickerVisible, NSApp.keyWindow?.attachedSheet == nil, !(NSApp.keyWindow is NSPanel)
+                else { return false }
                 // Never intercept native text editing / search / numeric fields.
                 if NSApp.keyWindow?.firstResponder is NSTextView || NSApp.keyWindow?.firstResponder is NSTextField { return false }
                 let key = Self.keyName(event)
@@ -279,25 +284,25 @@ final class ShortcutMonitor {
                 let inLibrary = model.page == .library
 
                 @MainActor func applyRating(_ value: Int) {
-                    if inLibrary { model.batchSetRating(value) }
-                    else { model.setRating(value) }
+                    if inLibrary { model.batchSetRating(value) } else { model.setRating(value) }
                 }
                 @MainActor func applyFlag(_ value: ProjectFlag) {
-                    if inLibrary { model.batchSetFlag(value) }
-                    else { model.setFlag(value) }
+                    if inLibrary { model.batchSetFlag(value) } else { model.setFlag(value) }
                 }
 
                 // Lightroom-style number keys work anywhere; in Library they apply to the
                 // highlighted set instead of silently changing only the active thumbnail.
                 if event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
-                   let value = Int(key), (0...5).contains(value) {
+                    let value = Int(key), (0...5).contains(value)
+                {
                     applyRating(value)
                     return true
                 }
 
                 if inLibrary,
-                   event.modifierFlags.contains(.command),
-                   key.lowercased() == "a" {
+                    event.modifierFlags.contains(.command),
+                    key.lowercased() == "a"
+                {
                     model.selectAllVisible()
                     return true
                 }

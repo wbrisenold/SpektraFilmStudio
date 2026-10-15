@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
-import Vision
 import ImageIO
+import Vision
 
 // MARK: - Facet-style composition analysis ported from ncoevoet/facet
 // analyzers/composition.py: subject-region detection (edge contour + saliency),
@@ -25,9 +25,10 @@ extension CullEngine {
         var gray = [Double](repeating: 0, count: w * h)
         for i in 0..<(w * h) {
             let p = i * 4
-            gray[i] = 0.2126 * Double(payload.rgba[p])
-                    + 0.7152 * Double(payload.rgba[p + 1])
-                    + 0.0722 * Double(payload.rgba[p + 2])
+            gray[i] =
+                0.2126 * Double(payload.rgba[p])
+                + 0.7152 * Double(payload.rgba[p + 1])
+                + 0.0722 * Double(payload.rgba[p + 2])
         }
 
         // Gradient magnitude via central differences.
@@ -89,7 +90,7 @@ extension CullEngine {
                     _ = cur % w
                     _ = cur / w
                     let nexts = [
-                        cur - 1, cur + 1, cur - w, cur + w
+                        cur - 1, cur + 1, cur - w, cur + w,
                     ]
                     for ni in nexts {
                         let nx = ni % w
@@ -138,8 +139,9 @@ extension CullEngine {
             maxX = max(maxX, idx % w)
             maxY = max(maxY, idx / w)
         }
-        return CGRect(x: Double(minX), y: Double(minY),
-                      width: Double(maxX - minX), height: Double(maxY - minY))
+        return CGRect(
+            x: Double(minX), y: Double(minY),
+            width: Double(maxX - minX), height: Double(maxY - minY))
     }
 
     /// Score a subject bounding box against rule-of-thirds and center composition.
@@ -150,7 +152,7 @@ extension CullEngine {
         if let region = region {
             let cx = (region.minX + region.maxX) / 2 / Double(imgW)
             let cy = (region.minY + region.maxY) / 2 / Double(imgH)
-            let thirds: [Double] = [1.0/3.0, 2.0/3.0]
+            let thirds: [Double] = [1.0 / 3.0, 2.0 / 3.0]
             var powerPoints: [(Double, Double)] = []
             for t1 in thirds { for t2 in thirds { powerPoints.append((t1, t2)) } }
             let minPowerDist = powerPoints.map { pow(cx - $0.0, 2) + pow(cy - $0.1, 2) }.min() ?? 1.0
@@ -188,9 +190,10 @@ extension CullEngine {
         var gray = [Double](repeating: 0, count: w * h)
         for i in 0..<(w * h) {
             let p = i * 4
-            gray[i] = 0.2126 * Double(payload.rgba[p])
-                    + 0.7152 * Double(payload.rgba[p + 1])
-                    + 0.0722 * Double(payload.rgba[p + 2])
+            gray[i] =
+                0.2126 * Double(payload.rgba[p])
+                + 0.7152 * Double(payload.rgba[p + 1])
+                + 0.0722 * Double(payload.rgba[p + 2])
         }
         var mag = [Double](repeating: 0, count: w * h)
         for y in 1..<(h - 1) {
@@ -213,9 +216,11 @@ extension CullEngine {
         for y in 1..<(h - 1) {
             for x in 1..<(w - 1) {
                 var sum = 0
-                for dy in -1...1 { for dx in -1...1 {
-                    sum += edgeMap[(y + dy) * w + (x + dx)] ? 1 : 0
-                } }
+                for dy in -1...1 {
+                    for dx in -1...1 {
+                        sum += edgeMap[(y + dy) * w + (x + dx)] ? 1 : 0
+                    }
+                }
                 blurred[y * w + x] = sum >= 3
             }
         }
@@ -223,7 +228,7 @@ extension CullEngine {
         // Hough line accumulator: vote into angle/distance bins.
         // Use a simplified approach: for each edge pixel, vote for lines through it
         // at quantized angles, then find the strongest lines.
-        let angleBins = 36 // 5° resolution
+        let angleBins = 36  // 5° resolution
         let maxDist = Int(sqrt(Double(w * w + h * h)))
         var accumulator = [Int](repeating: 0, count: angleBins * (maxDist + 1))
 
@@ -247,7 +252,7 @@ extension CullEngine {
             let theta = Double(ai) * .pi / Double(angleBins)
             for di in 0...maxDist {
                 let votes = accumulator[ai * (maxDist + 1) + di]
-                guard votes > 3 else { continue } // low threshold
+                guard votes > 3 else { continue }  // low threshold
                 // Angle in degrees.
                 let angleDeg = abs(theta * 180 / .pi)
                 let normalizedAngle = min(angleDeg, 180 - angleDeg)

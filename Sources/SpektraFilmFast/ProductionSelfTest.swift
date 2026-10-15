@@ -1,5 +1,5 @@
-import Foundation
 import CoreGraphics
+import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -36,7 +36,8 @@ struct ProductionSelfTest {
             queuedSettings.resizeWidth = 1080
             queuedSettings.resizeHeight = 1350
             queuedSettings.destinationPath = root.path
-            var queued = ExportJob(settings: queuedSettings, bypassImportTransform: false,
+            var queued = ExportJob(
+                settings: queuedSettings, bypassImportTransform: false,
                 items: [ExportQueueItem(image: image, destination: root.appendingPathComponent("stale.tif"))])
             queued.state = .stopped
             model.activeExportJob = queued
@@ -44,7 +45,8 @@ struct ProductionSelfTest {
             model.project.exportSettings.resizeMode = .none
             model.resumeExport()
             guard model.exportQueueSettingsDiffer, !model.isExporting, model.exportTask == nil,
-                  model.activeExportJob?.settings.resizeMode == .fitBox else {
+                model.activeExportJob?.settings.resizeMode == .fitBox
+            else {
                 throw Failure(errorDescription: "Resume silently reused stale resize settings")
             }
             queued.items[0].state = .failed
@@ -71,27 +73,32 @@ struct ProductionSelfTest {
                 guard let task = model.exportTask else { throw Failure(errorDescription: "Queue did not start: \(model.status)") }
                 await task.value
                 guard let item = model.activeExportJob?.items.first, item.state == .completed,
-                      let timing = item.timings else {
+                    let timing = item.timings
+                else {
                     throw Failure(errorDescription: "Export failed: \(model.exportFailures) \(model.status)")
                 }
                 let url = URL(fileURLWithPath: item.destinationPath)
                 guard let encoded = CGImageSourceCreateWithURL(url as CFURL, nil),
-                      let props = CGImageSourceCopyPropertiesAtIndex(encoded, 0, nil) as? [CFString: Any],
-                      let decoded = CGImageSourceCreateImageAtIndex(encoded, 0, nil),
-                      decoded.bitsPerComponent == (sixteen ? 16 : 8),
-                      decoded.width == timing.outputWidth, decoded.height == timing.outputHeight,
-                      resize ? max(decoded.width, decoded.height) == 2048
-                             : (decoded.width == timing.sourceWidth && decoded.height == timing.sourceHeight) else {
+                    let props = CGImageSourceCopyPropertiesAtIndex(encoded, 0, nil) as? [CFString: Any],
+                    let decoded = CGImageSourceCreateImageAtIndex(encoded, 0, nil),
+                    decoded.bitsPerComponent == (sixteen ? 16 : 8),
+                    decoded.width == timing.outputWidth, decoded.height == timing.outputHeight,
+                    resize
+                        ? max(decoded.width, decoded.height) == 2048
+                        : (decoded.width == timing.sourceWidth && decoded.height == timing.sourceHeight)
+                else {
                     throw Failure(errorDescription: "Encoded dimensions/depth do not match the original export request")
                 }
                 let tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any]
-                let row: [String: Any] = ["variant": label, "destination": url.path,
+                let row: [String: Any] = [
+                    "variant": label, "destination": url.path,
                     "sourceWidth": timing.sourceWidth, "sourceHeight": timing.sourceHeight,
                     "outputWidth": decoded.width, "outputHeight": decoded.height,
                     "bitsPerComponent": decoded.bitsPerComponent, "bitsPerPixel": decoded.bitsPerPixel,
                     "bytes": timing.outputBytes, "compression": tiff?[kCGImagePropertyTIFFCompression] ?? -1,
                     "profile": props[kCGImagePropertyProfileName] ?? "unknown",
-                    "decodeMs": timing.decodeMs, "renderMs": timing.renderMs, "wallMs": timing.wallMs]
+                    "decodeMs": timing.decodeMs, "renderMs": timing.renderMs, "wallMs": timing.wallMs,
+                ]
                 results.append(row)
                 print("ORIGINAL_EXPORT_RESULT \(row)")
                 fflush(stdout)
@@ -144,8 +151,9 @@ struct ProductionSelfTest {
             look.normalizeForProOnly()
             let (output, diagnostics) = try await renderer.render(input, look: look)
             guard output.width == width, output.height == height,
-                  output.pixels.count == pixels.count,
-                  diagnostics.passCount > 0 else {
+                output.pixels.count == pixels.count,
+                diagnostics.passCount > 0
+            else {
                 fputs("SELFTEST FAIL: invalid output dimensions/diagnostics\n", stderr)
                 return 21
             }
@@ -164,24 +172,26 @@ struct ProductionSelfTest {
             }
             let (cachedOutput, cachedDiagnostics) = try await renderer.render(input, look: look)
             guard cachedOutput.pixels == output.pixels,
-                  cachedDiagnostics.passCount < diagnostics.passCount else {
+                cachedDiagnostics.passCount < diagnostics.passCount
+            else {
                 throw RendererError.renderFailed("Film stage cache changed pixels or failed reuse")
             }
-            var printLook=look
+            var printLook = look
             printLook.values["printExposureEv"] = .scalar(0.3)
             let (reusedPrint, _) = try await renderer.render(input, look: printLook)
             let (uncachedPrint, _) = try await renderer.render(input, look: printLook, useStageCache: false)
             guard reusedPrint.pixels == uncachedPrint.pixels else {
                 throw RendererError.renderFailed("Print edit stage cache parity failed")
             }
-            var grainLook=look
+            var grainLook = look
             grainLook.values["grainEnabled"] = .bool(true)
             grainLook.values["grainModel"] = .int(2)
-            let interactive=InteractiveRenderPolicy.previewLook(from: grainLook, changedParameter: "filterMShift", rawField: nil)
+            let interactive = InteractiveRenderPolicy.previewLook(from: grainLook, changedParameter: "filterMShift", rawField: nil)
             guard interactive.values["grainEnabled"] == .bool(true),
-                  interactive.values["grainModel"] == .int(0),
-                  interactive.values["fastSpatial"] == .bool(true),
-                  grainLook.values["grainModel"] == .int(2) else {
+                interactive.values["grainModel"] == .int(0),
+                interactive.values["fastSpatial"] == .bool(true),
+                grainLook.values["grainModel"] == .int(2)
+            else {
                 throw RendererError.renderFailed("Interactive grain changed saved export model")
             }
             print("STAGE CACHE / INTERACTIVE GRAIN PASS: exact reuse, print edits, export model preserved")
@@ -195,9 +205,11 @@ struct ProductionSelfTest {
             var suffixLook = look
             suffixLook.tone = (suffixLook.tone ?? ToneSettings())
             suffixLook.tone?.curvePoints = [.init(x: 0, y: 0.2), .init(x: 1, y: 0.8)]
-            guard prefixA == GPULiveFramePipeline.prefixHash(
-                    decode: DecodeKey(path: prefixDecode.path, longEdge: 1080, raw: suffixLook.raw, bypassImportTransform: false),
-                    calibration: nil)
+            guard
+                prefixA
+                    == GPULiveFramePipeline.prefixHash(
+                        decode: DecodeKey(path: prefixDecode.path, longEdge: 1080, raw: suffixLook.raw, bypassImportTransform: false),
+                        calibration: nil)
             else {
                 throw RendererError.renderFailed("Prefix hash changed on a suffix-only edit (tone curve)")
             }
@@ -212,7 +224,7 @@ struct ProductionSelfTest {
                 throw RendererError.renderFailed("Prefix hash ignored the preview long edge")
             }
             print("PREFIX HASH DIRTY TAIL PASS: stable, suffix-blind, raw/longEdge sensitive")
-            var haloLook=look
+            var haloLook = look
             haloLook.values["halationEnabled"] = .bool(true)
             haloLook.values["halationScale"] = .scalar(14)
             haloLook.values["scatterScale"] = .scalar(16)
@@ -220,13 +232,17 @@ struct ProductionSelfTest {
             haloLook.values["fastSpatial"] = .bool(true)
             let savedHalo = try JSONDecoder().decode(RenderLook.self, from: JSONEncoder().encode(haloLook))
             let (fastHalo, fastHaloDiagnostics) = try await renderer.render(input, look: savedHalo, useStageCache: false)
-            var haloMaximum=0.0
+            var haloMaximum = 0.0
             for i in referenceHalo.pixels.indices {
                 guard fastHalo.pixels[i].isFinite else { throw RendererError.renderFailed("Non-finite fast halation") }
                 if i % 4 == 3 {
-                    guard fastHalo.pixels[i] == referenceHalo.pixels[i] else { throw RendererError.renderFailed("Fast halation changed alpha") }
+                    guard fastHalo.pixels[i] == referenceHalo.pixels[i] else {
+                        throw RendererError.renderFailed("Fast halation changed alpha")
+                    }
                 } else {
-                    haloMaximum=max(haloMaximum,Double(abs(fastHalo.pixels[i]-referenceHalo.pixels[i]))/max(1,Double(abs(referenceHalo.pixels[i]))))
+                    haloMaximum = max(
+                        haloMaximum,
+                        Double(abs(fastHalo.pixels[i] - referenceHalo.pixels[i])) / max(1, Double(abs(referenceHalo.pixels[i]))))
                 }
             }
             guard haloMaximum <= 0.03, fastHaloDiagnostics.passCount > referenceHaloDiagnostics.passCount else {
@@ -242,7 +258,8 @@ struct ProductionSelfTest {
             let (fastOutput, fastDiagnostics) = try await renderer.render(input, look: restored)
             let (explicitOutput, _) = try await renderer.render(input, look: explicitLook)
             guard fastOutput.pixels == explicitOutput.pixels,
-                  fastDiagnostics.passCount < diagnostics.passCount else {
+                fastDiagnostics.passCount < diagnostics.passCount
+            else {
                 throw RendererError.renderFailed("Fast DIR persistence/chemistry bypass failed")
             }
             print("FAST DIR SELFTEST PASS: saved mode matches explicit non-spatial chemistry, fewer GPU passes")
@@ -277,15 +294,17 @@ struct ProductionSelfTest {
             var settings = ExportSettings()
             settings.format = format; settings.tiff16Bit = sixteen; settings.preserveMetadata = false
             let destination = root.appendingPathComponent("\(format.rawValue)-\(sixteen).img")
-            try ExportWriter.write(output: output, look: look, sourceURL: root.appendingPathComponent("unused"), destination: destination, settings: settings)
+            try ExportWriter.write(
+                output: output, look: look, sourceURL: root.appendingPathComponent("unused"), destination: destination, settings: settings)
             guard let source = CGImageSourceCreateWithURL(destination as CFURL, nil),
-                  let decoded = CGImageSourceCreateImageAtIndex(source, 0, nil),
-                  decoded.width == output.width, decoded.height == output.height,
-                  !sixteen || decoded.bitsPerComponent == 16 else { throw RendererError.renderFailed("Export file round trip failed") }
+                let decoded = CGImageSourceCreateImageAtIndex(source, 0, nil),
+                decoded.width == output.width, decoded.height == output.height,
+                !sixteen || decoded.bitsPerComponent == 16
+            else { throw RendererError.renderFailed("Export file round trip failed") }
             do {
                 try ExportWriter.write(output: output, look: look, sourceURL: root, destination: destination, settings: settings)
                 throw RendererError.renderFailed("Export overwrote an existing file")
-            } catch ExportWriterError.destinationExists { }
+            } catch ExportWriterError.destinationExists {}
         }
         print("EXPORT SELFTEST PASS: JPEG, HEIC, TIFF 8/16-bit decode and overwrite protection")
     }
@@ -328,7 +347,8 @@ struct ProductionSelfTest {
 
     private static func runCacheRoundTrip() async -> Bool {
         let fileManager = FileManager.default
-        let parent = fileManager.temporaryDirectory.appendingPathComponent("SpektraFilmFast-cache-selftest-\(UUID().uuidString)", isDirectory: true)
+        let parent = fileManager.temporaryDirectory.appendingPathComponent(
+            "SpektraFilmFast-cache-selftest-\(UUID().uuidString)", isDirectory: true)
         do {
             try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
             defer { try? fileManager.removeItem(at: parent) }
@@ -342,13 +362,14 @@ struct ProductionSelfTest {
             await thumbnails.clearDisk()
             let thumbBefore = await thumbnails.snapshot()
             _ = try await thumbnails.thumbnail(url: source, maxPixel: 64)
-            await thumbnails.clearMemory() // second request must come from SSD, not RAM.
+            await thumbnails.clearMemory()  // second request must come from SSD, not RAM.
             _ = try await thumbnails.thumbnail(url: source, maxPixel: 64)
             let thumbAfter = await thumbnails.snapshot()
             guard thumbAfter.misses > thumbBefore.misses,
-                  thumbAfter.hits > thumbBefore.hits,
-                  thumbAfter.writes > thumbBefore.writes,
-                  thumbAfter.diskBytes > 0 else { return false }
+                thumbAfter.hits > thumbBefore.hits,
+                thumbAfter.writes > thumbBefore.writes,
+                thumbAfter.diskBytes > 0
+            else { return false }
 
             let adjusted = RenderedPreviewDiskCache.shared
             await adjusted.configure(totalDiskCacheGB: 2, root: root)
@@ -366,16 +387,22 @@ struct ProductionSelfTest {
                 bypassImportTransform: false,
                 quality: .accurate
             )
-            guard let accurateEntry = await adjusted.bestPreview(url: source, look: look, longEdge: previewEdge, bypassImportTransform: false),
-                  accurateEntry.quality == .accurate,
-                  let accurateBuffer = accurateEntry.payload.makePixelBuffer(),
-                  accurateBuffer.pixels.first == 0.72 else { return false }
+            guard
+                let accurateEntry = await adjusted.bestPreview(
+                    url: source, look: look, longEdge: previewEdge, bypassImportTransform: false),
+                accurateEntry.quality == .accurate,
+                let accurateBuffer = accurateEntry.payload.makePixelBuffer(),
+                accurateBuffer.pixels.first == 0.72
+            else { return false }
             let adjustedAfter = await adjusted.snapshot()
             guard adjustedAfter.writes > adjustedBefore.writes,
-                  adjustedAfter.hits > adjustedBefore.hits,
-                  adjustedAfter.diskBytes > 0 else { return false }
+                adjustedAfter.hits > adjustedBefore.hits,
+                adjustedAfter.diskBytes > 0
+            else { return false }
             await adjusted.invalidate(url: source)
-            guard await adjusted.bestPreview(url: source, look: look, longEdge: previewEdge, bypassImportTransform: false) == nil else { return false }
+            guard await adjusted.bestPreview(url: source, look: look, longEdge: previewEdge, bypassImportTransform: false) == nil else {
+                return false
+            }
 
             let cull = CullAnalysisDiskCache.shared
             await cull.configure(totalDiskCacheGB: 2, root: root)
@@ -404,8 +431,9 @@ struct ProductionSelfTest {
             guard await cull.analysis(url: source) == record else { return false }
             let cullAfter = await cull.snapshot()
             guard cullAfter.writes > cullBefore.writes,
-                  cullAfter.hits > cullBefore.hits,
-                  cullAfter.diskBytes > 0 else { return false }
+                cullAfter.hits > cullBefore.hits,
+                cullAfter.diskBytes > 0
+            else { return false }
 
             let developed = DevelopedSourceDiskCache.shared
             await developed.configure(totalDiskCacheGB: 2, root: root)
@@ -417,21 +445,24 @@ struct ProductionSelfTest {
             _ = try await decoder.decode(url: source, longEdge: 72, raw: raw, bypassImportTransform: false, cacheMode: .automatic)
             let decodeAfter = await decoder.snapshot()
             guard decodeAfter.misses > decodeBefore.misses,
-                  decodeAfter.hits > decodeBefore.hits,
-                  decodeAfter.memoryBytes > 0 else { return false }
+                decodeAfter.hits > decodeBefore.hits,
+                decodeAfter.memoryBytes > 0
+            else { return false }
 
             // Force a persistent developed-source round trip at the normal preview request size.
             let developedBefore = await developed.snapshot()
             let sourceBuffer = PixelBufferF32(width: 64, height: 48, pixels: [Float](repeating: 0.42, count: 64 * 48 * 4))
             await developed.store(sourceBuffer, url: source, raw: raw, longEdge: 1800, bypassImportTransform: false)
             guard let restored = await developed.buffer(url: source, raw: raw, longEdge: 1800, bypassImportTransform: false),
-                  restored.width == sourceBuffer.width,
-                  restored.height == sourceBuffer.height,
-                  restored.pixels.count == sourceBuffer.pixels.count else { return false }
+                restored.width == sourceBuffer.width,
+                restored.height == sourceBuffer.height,
+                restored.pixels.count == sourceBuffer.pixels.count
+            else { return false }
             let developedAfter = await developed.snapshot()
             guard developedAfter.writes > developedBefore.writes,
-                  developedAfter.hits > developedBefore.hits,
-                  developedAfter.diskBytes > 0 else { return false }
+                developedAfter.hits > developedBefore.hits,
+                developedAfter.diskBytes > 0
+            else { return false }
 
             print("CACHE SELFTEST PASS: thumbnail SSD + developed-source SSD + adjusted SSD + Cull SSD + decode RAM hits verified")
             return true
@@ -453,8 +484,8 @@ struct ProductionSelfTest {
             }
         }
         guard let provider = CGDataProvider(data: Data(bytes) as CFData),
-              let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let image = CGImage(
+            let space = CGColorSpace(name: CGColorSpace.sRGB),
+            let image = CGImage(
                 width: width,
                 height: height,
                 bitsPerComponent: 8,
@@ -466,8 +497,9 @@ struct ProductionSelfTest {
                 decode: nil,
                 shouldInterpolate: false,
                 intent: .defaultIntent
-              ),
-              let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else {
+            ),
+            let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil)
+        else {
             throw CocoaError(.fileWriteUnknown)
         }
         CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary)
@@ -524,7 +556,9 @@ struct ProductionSelfTest {
                 totalGPU += d.commandBufferMs
                 maxPasses = max(maxPasses, d.passCount)
             }
-            print(String(format: "SOAK PASS: %d renders, mean GPU %.2f ms, max %u passes", iterations, totalGPU / Double(iterations), maxPasses))
+            print(
+                String(
+                    format: "SOAK PASS: %d renders, mean GPU %.2f ms, max %u passes", iterations, totalGPU / Double(iterations), maxPasses))
             return 0
         } catch {
             fputs("SOAK FAIL: \(error.localizedDescription)\n", stderr)

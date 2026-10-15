@@ -965,7 +965,11 @@ struct ProjectImageRecord: Identifiable, Codable, Equatable, Hashable, Sendable 
     /// Pre-computed lowercase fields for efficient library search.
     /// Computed lazily on first access to avoid overhead during import.
     /// Note: SearchableImageFields is defined in AppModel.swift
-    private(set) var searchableFields: (fileNameLower: String, folderNameLower: String, noteLower: String?, keywordsLower: [String]?, cameraDisplayLower: String?, lensModelLower: String?, isoString: String?, focalLengthString: String?)?
+    private(set) var searchableFields:
+        (
+            fileNameLower: String, folderNameLower: String, noteLower: String?, keywordsLower: [String]?, cameraDisplayLower: String?,
+            lensModelLower: String?, isoString: String?, focalLengthString: String?
+        )?
 
     /// Update searchable fields (call when metadata changes).
     mutating func updateSearchableFields() {
@@ -983,7 +987,8 @@ struct ProjectImageRecord: Identifiable, Codable, Equatable, Hashable, Sendable 
             cameraDisplayLower: metadata!.cameraDisplay.lowercased().isEmpty ? nil : metadata!.cameraDisplay.lowercased(),
             lensModelLower: metadata!.lensModel?.lowercased(),
             isoString: metadata!.iso.map { "iso \($0)" },
-            focalLengthString: metadata!.focalLengthMM?.isFinite == true && metadata!.focalLengthMM! >= 0 && metadata!.focalLengthMM! < 1_000_000
+            focalLengthString: metadata!.focalLengthMM?.isFinite == true && metadata!.focalLengthMM! >= 0
+                && metadata!.focalLengthMM! < 1_000_000
                 ? "\(Int(metadata!.focalLengthMM!.rounded()))mm" : nil
         )
     }
@@ -995,25 +1000,13 @@ struct ProjectImageRecord: Identifiable, Codable, Equatable, Hashable, Sendable 
 
     /// Custom Equatable conformance that excludes searchableFields from comparison.
     static func == (lhs: ProjectImageRecord, rhs: ProjectImageRecord) -> Bool {
-        lhs.id == rhs.id &&
-        lhs.sourcePath == rhs.sourcePath &&
-        lhs.sourceFileSize == rhs.sourceFileSize &&
-        lhs.sourceModificationTime == rhs.sourceModificationTime &&
-        lhs.importedAt == rhs.importedAt &&
-        lhs.captureDate == rhs.captureDate &&
-        lhs.metadata == rhs.metadata &&
-        lhs.rating == rhs.rating &&
-        lhs.flag == rhs.flag &&
-        lhs.selectedForExport == rhs.selectedForExport &&
-        lhs.colorLabel == rhs.colorLabel &&
-        lhs.clientPicked == rhs.clientPicked &&
-        lhs.cullAnalysis == rhs.cullAnalysis &&
-        lhs.keywords == rhs.keywords &&
-        lhs.note == rhs.note &&
-        lhs.look == rhs.look &&
-        lhs.cloudRelativePath == rhs.cloudRelativePath &&
-        lhs.cloudPreviewRelativePath == rhs.cloudPreviewRelativePath &&
-        lhs.logicalFolderPath == rhs.logicalFolderPath
+        lhs.id == rhs.id && lhs.sourcePath == rhs.sourcePath && lhs.sourceFileSize == rhs.sourceFileSize
+            && lhs.sourceModificationTime == rhs.sourceModificationTime && lhs.importedAt == rhs.importedAt
+            && lhs.captureDate == rhs.captureDate && lhs.metadata == rhs.metadata && lhs.rating == rhs.rating && lhs.flag == rhs.flag
+            && lhs.selectedForExport == rhs.selectedForExport && lhs.colorLabel == rhs.colorLabel && lhs.clientPicked == rhs.clientPicked
+            && lhs.cullAnalysis == rhs.cullAnalysis && lhs.keywords == rhs.keywords && lhs.note == rhs.note && lhs.look == rhs.look
+            && lhs.cloudRelativePath == rhs.cloudRelativePath && lhs.cloudPreviewRelativePath == rhs.cloudPreviewRelativePath
+            && lhs.logicalFolderPath == rhs.logicalFolderPath
     }
 
     /// Custom Hashable conformance that excludes searchableFields from hashing.
