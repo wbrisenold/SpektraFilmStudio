@@ -1543,11 +1543,15 @@ final class AppModel: ObservableObject {
         let imageID = project.selectedImageID
         let prefs = project.preferences
         let profile = OutputColorProfile.forLook(look)
+        let targetEdge = AppPreferences.editProxyLongEdge
         interactiveProxyTask = Task { [weak self] in
             guard let self else { return }
             let checkpoint = GPUProcessingFailure.checkpoint()
             let worker = Task.detached(priority: .userInitiated) { () -> (PixelBufferF32, FloatImagePayload?) in
-                let local = MaskedLocalGradeEngine.apply(film, grades: look.localGrades)
+                // PERF-20: downscale once at the top, mirroring prepareInteractiveBaseline.
+                // Four full-frame passes at 45 MP = ~3 GB/s pointer-rate; proxy is ~2 MP.
+                let proxyFilm = (try? film.resized(longEdge: targetEdge)) ?? film
+                let local = MaskedLocalGradeEngine.apply(proxyFilm, grades: look.localGrades)
                 let lens = LensCharacterEngine.apply(local, settings: look.lensEffects)
                 let geometry = GeometryEngine.transformed(lens, settings: look.geometry)
                 let output = ExposureBoundaryEngine.apply(geometry, look: look, preferences: prefs)
@@ -3269,6 +3273,7 @@ final class AppModel: ObservableObject {
             if gestureWorkingLook == nil { beginEditGesture() }
             guard var working = gestureWorkingLook else { return }
             var geometry = working.geometry ?? GeometrySettings()
+            let oldCrop = geometry.crop
             mutate(&geometry)
             geometry.crop.clamp()
             working.geometry = geometry
@@ -3279,7 +3284,11 @@ final class AppModel: ObservableObject {
                 // handle follows the pointer made the crop tool feel sticky and unstable.
                 // Publish the lightweight model change immediately; the exact crop render happens
                 // once at gesture end through the normal latest-wins refinement path.
-                objectWillChange.send()
+                // Only fire objectWillChange when the crop rect actually changed — SwiftUI
+                // delivers repeated identical onChanged values at pointer rate.
+                if oldCrop != geometry.crop {
+                    objectWillChange.send()
+                }
             } else {
                 publishGeometryPreview(look: working)
             }

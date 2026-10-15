@@ -186,6 +186,88 @@ final class GPUHostGradeEngine: @unchecked Sendable {
         return PixelBufferF32(width: input.width, height: input.height, pixels: pixels)
     }
 
+    /// Encode host+film grade into pre-allocated buffers on a provided command buffer.
+    /// This is the non-blocking, buffer-reuse path used by GPULiveFramePipeline.
+    /// Caller is responsible for committing/waiting on `command`.
+    func encode(
+        source: any MTLBuffer, destination: any MTLBuffer,
+        width: Int, height: Int,
+        tone: ToneSettings?, density: ColorDensitySettings?, film: ToneSettings?,
+        parameters: any MTLBuffer, knots: any MTLBuffer,
+        on command: any MTLCommandBuffer
+    ) {
+        lock.lock(); defer { lock.unlock() }
+        guard let pipeline else { return }
+        guard let encoder = command.makeComputeCommandEncoder() else { return }
+        var count = UInt32(width * height)
+        encoder.setComputePipelineState(pipeline)
+        encoder.setBuffer(source, offset: 0, index: 0)
+        encoder.setBuffer(destination, offset: 0, index: 1)
+        encoder.setBuffer(parameters, offset: 0, index: 2)
+        encoder.setBuffer(knots, offset: 0, index: 3)
+        encoder.setBytes(&count, length: 4, index: 4)
+        encoder.dispatchThreads(
+            MTLSize(width: Int(count), height: 1, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: min(256, pipeline.maxTotalThreadsPerThreadgroup), height: 1, depth: 1)
+        )
+        encoder.endEncoding()
+    }
+
+    /// Prepare parameter and knot buffers for the encode path.
+    /// Returns (parameters, knots) or nil if the device is unavailable.
+    /// Caller should cache these and rebuild only when tone/density/film settings change.
+    func prepareParameterBuffers(
+        tone: ToneSettings?, density: ColorDensitySettings?, film: ToneSettings?,
+        autoContrastBounds: (black: Double, white: Double)? = nil,
+        filmAutoContrastBounds: (black: Double, white: Double)? = nil
+    ) -> (any MTLBuffer, any MTLBuffer)? {
+        lock.lock(); defer { lock.unlock() }
+        guard let device else { return nil }
+        let t = tone ?? ToneSettings(), f = film ?? ToneSettings(), d = density ?? ColorDensitySettings()
+        let points = ToneCurveMath.normalize(t.curvePoints)
+        let curve = ToneCurveMath.buildCache(points)
+        let identity =
+            points.count == 2 && points[0] == ToneCurvePoint(x: 0, y: 0) && points[1] == ToneCurvePoint(x: 1, y: 1)
+        let tAutoBounds: (black: Double, white: Double)?
+        if t.autoContrast {
+            if let b = t.resolvedAutoContrastBlack, let w = t.resolvedAutoContrastWhite, w > b {
+                tAutoBounds = (b, w)
+            } else {
+                tAutoBounds = autoContrastBounds
+            }
+        } else {
+            tAutoBounds = nil
+        }
+        var p: [Float] = [
+            Float(t.exposureEV), Float(t.brightness), Float(t.midtones), Float(t.contrast), Float(t.shadows),
+            Float(t.highlights), Float(t.highlightRecovery), Float(t.shadowRecovery), Float(t.blacks), Float(t.whites),
+            Float(t.blackPoint), Float(t.whitePoint), Float(tAutoBounds?.black ?? 0), Float(tAutoBounds?.white ?? 0),
+            identity ? 0 : Float(points.count), d.isIdentity ? 0 : 1, Float(d.master), Float(d.red), Float(d.yellow),
+            Float(d.green), Float(d.cyan), Float(d.blue), Float(d.magenta), film == nil ? 0 : 1, Float(f.blacks),
+            Float(f.shadows), Float(f.brightness), Float(f.highlights), Float(f.whites), Float(f.highlightRecovery),
+            Float(f.shadowRecovery), Float(f.contrast), 0, 0, tone != nil || !d.isIdentity ? 1 : 0,
+        ]
+        if f.autoContrast {
+            if let b = f.resolvedAutoContrastBlack, let w = f.resolvedAutoContrastWhite, w > b {
+                p[32] = Float(b); p[33] = Float(w)
+            } else if let bounds = filmAutoContrastBounds {
+                p[32] = Float(bounds.black); p[33] = Float(bounds.white)
+            }
+        }
+        let control = points.indices.map {
+            SIMD4<Float>(Float(points[$0].x), Float(points[$0].y), Float(curve.m[$0]), 0)
+        }
+        guard
+            let parameters = p.withUnsafeBytes({
+                device.makeBuffer(bytes: $0.baseAddress!, length: $0.count, options: .storageModeShared)
+            }),
+            let knots = control.withUnsafeBytes({
+                device.makeBuffer(bytes: $0.baseAddress!, length: $0.count, options: .storageModeShared)
+            })
+        else { return nil }
+        return (parameters, knots)
+    }
+
     /// Async variant that doesn't block the calling thread.
     /// Returns a task that produces the graded buffer when complete.
     func applyAsync(

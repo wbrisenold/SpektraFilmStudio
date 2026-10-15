@@ -140,6 +140,9 @@ actor DevelopedSourceDiskCache {
     private var rootDirectory: URL?
     private var budgetBytes: Int64 = 8 * 1024 * 1024 * 1024
     private var lastPrune = Date.distantPast
+    /// Per-source stamp for pruneSourceVariants, which is otherwise a directory listing plus a
+    /// stat per candidate on every store. Expired stamps are dropped, so this stays bounded.
+    private var lastVariantPrune: [String: Date] = [:]
     private var hits = 0
     private var misses = 0
     private var writes = 0
@@ -267,6 +270,13 @@ actor DevelopedSourceDiskCache {
 
     private func pruneSourceVariants(directory: URL, sourceURL: URL, maxEntries: Int) {
         let prefix = String(format: "%016llx_", Self.fnv1a64(sourceURL.standardizedFileURL.path))
+        let now = Date()
+        guard now.timeIntervalSince(lastVariantPrune[prefix] ?? .distantPast) >= 60 else { return }
+        lastVariantPrune[prefix] = now
+        // A stamp older than the window never suppresses a prune, so dropping it is always safe.
+        if lastVariantPrune.count > 64 {
+            lastVariantPrune = lastVariantPrune.filter { now.timeIntervalSince($0.value) < 60 }
+        }
         guard
             let files = try? FileManager.default.contentsOfDirectory(
                 at: directory,
@@ -348,6 +358,7 @@ actor RenderedPreviewDiskCache {
     static let shared = RenderedPreviewDiskCache()
     private var budgetBytes: Int64 = 4 * 1024 * 1024 * 1024
     private var lastPrune = Date.distantPast
+    private var lastVariantPrune: [String: Date] = [:]
     private var rootDirectory: URL?
     private var hits = 0
     private var misses = 0
@@ -465,6 +476,12 @@ actor RenderedPreviewDiskCache {
 
     private func pruneSourceVariants(directory: URL, sourceURL: URL, maxEntriesPerQuality: Int) {
         let sourcePrefix = String(format: "%016llx_", Self.fnv1a64(sourceURL.standardizedFileURL.path))
+        let now = Date()
+        guard now.timeIntervalSince(lastVariantPrune[sourcePrefix] ?? .distantPast) >= 60 else { return }
+        lastVariantPrune[sourcePrefix] = now
+        if lastVariantPrune.count > 64 {
+            lastVariantPrune = lastVariantPrune.filter { now.timeIntervalSince($0.value) < 60 }
+        }
         guard
             let files = try? FileManager.default.contentsOfDirectory(
                 at: directory,

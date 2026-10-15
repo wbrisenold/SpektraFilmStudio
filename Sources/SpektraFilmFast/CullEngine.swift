@@ -209,49 +209,84 @@ actor CullEngine {
 
     func analyze(_ payload: ThumbnailPayload) async throws -> Result {
         try Task.checkCancellation()
+        // Build CGImage once and share across all Vision requests (PERF-9)
+        let cgImage = payload.makeCGImage()
+        // Parallel Vision requests: face detection + face quality + aesthetics
+        async let facesTask = cgImage != nil ? Task.detached(priority: .utility) {
+            Self.detectFacesVisionWithImage(cgImage!, width: payload.width, height: payload.height)
+        }.value : []
+        async let faceCaptureQualityTask = cgImage != nil ? Task.detached(priority: .utility) {
+            Self.faceCaptureQualityWithImage(cgImage!)
+        }.value : nil
+        async let aestheticScoreTask = cgImage != nil ? Task.detached(priority: .utility) {
+            Self.aestheticQualityWithImage(cgImage!)
+        }.value : nil
+
         async let technicalTask = Task.detached(priority: .utility) {
             (Self.imageMetrics(payload), Self.dHash(payload))
         }.value
-        let (metrics, hash) = await technicalTask
-        let faces = Self.detectFacesVision(payload)
+
+        let faces = await facesTask
         let face = Self.faceMetrics(payload, faces: faces)
         // Additional trained on-device Vision face-quality model, rather than
         // judging expressions from two guessed eye rectangles alone.
-        let faceCaptureQuality = Self.faceCaptureQuality(payload)
+        let faceCaptureQuality = await faceCaptureQualityTask
         // Learned on-device scene aesthetics, independent of technical sharpness.
-        let aestheticScore = Self.aestheticQuality(payload)
+        let aestheticScore = await aestheticScoreTask
+
+        let (metrics, hash) = await technicalTask
 
         // Facet-style supplementary metrics (computed on the same downsample).
         let (colorHarmony, dynamicRange, noiseEstimateFacet, contrastFacet) = await Task.detached(priority: .utility) {
             Self.facetSupplementaryMetrics(payload)
         }.value
 
-        // Facet-style composition analysis.
-        let subjectRegion = Self.detectSubjectRegion(payload)
+        // Facet-style composition analysis - also parallelized
+        async let subjectRegionTask = Task.detached(priority: .utility) {
+            Self.detectSubjectRegion(payload)
+        }.value
+        async let leadingLinesTask = Task.detached(priority: .utility) {
+            Self.detectLeadingLines(payload)
+        }.value
+
+        let subjectRegion = await subjectRegionTask
         let (compScore, _, _, _) = Self.placementScore(
             region: subjectRegion, imgW: payload.width, imgH: payload.height)
-        let (leadingLinesScore, _) = Self.detectLeadingLines(payload)
+        let (leadingLinesScore, _) = await leadingLinesTask
         let integratedComp = Self.integrateLeadingLines(
             baseScore: compScore, leadingLinesScore: leadingLinesScore, hasFaces: face.count > 0)
 
         return try await Task.detached(priority: .utility) {
             try Task.checkCancellation()
             let focus = face.count > 0 ? (metrics.sharpness * 0.45 + face.sharpness * 0.55) : metrics.sharpness
-            let exposure = max(0, min(1, 1.0 - (metrics.highlightClip * 2.2 + metrics.shadowClip * 1.25)))
-            let noiseQuality = max(0, min(1, 1.0 - metrics.noise * 1.8))
+            let exposure = max(0, min(1, 1.0 - (metrics.highlightClip * 2.5 + metrics.shadowClip * 1.5)))
+            let noiseQuality = max(0, min(1, 1.0 - metrics.noise * 2.2))
             let contrastQuality = max(0, min(1, metrics.contrast * 1.7))
-            var score = (focus * 52.0) + (exposure * 22.0) + (noiseQuality * 12.0) + (contrastQuality * 14.0)
-            if face.count > 0, face.sharpness < 0.28 { score -= 18 }
-            if face.possibleBlink { score -= 12 }
+            var score = (focus * 55.0) + (exposure * 20.0) + (noiseQuality * 15.0) + (contrastQuality * 10.0)
+            if face.count > 0, face.sharpness < 0.35 { score -= 22 }
+            if face.possibleBlink { score -= 15 }
             if let faceCaptureQuality, face.count > 0 {
                 // Vision quality offers independent portrait/burst evidence.
-                // Low-quality portraits are demoted, never auto-deleted.
-                score += (faceCaptureQuality - 0.5) * 22
+                // Low-quality portraits are demoted; require higher bar for positive contribution.
+                if faceCaptureQuality >= 0.7 {
+                    score += (faceCaptureQuality - 0.7) * 30
+                } else if faceCaptureQuality < 0.4 {
+                    score -= (0.4 - faceCaptureQuality) * 40
+                }
             }
             if let aestheticScore {
-                // Aesthetics never auto-deletes creative photographs.
-                score += max(-1, min(1, aestheticScore)) * 16
+                // Aesthetics: require stronger composition for positive points.
+                if aestheticScore >= 0.4 {
+                    score += (aestheticScore - 0.4) * 25
+                } else if aestheticScore < -0.2 {
+                    score += aestheticScore * 16 // negative
+                }
             }
+            if metrics.highlightClip > 0.05 { score -= metrics.highlightClip * 100 }
+            if metrics.shadowClip > 0.3 { score -= metrics.shadowClip * 50 }
+            if contrastFacet < 0.4 { score -= (0.4 - contrastFacet) * 30 }
+            if dynamicRange < 6.0 { score -= (6.0 - dynamicRange) * 2 }
+            if noiseEstimateFacet > 6.0 { score -= (noiseEstimateFacet - 6.0) * 3 }
             score = max(0, min(100, score))
 
             var reasons: [String] = []
@@ -276,19 +311,19 @@ actor CullEngine {
                         ? "Strong aesthetic composition"
                         : (aestheticScore < -0.30 ? "Lower aesthetic model score" : "Moderate aesthetic model score"))
             }
-            if metrics.noise > 0.42 { reasons.append("High fine-detail noise") }
-            if contrastFacet < 0.35 { reasons.append("Low contrast") }
-            if dynamicRange < 5.0 { reasons.append("Narrow dynamic range") }
-            if colorHarmony > 0.65 { reasons.append("Rich color variety") }
-            if noiseEstimateFacet > 8.0 { reasons.append("High sensor noise (Immerkaer)") }
-            if integratedComp >= 7.5 { reasons.append("Strong composition") }
-            else if integratedComp < 4.0 { reasons.append("Weak composition") }
+            if metrics.noise > 0.35 { reasons.append("High fine-detail noise") }
+            if contrastFacet < 0.40 { reasons.append("Low contrast") }
+            if dynamicRange < 6.0 { reasons.append("Narrow dynamic range") }
+            if colorHarmony > 0.70 { reasons.append("Rich color variety") }
+            if noiseEstimateFacet > 6.0 { reasons.append("High sensor noise (Immerkaer)") }
+            if integratedComp >= 8.0 { reasons.append("Strong composition") }
+            else if integratedComp < 5.0 { reasons.append("Weak composition") }
             if reasons.isEmpty { reasons.append("Balanced technical quality") }
 
             let recommendation: CullRecommendation
-            if score >= 76, !face.possibleBlink {
+            if score >= 82, !face.possibleBlink, face.sharpness >= 0.4 || face.count == 0 {
                 recommendation = .keep
-            } else if score < 44 || (face.count > 0 && face.sharpness < 0.18) {
+            } else if score < 50 || (face.count > 0 && face.sharpness < 0.25) {
                 recommendation = .reject
             } else {
                 recommendation = .review
@@ -339,19 +374,23 @@ actor CullEngine {
         let colorStep = max(1, totalPixels / 250_000)
         var colorHarmonyHist = [Double](repeating: 0, count: 180 * 256)
         var colorSampled = 0
-        // Pre-compute luminance for all pixels in one pass
-        var luma = [Double](repeating: 0, count: totalPixels)
+        // Pre-compute luminance for all pixels in one pass.
+        // PERF-12: use Float (4 bytes) instead of Double (8 bytes) for the luma plane.
+        // The noise estimation only needs ~1/4 of pixels (stride 2), but the histogram
+        // and contrast need all pixels. Float precision is sufficient for 8-bit source.
+        var luma = [Float](repeating: 0, count: totalPixels)
         for i in 0..<totalPixels {
             let p = i * 4
             let r = Double(payload.rgba[p]) / 255.0
             let g = Double(payload.rgba[p + 1]) / 255.0
             let b = Double(payload.rgba[p + 2]) / 255.0
-            let lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) * 255.0
+            let lum = Float(0.2126 * r + 0.7152 * g + 0.0722 * b) * 255.0
             luma[i] = lum
-            sumLuma += lum
-            sumLumaSq += lum * lum
+            let lumD = Double(lum)
+            sumLuma += lumD
+            sumLumaSq += lumD * lumD
             // Histogram for dynamic range
-            let clamped = max(0.0, min(1.0, lum / 255.0))
+            let clamped = max(0.0, min(1.0, lumD / 255.0))
             let idx = min(bins - 1, Int(clamped * Double(bins - 1)).clamped(to: 0..<bins))
             histogram[idx] += 1
             // Color harmony subsampling (from RGB, not luma)
@@ -374,7 +413,7 @@ actor CullEngine {
         }
         // Compute dynamic range from histogram
         let dynamicRange = facetDynamicRangeFromHistogram(histogram, count: totalPixels)
-        // Compute noise (subsampling with scale correction)
+        // Compute noise (subsampling with scale correction) using Float luma
         let noiseEstimate = facetNoiseEstimateFromLuma(luma: luma, width: w, height: h)
         // Compute contrast
         let mean = sumLuma / Double(totalPixels)
@@ -436,7 +475,8 @@ actor CullEngine {
     }
 
     /// Immerkaer noise estimation using pre-built luma array with subsampling.
-    private static func facetNoiseEstimateFromLuma(luma: [Double], width: Int, height: Int) -> Double {
+    /// PERF-12: accepts Float luma (4 bytes per pixel vs 8 for Double).
+    private static func facetNoiseEstimateFromLuma(luma: [Float], width: Int, height: Int) -> Double {
         guard width > 2 && height > 2 else { return 0 }
         let M: [Int] = [-1, 2, -1, 2, -4, 2, -1, 2, -1]
         let step = 2
@@ -446,15 +486,15 @@ actor CullEngine {
             for px in stride(from: 1, to: width - 1, by: step) {
                 let i = py * width + px
                 var ksum = 0.0
-                ksum += Double(M[0]) * luma[i - width - 1]
-                ksum += Double(M[1]) * luma[i - width]
-                ksum += Double(M[2]) * luma[i - width + 1]
-                ksum += Double(M[3]) * luma[i - 1]
-                ksum += Double(M[4]) * luma[i]
-                ksum += Double(M[5]) * luma[i + 1]
-                ksum += Double(M[6]) * luma[i + width - 1]
-                ksum += Double(M[7]) * luma[i + width]
-                ksum += Double(M[8]) * luma[i + width + 1]
+                ksum += Double(M[0]) * Double(luma[i - width - 1])
+                ksum += Double(M[1]) * Double(luma[i - width])
+                ksum += Double(M[2]) * Double(luma[i - width + 1])
+                ksum += Double(M[3]) * Double(luma[i - 1])
+                ksum += Double(M[4]) * Double(luma[i])
+                ksum += Double(M[5]) * Double(luma[i + 1])
+                ksum += Double(M[6]) * Double(luma[i + width - 1])
+                ksum += Double(M[7]) * Double(luma[i + width])
+                ksum += Double(M[8]) * Double(luma[i + width + 1])
                 sigma += abs(ksum)
                 count += 1
             }
@@ -716,5 +756,69 @@ actor CullEngine {
         let g = Double(payload.rgba[p + 1]) / 255.0
         let b = Double(payload.rgba[p + 2]) / 255.0
         return 0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+
+    // MARK: - Vision wrappers that accept pre-built CGImage (PERF-9)
+
+    private nonisolated static func faceCaptureQualityWithImage(_ cgImage: CGImage) -> Double? {
+        let request = VNDetectFaceCaptureQualityRequest()
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        guard (try? handler.perform([request])) != nil else { return nil }
+        let scores = (request.results ?? []).compactMap { $0.faceCaptureQuality.map(Double.init) }
+        guard !scores.isEmpty else { return nil }
+        return scores.reduce(0, +) / Double(scores.count)
+    }
+
+    private nonisolated static func aestheticQualityWithImage(_ cgImage: CGImage) -> Double? {
+        let request = VNCalculateImageAestheticsScoresRequest()
+        guard (try? VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])) != nil,
+            let result = request.results?.first
+        else { return nil }
+        return Double(result.overallScore)
+    }
+
+    private nonisolated static func detectFacesVisionWithImage(_ cgImage: CGImage, width: Int, height: Int) -> [DetectedFace] {
+        let request = VNDetectFaceRectanglesRequest()
+        if #available(macOS 13.0, *) {
+            request.revision = VNDetectFaceRectanglesRequestRevision2
+        }
+
+        var faces: [DetectedFace] = []
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        do {
+            try handler.perform([request])
+            if let results = request.results {
+                for face in results {
+                    let bounds = face.boundingBox
+                    let w = Double(width)
+                    let h = Double(height)
+                    let rect = CGRect(
+                        x: bounds.minX * w,
+                        y: (1 - bounds.maxY) * h,
+                        width: bounds.width * w,
+                        height: bounds.height * h
+                    )
+                    let leftEye = CGPoint(x: rect.minX + rect.width * 0.3, y: rect.minY + rect.height * 0.35)
+                    let rightEye = CGPoint(x: rect.minX + rect.width * 0.7, y: rect.minY + rect.height * 0.35)
+                    let nose = CGPoint(x: rect.midX, y: rect.minY + rect.height * 0.55)
+                    let rightMouth = CGPoint(x: rect.minX + rect.width * 0.35, y: rect.minY + rect.height * 0.75)
+                    let leftMouth = CGPoint(x: rect.minX + rect.width * 0.65, y: rect.minY + rect.height * 0.75)
+                    faces.append(
+                        DetectedFace(
+                            bounds: rect,
+                            rightEye: rightEye,
+                            leftEye: leftEye,
+                            nose: nose,
+                            rightMouth: rightMouth,
+                            leftMouth: leftMouth,
+                            confidence: 1.0
+                        ))
+                }
+            }
+        } catch {
+            // Face detection is an advisory culling signal. A detector failure must
+            // never prevent technical scoring or user-driven culling.
+        }
+        return faces
     }
 }

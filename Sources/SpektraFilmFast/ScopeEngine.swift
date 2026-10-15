@@ -52,9 +52,52 @@ actor ScopeEngine {
         }.value
     }
 
+    // MARK: - Per-pass output role/space
+
+    /// Resolves `look.values["outputRole"]` / `["outputColorSpace"]` once per analyze
+    /// pass instead of twice per sampled pixel (each is a SipHash over a UTF-8 key).
+    ///
+    /// shortcut: `rgb`/`sample` mirror `DisplayMonitorSignal.rgb`/`sample` verbatim
+    /// because that file cannot take pre-resolved role/space. Delete this type and call
+    /// `DisplayMonitorSignal` directly once it gains `outputRole:`/`outputSpace:` params.
+    private struct MonitorLookup: Sendable {
+        let role: Int
+        let space: Int
+
+        init(look: RenderLook) {
+            role = SkinToneReference.outputRoleIndex(look)
+            space = SkinToneReference.outputSpaceIndex(look)
+        }
+
+        func rgb(_ r: Float, _ g: Float, _ b: Float) -> (Float, Float, Float) {
+            if let display = SkinToneReference.canonicalDisplayRGB(
+                r: r, g: g, b: b, outputRole: role, outputSpace: space
+            ) {
+                return display
+            }
+            // Same bounded fallback as DisplayMonitorSignal.rgb for non-display roles.
+            return (
+                DisplayMonitorSignal.code(r, outputSpace: space),
+                DisplayMonitorSignal.code(g, outputSpace: space),
+                DisplayMonitorSignal.code(b, outputSpace: space)
+            )
+        }
+
+        func sample(_ r: Float, _ g: Float, _ b: Float) -> DisplayMonitorSample {
+            let m = rgb(r, g, b)
+            let peak = max(m.0, max(m.1, m.2))
+            let floor = min(m.0, min(m.1, m.2))
+            let luma = 0.2126 * m.0 + 0.7152 * m.1 + 0.0722 * m.2
+            let saturation = peak > 1.0e-6 ? (peak - floor) / peak : 0
+            return DisplayMonitorSample(
+                r: m.0, g: m.1, b: m.2, luma: luma, saturation: saturation, peak: peak, floor: floor)
+        }
+    }
+
     // MARK: - Histogram
 
     private nonisolated static func histogram(_ buffer: PixelBufferF32, look: RenderLook) -> ScopePayload {
+        let monitor = MonitorLookup(look: look)
         // Render into a real high-resolution scope surface, not a 384px bitmap
         // stretched to occupy the new dock. Bin counts remain data-driven.
         let width = 768
@@ -68,12 +111,11 @@ actor ScopeEngine {
         for y in stride(from: 0, to: buffer.height, by: step) {
             for x in stride(from: 0, to: buffer.width, by: step) {
                 let p = (y * buffer.width + x) * 4
-                let monitor = DisplayMonitorSignal.rgb(
-                    r: buffer.pixels[p], g: buffer.pixels[p + 1], b: buffer.pixels[p + 2], look: look
-                )
-                red[Int((max(0, min(1, monitor.0)) * 255).rounded())] &+= 1
-                green[Int((max(0, min(1, monitor.1)) * 255).rounded())] &+= 1
-                blue[Int((max(0, min(1, monitor.2)) * 255).rounded())] &+= 1
+                let values = monitor.rgb(
+                    buffer.pixels[p], buffer.pixels[p + 1], buffer.pixels[p + 2])
+                red[Int((max(0, min(1, values.0)) * 255).rounded())] &+= 1
+                green[Int((max(0, min(1, values.1)) * 255).rounded())] &+= 1
+                blue[Int((max(0, min(1, values.2)) * 255).rounded())] &+= 1
             }
         }
 
@@ -110,7 +152,7 @@ actor ScopeEngine {
                 let top = max(8, min(height - 3, y))
                 if top < height - 3 {
                     for fillY in (top + 1)..<(height - 2) {
-                        blend(&out, width, x, fillY, color.0, color.1, color.2, 21)
+                        blend(&out, width, height, x, fillY, color.0, color.1, color.2, 21)
                     }
                 }
                 if let prior {
@@ -141,13 +183,13 @@ actor ScopeEngine {
         let xStep = max(1, buffer.width / width)
         let yStep = max(1, buffer.height / 520)
         let segmentWidth = max(1, width / 3)
+        let monitor = MonitorLookup(look: look)
 
         for sy in stride(from: 0, to: buffer.height, by: yStep) {
             for sx in stride(from: 0, to: buffer.width, by: xStep) {
                 let p = (sy * buffer.width + sx) * 4
-                let values = DisplayMonitorSignal.rgb(
-                    r: buffer.pixels[p], g: buffer.pixels[p + 1], b: buffer.pixels[p + 2], look: look
-                )
+                let values = monitor.rgb(
+                    buffer.pixels[p], buffer.pixels[p + 1], buffer.pixels[p + 2])
 
                 for channel in 0..<3 {
                     let value = channel == 0 ? values.0 : (channel == 1 ? values.1 : values.2)
@@ -170,41 +212,37 @@ actor ScopeEngine {
         if parade {
             for x in [segmentWidth, segmentWidth * 2] {
                 guard x < width else { continue }
-                for y in 0..<height { blend(&out, width, x, y, 80, 84, 92, 62) }
+                for y in 0..<height { blend(&out, width, height, x, y, 80, 84, 92, 62) }
             }
         }
 
         let maxCount = max(1, counts.max() ?? 1)
-        let primaryVectors: [(Double, Double, Double)] = [
-            (1.00, 0.18, 0.22),
-            (0.18, 1.00, 0.42),
-            (0.18, 0.42, 1.00),
-        ]
 
         for y in 0..<height {
             for x in 0..<width {
-                var density = [Double](repeating: 0, count: 3)
-                for channel in 0..<3 {
-                    let count = counts[channel * planeSize + y * width + x]
-                    if count > 0 {
-                        density[channel] = sqrt(Double(count) / Double(maxCount))
-                    }
-                }
-                let peak = density.max() ?? 0
+                let base = y * width + x
+                // Three scalar locals, not a per-pixel [Double] heap allocation.
+                var density0 = 0.0, density1 = 0.0, density2 = 0.0
+                let count0 = counts[base]
+                if count0 > 0 { density0 = sqrt(Double(count0) / Double(maxCount)) }
+                let count1 = counts[planeSize + base]
+                if count1 > 0 { density1 = sqrt(Double(count1) / Double(maxCount)) }
+                let count2 = counts[2 * planeSize + base]
+                if count2 > 0 { density2 = sqrt(Double(count2) / Double(maxCount)) }
+                let peak = max(density0, max(density1, density2))
                 guard peak > 0.008 else { continue }
 
-                var mixed = (0.0, 0.0, 0.0)
-                for channel in 0..<3 {
-                    mixed.0 += primaryVectors[channel].0 * density[channel]
-                    mixed.1 += primaryVectors[channel].1 * density[channel]
-                    mixed.2 += primaryVectors[channel].2 * density[channel]
-                }
+                let mixed = (
+                    1.00 * density0 + 0.18 * density1 + 0.18 * density2,
+                    0.18 * density0 + 1.00 * density1 + 0.42 * density2,
+                    0.22 * density0 + 0.42 * density1 + 1.00 * density2
+                )
                 let colorPeak = max(0.001, max(mixed.0, max(mixed.1, mixed.2)))
                 let r = UInt8(clamping: Int((mixed.0 / colorPeak * 255).rounded()))
                 let g = UInt8(clamping: Int((mixed.1 / colorPeak * 255).rounded()))
                 let b = UInt8(clamping: Int((mixed.2 / colorPeak * 255).rounded()))
                 let alpha = UInt8(clamping: Int(min(218, 8 + peak * 210).rounded()))
-                blend(&out, width, x, y, r, g, b, alpha)
+                blend(&out, width, height, x, y, r, g, b, alpha)
             }
         }
 
@@ -222,13 +260,14 @@ actor ScopeEngine {
         let width = 384,
             height = max(150, Int((Double(384) * Double(buffer.height) / Double(max(1, buffer.width))).rounded()))
         var out = [UInt8](repeating: 0, count: width * height * 4)
+        let lookup = MonitorLookup(look: look)
         for y in 0..<height {
             for x in 0..<width {
                 let sx = min(buffer.width - 1, x * buffer.width / width)
                 let sy = min(buffer.height - 1, y * buffer.height / height)
                 let p = (sy * buffer.width + sx) * 4
-                let monitor = DisplayMonitorSignal.sample(
-                    r: buffer.pixels[p], g: buffer.pixels[p + 1], b: buffer.pixels[p + 2], look: look)
+                let monitor = lookup.sample(
+                    buffer.pixels[p], buffer.pixels[p + 1], buffer.pixels[p + 2])
                 let mx = monitor.peak
                 let saturation = monitor.saturation
                 let luma = monitor.luma
@@ -257,12 +296,13 @@ actor ScopeEngine {
         let width = 384,
             height = max(150, Int((Double(384) * Double(buffer.height) / Double(max(1, buffer.width))).rounded()))
         var out = [UInt8](repeating: 0, count: width * height * 4)
+        let lookup = MonitorLookup(look: look)
         for y in 0..<height {
             for x in 0..<width {
                 let sx = min(buffer.width - 1, x * buffer.width / width),
                     sy = min(buffer.height - 1, y * buffer.height / height), p = (sy * buffer.width + sx) * 4
-                let monitor = DisplayMonitorSignal.sample(
-                    r: buffer.pixels[p], g: buffer.pixels[p + 1], b: buffer.pixels[p + 2], look: look)
+                let monitor = lookup.sample(
+                    buffer.pixels[p], buffer.pixels[p + 1], buffer.pixels[p + 2])
                 let yPrime = monitor.luma
                 let color: (UInt8, UInt8, UInt8)
                 switch yPrime {
@@ -305,6 +345,7 @@ actor ScopeEngine {
         var sumG = [Float](repeating: 0, count: pixelCount)
         var sumB = [Float](repeating: 0, count: pixelCount)
         let step = max(1, Int((Double(buffer.width * buffer.height) / 180_000.0).squareRoot()))
+        let lookup = MonitorLookup(look: look)
 
         for y in stride(from: 0, to: buffer.height, by: step) {
             for x in stride(from: 0, to: buffer.width, by: step) {
@@ -327,7 +368,8 @@ actor ScopeEngine {
                 if skinReference {
                     guard
                         let canonical = SkinToneReference.canonicalDisplayRGB(
-                            r: rawR, g: rawG, b: rawB, look: look
+                            r: rawR, g: rawG, b: rawB,
+                            outputRole: lookup.role, outputSpace: lookup.space
                         )
                     else { continue }
                     r = canonical.0; g = canonical.1; b = canonical.2
@@ -335,7 +377,7 @@ actor ScopeEngine {
                     px = min(size - 1, max(0, Int(((chroma.uNormalized * 0.5 + 0.5) * Float(size - 1)).rounded())))
                     py = min(size - 1, max(0, Int((((-chroma.vNormalized) * 0.5 + 0.5) * Float(size - 1)).rounded())))
                 } else {
-                    let monitor = DisplayMonitorSignal.rgb(r: rawR, g: rawG, b: rawB, look: look)
+                    let monitor = lookup.rgb(rawR, rawG, rawB)
                     r = monitor.0; g = monitor.1; b = monitor.2
                     let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
                     let cb = (b - luma) / (2 * (1 - 0.0722))
@@ -379,7 +421,7 @@ actor ScopeEngine {
                 let density = log1p(Double(count)) / log1p(Double(maxCount))
                 let alpha = UInt8(clamping: Int(min(235, 26 + density * 209).rounded()))
                 blend(
-                    &out, size, x, y,
+                    &out, size, size, x, y,
                     UInt8(clamping: Int((r * 255).rounded())),
                     UInt8(clamping: Int((g * 255).rounded())),
                     UInt8(clamping: Int((b * 255).rounded())),
@@ -463,18 +505,18 @@ actor ScopeEngine {
 
         // Target = compact champagne crosshair.
         for d in -5...5 {
-            blend(&out, size, target.0 + d, target.1, 236, 198, 126, 220)
-            blend(&out, size, target.0, target.1 + d, 236, 198, 126, 220)
+            blend(&out, size, size, target.0 + d, target.1, 236, 198, 126, 220)
+            blend(&out, size, size, target.0, target.1 + d, 236, 198, 126, 220)
         }
         // Measured = high-contrast ring/dot so it stays legible over dense traces.
         for oy in -5...5 {
             for ox in -5...5 {
                 let rr = ox * ox + oy * oy
                 if rr >= 16 && rr <= 26 {
-                    blend(&out, size, measured.0 + ox, measured.1 + oy, 244, 244, 246, 230)
+                    blend(&out, size, size, measured.0 + ox, measured.1 + oy, 244, 244, 246, 230)
                 } else if rr <= 9 {
                     blend(
-                        &out, size, measured.0 + ox, measured.1 + oy,
+                        &out, size, size, measured.0 + ox, measured.1 + oy,
                         stateColor.0, stateColor.1, stateColor.2, 242)
                 }
             }
@@ -519,7 +561,7 @@ actor ScopeEngine {
                 guard count > 0 else { continue }
                 let density = log1p(Double(count)) / log1p(Double(maxCount))
                 let alpha = UInt8(clamping: Int(min(238, 35 + density * 203).rounded()))
-                blend(&out, width, x, y, 220, 228, 240, alpha)
+                blend(&out, width, height, x, y, 220, 228, 240, alpha)
             }
         }
         drawTopBottomRules(&out, width, height)
@@ -544,10 +586,10 @@ actor ScopeEngine {
     ) {
         for i in 1..<4 {
             let y = Int((Double(i) / 4.0) * Double(height - 1))
-            for x in 0..<width { blend(&out, width, x, y, 75, 80, 89, 48) }
+            for x in 0..<width { blend(&out, width, height, x, y, 75, 80, 89, 48) }
             if vertical {
                 let x = Int((Double(i) / 4.0) * Double(width - 1))
-                for yy in 0..<height { blend(&out, width, x, yy, 75, 80, 89, 42) }
+                for yy in 0..<height { blend(&out, width, height, x, yy, 75, 80, 89, 42) }
             }
         }
     }
@@ -557,8 +599,8 @@ actor ScopeEngine {
     ) {
         guard height > 1 else { return }
         for x in 0..<width {
-            blend(&out, width, x, 0, 104, 110, 120, 82)
-            blend(&out, width, x, height - 1, 104, 110, 120, 82)
+            blend(&out, width, height, x, 0, 104, 110, 120, 82)
+            blend(&out, width, height, x, height - 1, 104, 110, 120, 82)
         }
     }
 
@@ -572,10 +614,10 @@ actor ScopeEngine {
                 let dy = Double(y) - center
                 let radius = sqrt(dx * dx + dy * dy)
                 if abs(radius - outerRadius) < 0.7 || abs(radius - innerRadius) < 0.55 {
-                    blend(&out, size, x, y, 88, 93, 103, 74)
+                    blend(&out, size, size, x, y, 88, 93, 103, 74)
                 }
                 if x == Int(center) || y == Int(center) {
-                    blend(&out, size, x, y, 88, 93, 103, 52)
+                    blend(&out, size, size, x, y, 88, 93, 103, 52)
                 }
             }
         }
@@ -604,7 +646,7 @@ actor ScopeEngine {
                 while delta > 180 { delta -= 360 }
                 while delta < -180 { delta += 360 }
                 if abs(delta) <= tolerance {
-                    blend(&out, size, x, y, 255, 167, 70, 8)
+                    blend(&out, size, size, x, y, 255, 167, 70, 8)
                 }
             }
         }
@@ -635,7 +677,7 @@ actor ScopeEngine {
             let y = min(size - 1, max(0, Int(((0.5 - cr) * Float(size - 1)).rounded())))
             for oy in -3...3 {
                 for ox in -3...3 where abs(ox) == 3 || abs(oy) == 3 {
-                    blend(&out, size, x + ox, y + oy, color.0, color.1, color.2, 150)
+                    blend(&out, size, size, x + ox, y + oy, color.0, color.1, color.2, 150)
                 }
             }
         }
@@ -647,8 +689,8 @@ actor ScopeEngine {
         for fraction in [0.25, 0.5, 0.75] {
             let x = Int(Double(width - 1) * fraction)
             let y = Int(Double(height - 1) * fraction)
-            for yy in 0..<height { blend(&out, width, x, yy, 75, 80, 89, 44) }
-            for xx in 0..<width { blend(&out, width, xx, y, 75, 80, 89, 44) }
+            for yy in 0..<height { blend(&out, width, height, x, yy, 75, 80, 89, 44) }
+            for xx in 0..<width { blend(&out, width, height, xx, y, 75, 80, 89, 44) }
         }
         func plot(_ xy: (Double, Double)) -> (Int, Int) {
             (
@@ -672,7 +714,7 @@ actor ScopeEngine {
         for (point, color) in markers {
             for oy in -2...2 {
                 for ox in -2...2 {
-                    blend(&out, width, point.0 + ox, point.1 + oy, color.0, color.1, color.2, 180)
+                    blend(&out, width, height, point.0 + ox, point.1 + oy, color.0, color.1, color.2, 180)
                 }
             }
         }
@@ -701,7 +743,7 @@ actor ScopeEngine {
             let x = Int((Double(a.0) + Double(dx) * t).rounded())
             let y = Int((Double(a.1) + Double(dy) * t).rounded())
             if x >= 0, x < width, y >= 0, y < height {
-                blend(&out, width, x, y, r, g, blue, alpha)
+                blend(&out, width, height, x, y, r, g, blue, alpha)
             }
         }
     }
@@ -719,17 +761,19 @@ actor ScopeEngine {
             let x = Int((Double(a.0) + Double(dx) * t).rounded())
             let y = Int((Double(a.1) + Double(dy) * t).rounded())
             if x >= 0, x < width, y >= 0, y < height {
-                blend(&out, width, x, y, r, g, blue, alpha)
+                blend(&out, width, height, x, y, r, g, blue, alpha)
             }
         }
     }
 
+    // `height` is passed in: `out` is `inout [UInt8]`, so the optimizer cannot hoist
+    // `out.count / (width * 4)` out of the per-pixel caller's loop.
+    @inline(__always)
     private nonisolated static func blend(
-        _ out: inout [UInt8], _ width: Int, _ x: Int, _ y: Int,
+        _ out: inout [UInt8], _ width: Int, _ height: Int, _ x: Int, _ y: Int,
         _ r: UInt8, _ g: UInt8, _ b: UInt8, _ a: UInt8
     ) {
         guard x >= 0, y >= 0, x < width else { return }
-        let height = out.count / (width * 4)
         guard y < height else { return }
         let p = (y * width + x) * 4
         let alpha = Double(a) / 255

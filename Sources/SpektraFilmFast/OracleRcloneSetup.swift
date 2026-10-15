@@ -94,8 +94,13 @@ final class OracleRcloneTerminal: ObservableObject {
         }
         // Some rclone versions echo config fields after login. Hide credential
         // values while retaining plain prompts such as "password>" and "2FA>".
+        // Match the token family by stem: rclone's iCloud backend persists
+        // access_token and refresh_token alongside trust_token, and a bare
+        // `token` key holds the whole JSON blob. Listing only trust_token left
+        // those two in cleartext here. Prompts are unaffected — they end in ">"
+        // and never "=" or ":".
         combined = combined.replacingOccurrences(
-            of: #"(?im)^.*(?:cookies|trust_token|password)\s*[:=].*$"#,
+            of: #"(?im)^.*(?:cookies|token|password|secret)\s*[:=].*$"#,
             with: "[rclone credential hidden]", options: .regularExpression)
         // Do not publish a partial password echo while waiting for the next read.
         var withheld = 0

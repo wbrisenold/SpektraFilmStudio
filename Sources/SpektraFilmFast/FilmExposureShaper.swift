@@ -16,30 +16,22 @@ extension PixelBufferF32 {
         guard width > 0, height > 0, pixels.count == width * height * 4 else { return self }
 
         var out = pixels
+        // Auto contrast must meter exactly like the GPU: a 16384-bin histogram on
+        // clamped linear Rec.709 luma. Metering in log2/EV with 2%/98% percentiles
+        // is a different measurement, not a tolerance difference — it made the
+        // fused-vs-staged parity gate fail at 0.26 relative error. Reusing
+        // AutoContrastMath.bounds also means the two can never drift apart again.
         let autoMap: (low: Double, high: Double)?
-        if settings.autoContrast {
-            var samples: [Double] = []
-            let step = max(1, Int(sqrt(Double(max(1, width * height / 4096)))))
-            for y in stride(from: 0, to: height, by: step) {
-                for x in stride(from: 0, to: width, by: step) {
-                    let p = (y * width + x) * 4
-                    let luma = max(
-                        1e-8,
-                        0.2126 * Double(pixels[p]) + 0.7152 * Double(pixels[p + 1]) + 0.0722 * Double(pixels[p + 2]))
-                    samples.append(log2(luma))
-                }
-            }
-            if samples.count >= 16 {
-                samples.sort()
-                let lo = samples[Int(Double(samples.count - 1) * 0.02)]
-                let hi = samples[Int(Double(samples.count - 1) * 0.98)]
-                autoMap = hi - lo > 0.5 ? (lo, hi) : nil
-            } else {
-                autoMap = nil
-            }
+        if settings.autoContrast, let metered = AutoContrastMath.bounds(pixels) {
+            autoMap = (metered.black, metered.white)
         } else {
             autoMap = nil
         }
+        // PERF-10: when autoMap is nil every write to `out` above is skipped, so
+        // the loop only burns a full-frame copy + 7 exp() per pixel for nothing.
+        // Early-return here is byte-identical to running it (verified: all
+        // `out[p]` writes are inside `if let autoMap`).
+        guard autoMap != nil else { return self }
 
         @inline(__always) func gaussian(_ ev: Double, _ center: Double, _ sigma: Double) -> Double {
             let d = (ev - center) / max(0.05, sigma)
@@ -69,17 +61,32 @@ extension PixelBufferF32 {
                 correction += max(-1.0, min(1.0, (ev + 2.5) / 3.25)) * contrast * 1.35
             }
 
-            if let autoMap {
-                let t = max(0.0, min(1.0, (ev - autoMap.low) / (autoMap.high - autoMap.low)))
-                let target = -7.0 + t * 6.8
-                correction += max(-2.0, min(2.0, target - ev))
-            }
-
             correction = max(-2.5, min(2.5, correction))
             let gain = exp2(correction)
-            out[p] = Float(r * gain)
-            out[p + 1] = Float(g * gain)
-            out[p + 2] = Float(b * gain)
+
+            if let autoMap {
+                // Mirrors the shader stage in SpektraMetalRenderer.mm: linear Rec.709
+                // luma stretched from [black, white] onto [0, 1] as an unclamped
+                // multiplicative ratio, applied AFTER the manual grade. Folding it
+                // into `correction` instead would let the +/-2.5 EV clamp above
+                // silently alter the result and reintroduce the parity gap.
+                let y = 0.2627 * r * gain + 0.6780 * g * gain + 0.0593 * b * gain
+                let target = (y - autoMap.low) / (autoMap.high - autoMap.low)
+                if y > 1e-9 {
+                    let ratio = target / y
+                    out[p] = Float(r * gain * ratio)
+                    out[p + 1] = Float(g * gain * ratio)
+                    out[p + 2] = Float(b * gain * ratio)
+                } else if target <= 0 {
+                    out[p] = 0
+                    out[p + 1] = 0
+                    out[p + 2] = 0
+                } else {
+                    out[p] = Float(r * gain)
+                    out[p + 1] = Float(g * gain)
+                    out[p + 2] = Float(b * gain)
+                }
+            }
         }
         return PixelBufferF32(width: width, height: height, pixels: out)
     }

@@ -2848,28 +2848,56 @@ struct MetalRenderer::Impl {
     return buffer;
   }
 
+  // One command buffer + blit encoder shared by every static upload in a single
+  // prepareStaticResources pass. Committing per buffer meant a GPU round trip
+  // per buffer (33 in that pass); the batch is one commit and one wait.
+  id<MTLCommandBuffer> staticUploadCommandBuffer = nil;
+  id<MTLBlitCommandEncoder> staticUploadBlitEncoder = nil;
+  std::vector<id<MTLBuffer>> staticUploadSources;
+
+  bool beginStaticUpload() {
+    staticUploadSources.clear();
+    staticUploadCommandBuffer = commandQueue ? [commandQueue commandBuffer] : nil;
+    staticUploadBlitEncoder = staticUploadCommandBuffer ? [staticUploadCommandBuffer blitCommandEncoder] : nil;
+    return staticUploadBlitEncoder != nil;
+  }
+
+  bool finishStaticUpload() {
+    if (staticUploadBlitEncoder) {
+      [staticUploadBlitEncoder endEncoding];
+      staticUploadBlitEncoder = nil;
+    }
+    id<MTLCommandBuffer> batch = staticUploadCommandBuffer;
+    staticUploadCommandBuffer = nil;
+    bool succeeded = true;
+    if (batch) {
+      [batch commit];
+      [batch waitUntilCompleted];
+      succeeded = [batch status] != MTLCommandBufferStatusError;
+    }
+    // Staging sources must outlive the wait; Metal only guarantees the copies
+    // read them before the command buffer completes.
+    staticUploadSources.clear();
+    return succeeded;
+  }
+
   id<MTLBuffer> newStaticBuffer(const void *bytes, NSUInteger length, const char *name) {
     if (!bytes || length == 0) {
       lastError = std::string("Unable to create empty Metal buffer ") + name + ".";
       return nil;
     }
-    if (!commandQueue) {
+    // No open batch (no command queue, or called outside a batched pass): a
+    // shared buffer is the only form that needs no GPU round trip.
+    if (!staticUploadBlitEncoder || !staticUploadCommandBuffer) {
       return newSharedBuffer(bytes, length, name);
     }
     id<MTLBuffer> privateBuffer = [device newBufferWithLength:length options:MTLResourceStorageModePrivate];
     id<MTLBuffer> uploadBuffer = [device newBufferWithBytes:bytes length:length options:MTLResourceStorageModeShared];
-    id<MTLCommandBuffer> uploadCommandBuffer = [commandQueue commandBuffer];
-    id<MTLBlitCommandEncoder> blitEncoder = [uploadCommandBuffer blitCommandEncoder];
-    if (!privateBuffer || !uploadBuffer || !uploadCommandBuffer || !blitEncoder) {
+    if (!privateBuffer || !uploadBuffer) {
       return newSharedBuffer(bytes, length, name);
     }
-    [blitEncoder copyFromBuffer:uploadBuffer sourceOffset:0 toBuffer:privateBuffer destinationOffset:0 size:length];
-    [blitEncoder endEncoding];
-    [uploadCommandBuffer commit];
-    [uploadCommandBuffer waitUntilCompleted];
-    if ([uploadCommandBuffer status] == MTLCommandBufferStatusError) {
-      return newSharedBuffer(bytes, length, name);
-    }
+    [staticUploadBlitEncoder copyFromBuffer:uploadBuffer sourceOffset:0 toBuffer:privateBuffer destinationOffset:0 size:length];
+    staticUploadSources.push_back(uploadBuffer);
     diagnostics.staticAllocationBytes += length;
     diagnostics.staticAllocationCount += 1;
     diagnostics.uploadBytes += length;
@@ -3375,6 +3403,7 @@ struct MetalRenderer::Impl {
       bandpassHanatosData = unityHanatosBandpass.data();
     }
 
+    beginStaticUpload();
     next.curveInfoBuffer = newStaticBuffer(&next.curveInfo, sizeof(next.curveInfo), "film curve info");
     next.logExposureBuffer = newStaticBuffer(filmCurveExposure.data(), logExposureBytes, "film curve exposure");
     next.densityCurvesBuffer = newStaticBuffer(filmCurves->densityCurves, densityCurveBytes, "film density curves");
@@ -3412,6 +3441,14 @@ struct MetalRenderer::Impl {
     next.scanProductsBuffer = newStaticBuffer(scanProducts.data(), scanProducts.size() * sizeof(float), "scan CMF products and inverse normalizations");
     next.scanToOutputRgbDataBuffer = newStaticBuffer(scanToOutputRgbData.data(), scanToOutputRgbData.size() * sizeof(float), "scan output matrices");
     next.colorEncodeLutBuffer = newStaticBuffer(colorEncodeAndGamutData.data(), colorEncodeAndGamutData.size() * sizeof(float), "color encode LUT and output gamut compression");
+
+    // Single commit + wait for every private static buffer encoded above. The
+    // private copies are unwritten until this point, so a failed batch cannot
+    // fall back to shared storage any more and has to fail the frame instead.
+    if (!finishStaticUpload()) {
+      lastError = "Metal static resource upload command buffer failed.";
+      return false;
+    }
 
     if (!next.validFor(params)) {
       if (lastError.empty()) {
@@ -4575,6 +4612,11 @@ bool MetalRenderer::render(
     if(!cacheEligible) {
       impl_->filmStageKey.clear();impl_->filmStageSource.clear();impl_->filmStageSource.shrink_to_fit();impl_->cachedFilmDensity=nil;
     }
+    // Full-frame memcmp is deliberate, not an oversight: the key hashes params and
+    // dimensions, not pixels, and the Swift caller passes a pooled Array buffer whose
+    // address repeats across frames, so no pointer/generation token can prove the
+    // pixels are unchanged. Sampling or hashing would trade colour correctness for
+    // a full-frame read this path has to do anyway.
     const bool filmCacheHit=cacheEligible && impl_->cachedFilmDensity && impl_->filmStageKey==candidateFilmKey &&
       impl_->filmStageSource.size()==bufferBytes && std::memcmp(cacheSource,impl_->filmStageSource.data(),bufferBytes)==0;
     bool filmCacheWritten=false;
@@ -4680,6 +4722,29 @@ bool MetalRenderer::render(
     } else if (impl_->passGpuTimingEnabled && !passCounterBuffer) {
       impl_->diagnostics.passTimingMode = "unavailable";
     }
+    // SFS_CHUNKED_SUBMISSION_V1: the print-sim chain runs many full-resolution
+    // passes. One command buffer carrying all of them exceeds the GPU watchdog on
+    // integrated GPUs at full camera resolution
+    // (kIOAccelCommandBufferCallbackErrorTimeout), so give each pass its own
+    // command buffer. Chunks are committed without an intermediate wait — the
+    // serial queue preserves pass order — and the single wait at the end covers
+    // every chunk.
+    //
+    // This bounds the number of PASSES per submission, not the work inside one
+    // submission. The grain pass dispatches width*height*9 threads, so it is still
+    // roughly 9x a 2D pass on its own. If the watchdog trips on per-submission
+    // work rather than pass count, that pass is where it will still fail and the
+    // next lever is splitting it by depth slice.
+    //
+    // shortcut: the 8 MP cutoff is reasoned, not measured — this GPU produced no
+    // usable per-pass timings. Re-derive it from the first successful large-frame
+    // export before trusting it, and revisit whether chunking is needed at all
+    // once that number exists.
+    constexpr int64_t kChunkedSubmissionPixels = 8ll << 20;
+    const bool chunkedSubmission = !useSplitPassTiming && !externalMetal &&
+      static_cast<int64_t>(width) * static_cast<int64_t>(height) > kChunkedSubmissionPixels;
+    // Chunks fault independently; the last one completing does not mean the rest did.
+    NSMutableArray<id<MTLCommandBuffer>> *committedChunks = [NSMutableArray array];
     bool encodeFailed = false;
     auto beginComputeEncoder = [&]() -> bool {
       if (passCounterBuffer) {
@@ -4749,10 +4814,18 @@ bool MetalRenderer::render(
     };
 
     auto finishSplitTimedPass = [&](size_t passIndex, PerfClock::time_point passStart) {
-      if (!useSplitPassTiming || encodeFailed) {
+      if ((!useSplitPassTiming && !chunkedSubmission) || encodeFailed) {
         return;
       }
       [encoder endEncoding];
+      if (chunkedSubmission) {
+        [committedChunks addObject:commandBuffer];
+        [commandBuffer commit];
+        if (!beginCommandEncoder()) {
+          encodeFailed = true;
+        }
+        return;
+      }
       [commandBuffer commit];
       [commandBuffer waitUntilCompleted];
       const double passMs = elapsedMilliseconds(passStart, PerfClock::now());
@@ -4954,6 +5027,12 @@ bool MetalRenderer::render(
           impl_->diagnostics.passes[passIndex].gpuMs = passGpuMs > 0.0 ? passGpuMs : passMs;
           impl_->diagnostics.passes[passIndex].gpuTimeAvailable = true;
         }
+        if (!beginCommandEncoder()) {
+          encodeFailed = true;
+        }
+      } else if (chunkedSubmission) {
+        [committedChunks addObject:commandBuffer];
+        [commandBuffer commit];
         if (!beginCommandEncoder()) {
           encodeFailed = true;
         }
@@ -5478,6 +5557,12 @@ bool MetalRenderer::render(
                 impl_->diagnostics.passes[passIndex].gpuMs = passGpuMs > 0.0 ? passGpuMs : passMs;
                 impl_->diagnostics.passes[passIndex].gpuTimeAvailable = true;
               }
+              if (!beginCommandEncoder()) {
+                encodeFailed = true;
+              }
+            } else if (chunkedSubmission) {
+              [committedChunks addObject:commandBuffer];
+              [commandBuffer commit];
               if (!beginCommandEncoder()) {
                 encodeFailed = true;
               }
@@ -6598,12 +6683,37 @@ bool MetalRenderer::render(
       );
     }
     if (encodeFailed) {
+      // Chunked submission may already have committed work that is still in
+      // flight. Bailing out now would return those buffers to the scratch pool
+      // while the GPU is still reading them, so drain before giving up.
+      if (chunkedSubmission) {
+        [encoder endEncoding];
+        [commandBuffer commit];
+        [commandBuffer waitUntilCompleted];
+        for (id<MTLCommandBuffer> chunk in committedChunks) {
+          [chunk waitUntilCompleted];
+        }
+      }
       impl_->densityLutKey.clear();impl_->filmStageKey.clear();impl_->scannerStageKey.clear();
       return false;
     }
     if (useSplitPassTiming) {
       if (encoder) {
         [encoder endEncoding];
+      }
+      // Every earlier pass committed and waited, so the trailing passes sit in this
+      // final buffer. Committing it is what actually submits them — ending the
+      // encoder alone leaves the last pass encoded but never run, and the caller
+      // then reads unwritten output.
+      const auto finalChunkStart = PerfClock::now();
+      [commandBuffer commit];
+      [commandBuffer waitUntilCompleted];
+      splitCommandMs += elapsedMilliseconds(finalChunkStart, PerfClock::now());
+      if ([commandBuffer status] == MTLCommandBufferStatusError) {
+        impl_->densityLutKey.clear();impl_->filmStageKey.clear();impl_->scannerStageKey.clear();
+        NSError *error = [commandBuffer error];
+        impl_->lastError = error ? [[error localizedDescription] UTF8String] : "Metal command buffer failed.";
+        return false;
       }
       impl_->diagnostics.cpuSetupMs =
         std::max(0.0, elapsedMilliseconds(renderStart, commandEncodingStart) - impl_->diagnostics.sourceCopyMs);
@@ -6628,6 +6738,26 @@ bool MetalRenderer::render(
         impl_->densityLutKey.clear();impl_->filmStageKey.clear();impl_->scannerStageKey.clear();
           NSError *error = [commandBuffer error];
           impl_->lastError = error ? [[error localizedDescription] UTF8String] : "Metal command buffer failed.";
+          return false;
+        }
+
+        // A chunk that timed out or faulted leaves every later chunk running on
+        // unwritten data, and the last buffer can still report success. Serial
+        // queue order means all chunks have completed by now, so sweep them
+        // before trusting the frame — otherwise the export silently writes a
+        // partially rendered image.
+        for (id<MTLCommandBuffer> chunk in committedChunks) {
+          // Sum chunk GPU time in the same pass: the assignment above measured only
+          // the final buffer, which is empty under chunked submission, so the
+          // reported GPU total would otherwise collapse to ~0 on exactly the large
+          // frames this path exists to serve.
+          impl_->diagnostics.gpuCommandBufferMs += impl_->commandBufferGpuMilliseconds(chunk);
+          if ([chunk status] != MTLCommandBufferStatusError) {
+            continue;
+          }
+          impl_->densityLutKey.clear();impl_->filmStageKey.clear();impl_->scannerStageKey.clear();
+          NSError *chunkError = [chunk error];
+          impl_->lastError = chunkError ? [[chunkError localizedDescription] UTF8String] : "Metal command buffer failed.";
           return false;
         }
       }

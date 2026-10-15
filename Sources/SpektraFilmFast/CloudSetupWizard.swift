@@ -182,7 +182,7 @@ struct CloudSetupWizard: View {
             .font(.caption).foregroundStyle(.secondary)
             .disabled(runner.running)
             Text(
-                "SSH strictly verifies the server's host key. Verify the VM fingerprint before accepting it; this app will not silently disable host-key checks."
+                "SSH strictly verifies the server's host key. Verify the VM fingerprint before accepting it; this app will not silently disable host-key checks. Once accepted, that key is trusted for every future connection to this host; if it ever changes, this app refuses it rather than reconnecting."
             )
             .font(.caption).foregroundStyle(.secondary)
             jobLog

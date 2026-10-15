@@ -101,14 +101,25 @@ enum SkinToneReference {
         r: Float, g: Float, b: Float,
         look: RenderLook
     ) -> (Float, Float, Float)? {
-        let role = outputRoleIndex(look)
-        guard role == 0 else { return nil }
+        canonicalLinearSRGBUnclamped(
+            r: r, g: g, b: b,
+            outputRole: outputRoleIndex(look), outputSpace: outputSpaceIndex(look)
+        )
+    }
 
-        let index = outputSpaceIndex(look)
+    /// Pre-resolved role/space variant for per-pixel loops. `look.values[...]` is a
+    /// `[String: ParameterValue]` subscript (SipHash over the UTF-8 key), so hoisting
+    /// both reads to one place per frame keeps the math here bit-identical.
+    static func canonicalLinearSRGBUnclamped(
+        r: Float, g: Float, b: Float,
+        outputRole: Int, outputSpace: Int
+    ) -> (Float, Float, Float)? {
+        guard outputRole == 0 else { return nil }
+
         let rr = Double(r), gg = Double(g), bb = Double(b)
         let linearSRGB: (Double, Double, Double)
 
-        switch index {
+        switch outputSpace {
         case 14:  // Linear Rec.2020
             linearSRGB = xyzToSRGB(mul(rec2020ToXYZD65, (rr, gg, bb)))
         case 15:  // Linear Rec.709
@@ -187,7 +198,19 @@ enum SkinToneReference {
         r: Float, g: Float, b: Float,
         look: RenderLook
     ) -> (Float, Float, Float)? {
-        guard let linear = canonicalLinearSRGBUnclamped(r: r, g: g, b: b, look: look) else {
+        canonicalDisplayRGBUnclamped(
+            r: r, g: g, b: b,
+            outputRole: outputRoleIndex(look), outputSpace: outputSpaceIndex(look)
+        )
+    }
+
+    static func canonicalDisplayRGBUnclamped(
+        r: Float, g: Float, b: Float,
+        outputRole: Int, outputSpace: Int
+    ) -> (Float, Float, Float)? {
+        guard let linear = canonicalLinearSRGBUnclamped(
+            r: r, g: g, b: b, outputRole: outputRole, outputSpace: outputSpace
+        ) else {
             return nil
         }
         return (
@@ -201,7 +224,19 @@ enum SkinToneReference {
         r: Float, g: Float, b: Float,
         look: RenderLook
     ) -> (Float, Float, Float)? {
-        guard let display = canonicalDisplayRGBUnclamped(r: r, g: g, b: b, look: look) else {
+        canonicalDisplayRGB(
+            r: r, g: g, b: b,
+            outputRole: outputRoleIndex(look), outputSpace: outputSpaceIndex(look)
+        )
+    }
+
+    static func canonicalDisplayRGB(
+        r: Float, g: Float, b: Float,
+        outputRole: Int, outputSpace: Int
+    ) -> (Float, Float, Float)? {
+        guard let display = canonicalDisplayRGBUnclamped(
+            r: r, g: g, b: b, outputRole: outputRole, outputSpace: outputSpace
+        ) else {
             return nil
         }
         return (

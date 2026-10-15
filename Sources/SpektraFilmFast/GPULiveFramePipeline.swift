@@ -230,6 +230,22 @@ actor GPULiveFramePipeline {
     private let rawCacheCapacity = 3
     private var geometryGPU: StudioMetalGeometry?
     private var importCalibrationGPU: StudioImportCalibrationMetal?
+    // SFS_PIPE_MODULE_REUSE_V1: each of these caches its compiled MTLComputePipelineState
+    // and MTLLibrary. They used to be constructed inside render(), so the instance cache
+    // was always empty and device.makeLibrary(source:) recompiled every kernel on every
+    // frame — the cache was written to but never read. Own them here so it actually hits.
+    // Rebuilt only when the Metal device changes (see invalidateGPUModules()).
+    private var nlmeansGPU: NLMeansDenoiseModule?
+    private var bilateralGPU: BilateralBlurModule?
+    private var lensPipeGPU: LensCorrectionModule?
+
+    private func invalidateGPUModules() {
+        nlmeansGPU = nil
+        bilateralGPU = nil
+        lensPipeGPU = nil
+        geometryGPU = nil
+        importCalibrationGPU = nil
+    }
     private var lastGPUMode = "spectral"
     // SFS_PREFIX_HASH_DIRTY_TAIL_V1
     // Interactive-only dirty-tail cache for the independent prefix (RAW decode →
@@ -302,6 +318,7 @@ actor GPULiveFramePipeline {
         prefixCache = nil
         scratchByBytes.removeAll()
         scratchResidentBytes = 0
+        invalidateGPUModules()
     }
 
     /// Returns the native film renderer's blocking reason, or nil when film runs.
@@ -328,8 +345,7 @@ actor GPULiveFramePipeline {
             rawCache.removeAll()
             prefixCache = nil
             gpu = nil
-            geometryGPU = nil
-            importCalibrationGPU = nil
+            invalidateGPUModules()
             lastGPUMode = "spectral"
         }
         if film == nil { film = try NativeRenderer(profile: .exact) }
@@ -337,11 +353,19 @@ actor GPULiveFramePipeline {
             guard let film else { throw GPULiveError.unavailable("Native film engine unavailable") }
             let nativeDevice = try await film.preferredMetalDevice()
             gpu = try GPULiveDevice(device: nativeDevice.device)
+            // Cached pipeline states belong to the old device; drop them with it.
+            invalidateGPUModules()
         }
         guard let gpu else { throw GPULiveError.unavailable("Metal device unavailable") }
+        // SFS_DECODE_KEY_FINGERPRINT_V1: without the file fingerprint this key made
+        // rawCache and prefixCache serve stale GPU frames after an in-place edit of
+        // the source (Lightroom round-trip, synced folder, camera write finishing).
+        // The field defaults to "" for other call sites; here it must be populated or
+        // this cache is exactly the stale tier the decoder fix set out to close.
         let key = DecodeKey(
             path: url.path, longEdge: longEdge, raw: look.raw,
-            bypassImportTransform: bypassImportTransform)
+            bypassImportTransform: bypassImportTransform,
+            sourceFingerprint: ImageDecoder.sourceFingerprint(url))
         // SFS_PREFIX_HASH_DIRTY_TAIL_V1: on a prefix hit the RAW conversion and
         // import-calibration encodes are skipped entirely — only the dirty tail
         // (host grade, film, lens, effects, geometry) is re-encoded.
@@ -350,6 +374,12 @@ actor GPULiveFramePipeline {
         let width: Int
         let height: Int
         var borrowedScratch: [any MTLBuffer] = []
+        // SFS_PIPE_POOL_RETURN_V1: intermediate pipe textures were allocated from the
+        // output-texture pool and then dropped, so the pool never refilled and every
+        // frame allocated fresh rgba32Float storage. They are intermediate — unlike the
+        // final presented texture they are never held by MTKView — so they go back the
+        // moment the completion fence returns.
+        var pipeTexturesToReturn: [any MTLTexture] = []
         var developedTexture: (any MTLTexture)?
         if let cached = prefixCache, cached.hash == prefixHash {
             source = cached.buffer
@@ -437,6 +467,9 @@ actor GPULiveFramePipeline {
             var pipeScratch: [any MTLBuffer] = []
             for _ in 1...4 { pipeScratch.append(try borrowScratch(gpu: gpu, width: width, height: height)) }
             renderKeepAlive.append(contentsOf: pipeScratch)
+            // Also hand them to the recycler: the fence below waits for the GPU, so by
+            // the time recycleScratch runs they are provably idle.
+            borrowedScratch.append(contentsOf: pipeScratch)
             // Single command buffer for the pipeline so all stages submit atomically.
             guard let pipeCommand = gpu.queue.makeCommandBuffer() else {
                 throw GPULiveError.unavailable("Pipe command allocation failed")
@@ -456,7 +489,8 @@ actor GPULiveFramePipeline {
 
             // NLMeans denoise (preview-only). Skips if disabled.
             if pipeSettings.stages[.nlmeans] == true {
-                let nl = NLMeansDenoiseModule(device: gpu.device)
+                if nlmeansGPU == nil { nlmeansGPU = NLMeansDenoiseModule(device: gpu.device) }
+                guard let nl = nlmeansGPU else { throw GPULiveError.unavailable("NLMeans module unavailable") }
                 nl.commitParams(NLMeansDenoiseModule.Params(
                     radius: pipeSettings.nlmeans.radius,
                     strength: pipeSettings.nlmeans.strength,
@@ -470,7 +504,8 @@ actor GPULiveFramePipeline {
             }
             // Bilateral blur (preview-only). Skips if disabled.
             if pipeSettings.stages[.bilateral] == true {
-                let bl = BilateralBlurModule(device: gpu.device)
+                if bilateralGPU == nil { bilateralGPU = BilateralBlurModule(device: gpu.device) }
+                guard let bl = bilateralGPU else { throw GPULiveError.unavailable("Bilateral module unavailable") }
                 bl.commitParams(BilateralBlurModule.Params(
                     radius: pipeSettings.bilateral.radius,
                     redSigma: pipeSettings.bilateral.redSigma,
@@ -484,7 +519,8 @@ actor GPULiveFramePipeline {
             }
             // Ported Lightamer lens correction (distortion + TCA + vignette).
             if pipeSettings.stages[.lens] == true {
-                let lc = LensCorrectionModule(device: gpu.device)
+                if lensPipeGPU == nil { lensPipeGPU = LensCorrectionModule(device: gpu.device) }
+                guard let lc = lensPipeGPU else { throw GPULiveError.unavailable("Lens correction module unavailable") }
                 lc.commitParams(LensCorrectionModule.Params(
                     distortionK1: pipeSettings.lens.distortionK1, distortionK2: pipeSettings.lens.distortionK2,
                     distortionK3: pipeSettings.lens.distortionK3, distortionK4: pipeSettings.lens.distortionK4,
@@ -506,6 +542,7 @@ actor GPULiveFramePipeline {
             // After the pipe command completes, pipeDest holds the filtered result.
             renderBuffer = pipeDest
             renderKeepAlive.append(pipeScratch[1])
+            pipeTexturesToReturn = pipeTextures
         }
         let geometry = look.geometry ?? GeometrySettings()
         let hasGeometry = geometry != GeometrySettings()
@@ -541,6 +578,7 @@ actor GPULiveFramePipeline {
             postCommand.commit()
         }
         recycleScratch(borrowedScratch, gpu: gpu)  // The async Metal completion fence has returned.
+        for pipeTexture in pipeTexturesToReturn { gpu.returnOutputTexture(pipeTexture) }
         try Task.checkCancellation()
         let elapsed = (ProcessInfo.processInfo.systemUptime - renderedStart) * 1000.0
         let label: String

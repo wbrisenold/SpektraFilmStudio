@@ -256,7 +256,9 @@ enum ToneCurveMath {
     static func evaluate(
         _ value: Double, points source: [ToneCurvePoint], cache supplied: HermiteCache? = nil
     ) -> Double {
-        let points = normalize(source)
+        // PERF-11: caller already normalised and built the cache; when supplied is non-nil,
+        // treat `source` as already-normalised and skip re-normalisation.
+        let points = supplied != nil ? source : normalize(source)
         guard points.count >= 2 else { return value }
         let cache = supplied ?? buildCache(points)
 
@@ -312,159 +314,6 @@ private enum AlcedoACEScc {
 }
 
 private enum SourcedToneMath {
-    private struct SharedCurve {
-        var x = [0.0, 0.25, 0.75, 1.0]
-        var y = [0.0, 0.25, 0.75, 1.0]
-        var h = [0.25, 0.50, 0.25]
-        var m = [1.0, 1.0, 1.0, 1.0]
-    }
-
-    static func applyLinearTone(
-        r: Double, g: Double, b: Double,
-        contrast: Double, shadows: Double, highlights: Double
-    ) -> (Double, Double, Double) {
-        var rr = r, gg = g, bb = b
-
-        // Alcedo's current contrast design uses an S-shaped stops-from-18%-grey response with
-        // slope = 2^(contrast/100) and a 2.5-stop width. This Rec.2020 implementation keeps
-        // that sourced lightness behavior while preserving the app's existing working space.
-        if abs(contrast) > 1e-9 {
-            let y = 0.2627 * rr + 0.6780 * gg + 0.0593 * bb
-            if y > 1e-9 {
-                let slope = pow(2.0, max(-100, min(100, contrast)) / 100.0)
-                let width = 2.5
-                let shape = tanh(log2(y / 0.18) / width)
-                let gain = pow(2.0, (slope - 1.0) * width * shape)
-                let mappedY = y * gain
-                let chromaScale = sqrt(slope) * min(gain, 1.0)
-                rr = mappedY + (rr - y) * chromaScale
-                gg = mappedY + (gg - y) * chromaScale
-                bb = mappedY + (bb - y) * chromaScale
-            }
-        }
-
-        // Scene-linear tonal behavior translated from RapidRAW's published tonal path.
-        // Exposure EV remains the first 2^EV light multiplier; these controls operate after it
-        // but still before the native film simulation.
-        if abs(shadows) > 1e-9 {
-            (rr, gg, bb) = sourcedShadows(r: rr, g: gg, b: bb, value: shadows)
-        }
-        if abs(highlights) > 1e-9 {
-            (rr, gg, bb) = sourcedHighlights(r: rr, g: gg, b: bb, value: highlights)
-        }
-
-        return (rr, gg, bb)
-    }
-
-    private static func sourcedShadows(r: Double, g: Double, b: Double, value: Double) -> (Double, Double, Double) {
-        let amount = max(-1.0, min(1.0, value / 100.0))
-        guard abs(amount) > 1e-12 else { return (r, g, b) }
-        let y = max(0.0, 0.2126 * r + 0.7152 * g + 0.0722 * b)
-        guard y > 1e-6 else { return (r, g, b) }
-        let t = pow(y, 1.0 / 2.2)
-        let lift = amount * t * pow(max(1.0 - t, 0.0), 4.5)
-        let targetY = pow(max(t + lift, 0.0), 2.2)
-        let ratio = targetY / max(y, 1e-12)
-        var rr = r * ratio, gg = g * ratio, bb = b * ratio
-        if ratio > 1.0 {
-            let neutralize = min(0.40, max(0.0, (ratio - 1.0) * 0.15))
-            rr += (targetY - rr) * neutralize
-            gg += (targetY - gg) * neutralize
-            bb += (targetY - bb) * neutralize
-        }
-        return (rr, gg, bb)
-    }
-
-    private static func sourcedHighlights(r: Double, g: Double, b: Double, value: Double) -> (Double, Double, Double) {
-        let amount = max(-1.0, min(1.0, value / 100.0))
-        guard abs(amount) > 1e-12 else { return (r, g, b) }
-        let y = max(0.0, 0.2126 * r + 0.7152 * g + 0.0722 * b)
-        let pivot = 0.10
-        guard y > pivot else { return (r, g, b) }
-        let delta = max(y - pivot, 0.0)
-        let targetBase: Double
-        if amount < 0 {
-            let k = -amount
-            let strength = k * 2.2
-            let compressed = delta / (1.0 + strength * (delta / (1.0 + delta * 0.35)))
-            targetBase = pivot + compressed
-        } else {
-            let boost = amount * 0.70
-            targetBase = pivot + delta * (1.0 + boost / (1.0 + delta * 0.25))
-        }
-        let blend = smoothstep(pivot, pivot + 0.35, y)
-        let targetY = y + (targetBase - y) * blend
-        let ratio = targetY / max(y, 1e-12)
-        var rr = r * ratio, gg = g * ratio, bb = b * ratio
-        if amount < 0 && y > 1.0 {
-            let blowout = smoothstep(1.0, 3.5, y) * (-amount) * 0.40
-            rr += (targetY - rr) * blowout
-            gg += (targetY - gg) * blowout
-            bb += (targetY - bb) * blowout
-        }
-        return (rr, gg, bb)
-    }
-
-    private static func makeSharedCurve(shadows: Double, highlights: Double) -> SharedCurve {
-        var curve = SharedCurve()
-        let shadowControl = max(-1, min(1, shadows / 100.0))
-        // Alcedo's published Highlights path scales the slider 1.5x before building the shared curve.
-        let highlightControl = max(-1, min(1, highlights * 1.5 / 100.0))
-        curve.y[1] = max(0.02, min(0.73, 0.25 + shadowControl * 0.10))
-        let highlightPull = highlightControl * 0.40
-        // Positive Highlights must raise the upper tonal curve, just as the
-        // interactive 1080p proxy does. The previous minus sign DARKENED the
-        // right-hand slider's final 100% white anchor and made the image snap
-        // in the opposite direction after pointer release.
-        curve.y[3] = max(0.85, min(1.30, 1.0 + highlightPull))
-        curve.y[2] = max(0.65, min(1.0, 0.75 + highlightPull * 0.20))
-        computeTangents(&curve)
-        return curve
-    }
-
-    private static func computeTangents(_ curve: inout SharedCurve) {
-        var d = [Double](repeating: 0, count: 3)
-        for i in 0..<3 {
-            d[i] = abs(curve.h[i]) > 1e-8 ? (curve.y[i + 1] - curve.y[i]) / curve.h[i] : 0
-        }
-        curve.m[0] = d[0]
-        curve.m[3] = d[2]
-        for i in 1..<3 {
-            curve.m[i] = d[i - 1] * d[i] <= 0 ? 0 : 0.5 * (d[i - 1] + d[i])
-        }
-        for i in 0..<3 {
-            if abs(d[i]) <= 1e-8 {
-                curve.m[i] = 0; curve.m[i + 1] = 0
-                continue
-            }
-            let a = curve.m[i] / d[i]
-            let b = curve.m[i + 1] / d[i]
-            let sum = a * a + b * b
-            if sum > 9 {
-                let tau = 3 / sqrt(sum)
-                curve.m[i] = tau * a * d[i]
-                curve.m[i + 1] = tau * b * d[i]
-            }
-        }
-        for i in 0..<4 { curve.m[i] = max(0.05, min(2.85, curve.m[i])) }
-    }
-
-    private static func evaluate(_ value: Double, curve: SharedCurve) -> Double {
-        if value <= curve.x[0] { return curve.y[0] }
-        if value >= curve.x[3] { return curve.y[3] + (value - curve.x[3]) * curve.m[3] }
-        var index = 2
-        for i in 0..<3 where value < curve.x[i + 1] { index = i; break }
-        let dx = curve.h[index]
-        guard abs(dx) > 1e-8 else { return curve.y[index] }
-        let t = (value - curve.x[index]) / dx
-        let h00 = 2 * t * t * t - 3 * t * t + 1
-        let h10 = t * t * t - 2 * t * t + t
-        let h01 = -2 * t * t * t + 3 * t * t
-        let h11 = t * t * t - t * t
-        return h00 * curve.y[index] + h10 * dx * curve.m[index]
-            + h01 * curve.y[index + 1] + h11 * dx * curve.m[index + 1]
-    }
-
     // RapidRAW v1.6.4 filmic Brightness: a rational luma reshape that favors midtones
     // and keeps the top end anchored instead of behaving like a second exposure multiplier.
     static func filmicBrightness(
@@ -572,6 +421,95 @@ private enum SourcedToneMath {
             gg + (targetLuma - gg) * desat,
             bb + (targetLuma - bb) * desat
         )
+    }
+
+    // Scene-linear tonal behavior translated from RapidRAW's published tonal path.
+    // Exposure EV remains the first 2^EV light multiplier; these controls operate after it
+    // but still before the native film simulation.
+    static func applyLinearTone(
+        r: Double, g: Double, b: Double,
+        contrast: Double, shadows: Double, highlights: Double
+    ) -> (Double, Double, Double) {
+        var rr = r, gg = g, bb = b
+
+        // Alcedo's current contrast design uses an S-shaped stops-from-18%-grey response with
+        // slope = 2^(contrast/100) and a 2.5-stop width. This Rec.2020 implementation keeps
+        // that sourced lightness behavior while preserving the app's existing working space.
+        if abs(contrast) > 1e-9 {
+            let y = 0.2627 * rr + 0.6780 * gg + 0.0593 * bb
+            if y > 1e-9 {
+                let slope = pow(2.0, max(-100, min(100, contrast)) / 100.0)
+                let width = 2.5
+                let shape = tanh(log2(y / 0.18) / width)
+                let gain = pow(2.0, (slope - 1.0) * width * shape)
+                let mappedY = y * gain
+                let chromaScale = sqrt(slope) * min(gain, 1.0)
+                rr = mappedY + (rr - y) * chromaScale
+                gg = mappedY + (gg - y) * chromaScale
+                bb = mappedY + (bb - y) * chromaScale
+            }
+        }
+
+        // Scene-linear tonal behavior translated from RapidRAW's published tonal path.
+        // Exposure EV remains the first 2^EV light multiplier; these controls operate after it
+        // but still before the native film simulation.
+        if abs(shadows) > 1e-9 {
+            (rr, gg, bb) = sourcedShadows(r: rr, g: gg, b: bb, value: shadows)
+        }
+        if abs(highlights) > 1e-9 {
+            (rr, gg, bb) = sourcedHighlights(r: rr, g: gg, b: bb, value: highlights)
+        }
+
+        return (rr, gg, bb)
+    }
+
+    private static func sourcedShadows(r: Double, g: Double, b: Double, value: Double) -> (Double, Double, Double) {
+        let amount = max(-1.0, min(1.0, value / 100.0))
+        guard abs(amount) > 1e-12 else { return (r, g, b) }
+        let y = max(0.0, 0.2126 * r + 0.7152 * g + 0.0722 * b)
+        guard y > 1e-6 else { return (r, g, b) }
+        let t = pow(y, 1.0 / 2.2)
+        let lift = amount * t * pow(max(1.0 - t, 0.0), 4.5)
+        let targetY = pow(max(t + lift, 0.0), 2.2)
+        let ratio = targetY / max(y, 1e-12)
+        var rr = r * ratio, gg = g * ratio, bb = b * ratio
+        if ratio > 1.0 {
+            let neutralize = min(0.40, max(0.0, (ratio - 1.0) * 0.15))
+            rr += (targetY - rr) * neutralize
+            gg += (targetY - gg) * neutralize
+            bb += (targetY - bb) * neutralize
+        }
+        return (rr, gg, bb)
+    }
+
+    private static func sourcedHighlights(r: Double, g: Double, b: Double, value: Double) -> (Double, Double, Double) {
+        let amount = max(-1.0, min(1.0, value / 100.0))
+        guard abs(amount) > 1e-12 else { return (r, g, b) }
+        let y = max(0.0, 0.2126 * r + 0.7152 * g + 0.0722 * b)
+        let pivot = 0.10
+        guard y > pivot else { return (r, g, b) }
+        let delta = max(y - pivot, 0.0)
+        let targetBase: Double
+        if amount < 0 {
+            let k = -amount
+            let strength = k * 2.2
+            let compressed = delta / (1.0 + strength * (delta / (1.0 + delta * 0.35)))
+            targetBase = pivot + compressed
+        } else {
+            let boost = amount * 0.70
+            targetBase = pivot + delta * (1.0 + boost / (1.0 + delta * 0.25))
+        }
+        let blend = smoothstep(pivot, pivot + 0.35, y)
+        let targetY = y + (targetBase - y) * blend
+        let ratio = targetY / max(y, 1e-12)
+        var rr = r * ratio, gg = g * ratio, bb = b * ratio
+        if amount < 0 && y > 1.0 {
+            let blowout = smoothstep(1.0, 3.5, y) * (-amount) * 0.40
+            rr += (targetY - rr) * blowout
+            gg += (targetY - gg) * blowout
+            bb += (targetY - bb) * blowout
+        }
+        return (rr, gg, bb)
     }
 
     // Levels-style input-point remap. Positive Black Point deepens the floor; positive White

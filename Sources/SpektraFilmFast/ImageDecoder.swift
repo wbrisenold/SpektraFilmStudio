@@ -10,11 +10,24 @@ struct DecodeKey: Hashable, Sendable {
     var longEdge: Int
     var raw: RawSettings
     var bypassImportTransform: Bool
+    /// CacheSourceFingerprint of the source file, so an in-place edit (Lightroom round trip,
+    /// synced folder, a camera finishing a write) invalidates every tier instead of serving
+    /// pixels from the previous file version. Defaults to "" so the existing four-label
+    /// call sites in GPULiveFramePipeline.swift / ProductionSelfTest.swift keep compiling;
+    /// those producers must pass the fingerprint themselves to get invalidation.
+    var sourceFingerprint: String = ""
 }
 
 private struct AutoNeutralLocation: Hashable, Sendable {
     var x: Double
     var y: Double
+}
+
+/// Keyed by path + lensCorrection only, with the file fingerprint carried as the value so an
+/// in-place edit overwrites its own entry instead of adding an unevictable one.
+private struct AutoNeutralEntry {
+    var sourceFingerprint: String
+    var location: AutoNeutralLocation?
 }
 
 private struct SourceImageResult {
@@ -52,11 +65,13 @@ actor ImageDecoder {
     private let contextBox = CIContextBox()
     private let developedDiskCache = DevelopedSourceDiskCache.shared
     private var cache: [DecodeKey: PixelBufferF32] = [:]
-    private var cacheOrder: [DecodeKey] = []
+    /// key -> last-touch stamp, so touch/evict are O(1) without scanning for the key.
+    private var cacheStamps: [DecodeKey: UInt64] = [:]
+    private var touchCounter: UInt64 = 0
     private var cacheBytes = 0
     private var pressureConstrained = false
     private var inFlight: [DecodeKey: Task<PixelBufferF32, Error>] = [:]
-    private var autoNeutralCache: [String: AutoNeutralLocation?] = [:]
+    private var autoNeutralCache: [String: AutoNeutralEntry] = [:]
     private var autoNeutralInFlight: [String: Task<AutoNeutralLocation?, Never>] = [:]
     private var cacheHits = 0
     private var cacheMisses = 0
@@ -68,7 +83,11 @@ actor ImageDecoder {
         bypassImportTransform: Bool,
         cacheMode: PreviewCacheMemoryMode
     ) async throws -> PixelBufferF32 {
-        let key = DecodeKey(path: url.path, longEdge: longEdge, raw: raw, bypassImportTransform: bypassImportTransform)
+        let key = DecodeKey(
+            path: url.path, longEdge: longEdge, raw: raw,
+            bypassImportTransform: bypassImportTransform,
+            sourceFingerprint: Self.sourceFingerprint(url)
+        )
         if let existing = cache[key] {
             cacheHits += 1
             touch(key)
@@ -309,17 +328,16 @@ actor ImageDecoder {
     }
 
     func invalidateAutoWhiteBalance(url: URL) async {
-        let prefix = url.path + "|"
-        for key in autoNeutralCache.keys where key.hasPrefix(prefix) { autoNeutralCache.removeValue(forKey: key) }
-        for key in autoNeutralInFlight.keys where key.hasPrefix(prefix) {
-            autoNeutralInFlight[key]?.cancel()
-            autoNeutralInFlight.removeValue(forKey: key)
+        // Exact keys, not a prefix scan: mutating a dictionary while iterating its Keys view is
+        // undefined behaviour, and there is now one bounded entry per (path, lensCorrection).
+        for lensCorrection in [false, true] {
+            let neutralKey = autoNeutralKey(url: url, lensCorrection: lensCorrection)
+            autoNeutralCache.removeValue(forKey: neutralKey)
+            autoNeutralInFlight[neutralKey]?.cancel()
+            autoNeutralInFlight.removeValue(forKey: neutralKey)
         }
         let decodeKeys = cache.keys.filter { $0.path == url.path && $0.raw.whiteBalanceMode == .auto }
-        for key in decodeKeys {
-            if let removed = cache.removeValue(forKey: key) { cacheBytes -= byteCount(removed) }
-            cacheOrder.removeAll { $0 == key }
-        }
+        for key in decodeKeys { evict(key) }
         let inflightKeys = inFlight.keys.filter { $0.path == url.path && $0.raw.whiteBalanceMode == .auto }
         for key in inflightKeys {
             inFlight[key]?.cancel()
@@ -343,7 +361,7 @@ actor ImageDecoder {
         for task in inFlight.values { task.cancel() }
         inFlight.removeAll()
         cache.removeAll()
-        cacheOrder.removeAll()
+        cacheStamps.removeAll()
         cacheBytes = 0
         for task in autoNeutralInFlight.values { task.cancel() }
         autoNeutralInFlight.removeAll()
@@ -532,7 +550,8 @@ actor ImageDecoder {
 
     private func resolvedAutoNeutralLocation(url: URL, lensCorrection: Bool) async -> AutoNeutralLocation? {
         let key = autoNeutralKey(url: url, lensCorrection: lensCorrection)
-        if let cached = autoNeutralCache[key] { return cached }
+        let fingerprint = Self.sourceFingerprint(url)
+        if let cached = autoNeutralCache[key], cached.sourceFingerprint == fingerprint { return cached.location }
         if let existing = autoNeutralInFlight[key] { return await existing.value }
 
         let box = contextBox
@@ -542,13 +561,19 @@ actor ImageDecoder {
         autoNeutralInFlight[key] = task
         let value = await task.value
         autoNeutralInFlight[key] = nil
-        autoNeutralCache[key] = value
+        // A file that changed while the draft ran simply leaves a non-matching fingerprint behind,
+        // which the next lookup treats as a miss and overwrites.
+        autoNeutralCache[key] = AutoNeutralEntry(sourceFingerprint: fingerprint, location: value)
         return value
     }
 
     private func autoNeutralKey(url: URL, lensCorrection: Bool) -> String {
-        let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-        return "\(url.path)|\(values?.fileSize ?? 0)|\(values?.contentModificationDate?.timeIntervalSince1970 ?? 0)|\(lensCorrection)"
+        "\(url.path)|\(lensCorrection)"
+    }
+
+    /// A missing or unreadable file yields "", which no real fingerprint can collide with.
+    nonisolated static func sourceFingerprint(_ url: URL) -> String {
+        (try? CacheSourceFingerprint.value(for: url)) ?? ""
     }
 
     /// Finds a plausible neutral patch on a small draft decode, then asks CIRAWFilter to
@@ -653,6 +678,7 @@ actor ImageDecoder {
         var bestRequestedLongEdge = Int.max
         for (candidateKey, task) in inFlight {
             guard candidateKey.path == requested.path,
+                  candidateKey.sourceFingerprint == requested.sourceFingerprint,
                   candidateKey.raw == requested.raw,
                   candidateKey.bypassImportTransform == requested.bypassImportTransform,
                   candidateKey.longEdge >= requested.longEdge else { continue }
@@ -669,6 +695,7 @@ actor ImageDecoder {
         var bestRequestedLongEdge = Int.max
         for (candidateKey, candidateBuffer) in cache {
             guard candidateKey.path == requested.path,
+                  candidateKey.sourceFingerprint == requested.sourceFingerprint,
                   candidateKey.raw == requested.raw,
                   candidateKey.bypassImportTransform == requested.bypassImportTransform,
                   candidateKey.longEdge >= requested.longEdge else { continue }
@@ -723,10 +750,18 @@ actor ImageDecoder {
     }
 
     private func trim(to budget: Int) {
-        while cacheBytes > budget, let old = cacheOrder.first {
-            cacheOrder.removeFirst()
-            if let removed = cache.removeValue(forKey: old) { cacheBytes -= byteCount(removed) }
+        while cacheBytes > budget {
+            // Smallest stamp is the least-recently-used entry, matching the array order this
+            // replaced. The scan only runs when over budget and the entry count is bounded by
+            // the byte budget, so touch/evict stay O(1) on the hit and insert paths.
+            guard let oldest = cacheStamps.min(by: { $0.value < $1.value })?.key else { return }
+            evict(oldest)
         }
+    }
+
+    private func evict(_ key: DecodeKey) {
+        cacheStamps.removeValue(forKey: key)
+        if let removed = cache.removeValue(forKey: key) { cacheBytes -= byteCount(removed) }
     }
 
     private func byteCount(_ value: PixelBufferF32) -> Int {
@@ -734,7 +769,7 @@ actor ImageDecoder {
     }
 
     private func touch(_ key: DecodeKey) {
-        cacheOrder.removeAll { $0 == key }
-        cacheOrder.append(key)
+        touchCounter &+= 1
+        cacheStamps[key] = touchCounter
     }
 }

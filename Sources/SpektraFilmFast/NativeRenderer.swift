@@ -200,12 +200,15 @@ actor NativeRenderer {
     init(profile: Profile = .exact) throws {
         Self.configurePinnedCorePerformanceDefaults(profile: profile)
         guard let renderer = SpektraRendererCreate() else { throw RendererError.unavailable("Could not create renderer") }
-        handle = renderer
         guard SpektraRendererIsAvailable(renderer) != 0 else {
             let message = SpektraRendererLastError(renderer).map(String.init(cString:)) ?? "Unknown Metal error"
             SpektraRendererDestroy(renderer)
             throw RendererError.unavailable(message)
         }
+        // Assign only once the handle is known good. `handle` is a `let`, so
+        // assigning it fully initializes the actor: a throw after this point
+        // runs deinit, which would destroy the handle we already released above.
+        handle = renderer
     }
 
 

@@ -88,6 +88,14 @@ if grep -Eq 'reduce|for .*0\.\.<3' <<<"$MATRIX_BLOCK"; then
 fi
 
 # Required symbols/properties that have previously gone missing.
+#
+# These are text pins, not compiles: each asserts a symbol or expression is still
+# present, and every one below guards a regression that actually reached a release
+# (see docs/BUILD_PITFALLS.md). The intent is PRESENCE, not exact spelling — so
+# renaming or retyping a pinned symbol fails this gate on purpose. If you rename
+# one legitimately, update its grep in the same change. Weakening a pin here
+# silently removes the guard it exists to keep, which is the failure mode these
+# lines were written to catch in the first place.
 grep -q 'private static func forwardMatrix(settings: GeometrySettings, width: Int, height: Int)' Sources/SpektraFilmFast/GeometryEngine.swift
 grep -q 'private var latestFilmRenderedBuffer: PixelBufferF32?' Sources/SpektraFilmFast/AppModel.swift
 grep -q 'private func scheduleEditorScopeUpdate(force: Bool)' Sources/SpektraFilmFast/AppModel.swift

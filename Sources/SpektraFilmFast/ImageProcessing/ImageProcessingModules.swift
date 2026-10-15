@@ -187,7 +187,6 @@ kernel void spektra_nlmeans_finish(
     private var committed: Params?
     // Cached pipeline state to avoid recompiling the kernel on every encode
     private var cachedPipelineState: MTLComputePipelineState?
-    private var cachedLibrary: MTLLibrary?
 
     public init(device: any MTLDevice) {
         self.device = device
@@ -213,7 +212,7 @@ kernel void spektra_nlmeans_finish(
     public func encode(commandBuffer: MTLCommandBuffer, input: MTLTexture, output: MTLTexture, width: Int, height: Int) throws {
         guard pieceBuffer != nil else { return }
         // Use cached pipeline state to avoid recompiling the kernel every call
-        let pipelineState = getCachedPipelineState()
+        let pipelineState = try getCachedPipelineState()
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else { return }
         encoder.setComputePipelineState(pipelineState)
         encoder.setTexture(input, index: 0)
@@ -222,12 +221,15 @@ kernel void spektra_nlmeans_finish(
         encoder.endEncoding()
     }
 
-    private func getCachedPipelineState() -> MTLComputePipelineState {
+    private func getCachedPipelineState() throws -> MTLComputePipelineState {
         if let cached = cachedPipelineState { return cached }
-        let library = try! device.makeLibrary(source: Self.kernels, options: nil)
-        cachedLibrary = library
-        let function = library.makeFunction(name: "spektra_nlmeans_lab_forward")!
-        let pipelineState = try! device.makeComputePipelineState(function: function)
+        // These kernels compile at runtime and Metal is the only validator, so a
+        // compile failure must surface as a render error rather than trap the app.
+        let library = try device.makeLibrary(source: Self.kernels, options: nil)
+        guard let function = library.makeFunction(name: "spektra_nlmeans_lab_forward") else {
+            throw GPULiveError.unavailable("NLMeans kernel entry point missing")
+        }
+        let pipelineState = try device.makeComputePipelineState(function: function)
         cachedPipelineState = pipelineState
         return pipelineState
     }
@@ -277,8 +279,10 @@ kernel void spektra_bilateral_direct(
     float wSum = 0.0f;
     float4 acc = float4(0.0f);
 
-    int wd = 2 * rad + 1;
+    // weights is a 1-D separable spatial kernel of length 2*rad+1, so the spatial
+    // term factorises into weights[l+rad] * weights[k+rad] — no 2-D table needed.
     for (int l = -rad; l <= rad; l++) {
+        float wy = weights[l + rad];
         for (int k = -rad; k <= rad; k++) {
             int2 nb = int2(gid) + int2(k, l);
             float4 pix = in.read(nb);
@@ -286,7 +290,7 @@ kernel void spektra_bilateral_direct(
             float dg = center.y - pix.y;
             float db = center.z - pix.z;
             float colorDist = dr * dr * u.isig2r + dg * dg * u.isig2g + db * db * u.isig2b;
-            float weight = weights[(l + rad) * wd + (k + rad)] * exp(-colorDist);
+            float weight = wy * weights[k + rad] * exp(-colorDist);
             wSum += weight;
             acc += pix * weight;
         }
@@ -436,12 +440,18 @@ kernel void spektra_bilateral5d_slice(
         public var blueSigma: Float = 0.005
     }
 
+    /// The direct-stamp kernel is O(radius²) per pixel, so the documented fast
+    /// path (see kernel header) caps it at 6. Larger radii need the 5-D grid path.
+    // shortcut: radius clamps to 6; upgrade when the spektra_bilateral5d_* grid path is wired up.
+    private static let maxDirectRadius = 6
+
     private var pieceBuffer: MTLBuffer?
+    private var weightsBuffer: MTLBuffer?
+    private var weightsRadius: Int = -1
     private let device: any MTLDevice
     private var committed: Params?
     // Cached pipeline state to avoid recompiling the kernel on every encode
     private var cachedPipelineState: MTLComputePipelineState?
-    private var cachedLibrary: MTLLibrary?
 
     public init(device: any MTLDevice) {
         self.device = device
@@ -456,26 +466,54 @@ kernel void spektra_bilateral5d_slice(
 
     public func encode(commandBuffer: MTLCommandBuffer, input: MTLTexture, output: MTLTexture, width: Int, height: Int) throws {
         guard let buffer = pieceBuffer else { return }
-        var u = BilateralDirectUniforms(width: Int32(width), height: Int32(height), radius: Int32(3 * 15 + 1), isig2r: Float(1 / (2 * 0.005 * 0.005)), isig2g: Float(1 / (2 * 0.005 * 0.005)), isig2b: Float(1 / (2 * 0.005 * 0.005)))
+        guard let committed else { return }
+        let radius = min(max(Int(committed.radius.rounded()), 0), Self.maxDirectRadius)
+        // Guard against a zero sigma from the UI: 1/0 would poison every weight.
+        func isig2(_ s: Float) -> Float { let v = max(s, 0.0001); return 1 / (2 * v * v) }
+        var u = BilateralDirectUniforms(
+            width: Int32(width), height: Int32(height), radius: Int32(radius),
+            isig2r: isig2(committed.redSigma), isig2g: isig2(committed.greenSigma), isig2b: isig2(committed.blueSigma))
         buffer.contents().copyMemory(from: &u, byteCount: MemoryLayout<BilateralDirectUniforms>.stride)
 
-        let pipelineState = getCachedPipelineState()
+        guard let weights = spatialWeights(radius: radius) else { return }
+        let pipelineState = try getCachedPipelineState()
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else { return }
         encoder.setComputePipelineState(pipelineState)
         encoder.setTexture(input, index: 0)
         encoder.setTexture(output, index: 1)
-        encoder.setBuffer(buffer, offset: 0, index: 0)
-        encoder.setBuffer(nil, offset: 0, index: 1) // weights buffer would go here
+        encoder.setBuffer(weights, offset: 0, index: 0)
+        encoder.setBuffer(buffer, offset: 0, index: 1)
         encoder.dispatchThreads(MTLSize(width: width, height: height, depth: 1), threadsPerThreadgroup: MTLSize(width: 8, height: 8, depth: 1))
         encoder.endEncoding()
     }
 
-    private func getCachedPipelineState() -> MTLComputePipelineState {
+    /// 1-D separable Gaussian spatial kernel of length `2*radius+1`; rebuilt only
+    /// when the radius changes.
+    private func spatialWeights(radius: Int) -> MTLBuffer? {
+        if let cached = weightsBuffer, weightsRadius == radius { return cached }
+        let n = 2 * radius + 1
+        let sigma = max(Float(radius) * 0.5, 0.5)
+        var floats = [Float](repeating: 0, count: n)
+        for i in 0..<n {
+            let d = Float(i - radius)
+            floats[i] = exp(-(d * d) / (2 * sigma * sigma))
+        }
+        guard let buf = device.makeBuffer(
+            bytes: floats, length: n * MemoryLayout<Float>.size,
+            options: .storageModeShared
+        ) else { return nil }
+        weightsBuffer = buf
+        weightsRadius = radius
+        return buf
+    }
+
+    private func getCachedPipelineState() throws -> MTLComputePipelineState {
         if let cached = cachedPipelineState { return cached }
-        let library = try! device.makeLibrary(source: Self.kernels, options: nil)
-        cachedLibrary = library
-        let function = library.makeFunction(name: "spektra_bilateral_direct")!
-        let pipelineState = try! device.makeComputePipelineState(function: function)
+        let library = try device.makeLibrary(source: Self.kernels, options: nil)
+        guard let function = library.makeFunction(name: "spektra_bilateral_direct") else {
+            throw GPULiveError.unavailable("Bilateral kernel entry point missing")
+        }
+        let pipelineState = try device.makeComputePipelineState(function: function)
         cachedPipelineState = pipelineState
         return pipelineState
     }
@@ -575,7 +613,6 @@ kernel void spektra_lens_correct(
     private var committed: Params?
     // Cached pipeline state to avoid recompiling the kernel on every encode
     private var cachedPipelineState: MTLComputePipelineState?
-    private var cachedLibrary: MTLLibrary?
 
     public init(device: any MTLDevice) {
         self.device = device
@@ -606,24 +643,10 @@ kernel void spektra_lens_correct(
             vigK3: committed?.vignetteK3 ?? 0, vigK4: committed?.vignetteK4 ?? 0,
             reserved: (0, 0, 0, 0)
         )
-        u.centerX = centerX
-        u.centerY = centerY
-        u.halfWidth = halfWidth
-        u.halfHeight = halfHeight
-        u.k1 = committed?.distortionK1 ?? 0
-        u.k2 = committed?.distortionK2 ?? 0
-        u.k3 = committed?.distortionK3 ?? 0
-        u.k4 = committed?.distortionK4 ?? 0
-        u.tcaRed = committed?.tcaRed ?? 0
-        u.tcaBlue = committed?.tcaBlue ?? 0
-        u.vigK1 = committed?.vignetteK1 ?? 0
-        u.vigK2 = committed?.vignetteK2 ?? 0
-        u.vigK3 = committed?.vignetteK3 ?? 0
-        u.vigK4 = committed?.vignetteK4 ?? 0
 
         buffer.contents().copyMemory(from: &u, byteCount: MemoryLayout<LensUniforms>.stride)
 
-        let pipelineState = getCachedPipelineState()
+        let pipelineState = try getCachedPipelineState()
         guard let encoder = commandBuffer.makeComputeCommandEncoder() else { return }
         encoder.setComputePipelineState(pipelineState)
         encoder.setTexture(input, index: 0)
@@ -633,12 +656,13 @@ kernel void spektra_lens_correct(
         encoder.endEncoding()
     }
 
-    private func getCachedPipelineState() -> MTLComputePipelineState {
+    private func getCachedPipelineState() throws -> MTLComputePipelineState {
         if let cached = cachedPipelineState { return cached }
-        let library = try! device.makeLibrary(source: Self.kernels, options: nil)
-        cachedLibrary = library
-        let function = library.makeFunction(name: "spektra_lens_correct")!
-        let pipelineState = try! device.makeComputePipelineState(function: function)
+        let library = try device.makeLibrary(source: Self.kernels, options: nil)
+        guard let function = library.makeFunction(name: "spektra_lens_correct") else {
+            throw GPULiveError.unavailable("Lens correction kernel entry point missing")
+        }
+        let pipelineState = try device.makeComputePipelineState(function: function)
         cachedPipelineState = pipelineState
         return pipelineState
     }
