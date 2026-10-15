@@ -360,6 +360,11 @@ actor NativeRenderer {
         try Task.checkCancellation()
 
         let d = SpektraRendererLastDiagnostics(handle)
+        PerformanceMonitor.shared.recordFrame(
+            frameTimeMs: d.cpuSetupMs + d.sourceCopyMs + d.commandBufferMs + d.outputCopyMs,
+            gpuTimeMs: d.commandBufferMs,
+            passCount: Int(d.passCount)
+        )
         return (
             PixelBufferF32(width: input.width, height: input.height, pixels: outputPixels),
             RenderDiagnosticsView(
@@ -435,6 +440,11 @@ actor NativeRenderer {
         }
 
         let diag = SpektraRendererLastDiagnostics(handle)
+        PerformanceMonitor.shared.recordFrame(
+            frameTimeMs: diag.cpuSetupMs + diag.sourceCopyMs + diag.commandBufferMs + diag.outputCopyMs,
+            gpuTimeMs: diag.commandBufferMs,
+            passCount: Int(diag.passCount)
+        )
         return (
             PixelBufferF32(width: input.width, height: input.height, pixels: outputPixels),
             RenderDiagnosticsView(

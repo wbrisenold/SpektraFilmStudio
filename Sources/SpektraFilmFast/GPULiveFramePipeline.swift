@@ -369,11 +369,13 @@ actor GPULiveFramePipeline {
             scratchResidentBytes -= bytes
             if reused.device.registryID == gpu.device.registryID {
                 scratchReuseCount += 1
+                PerformanceMonitor.shared.recordScratchReuse()
                 return reused
             }
             // Don't pass a scratch buffer from an old GPU device to this queue.
         }
         scratchAllocCount += 1
+        PerformanceMonitor.shared.recordScratchAllocation()
         return try gpu.allocateFloatBuffer(width: width, height: height)
     }
 
