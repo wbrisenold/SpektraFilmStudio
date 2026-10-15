@@ -7,10 +7,6 @@ extension String {
     }
 }
 
-extension PipeStage {
-    var displayName: String { self.rawValue.uppercasedFirstLetter() }
-}
-
 struct ControlsView: View {
     @ObservedObject var model: AppModel
     var mode: StudioInspectorMode = .adjust
@@ -90,13 +86,8 @@ struct ControlsView: View {
                     Text("Light").tag("tone")
                     Text("Crop").tag("geometry")
                     Text("Optics").tag("lens")
-                    Text("GPU").tag("pipe")
                 }
                 .pickerStyle(.segmented).padding(.horizontal, 9).padding(.top, 8)
-            }
-            if mode == .adjust && openAdjustment == "pipe" {
-                PipeToggleRow(model: model)
-                PipeParamSliders(model: model)
             }
             if mode == .film {
                 Toggle(
@@ -158,15 +149,6 @@ struct ControlsView: View {
                                     ])
                             {
                                 inspectorSection("Crop & Geometry", id: "geometry") { geometrySection }
-                            }
-                        case "pipe":
-                            if panelVisible("pipe")
-                                && sectionMatches(
-                                    "pipe",
-                                    terms: ["gpu", "nlmeans", "bilateral", "lens", "sigmoid", "agx", "filmic", "pipeline", "denoise"]
-                                )
-                            {
-                                inspectorSection("GPU Filter Pipeline", id: "pipe") { pipeSection }
                             }
                         default:
                             if panelVisible("lens")
@@ -419,27 +401,6 @@ struct ControlsView: View {
                 .buttonStyle(.plain)
                 .help("Reset the RAW section, including white balance and lens correction.")
             }
-
-            // Workflow Preset Picker
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Workflow").font(.caption.weight(.medium))
-                Picker(
-                    "Workflow",
-                    selection: Binding(
-                        get: { model.selectedLook.raw.workflowPreset },
-                        set: { preset in model.setRawSettings({ $0.workflowPreset = preset }, interactive: false) }
-                    )
-                ) {
-                    ForEach(WorkflowPreset.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                Text(model.selectedLook.raw.workflowPreset.description)
-                    .font(.caption2)
-                    .studioSecondaryLabel()
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.bottom, 5)
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
@@ -909,64 +870,6 @@ struct ControlsView: View {
         .background(Color.clear)
         .overlay {
             Rectangle().stroke(Color.clear, lineWidth: 0)
-        }
-    }
-
-    private var pipeSection: some View {
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("GPU Filter Pipeline")
-                    .font(.caption.weight(.semibold))
-                Spacer()
-                Button {
-                    model.resetPipe()
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                }
-                .buttonStyle(.plain)
-                .help("Reset all GPU pipe stages and params to off/identity.")
-            }
-
-            Text(
-                "Live Metal image-processing stages injected after the film pass on the interactive preview path. These are preview-side filters independent of RAW develop denoise and the exact export path."
-            )
-            .font(.caption2)
-            .studioSecondaryLabel()
-            .fixedSize(horizontal: false, vertical: true)
-
-            ForEach(PipeStage.allCases) { stage in
-                HStack(spacing: 8) {
-                    Toggle(
-                        isOn: Binding(
-                            get: { model.selectedLook.pipe?.stages[stage] == true },
-                            set: { model.setPipeStage(stage, enabled: $0) }
-                        )
-                    ) {
-                        Text(stage.rawValue.uppercasedFirstLetter())
-                            .font(.caption.weight(.medium))
-                    }
-                    .controlSize(.small)
-                    .help(pipeStageHelp(for: stage))
-                    if model.selectedLook.pipe?.stages[stage] == true {
-                        Button("Params") {}
-                            .controlSize(.mini)
-                            .buttonStyle(.bordered)
-                            .help("Adjust this stage's parameters below.")
-                    }
-                }
-            }
-
-            PipeParamSliders(model: model)
-        }
-        .padding(10)
-        .background(Color.clear)
-    }
-
-    private func pipeStageHelp(for stage: PipeStage) -> String {
-        switch stage {
-        case .nlmeans: return "Non-local means denoise preview. Radius, strength, luma and chroma are adjustable in the sliders below."
-        case .bilateral: return "Bilateral blur preview. Controls spatial radius and per-channel sigma."
-        case .lens: return "Ported Lightamer lens correction preview: distortion, TCA and vignette applied after the film pass."
         }
     }
 
@@ -1921,279 +1824,5 @@ private struct ToneCurveEditorView: View {
         next = ToneCurveMath.normalize(next)
         draftPoints = next
         model.setRawDevelopCurvePoints(next, interactive: false)
-    }
-}
-
-// MARK: - GPU Filter Pipeline UI
-
-struct PipeToggleRow: View {
-    @ObservedObject var model: AppModel
-
-    var body: some View {
-        VStack(spacing: 4) {
-            HStack(spacing: 8) {
-                ForEach(PipeStage.allCases) { stage in
-                    PipeToggleButton(stage: stage, model: model)
-                }
-            }
-            Text("GPU preview stages: live only — they do not change the settled/export path.")
-                .font(.caption2)
-                .studioSecondaryLabel()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 4)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-    }
-}
-
-struct PipeToggleButton: View {
-    let stage: PipeStage
-    @ObservedObject var model: AppModel
-
-    var isOn: Bool {
-        model.selectedLook.pipe?.stages[stage] == true
-    }
-
-    var body: some View {
-        Button {
-            model.setPipeStage(stage, enabled: !isOn)
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: isOn ? "checkmark.square.fill" : "square")
-                    .foregroundStyle(isOn ? .green : .secondary)
-                Text(stage.uppercaseLabel())
-                    .font(.caption.weight(.medium))
-            }
-        }
-        .controlSize(.small)
-        .buttonStyle(.bordered)
-        .help(stage.helpText())
-    }
-}
-
-extension PipeStage {
-    func uppercaseLabel() -> String { self.rawValue.uppercasedFirstLetter() }
-    func helpText() -> String {
-        switch self {
-        case .nlmeans: return "Non-local means denoise preview."
-        case .bilateral: return "Bilateral blur preview."
-        case .lens: return "Ported lens correction preview (distortion + TCA + vignette)."
-        }
-    }
-}
-
-struct PipeParamSliders: View {
-    @ObservedObject var model: AppModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Stage Parameters")
-                .font(.caption.weight(.semibold))
-                .padding(.top, 4)
-
-            if let pipe = model.selectedLook.pipe {
-                // NLMeans params
-                if pipe.stages[.nlmeans] == true {
-                    NLMeansParamSliders(model: model, pipe: pipe.nlmeans)
-                }
-                // Bilateral params
-                if pipe.stages[.bilateral] == true {
-                    BilateralParamSliders(model: model, pipe: pipe.bilateral)
-                }
-                // Lens params
-                if pipe.stages[.lens] == true {
-                    LensParamSliders(model: model, pipe: pipe.lens)
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Per-stage param sliders
-
-struct NLMeansParamSliders: View {
-    @ObservedObject var model: AppModel
-    let pipe: NLMeansPipeParams
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            PipelineFloatSlider(
-                label: "Radius",
-                value: pipe.radius,
-                range: 1...10,
-                key: "nlmeans.radius",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Strength",
-                value: pipe.strength,
-                range: 1...200,
-                key: "nlmeans.strength",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Luma",
-                value: pipe.luma,
-                range: 0...1,
-                key: "nlmeans.luma",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Chroma",
-                value: pipe.chroma,
-                range: 0...1,
-                key: "nlmeans.chroma",
-                model: model
-            )
-        }
-        .padding(8)
-        .background(StudioPalette.recessed.opacity(0.5), in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
-    }
-}
-
-struct BilateralParamSliders: View {
-    @ObservedObject var model: AppModel
-    let pipe: BilateralPipeParams
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            PipelineFloatSlider(
-                label: "Radius",
-                value: pipe.radius,
-                range: 1...50,
-                key: "bilateral.radius",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Red Sigma",
-                value: pipe.redSigma,
-                range: 0...0.05,
-                key: "bilateral.redSigma",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Green Sigma",
-                value: pipe.greenSigma,
-                range: 0...0.05,
-                key: "bilateral.greenSigma",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Blue Sigma",
-                value: pipe.blueSigma,
-                range: 0...0.05,
-                key: "bilateral.blueSigma",
-                model: model
-            )
-        }
-        .padding(8)
-        .background(StudioPalette.recessed.opacity(0.5), in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
-    }
-}
-
-struct LensParamSliders: View {
-    @ObservedObject var model: AppModel
-    let pipe: LensPipeParams
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            PipelineFloatSlider(
-                label: "Distortion K1",
-                value: pipe.distortionK1,
-                range: -1...1,
-                key: "lens.distortionK1",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Distortion K2",
-                value: pipe.distortionK2,
-                range: -1...1,
-                key: "lens.distortionK2",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "TCA Red",
-                value: pipe.tcaRed,
-                range: -100...100,
-                key: "lens.tcaRed",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "TCA Blue",
-                value: pipe.tcaBlue,
-                range: -100...100,
-                key: "lens.tcaBlue",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Vignette K1",
-                value: pipe.vignetteK1,
-                range: -1...1,
-                key: "lens.vignetteK1",
-                model: model
-            )
-            PipelineFloatSlider(
-                label: "Vignette K2",
-                value: pipe.vignetteK2,
-                range: -1...1,
-                key: "lens.vignetteK2",
-                model: model
-            )
-        }
-        .padding(8)
-        .background(StudioPalette.recessed.opacity(0.5), in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
-    }
-}
-// MARK: - Bool toggle for pipe params
-
-struct PipelineBoolToggle: View {
-    let label: String
-    let value: Bool
-    let key: String
-    @ObservedObject var model: AppModel
-
-    // Mirrors PipelineFloatSlider: take the value, build the Binding in body.
-    // Storing get/set closures here would force them to match SwiftUI's
-    // @isolated(any) @Sendable signature while they touch @MainActor AppModel.
-    var body: some View {
-        Toggle(
-            isOn: Binding(
-                get: { value },
-                set: { model.setPipeBoolParam(key: key, value: $0) }
-            )
-        ) {
-            Text(label).font(.caption.weight(.medium))
-        }
-        .controlSize(.small)
-    }
-}
-
-// MARK: - Shared pipeline slider
-
-struct PipelineFloatSlider: View {
-    let label: String
-    let value: Float
-    let range: ClosedRange<Float>
-    let key: String
-    @ObservedObject var model: AppModel
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Text(label).font(.caption2).studioSecondaryLabel()
-                .frame(width: 80, alignment: .leading)
-            Slider(
-                value: Binding(
-                    get: { value },
-                    set: { model.setPipeParam(key: key, value: $0) }
-                ), in: range
-            )
-            .controlSize(.small)
-            Text(String(format: "%.3g", value))
-                .font(.caption2.monospacedDigit())
-                .frame(width: 44, alignment: .trailing)
-                .studioSecondaryLabel()
-        }
-        .padding(.horizontal, 4)
     }
 }

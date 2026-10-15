@@ -11,7 +11,17 @@ struct FilmEffectsSettings: Codable, Equatable, Hashable, Sendable {
     var scratchAmount: Double = 0
     var frameStyle: Int = 0
     var frameSize: Double = 50
-    var isIdentity: Bool { leakAmount == 0 && dustAmount == 0 && scratchAmount == 0 && frameStyle == 0 }
+    /// Index into `TextureEffectCatalog.papers`; -1 means "no paper surface".
+    var paperTextureIndex: Int = -1
+    /// Strength of the paper surface blend, 0...100.
+    var paperTextureAmount: Double = 50
+    /// Index into `TextureEffectCatalog.frames`; -1 means "use the procedural frame style".
+    var frameTextureIndex: Int = -1
+    var isIdentity: Bool {
+        leakAmount == 0 && dustAmount == 0 && scratchAmount == 0 && frameStyle == 0
+            && !(paperTextureIndex >= 0 && paperTextureAmount > 0)
+            && frameTextureIndex < 0
+    }
 }
 
 final class RedlampFilmEffectsEngine: @unchecked Sendable {
@@ -39,6 +49,10 @@ final class RedlampFilmEffectsEngine: @unchecked Sendable {
         guard let s = look.filmEffects, !s.isIdentity else {
             throw GPULiveError.unavailable("inactive film effects should skip the GPU pass")
         }
+        // A texture film border is composited by TextureFilmEffectsEngine; the procedural
+        // frame style must not draw a second border over it.
+        var frameStyle = s.frameStyle
+        if s.frameTextureIndex >= 0 { frameStyle = 0 }
         let space = SkinToneReference.outputSpaceIndex(look)
         guard SkinToneReference.outputRoleIndex(look) == 0,
             [14, 15, 16, 17, 18, 22, 23, 24, 25].contains(space),
@@ -52,7 +66,7 @@ final class RedlampFilmEffectsEngine: @unchecked Sendable {
             Float(width), Float(height), Float(space),
             Float(s.leakAmount / 100), Float(s.leakWarmth / 100),
             Float(s.leakVariation / 100), Float(s.dustAmount / 100),
-            Float(s.scratchAmount / 100), Float(s.frameStyle), Float(s.frameSize / 100),
+            Float(s.scratchAmount / 100), Float(frameStyle), Float(s.frameSize / 100),
         ]
         encoder.setComputePipelineState(pipeline)
         encoder.setBuffer(source, offset: 0, index: 0)
@@ -66,6 +80,9 @@ final class RedlampFilmEffectsEngine: @unchecked Sendable {
 
     func apply(_ input: PixelBufferF32, look: RenderLook) -> PixelBufferF32 {
         guard let s = look.filmEffects, !s.isIdentity else { return input }
+        // A texture film border is composited by TextureFilmEffectsEngine; the procedural
+        // frame style must not draw a second border over it.
+        let frameStyle = s.frameTextureIndex >= 0 ? 0 : s.frameStyle
         let space = SkinToneReference.outputSpaceIndex(look)
         guard SkinToneReference.outputRoleIndex(look) == 0, [14, 15, 16, 17, 18, 22, 23, 24, 25].contains(space) else {
             GPUProcessingFailure.report("Light leaks, dust, scratches and frames require a display output space.");
@@ -77,7 +94,7 @@ final class RedlampFilmEffectsEngine: @unchecked Sendable {
         let bytes = input.pixels.count * 4
         var p: [Float] = [
             Float(input.width), Float(input.height), Float(space), Float(s.leakAmount / 100), Float(s.leakWarmth / 100),
-            Float(s.leakVariation / 100), Float(s.dustAmount / 100), Float(s.scratchAmount / 100), Float(s.frameStyle),
+            Float(s.leakVariation / 100), Float(s.dustAmount / 100), Float(s.scratchAmount / 100), Float(frameStyle),
             Float(s.frameSize / 100),
         ]
         guard

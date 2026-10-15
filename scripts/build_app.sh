@@ -120,6 +120,9 @@ cp -R "$ROOT/Resources/MaskModels" "$CONTENTS/Resources/"
 cp -R "$ROOT/Resources/SAM3" "$CONTENTS/Resources/"
 cp "$ROOT/Resources/Redlamp-MPL-2.0.txt" "$CONTENTS/Resources/"
 cp "$ROOT/Resources/SAM2TinyManifest.json" "$CONTENTS/Resources/AIModels/SAM2Tiny/manifest.json"
+# Analog film border overlays and scanned paper surfaces
+cp -R "$ROOT/Resources/FilmFrames" "$CONTENTS/Resources/"
+cp -R "$ROOT/Resources/PaperTextures" "$CONTENTS/Resources/"
 install_name_tool -add_rpath '@executable_path/../Frameworks' "$CONTENTS/MacOS/SpektraFilmStudio" 2>/dev/null || true
 strip -S "$CONTENTS/MacOS/SpektraFilmStudio" 2>/dev/null || true
 

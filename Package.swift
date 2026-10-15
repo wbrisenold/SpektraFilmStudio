@@ -33,11 +33,7 @@ let package = Package(
             name: "SpektraFilmStudio",
             dependencies: ["CSpektraBridge", "CSpektraStudioCore", "SemanticMaskNative"],
             path: "Sources/SpektraFilmFast",
-            resources: [
-                .process("ImageProcessing/BilateralKernels.metal"),
-                .process("ImageProcessing/LensKernels.metal"),
-                .process("ImageProcessing/NLMeansKernels.metal"),
-            ],
+            resources: [],
             linkerSettings: [
                 .unsafeFlags(["-L\(nativeLib)", "-lSpektraFilmNativeCore"]),
                 .unsafeFlags(["-L\(studioCoreLib)", "-lspektrastudio_core"]),

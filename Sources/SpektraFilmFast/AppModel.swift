@@ -304,6 +304,7 @@ final class AppModel: ObservableObject {
     var scopeGeneration = 0
     var lastScopeUpdateUptime = 0.0
     var cullTask: Task<Void, Never>?
+    private var interactiveExactProxyTask: Task<Void, Never>?
     private var latestSourceBuffer: PixelBufferF32?
     private var latestSourceRaw: RawSettings?
     var latestRenderedBuffer: PixelBufferF32?
@@ -1435,6 +1436,8 @@ final class AppModel: ObservableObject {
         gestureSettleBaselineBuffer = nil
         interactiveProxyTask?.cancel()
         interactiveProxyTask = nil
+        interactiveExactProxyTask?.cancel()
+        interactiveExactProxyTask = nil
         gpuPreviewGeneration &+= 1
         pendingGPUPreview = nil
         gpuPreviewTask?.cancel()
@@ -1466,17 +1469,6 @@ final class AppModel: ObservableObject {
             // Proxy first. Native film exposure is not equivalent to a display gain, so
             // coalesce a small exact render through the real film pipeline while dragging.
             Task { @MainActor in await publishInteractiveProxy(changedParameter: name, rawField: nil) }
-            if name == "filmExposureEv" || name == "autoExposure" {
-                scheduleRender(
-                    interactive: true,
-                    changedParameter: name,
-                    longEdgeOverride: min(720, project.preferences.previewLongEdge),
-                    cacheResult: false,
-                    reason: "accurate film exposure preview",
-                    useInteractiveRenderPolicy: false,
-                    lookOverride: gestureWorkingLook
-                )
-            }
             return
         }
 
@@ -2770,12 +2762,12 @@ final class AppModel: ObservableObject {
 
             // WB gets a lightweight visual approximation while the pointer is down.
             // Exact RAW/camera-space WB is rebuilt once the gesture settles.
-            Task { @MainActor in await publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: field)
+            Task { @MainActor in await publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: field) }
             return
         }
 
         cancelIdleRefinement()
-        if activeEditBaseline == nil {
+        if activeEditBaseline == nil {  
             undoStack.append(project.images[i].look)
             redoStack.removeAll()
         }
@@ -2799,10 +2791,7 @@ final class AppModel: ObservableObject {
             mutate(&working.raw)
             gestureWorkingLook = working
             activeEditChangedParameter = changedParameter
-            Task { @MainActor in await publishInteractiveProxy(changedParameter: changedParameter, rawField: nil)
-            scheduleRender(
-                interactive: true, changedParameter: changedParameter, longEdgeOverride: min(720, project.preferences.previewLongEdge),
-                cacheResult: false, reason: "RAW develop interactive", useInteractiveRenderPolicy: false, lookOverride: working)
+            Task { @MainActor in await publishInteractiveProxy(changedParameter: changedParameter, rawField: nil) }
             return
         }
         cancelIdleRefinement()
@@ -3054,18 +3043,7 @@ final class AppModel: ObservableObject {
             activeEditChangedParameter = "filmStockShape." + key
             // Immediate proxy, followed by an accurate coalesced render through the same
             // scene-linear host grade + native film path used by the settled frame.
-            Task { @MainActor in await publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
-            if key != "autoContrast" {
-                scheduleRender(
-                    interactive: true,
-                    changedParameter: activeEditChangedParameter,
-                    longEdgeOverride: min(720, project.preferences.previewLongEdge),
-                    cacheResult: false,
-                    reason: "accurate film feed preview",
-                    useInteractiveRenderPolicy: false,
-                    lookOverride: working
-                )
-            }
+            Task { @MainActor in await publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil) }
             status = "Film feed · accurate preview updating"
             return
         }
@@ -3203,18 +3181,7 @@ final class AppModel: ObservableObject {
             activeEditChangedParameter = changedParameter
             // Scene Exposure EV has an exact multiplicative proxy. Zone-dependent controls
             // need the true pre-film working buffer or they can look dead/snap on release.
-            Task { @MainActor in await publishInteractiveProxy(changedParameter: changedParameter, rawField: nil)
-            if changedParameter != "hostExposure" && changedParameter != "hostAutoContrast" {
-                scheduleRender(
-                    interactive: true,
-                    changedParameter: changedParameter,
-                    longEdgeOverride: min(720, project.preferences.previewLongEdge),
-                    cacheResult: false,
-                    reason: "accurate scene tone preview",
-                    useInteractiveRenderPolicy: false,
-                    lookOverride: working
-                )
-            }
+            Task { @MainActor in await publishInteractiveProxy(changedParameter: changedParameter, rawField: nil) }
             return
         }
 
@@ -3255,7 +3222,7 @@ final class AppModel: ObservableObject {
             working.colorDensity = density
             gestureWorkingLook = working
             activeEditChangedParameter = "density.\(key)"
-            Task { @MainActor in await publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
+            Task { @MainActor in await publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil) }
             return
         }
 
@@ -3291,96 +3258,6 @@ final class AppModel: ObservableObject {
         project.images[i].look.colorDensity = ColorDensitySettings()
         status = "Color Density reset"
         scheduleIdleRefinement(changedParameter: "density", delayMilliseconds: 20)
-    }
-
-    // MARK: - GPU Filter Pipeline (PipeSettings) setters
-
-    func setPipeStage(_ stage: PipeStage, enabled: Bool) {
-        guard let i = selectedIndex else { return }
-        if gestureWorkingLook == nil { beginEditGesture() }
-        if var working = gestureWorkingLook {
-            if working.pipe == nil { working.pipe = PipeSettings() }
-            working.pipe?.enable(stage, enabled: enabled)
-            gestureWorkingLook = working
-            activeEditChangedParameter = "pipe.\(stage.rawValue)"
-            Task { @MainActor in await publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
-        }
-        cancelIdleRefinement()
-        if activeEditBaseline == nil {
-            undoStack.append(project.images[i].look)
-            redoStack.removeAll()
-        }
-        if project.images[i].look.pipe == nil { project.images[i].look.pipe = PipeSettings() }
-        project.images[i].look.pipe?.enable(stage, enabled: enabled)
-        propagateBatchEdit(
-            from: project.images[i].look,
-            activeIndex: i,
-            changedParameter: "pipe.\(stage.rawValue)"
-        )
-        scheduleIdleRefinement(changedParameter: "pipe.\(stage.rawValue)", delayMilliseconds: 30)
-    }
-
-    func setPipeParam(key: String, value: Float) {
-        guard let i = selectedIndex else { return }
-        if gestureWorkingLook == nil { beginEditGesture() }
-        if var working = gestureWorkingLook {
-            if working.pipe == nil { working.pipe = PipeSettings() }
-            setPipeParamInSettings(&working.pipe!, key: key, value: value)
-            gestureWorkingLook = working
-            activeEditChangedParameter = "pipe.\(key)"
-            Task { @MainActor in await publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
-        }
-        cancelIdleRefinement()
-        if activeEditBaseline == nil {
-            undoStack.append(project.images[i].look)
-            redoStack.removeAll()
-        }
-        if project.images[i].look.pipe == nil { project.images[i].look.pipe = PipeSettings() }
-        var pipe = project.images[i].look.pipe!
-        setPipeParamInSettings(&pipe, key: key, value: value)
-        project.images[i].look.pipe = pipe
-        propagateBatchEdit(
-            from: project.images[i].look,
-            activeIndex: i,
-            changedParameter: "pipe.\(key)"
-        )
-        scheduleIdleRefinement(changedParameter: "pipe.\(key)", delayMilliseconds: 30)
-    }
-
-    private func setPipeParamInSettings(_ settings: inout PipeSettings, key: String, value: Float) {
-        switch key {
-        case "nlmeans.radius": settings.nlmeans.radius = value
-        case "nlmeans.strength": settings.nlmeans.strength = value
-        case "nlmeans.luma": settings.nlmeans.luma = value
-        case "nlmeans.chroma": settings.nlmeans.chroma = value
-        case "bilateral.radius": settings.bilateral.radius = value
-        case "bilateral.redSigma": settings.bilateral.redSigma = value
-        case "bilateral.greenSigma": settings.bilateral.greenSigma = value
-        case "bilateral.blueSigma": settings.bilateral.blueSigma = value
-        case "lens.distortionK1": settings.lens.distortionK1 = value
-        case "lens.distortionK2": settings.lens.distortionK2 = value
-        case "lens.tcaRed": settings.lens.tcaRed = value
-        case "lens.tcaBlue": settings.lens.tcaBlue = value
-        case "lens.vignetteK1": settings.lens.vignetteK1 = value
-        case "lens.vignetteK2": settings.lens.vignetteK2 = value
-        default: return
-        }
-    }
-
-    func resetPipe() {
-        guard let i = selectedIndex else { return }
-        cancelIdleRefinement()
-        undoStack.append(project.images[i].look)
-        redoStack.removeAll()
-        project.images[i].look.pipe = PipeSettings()
-        status = "GPU Pipeline reset"
-        scheduleIdleRefinement(changedParameter: "pipe", delayMilliseconds: 20)
-    }
-
-    func setPipeBoolParam(key: String, value: Bool) {
-        _ = selectedIndex
-        let floatValue: Float = value ? 1 : 0
-        setPipeParam(key: key, value: floatValue)
     }
 
     func setGeometrySettings(
@@ -3842,14 +3719,21 @@ final class AppModel: ObservableObject {
     ) {
         guard let image = selectedImage, renderer != nil else { return }
         let previewLook = lookOverride ?? gestureWorkingLook ?? selectedLook
-        if interactive && currentSourceSupportsGPULive && GPULiveFramePipeline.supports(previewLook) {
-            renderGeneration &+= 1
-            pendingRenderRequest = nil
-            renderLoopTask?.cancel()
-            scheduleGPULivePreview(look: previewLook)
-            return
+        if interactive {
+            if !project.preferences.bypassImportTransform,
+               currentSourceSupportsGPULive,
+               GPULiveFramePipeline.supports(previewLook)
+            {
+                renderGeneration &+= 1
+                pendingRenderRequest = nil
+                renderLoopTask?.cancel()
+                rendererPathStatus = "Metal live pending"
+                scheduleGPULivePreview(look: previewLook)
+                return
+            }
+            rendererPathStatus = "Exact fallback: " + gpuLiveRejectionReason(for: previewLook)
+            cancelIdleRefinement()
         }
-        if interactive { cancelIdleRefinement() }
         renderGeneration += 1
         let request = PreviewRenderRequest(
             generation: renderGeneration,
@@ -3901,6 +3785,21 @@ final class AppModel: ObservableObject {
         let bypassImportTransform: Bool
     }
 
+
+    private func gpuLiveRejectionReason(for look: RenderLook) -> String {
+        if !currentSourceSupportsGPULive { return "unsupported source" }
+        if project.preferences.bypassImportTransform { return "bypass import transform" }
+        if look.localGrades?.contains(where: { $0.enabled && $0.opacity > 0 }) == true { return "local masks" }
+        if look.tone?.autoContrast == true && !(look.tone?.isAutoContrastResolved ?? false) {
+            return "unresolved tone auto contrast"
+        }
+        if look.filmTone?.autoContrast == true && !(look.filmTone?.isAutoContrastResolved ?? false) {
+            return "unresolved film auto contrast"
+        }
+        if look.raw.denoiseMode != .off { return "RAW denoise is on" }
+        if SkinToneReference.outputRoleIndex(look) != 0 { return "non-primary skin tone path" }
+        return "GPU live is eligible"
+    }
     private var currentSourceSupportsGPULive: Bool {
         guard let image = selectedImage else { return false }
         // Core Image can decode RAW and ordinary image files to linear Rec.2020.
@@ -3982,91 +3881,50 @@ final class AppModel: ObservableObject {
     /// Pointer-rate feedback never enters the native spectral renderer. RapidRAW/Alcedo-style
     /// responsiveness comes from decoupling interaction from the expensive accuracy pass.
     private func publishInteractiveProxy(changedParameter: String?, rawField: RawInteractiveField?) async {
-        // The GPU path renders the actual film pipeline from cached camera RAW,
-        // not a CPU pixel-level visual guess. Unported advanced stages retain
-        // the existing exact pipeline until GPU parity is demonstrated.
-        // The Metal CI render cannot express "no color match" (nil), so bypass
-        // import transform keeps the existing exact interactive proxy.
-        if let look = gestureWorkingLook, currentSourceSupportsGPULive,
+        // The live display path owns interactive edits. Exact rendering is not used
+        // during dragging; low-resolution GPU composition is the contract.
+        if let look = gestureWorkingLook,
+            currentSourceSupportsGPULive,
             !project.preferences.bypassImportTransform,
             GPULiveFramePipeline.supports(look)
         {
+            rendererPathStatus = "Metal live"
             scheduleGPULivePreview(look: look)
             return
         }
-        // If no pre-rendered baseline buffer exists but we have a decoded source buffer,
-        // render the baseline look at interactive resolution to create one.
-        // This fixes the race where a gesture starts before the initial render completes.
-        var baseline = gestureBaselineRenderedBuffer
-        var baselineLook = activeEditBaseline
-        let targetLook = gestureWorkingLook
-        if baseline == nil || baselineLook == nil || targetLook == nil {
-            if let sourceBuffer = latestSourceBuffer,
-               let baseLook = activeEditBaseline ?? selectedLook,
-               let target = gestureWorkingLook
-            {
-                // Render baseline at interactive resolution (1080px) for the proxy
-                let interactiveEdge = AppPreferences.editProxyLongEdge
-                let scaledSource = (try? sourceBuffer.resized(longEdge: interactiveEdge)) ?? sourceBuffer
-                
-                baseline = try? await exactRenderer?.render(scaledSource, look: baseLook, useStageCache: true).0
-                baselineLook = baseLook
-                
-                if baseline != nil {
-                    gestureBaselineRenderedBuffer = baseline
-                    status = "Live edit · baseline ready"
-                }
-            }
-        }
-        guard let baseline, let baselineLook, let targetLook else {
-            status = "Live edit · waiting for working frame"
+        let reason = gpuLiveRejectionReason(for: gestureWorkingLook ?? selectedLook)
+        rendererPathStatus = "Exact fallback: \(reason)"
+        liveGPUFrame = nil
+        guard let sourceBuffer = latestSourceBuffer else {
+            status = "Low-res exact proxy waiting for source"
             return
         }
-
-        interactiveProxyTask?.cancel()
-        interactiveProxyGeneration += 1
-        let generation = interactiveProxyGeneration
+        interactiveExactProxyTask?.cancel()
+        let generation = interactiveProxyGeneration + 1
+        interactiveProxyGeneration = generation
         let imageID = project.selectedImageID
-        let profile = OutputColorProfile.forLook(targetLook)
-
-        interactiveProxyTask = Task { [weak self] in
+        let look = gestureWorkingLook ?? selectedLook
+        let interactiveEdge = AppPreferences.editProxyLongEdge
+        let profile = OutputColorProfile.forLook(look)
+        interactiveExactProxyTask = Task { [weak self] in
             guard let self else { return }
-            let checkpoint = GPUProcessingFailure.checkpoint()
-            let worker = Task.detached(priority: .userInitiated) { () -> (PixelBufferF32, FloatImagePayload?) in
-                let result = InteractivePreviewProxy.render(
-                    baseline: baseline,
-                    baselineLook: baselineLook,
-                    targetLook: targetLook,
-                    changedParameter: changedParameter,
-                    rawField: rawField
-                )
-                guard !Task.isCancelled else { return (result, nil) }
-                return (result, result.makeFloatImagePayload())
+            let scaled = await Task.detached(priority: .userInitiated) {
+                (try? sourceBuffer.resized(longEdge: interactiveEdge)) ?? sourceBuffer
+            }.value
+            guard !Task.isCancelled, generation == interactiveProxyGeneration,
+                  project.selectedImageID == imageID else { return }
+            guard let renderer = exactRenderer else { return }
+            let result = try? await renderer.render(scaled, look: look, useStageCache: true).0
+            guard let result, !Task.isCancelled, generation == interactiveProxyGeneration,
+                  project.selectedImageID == imageID else { return }
+            guard let image = result.displayCGImage(colorSpace: profile.cgColorSpace) else { return }
+            guard !Task.isCancelled, generation == interactiveProxyGeneration,
+                  project.selectedImageID == imageID else { return }
+            await MainActor.run {
+                self.renderedPreview = image
+                self.status = "Live proxy · \(max(result.width, result.height)) px"
+                self.requestEditorScopeUpdate()
             }
-            let (result, payload) = await withTaskCancellationHandler {
-                await worker.value
-            } onCancel: {
-                worker.cancel()
-            }
-            guard (try? GPUProcessingFailure.requireSuccess(after: checkpoint)) != nil,
-                !Task.isCancelled, generation == interactiveProxyGeneration,
-                project.selectedImageID == imageID, gestureWorkingLook == targetLook
-            else { return }
-            guard let image = payload?.makeCGImage(colorSpace: profile.cgColorSpace) else { return }
-
-            renderedPreview = image
-            latestRenderedBuffer = result
-            latestRenderedLook = targetLook
-            // The committed exact preview buffer remains immutable for the duration of the
-            // gesture. Otherwise a small transient proxy could become the next gesture's baseline
-            // and quality would silently ratchet downward.
-            status = "Live proxy · \(max(result.width, result.height)) px"
-            if project.preferences.clippingEnabled || project.preferences.skinCheckEnabled {
-                diagnosticsAreSettling = true
-                diagnosticStatus = "Full diagnostics settle with the exact render"
-                analysisTask?.cancel()
-            }
-            requestEditorScopeUpdate()
         }
     }
 

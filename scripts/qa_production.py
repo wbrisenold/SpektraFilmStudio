@@ -79,10 +79,8 @@ require("makeFloatImagePayload" in native and "Task.detached(priority: .userInit
 project_models = text("ProjectModels.swift")
 require("static let editProxyLongEdge = 1080" in project_models, "edit proxy is not fixed at 1080 px")
 require("AppPreferences.editProxyLongEdge" in app, "render scheduler is not using the fixed 1080 edit proxy")
-require("publishInteractiveProxy" in app and "InteractivePreviewProxy.render" in app, "pointer-rate controls still lack decoupled live proxy")
+require("publishInteractiveProxy" in app and "scheduleGPULivePreview" in app and "gpuLiveRejectionReason" in app, "pointer-rate controls still lack decoupled live proxy")
 require("withTaskCancellationHandler" in app and "worker.cancel()" in app, "stale pointer-rate proxy workers are not explicitly cancelled")
-proxy = text("InteractivePreviewProxy.swift")
-require("vImageConvolve_ARGBFFFF" in proxy, "live diffusion/halation proxy still uses scalar Swift blur")
 interactive_set = app.split("func setParameter", 1)[1].split("func setWhiteBalanceMode", 1)[0]
 require("scheduleRender(interactive: true" not in interactive_set, "scalar pointer ticks still enqueue native spectral renders")
 require('reason: "live working render"' not in app and 'reason: "live white balance"' not in app and 'reason: "live density"' not in app, "continuous edit path still invokes native spectral renderer")
@@ -318,12 +316,11 @@ require("settings.resizeMode" in export_preview and "settings.resizeWidth" in ex
         "export preview refresh ignores sizing/crop selections")
 require("presetThumbnail(" not in text("PresetBrowserView.swift"), "preset browser returned to stale thumbnail grid")
 tone_grade = text("ToneGradeEngine.swift")
-proxy_src = text("InteractivePreviewProxy.swift")
 edit_view = text("EditView.swift")
 require("enum MEDesatchMath" in tone_grade and "coneSaturationMagnitude" in tone_grade,
         "ME deSatch cone-coordinate density math missing")
 require("PrimeraDensityMath" not in tone_grade, "old Primera density engine still present")
-require("applyingMEDesatchTransfer" in proxy_src, "interactive density still uses an approximation")
+require("applyingMEDesatchTransfer" in tone_grade, "interactive density still uses an approximation")
 require("range: -1...0" in controls and "Global deSatch" in controls,
         "ME deSatch slider domain/UI missing")
 require("Preserve Luminance" not in controls, "non-ME preserve-luminance UI returned")

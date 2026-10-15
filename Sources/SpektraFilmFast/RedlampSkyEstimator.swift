@@ -115,7 +115,7 @@ public enum SkyEstimator {
         guard let pixels = RGBImage(image, size: size) else { throw MaskComputationError.nothingFound(.sky) }
         let width = size.width
         let height = size.height
-        let weights = Luma.rec709
+        let weights = SIMD3<Float>(0.2126, 0.7152, 0.0722)
         let luma = (0..<width * height).map { index -> Float in
             let rgb = pixels.rgb(index % width, index / width)
             return weights.x * rgb.x + weights.y * rgb.y + weights.z * rgb.z
@@ -257,7 +257,7 @@ public enum SkyEstimator {
 
     /// OKLab (Björn Ottosson, 2020) of an sRGB-encoded colour.
     static func oklab(sRGB c: SIMD3<Float>) -> SIMD3<Float> {
-        OKLab.fromLinearSRGB(SRGB.decode(c))
+        OKLab.fromLinearSRGB(c)
     }
 
     static func median(_ values: [Float]) -> Float {

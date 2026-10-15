@@ -8,7 +8,10 @@ import Foundation
 enum ExposureBoundaryEngine {
     static func apply(_ input: PixelBufferF32, look: RenderLook, preferences: AppPreferences) -> PixelBufferF32 {
         let adjusted = applyBoundary(input, look: look, preferences: preferences)
-        return RedlampFilmEffectsEngine.shared.apply(adjusted, look: look)
+        // Texture-based light leaks and paper surfaces (Chromogen-sourced) replace the
+        // procedural Redlamp leak when one is selected.
+        let textured = TextureFilmEffectsEngine.shared.apply(adjusted, look: look)
+        return RedlampFilmEffectsEngine.shared.apply(textured, look: look)
     }
 
     private static func applyBoundary(

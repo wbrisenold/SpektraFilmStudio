@@ -13,7 +13,7 @@ enum CoarseMaskEdges {
         else { return mask }
         let input = mask.resized(to: size).coverage
         @Sendable func ev(_ encoded: SIMD3<Float>) -> Float {
-            let rgb = SRGB.decode(encoded)
+            let rgb = encoded
             return log2(max(rgb.x * 0.25 + rgb.y * 0.5 + rgb.z * 0.25, 1e-6))
         }
         let guide = (0..<(size.width * size.height)).map { ev(smallRGB.rgb($0 % size.width, $0 / size.width)) }

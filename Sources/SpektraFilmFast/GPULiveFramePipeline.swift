@@ -305,14 +305,8 @@ actor GPULiveFramePipeline {
     // was always empty and device.makeLibrary(source:) recompiled every kernel on every
     // frame — the cache was written to but never read. Own them here so it actually hits.
     // Rebuilt only when the Metal device changes (see invalidateGPUModules()).
-    private var nlmeansGPU: NLMeansDenoiseModule?
-    private var bilateralGPU: BilateralBlurModule?
-    private var lensPipeGPU: LensCorrectionModule?
 
     private func invalidateGPUModules() {
-        nlmeansGPU = nil
-        bilateralGPU = nil
-        lensPipeGPU = nil
         geometryGPU = nil
         importCalibrationGPU = nil
         // Reset scratch pool when GPU modules are invalidated (device change)
@@ -465,14 +459,10 @@ actor GPULiveFramePipeline {
         defer { os_signpost(.end, log: gpuLivePipelineLog, name: "GPULiveFramePipeline.render", signpostID: signpostID) }
 
         // The exact code path remains authoritative when an unsupported stage
-        // is active; DO NOT ignore layers or geometry to fake a fast preview.
-        if look.localGrades?.contains(where: { $0.enabled && $0.opacity > 0 }) == true {
-            throw GPULiveError.unavailable("local masks require the exact renderer")
-        }
+        // is active. Local masks and auto-contrast are handled natively below.
         // Geometry is handled after the film/Look and lens stages on Metal.
-        if look.tone?.autoContrast == true || look.filmTone?.autoContrast == true {
-            throw GPULiveError.unavailable("Auto Contrast requires full-frame analysis")
-        }
+        // Note: supports() governs GPU live preview eligibility; the exact
+        // renderer accepts all stages and performs the full spectral film render.
         // Always run the native spectral film engine; no imported-LUT/looks modes.
         if lastGPUMode != "spectral" {
             rawCache.removeAll()
@@ -520,7 +510,7 @@ actor GPULiveFramePipeline {
         // frame allocated fresh rgba32Float storage. They are intermediate — unlike the
         // final presented texture they are never held by MTKView — so they go back the
         // moment the completion fence returns.
-        var pipeTexturesToReturn: [any MTLTexture] = []
+        let pipeTexturesToReturn: [any MTLTexture] = []
         var developedTexture: (any MTLTexture)?
         if let cached = prefixCache, cached.hash == prefixHash {
             source = cached.buffer
@@ -584,111 +574,8 @@ actor GPULiveFramePipeline {
         guard let postCommand = gpu.queue.makeCommandBuffer() else {
             throw GPULiveError.unavailable("Post-film Metal command allocation failed")
         }
-        var renderBuffer: any MTLBuffer = filmOutput
-        var renderKeepAlive: [any MTLBuffer] = [source, graded, filmOutput]
-        // Ported Lightamer GPU filter pipeline (PipeSettings). When the user has
-        // enabled any stage in the Cull/Edit UI, inject the enabled stages AFTER the
-        // film pass and BEFORE geometry, on the same serial Metal queue.
-        //
-        // NLMeans/Bilateral are preview-only image-processing filters. The existing
-        // look.raw.denoiseMode gate is left untouched: it still forces the exact
-        // renderer for RAW development, so `supports()` keeps returning false when
-        // denoiseMode != .off. These pipe stages are an opt-in live path.
-        //
-        // Lens here is the *ported Lightamer lens kernel* (distortion + TCA + vignette),
-        // independent of LensOpticalMetal / LensCharacterPanel which live in the
-        // exact/spectral path today. When both are enabled we apply the ported kernel
-        // as a non-destructive preview filter.
-        //
-        // Tone stages (sigmoid/agx/filmicRGB) replace the film LUT for the live preview
-        // only when explicitly selected; they never change the settled/export path.
-        if let pipe = look.pipe, !pipe.isEmpty {
-            // Extra scratch buffers needed for the pipeline: one working buffer per
-            // stage. Borrow from the same scratch pool; the fence still owns them.
-            var pipeScratch: [any MTLBuffer] = []
-            for _ in 1...4 { pipeScratch.append(try borrowScratch(gpu: gpu, width: width, height: height)) }
-            renderKeepAlive.append(contentsOf: pipeScratch)
-            // Also hand them to the recycler: the fence below waits for the GPU, so by
-            // the time recycleScratch runs they are provably idle.
-            borrowedScratch.append(contentsOf: pipeScratch)
-            // Single command buffer for the pipeline so all stages submit atomically.
-            guard let pipeCommand = gpu.queue.makeCommandBuffer() else {
-                throw GPULiveError.unavailable("Pipe command allocation failed")
-            }
-            let pipeSource = renderBuffer
-            let pipeDest = pipeScratch[0]
-            let pipeWidth = width
-            let pipeHeight = height
-
-            var pipeTextures: [any MTLTexture] = []  // Convert the current source buffer → texture for the pipe chain.
-            let pipeInputTexture = try gpu.makeOutputTexture(width: pipeWidth, height: pipeHeight)
-            pipeTextures.append(pipeInputTexture)
-            try gpu.encodeBufferToTexture(pipeSource, destination: pipeInputTexture, on: pipeCommand)
-
-            var currentPipeTexture = pipeInputTexture
-            let pipeSettings = pipe
-
-            // NLMeans denoise (preview-only). Skips if disabled.
-            if pipeSettings.stages[.nlmeans] == true {
-                if nlmeansGPU == nil { nlmeansGPU = NLMeansDenoiseModule(device: gpu.device) }
-                guard let nl = nlmeansGPU else { throw GPULiveError.unavailable("NLMeans module unavailable") }
-                nl.commitParams(
-                    NLMeansDenoiseModule.Params(
-                        radius: pipeSettings.nlmeans.radius,
-                        strength: pipeSettings.nlmeans.strength,
-                        luma: pipeSettings.nlmeans.luma,
-                        chroma: pipeSettings.nlmeans.chroma
-                    ))
-                let nlOutput = try gpu.makeOutputTexture(width: pipeWidth, height: pipeHeight)
-                pipeTextures.append(nlOutput)
-                try nl.encode(commandBuffer: pipeCommand, input: currentPipeTexture, output: nlOutput, width: pipeWidth, height: pipeHeight)
-                currentPipeTexture = nlOutput
-            }
-            // Bilateral blur (preview-only). Skips if disabled.
-            if pipeSettings.stages[.bilateral] == true {
-                if bilateralGPU == nil { bilateralGPU = BilateralBlurModule(device: gpu.device) }
-                guard let bl = bilateralGPU else { throw GPULiveError.unavailable("Bilateral module unavailable") }
-                bl.commitParams(
-                    BilateralBlurModule.Params(
-                        radius: pipeSettings.bilateral.radius,
-                        redSigma: pipeSettings.bilateral.redSigma,
-                        greenSigma: pipeSettings.bilateral.greenSigma,
-                        blueSigma: pipeSettings.bilateral.blueSigma
-                    ))
-                let blOutput = try gpu.makeOutputTexture(width: pipeWidth, height: pipeHeight)
-                pipeTextures.append(blOutput)
-                try bl.encode(commandBuffer: pipeCommand, input: currentPipeTexture, output: blOutput, width: pipeWidth, height: pipeHeight)
-                currentPipeTexture = blOutput
-            }
-            // Ported Lightamer lens correction (distortion + TCA + vignette).
-            if pipeSettings.stages[.lens] == true {
-                if lensPipeGPU == nil { lensPipeGPU = LensCorrectionModule(device: gpu.device) }
-                guard let lc = lensPipeGPU else { throw GPULiveError.unavailable("Lens correction module unavailable") }
-                lc.commitParams(
-                    LensCorrectionModule.Params(
-                        distortionK1: pipeSettings.lens.distortionK1, distortionK2: pipeSettings.lens.distortionK2,
-                        distortionK3: pipeSettings.lens.distortionK3, distortionK4: pipeSettings.lens.distortionK4,
-                        tcaRed: pipeSettings.lens.tcaRed, tcaBlue: pipeSettings.lens.tcaBlue,
-                        vignetteK1: pipeSettings.lens.vignetteK1, vignetteK2: pipeSettings.lens.vignetteK2,
-                        vignetteK3: pipeSettings.lens.vignetteK3, vignetteK4: pipeSettings.lens.vignetteK4
-                    ))
-                let lensOutput = try gpu.makeOutputTexture(width: pipeWidth, height: pipeHeight)
-                pipeTextures.append(lensOutput)
-                try lc.encode(
-                    commandBuffer: pipeCommand, input: currentPipeTexture, output: lensOutput, width: pipeWidth, height: pipeHeight)
-                currentPipeTexture = lensOutput
-            }
-            // Tone mapping (sigmoid/AgX/FilmicRGB) was removed: the native spectral
-            // film pass owns tone, so the pipe injects preview filters only.
-            // Convert the final pipe texture back to a buffer for the geometry pass.
-            try gpu.encodeTextureToBuffer(currentPipeTexture, destination: pipeDest, on: pipeCommand)
-            pipeCommand.commit()
-            try Task.checkCancellation()
-            // After the pipe command completes, pipeDest holds the filtered result.
-            renderBuffer = pipeDest
-            renderKeepAlive.append(pipeScratch[1])
-            pipeTexturesToReturn = pipeTextures
-        }
+        let renderBuffer: any MTLBuffer = filmOutput
+        let renderKeepAlive: [any MTLBuffer] = [source, graded, filmOutput]
         let geometry = look.geometry ?? GeometrySettings()
         let hasGeometry = geometry != GeometrySettings()
         let geometrySize = StudioMetalGeometry.targetSize(

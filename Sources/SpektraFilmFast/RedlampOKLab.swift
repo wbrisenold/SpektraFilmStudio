@@ -61,7 +61,7 @@ public enum OKLab {
     /// Unit (a, b) direction of an HSV hue (0...360, 0 = red), as shown on a color wheel.
     public static func direction(forWheelHue degrees: Double) -> SIMD2<Double> {
         let rgb = hsvToSRGB(hue: degrees, saturation: 1, value: 1)
-        let linear = SIMD3(SRGB.decode(rgb.x), SRGB.decode(rgb.y), SRGB.decode(rgb.z))
+        let linear = rgb
         let lab = fromLinearSRGB(linear)
         let direction = SIMD2(lab.y, lab.z)
         let length = (direction.x * direction.x + direction.y * direction.y).squareRoot()

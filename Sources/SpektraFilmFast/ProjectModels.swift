@@ -737,12 +737,6 @@ struct RenderLook: Codable, Equatable, Hashable, Sendable {
     // Stable per-photo selection; old project JSON decodes absent optional IDs as nil.
     var studioLookID: String? = nil
 
-    // Ported Lightamer GPU filter pipeline (NLMeans / Bilateral / Lens / Sigmoid / AgX / FilmicRGB).
-    // Optional so old project/preset JSON decodes cleanly as nil → pipeline off.
-    // When non-nil and at least one stage is enabled, GPULiveFramePipeline injects the
-    // enabled stages after the film pass on the live preview path.
-    var pipe: PipeSettings? = nil
-
     static func defaults(catalog: BridgeCatalog = .shared) -> RenderLook {
         var look = RenderLook(flavor: .pro)
         look.tone = ToneSettings()
@@ -751,7 +745,6 @@ struct RenderLook: Codable, Equatable, Hashable, Sendable {
         look.lensEffects = LensEffectsSettings()
         look.localGrades = []
         look.filmTone = ToneSettings()
-        look.pipe = PipeSettings()
         for descriptor in catalog.parameters {
             look.values[descriptor.name] = descriptor.defaultValue
         }
@@ -766,174 +759,7 @@ struct RenderLook: Codable, Equatable, Hashable, Sendable {
         if lensEffects == nil { lensEffects = LensEffectsSettings() }
         if localGrades == nil { localGrades = [] }
         if filmTone == nil { filmTone = ToneSettings() }
-        if pipe == nil { pipe = PipeSettings() }
         for index in localGrades!.indices { localGrades![index].normalize() }
-    }
-}
-
-// MARK: - Ported GPU filter pipeline (Lightamer modules)
-/// Stages the user can enable in the Cull/Edit UI and that GPULiveFramePipeline
-/// injects after the film pass on the live preview path.
-/// Tone mapping (sigmoid/AgX/FilmicRGB) was removed: the native spectral film
-/// pass owns tone now, so only preview-side filters remain.
-enum PipeStage: String, Codable, CaseIterable, Identifiable, Sendable {
-    case nlmeans = "nlmeans"
-    case bilateral = "bilateral"
-    case lens = "lens"
-    var id: String { rawValue }
-}
-
-/// Per-module param blobs. Each module's wrapper owns its own Params type;
-/// this registry holds the active params keyed by stage so the UI and the
-/// render path share one serializable struct.
-struct PipeSettings: Codable, Equatable, Hashable, Sendable {
-    /// Whether each stage is enabled. Off by default.
-    var stages: [PipeStage: Bool] = [:]
-    /// NLMeans params (used when nlmeans enabled).
-    var nlmeans: NLMeansPipeParams = NLMeansPipeParams()
-    /// Bilateral params (used when bilateral enabled).
-    var bilateral: BilateralPipeParams = BilateralPipeParams()
-    /// Lens correction params (used when lens enabled).
-    var lens: LensPipeParams = LensPipeParams()
-
-    var isEmpty: Bool {
-        !stages.values.contains(true)
-            && nlmeans.isIdentity && bilateral.isIdentity && lens.isIdentity
-    }
-
-    init() {}
-
-    /// Projects saved before the tone stages were removed still carry
-    /// `"sigmoid"`/`"agx"`/`"filmicRGB"` keys in `stages`, plus toneEngine and
-    /// per-engine params. A synthesized decoder throws on those unknown keys, so
-    /// drop them instead of failing the whole project load.
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        nlmeans = try container.decodeIfPresent(NLMeansPipeParams.self, forKey: .nlmeans) ?? NLMeansPipeParams()
-        bilateral = try container.decodeIfPresent(BilateralPipeParams.self, forKey: .bilateral) ?? BilateralPipeParams()
-        lens = try container.decodeIfPresent(LensPipeParams.self, forKey: .lens) ?? LensPipeParams()
-        stages = [:]
-        if let raw = try? container.decodeIfPresent([String: Bool].self, forKey: .stages) {
-            for (key, value) in raw {
-                guard let stage = PipeStage(rawValue: key) else { continue }
-                stages[stage] = value
-            }
-        }
-    }
-}
-
-extension PipeSettings {
-    mutating func enable(_ stage: PipeStage, enabled: Bool) {
-        stages[stage] = enabled
-    }
-
-    mutating func reset() {
-        stages = [:]
-        nlmeans = NLMeansPipeParams()
-        bilateral = BilateralPipeParams()
-        lens = LensPipeParams()
-    }
-}
-
-// MARK: - Per-module pipe param blobs (serializable subsets of each module's Params)
-
-struct NLMeansPipeParams: Codable, Equatable, Hashable, Sendable {
-    var radius: Float = 2
-    var strength: Float = 50
-    var luma: Float = 0.5
-    var chroma: Float = 1.0
-
-    var isIdentity: Bool {
-        radius == 2 && strength == 50 && luma == 0.5 && chroma == 1.0
-    }
-}
-
-struct BilateralPipeParams: Codable, Equatable, Hashable, Sendable {
-    var radius: Float = 15
-    var redSigma: Float = 0.005
-    var greenSigma: Float = 0.005
-    var blueSigma: Float = 0.005
-
-    var isIdentity: Bool {
-        radius == 15 && redSigma == 0.005 && greenSigma == 0.005 && blueSigma == 0.005
-    }
-}
-
-struct LensPipeParams: Codable, Equatable, Hashable, Sendable {
-    var distortionK1: Float = 0
-    var distortionK2: Float = 0
-    var distortionK3: Float = 0
-    var distortionK4: Float = 0
-    var tcaRed: Float = 0
-    var tcaBlue: Float = 0
-    var vignetteK1: Float = 0
-    var vignetteK2: Float = 0
-    var vignetteK3: Float = 0
-    var vignetteK4: Float = 0
-
-    var isIdentity: Bool {
-        distortionK1 == 0 && distortionK2 == 0 && distortionK3 == 0 && distortionK4 == 0
-            && tcaRed == 0 && tcaBlue == 0 && vignetteK1 == 0 && vignetteK2 == 0
-            && vignetteK3 == 0 && vignetteK4 == 0
-    }
-}
-
-struct SigmoidPipeParams: Codable, Equatable, Hashable, Sendable {
-    var contrast: Float = 1.0
-    var skewness: Float = 0.0
-    var whiteTarget: Float = 100.0
-    var blackTarget: Float = 0.01517634
-    var huePreservation: Float = 100.0
-
-    var isIdentity: Bool {
-        contrast == 1.0 && skewness == 0.0 && whiteTarget == 100.0
-            && blackTarget == 0.01517634 && huePreservation == 100.0
-    }
-}
-
-struct AgXPipeParams: Codable, Equatable, Hashable, Sendable {
-    var exposureEV: Float = 0
-    var outputPower: Float = 1.0
-    var saturation: Float = 1.0
-    var huePreservation: Float = 0.0
-    var lookPower: Float = 1.0
-    var lookSlope: Float = 1.0
-    var lookLift: Float = 0.0
-    var logRangeEV: Float = 6.0
-    var logMinEV: Float = -6.0
-    var gamutCompression: Bool = true
-    var enableLook: Bool = false
-    var enableHuePreservation: Bool = false
-
-    var isIdentity: Bool {
-        exposureEV == 0 && outputPower == 1.0 && saturation == 1.0 && huePreservation == 0.0
-            && lookPower == 1.0 && lookSlope == 1.0 && lookLift == 0.0
-            && logRangeEV == 6.0 && logMinEV == -6.0 && gamutCompression == true
-            && enableLook == false && enableHuePreservation == false
-    }
-}
-
-struct FilmicRGBPipeParams: Codable, Equatable, Hashable, Sendable {
-    var dynamicRange: Float = 6.0
-    var blackExposure: Float = 0.0
-    var greyValue: Float = 0.18
-    var outputPower: Float = 1.0
-    var saturation: Float = 0.0
-    var normMin: Float = 0.0
-    var normMax: Float = 1.0
-    var latitudeMin: Float = 0.0
-    var latitudeMax: Float = 1.0
-    var displayBlack: Float = 0.0
-    var displayWhite: Float = 1.0
-    var typeToe: Float = 2.0
-    var typeShoulder: Float = 2.0
-
-    var isIdentity: Bool {
-        dynamicRange == 6.0 && blackExposure == 0.0 && greyValue == 0.18
-            && outputPower == 1.0 && saturation == 0.0 && normMin == 0.0
-            && normMax == 1.0 && latitudeMin == 0.0 && latitudeMax == 1.0
-            && displayBlack == 0.0 && displayWhite == 1.0
-            && typeToe == 2.0 && typeShoulder == 2.0
     }
 }
 

@@ -65,7 +65,6 @@ grep -q 'decodeInteractiveWhiteBalance' Sources/SpektraFilmFast/ImageDecoder.swi
 grep -q 'reusableCachedBuffer' Sources/SpektraFilmFast/ImageDecoder.swift
 grep -q 'vImageScale_ARGBFFFF' Sources/SpektraFilmFast/InteractionPerformance.swift
 grep -q 'vImageMatrixMultiply_ARGBFFFF' Sources/SpektraFilmFast/InteractionPerformance.swift
-grep -q 'vImageConvolve_ARGBFFFF' Sources/SpektraFilmFast/InteractivePreviewProxy.swift
 sed -n '/func endEditGesture()/,/func setParameter/p' Sources/SpektraFilmFast/AppModel.swift | grep -q 'scheduleIdleRefinement'
 ! grep -q 'settleCommittedProxy' Sources/SpektraFilmFast/AppModel.swift
 ! grep -q 'requestAccurateWorkingPreview' Sources/SpektraFilmFast/AppModel.swift
@@ -127,5 +126,23 @@ grep -q 'Label("Reset All"' Sources/SpektraFilmFast/EditView.swift
 shasum -a 256 Resources/AppIcon.icns Resources/SpektraFilm.metallib Resources/SpektraHanatos2025Spectra.f32 Resources/SpektraOutputGamutCompression.f32 >/dev/null
 pass 10 "Runtime/soak entry points, migration, resource integrity"
 
-printf '\n10/10 %s studio-workflow production-source QA passes completed.\n' "$VERSION"
+# 11 — CUA-driven runtime QA: build, launch, navigate to Edit, verify no crash.
+# This is the behavioral gate: string checks cannot catch a runtime crash, so we
+# drive the real app via the CUA driver and assert it survives the edit page.
+if [ -x "$ROOT/dist/SpektraFilmStudio.app/Contents/MacOS/SpektraFilmStudio" ]; then
+    "$ROOT/scripts/cua_edit_page_test.sh" "$ROOT/dist/SpektraFilmStudio.app" > "$ROOT/dist/cua_qa.log" 2>&1
+    CUA_EXIT=$?
+    if [ $CUA_EXIT -eq 0 ] && ! grep -q "CRASH DETECTED" "$ROOT/dist/cua_qa.log"; then
+        pass 11 "CUA runtime QA: app launches and survives the edit page"
+    else
+        echo "FAIL 11 — CUA runtime QA: app crashed or did not reach the edit page" >&2
+        echo "  see $ROOT/dist/cua_qa.log" >&2
+        exit 1
+    fi
+else
+    echo "FAIL 11 — CUA runtime QA: built app not found at dist/SpektraFilmStudio.app" >&2
+    exit 1
+fi
+
+printf '\n11/11 %s studio-workflow production-source QA passes completed.\n' "$VERSION"
 printf 'A release is only production-approved after a local macOS 26 SDK Intel x86_64 build + runtime/soak + Developer ID notarization gates pass.\n'

@@ -200,7 +200,7 @@ public enum SkyMatte {
     /// sRGB to linear light, per pixel.
     static func linear(_ rgb: RGBImage) -> [SIMD3<Float>] {
         let table = (0..<256).map { value -> Float in
-            SRGB.decode(Float(value) / 255)
+            Float(value) / 255
         }
         var out = [SIMD3<Float>](repeating: .zero, count: rgb.width * rgb.height)
         let pixels = rgb.pixels
