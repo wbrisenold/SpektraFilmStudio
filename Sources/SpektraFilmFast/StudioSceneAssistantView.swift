@@ -23,7 +23,7 @@ struct StudioSceneAssistantView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Scene Intelligence").font(.title3.weight(.semibold))
                     Text("Group related shots and discover film / print starting points")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).studioSecondaryLabel()
                 }
                 Spacer()
                 Button("Close") { dismiss() }
@@ -36,12 +36,12 @@ struct StudioSceneAssistantView: View {
                 // labelled "Grouping strength" and slid the wrong way.
                 VStack(alignment: .leading, spacing: 1) {
                     Text("How different two photos can be and still group together")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(.caption2).studioSecondaryLabel()
                     HStack(spacing: 8) {
-                        Text("Separate").font(.caption2).foregroundStyle(.secondary)
+                        Text("Separate").font(.caption2).studioSecondaryLabel()
                         Slider(value: $similarity, in: 0.45...1.10)
                             .frame(width: 150)
-                        Text("Merge").font(.caption2).foregroundStyle(.secondary)
+                        Text("Merge").font(.caption2).studioSecondaryLabel()
                     }
                 }
                 .help(
@@ -67,7 +67,7 @@ struct StudioSceneAssistantView: View {
                                         LocalThumbnail(url: model.thumbnailURL(for: image), contentMode: .fit)
                                             .frame(width: 76, height: 56)
                                             .background(
-                                                Color.black.opacity(0.24), in: RoundedRectangle(cornerRadius: 7))
+                                                Color.black.opacity(0.24), in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
                                     }
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(group.label).font(.subheadline.weight(.medium))
@@ -75,7 +75,7 @@ struct StudioSceneAssistantView: View {
                                             "\(group.count) photo\(group.count == 1 ? "" : "s") · "
                                                 + group.topTags.prefix(2).joined(separator: ", ")
                                         )
-                                        .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                                        .font(.caption2).studioSecondaryLabel().lineLimit(2)
                                     }
                                     Spacer()
                                 }
@@ -96,12 +96,12 @@ struct StudioSceneAssistantView: View {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(group.label).font(.title3.weight(.semibold))
-                                        Text("\(group.count) related photos").foregroundStyle(.secondary)
+                                        Text("\(group.count) related photos").studioSecondaryLabel()
                                     }
                                     Spacer()
                                     Button("Select Group") { selectGroup(group) }
                                 }
-                                Text(group.explanation).font(.callout).foregroundStyle(.secondary)
+                                Text(group.explanation).font(.callout).studioSecondaryLabel()
                                 Text("Film & Print Recommendations")
                                     .font(.headline)
                                 ForEach(Array(group.suggested.enumerated()), id: \.element.id) { index, suggestion in
@@ -111,9 +111,9 @@ struct StudioSceneAssistantView: View {
                                                 .font(.subheadline.weight(.semibold))
                                             Spacer()
                                             Text(suggestion.paperName)
-                                                .font(.caption).foregroundStyle(.secondary)
+                                                .font(.caption).studioSecondaryLabel()
                                         }
-                                        Text(suggestion.why).font(.caption).foregroundStyle(.secondary)
+                                        Text(suggestion.why).font(.caption).studioSecondaryLabel()
                                         HStack {
                                             Button("Try on One Photo") { trySuggestion(suggestion, group: group) }
                                             Button("Apply to Entire Set…") {
@@ -131,7 +131,7 @@ struct StudioSceneAssistantView: View {
                                     "Suggestions are starting points, not measured film matches. Review skin color, highlight response, and print density in the exact renderer before batch application.",
                                     systemImage: "info.circle"
                                 )
-                                .font(.caption).foregroundStyle(.secondary)
+                                .font(.caption).studioSecondaryLabel()
                             }.padding(17)
                         }
                     } else if let errorText {
@@ -156,7 +156,7 @@ struct StudioSceneAssistantView: View {
                 Text("On-device Apple Vision · local previews only · no online model · originals untouched")
                 Spacer()
                 Text("\(sets.count) sets")
-            }.font(.caption2).foregroundStyle(.secondary).padding(12)
+            }.font(.caption2).studioSecondaryLabel().padding(12)
         }
         .background(StudioPalette.canvas)
         .frame(minWidth: 830, minHeight: 590)

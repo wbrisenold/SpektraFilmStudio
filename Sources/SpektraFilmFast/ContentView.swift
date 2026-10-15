@@ -129,14 +129,14 @@ struct ContentView: View {
                 HStack(spacing: 9) {
                     SpektraApplicationIconView()
                         .frame(width: 27, height: 27)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .studioCompactCorner()
                     VStack(alignment: .leading, spacing: 1) {
                         Text("SPEKTRAFILM")
                             .font(.system(size: 10, weight: .semibold))
                             .tracking(1.0)
                         Text(model.project.name)
                             .font(StudioType.caption)
-                            .foregroundStyle(.secondary)
+                            .studioSecondaryLabel()
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
@@ -159,7 +159,7 @@ struct ContentView: View {
                     } label: {
                         Text(page.title)
                             .font(.system(size: 11, weight: selected ? .semibold : .medium))
-                            .foregroundStyle(selected ? .primary : .secondary)
+                            .foregroundStyle(selected ? .primary : StudioPalette.secondaryLabel)
                             .padding(.horizontal, 14)
                             .frame(height: 29)
                             .background(

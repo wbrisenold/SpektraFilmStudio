@@ -96,7 +96,7 @@ struct StudioImportWelcomeView: View {
                                         Spacer(minLength: 0)
                                         Image(systemName: "chevron.right")
                                             .font(.caption2)
-                                            .foregroundStyle(.tertiary)
+                                            .studioTertiaryLabel()
                                     }
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 9)

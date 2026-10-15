@@ -1465,7 +1465,7 @@ final class AppModel: ObservableObject {
             activeEditChangedParameter = name
             // Proxy first. Native film exposure is not equivalent to a display gain, so
             // coalesce a small exact render through the real film pipeline while dragging.
-            publishInteractiveProxy(changedParameter: name, rawField: nil)
+            Task { @MainActor in await publishInteractiveProxy(changedParameter: name, rawField: nil) }
             if name == "filmExposureEv" || name == "autoExposure" {
                 scheduleRender(
                     interactive: true,
@@ -2206,7 +2206,7 @@ final class AppModel: ObservableObject {
             if gestureWorkingLook?.lensEffects == nil { gestureWorkingLook?.lensEffects = LensEffectsSettings() }
             body(&gestureWorkingLook!.lensEffects!)
             activeEditChangedParameter = "lensEffects"
-            publishInteractiveProxy(changedParameter: "lensEffects", rawField: nil)
+            Task { @MainActor in await publishInteractiveProxy(changedParameter: "lensEffects", rawField: nil) }
             return
         }
         undoStack.append(project.images[i].look); redoStack.removeAll()
@@ -2770,7 +2770,7 @@ final class AppModel: ObservableObject {
 
             // WB gets a lightweight visual approximation while the pointer is down.
             // Exact RAW/camera-space WB is rebuilt once the gesture settles.
-            publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: field)
+            Task { @MainActor in await publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: field)
             return
         }
 
@@ -2799,7 +2799,7 @@ final class AppModel: ObservableObject {
             mutate(&working.raw)
             gestureWorkingLook = working
             activeEditChangedParameter = changedParameter
-            publishInteractiveProxy(changedParameter: changedParameter, rawField: nil)
+            Task { @MainActor in await publishInteractiveProxy(changedParameter: changedParameter, rawField: nil)
             scheduleRender(
                 interactive: true, changedParameter: changedParameter, longEdgeOverride: min(720, project.preferences.previewLongEdge),
                 cacheResult: false, reason: "RAW develop interactive", useInteractiveRenderPolicy: false, lookOverride: working)
@@ -3054,7 +3054,7 @@ final class AppModel: ObservableObject {
             activeEditChangedParameter = "filmStockShape." + key
             // Immediate proxy, followed by an accurate coalesced render through the same
             // scene-linear host grade + native film path used by the settled frame.
-            publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
+            Task { @MainActor in await publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
             if key != "autoContrast" {
                 scheduleRender(
                     interactive: true,
@@ -3203,7 +3203,7 @@ final class AppModel: ObservableObject {
             activeEditChangedParameter = changedParameter
             // Scene Exposure EV has an exact multiplicative proxy. Zone-dependent controls
             // need the true pre-film working buffer or they can look dead/snap on release.
-            publishInteractiveProxy(changedParameter: changedParameter, rawField: nil)
+            Task { @MainActor in await publishInteractiveProxy(changedParameter: changedParameter, rawField: nil)
             if changedParameter != "hostExposure" && changedParameter != "hostAutoContrast" {
                 scheduleRender(
                     interactive: true,
@@ -3255,7 +3255,7 @@ final class AppModel: ObservableObject {
             working.colorDensity = density
             gestureWorkingLook = working
             activeEditChangedParameter = "density.\(key)"
-            publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
+            Task { @MainActor in await publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
             return
         }
 
@@ -3303,7 +3303,7 @@ final class AppModel: ObservableObject {
             working.pipe?.enable(stage, enabled: enabled)
             gestureWorkingLook = working
             activeEditChangedParameter = "pipe.\(stage.rawValue)"
-            publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
+            Task { @MainActor in await publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
         }
         cancelIdleRefinement()
         if activeEditBaseline == nil {
@@ -3328,7 +3328,7 @@ final class AppModel: ObservableObject {
             setPipeParamInSettings(&working.pipe!, key: key, value: value)
             gestureWorkingLook = working
             activeEditChangedParameter = "pipe.\(key)"
-            publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
+            Task { @MainActor in await publishInteractiveProxy(changedParameter: activeEditChangedParameter, rawField: nil)
         }
         cancelIdleRefinement()
         if activeEditBaseline == nil {
@@ -3981,7 +3981,7 @@ final class AppModel: ObservableObject {
 
     /// Pointer-rate feedback never enters the native spectral renderer. RapidRAW/Alcedo-style
     /// responsiveness comes from decoupling interaction from the expensive accuracy pass.
-    private func publishInteractiveProxy(changedParameter: String?, rawField: RawInteractiveField?) {
+    private func publishInteractiveProxy(changedParameter: String?, rawField: RawInteractiveField?) async {
         // The GPU path renders the actual film pipeline from cached camera RAW,
         // not a CPU pixel-level visual guess. Unported advanced stages retain
         // the existing exact pipeline until GPU parity is demonstrated.
@@ -3994,10 +3994,31 @@ final class AppModel: ObservableObject {
             scheduleGPULivePreview(look: look)
             return
         }
-        guard let baseline = gestureBaselineRenderedBuffer,
-            let baselineLook = activeEditBaseline,
-            let targetLook = gestureWorkingLook
-        else {
+        // If no pre-rendered baseline buffer exists but we have a decoded source buffer,
+        // render the baseline look at interactive resolution to create one.
+        // This fixes the race where a gesture starts before the initial render completes.
+        var baseline = gestureBaselineRenderedBuffer
+        var baselineLook = activeEditBaseline
+        let targetLook = gestureWorkingLook
+        if baseline == nil || baselineLook == nil || targetLook == nil {
+            if let sourceBuffer = latestSourceBuffer,
+               let baseLook = activeEditBaseline ?? selectedLook,
+               let target = gestureWorkingLook
+            {
+                // Render baseline at interactive resolution (1080px) for the proxy
+                let interactiveEdge = AppPreferences.editProxyLongEdge
+                let scaledSource = (try? sourceBuffer.resized(longEdge: interactiveEdge)) ?? sourceBuffer
+                
+                baseline = try? await exactRenderer?.render(scaledSource, look: baseLook, useStageCache: true).0
+                baselineLook = baseLook
+                
+                if baseline != nil {
+                    gestureBaselineRenderedBuffer = baseline
+                    status = "Live edit · baseline ready"
+                }
+            }
+        }
+        guard let baseline, let baselineLook, let targetLook else {
             status = "Live edit · waiting for working frame"
             return
         }

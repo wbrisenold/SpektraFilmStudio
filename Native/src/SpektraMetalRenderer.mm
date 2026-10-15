@@ -6709,9 +6709,13 @@ bool MetalRenderer::render(
         [encoder endEncoding];
         [commandBuffer commit];
         [commandBuffer waitUntilCompleted];
+        // Wait on all previously committed chunks to ensure no GPU work is in flight.
+        // This prevents VRAM leaks from command buffers that were committed but not yet waited on.
         for (id<MTLCommandBuffer> chunk in committedChunks) {
           [chunk waitUntilCompleted];
         }
+        // Clear the array to avoid any potential double-wait if error handling changes.
+        [committedChunks removeAllObjects];
       }
       impl_->densityLutKey.clear();impl_->filmStageKey.clear();impl_->scannerStageKey.clear();
       return false;

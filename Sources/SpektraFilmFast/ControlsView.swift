@@ -35,7 +35,7 @@ struct ControlsView: View {
         VStack(spacing: 0) {
             HStack(spacing: 7) {
                 HStack(spacing: 4) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    Image(systemName: "magnifyingglass").studioSecondaryLabel()
                     TextField("Search adjustments", text: $inspectorSearch)
                         .textFieldStyle(.plain)
                         .submitLabel(.search)
@@ -45,11 +45,11 @@ struct ControlsView: View {
                         } label: {
                             Image(systemName: "xmark.circle.fill")
                         }
-                        .buttonStyle(.plain).foregroundStyle(.secondary)
+                        .buttonStyle(.plain).studioSecondaryLabel()
                     }
                 }
                 .padding(.horizontal, 9).frame(height: 30)
-                .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 7))
+                .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
                 Toggle("Modified", isOn: $showModifiedOnly)
                     .toggleStyle(.button)
                     .controlSize(.small)
@@ -195,7 +195,7 @@ struct ControlsView: View {
                         if filmStage == "finish" { FilmEffectsPanel(model: model) }
                         Text("FILM PROCESS")
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.secondary)
+                            .studioSecondaryLabel()
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 12).padding(.top, 18).padding(.bottom, 6)
                         ForEach(catalog.groups.filter { filmGroups.contains($0.id) }) { group in
@@ -336,7 +336,7 @@ struct ControlsView: View {
                 .padding(.horizontal, StudioLayout.panelPadding)
                 .padding(.bottom, 12)
             }
-            Divider().opacity(0.42)
+            studioDivider()
         }
         .background(StudioPalette.panel.opacity(0.05))
     }
@@ -436,7 +436,7 @@ struct ControlsView: View {
                 .pickerStyle(.menu)
                 Text(model.selectedLook.raw.workflowPreset.description)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .studioSecondaryLabel()
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.bottom, 5)
@@ -452,7 +452,7 @@ struct ControlsView: View {
                 }
                 Text("White balance applies before the film process.")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .studioSecondaryLabel()
                     .fixedSize(horizontal: false, vertical: true)
 
                 VStack(alignment: .leading, spacing: 5) {
@@ -482,7 +482,7 @@ struct ControlsView: View {
                                     format: "Auto %dK %+.0f", Int(model.whiteBalanceDisplayTemperature),
                                     model.whiteBalanceDisplayTint)
                             )
-                            .font(.caption2).foregroundStyle(.secondary)
+                            .font(.caption2).studioSecondaryLabel()
                         }
                     }
                 }
@@ -516,7 +516,7 @@ struct ControlsView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Quick WB")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .studioSecondaryLabel()
 
                     LazyVGrid(
                         columns: [GridItem(.flexible(minimum: 115)), GridItem(.flexible(minimum: 115))],
@@ -599,23 +599,23 @@ struct ControlsView: View {
                     }
                 }
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .studioSecondaryLabel()
 
                 if model.selectedLook.raw.whiteBalanceMode == .auto,
                     !model.autoWhiteBalanceStatus.isEmpty
                 {
                     Text(model.autoWhiteBalanceStatus)
                         .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .studioTertiaryLabel()
                 }
 
                 if !model.skinWhiteBalanceStatus.isEmpty {
                     Text(model.skinWhiteBalanceStatus)
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .studioSecondaryLabel()
                 }
 
-                Divider().opacity(0.5)
+                studioDivider()
                 VStack(alignment: .leading, spacing: 5) {
                     Text("RAW Denoise").font(.caption.weight(.medium))
                     Picker(
@@ -665,7 +665,7 @@ struct ControlsView: View {
                     Button("Clear Denoise Cache") { model.clearRawDenoiseCache() }.controlSize(.small)
                 }
                 if !model.rawDenoiseStatus.isEmpty {
-                    Text(model.rawDenoiseStatus).font(.caption2).foregroundStyle(.secondary)
+                    Text(model.rawDenoiseStatus).font(.caption2).studioSecondaryLabel()
                 }
 
                 Toggle(
@@ -713,7 +713,7 @@ struct ControlsView: View {
                         Button("Main Image") { model.selectLocalGrade(nil) }.controlSize(.small)
                     }
                     Text("RAW Develop is targeting this mask until Main Image is selected.")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(.caption2).studioSecondaryLabel()
                     DraftScalarSlider(
                         label: "Exposure EV", committedValue: tone.exposureEV, range: -5...5, precision: 2,
                         resetValue: 0,
@@ -723,10 +723,10 @@ struct ControlsView: View {
                         onEnd: { model.endEditGesture() })
                 } else {
                     Text("Original photo development")
-                        .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+                        .font(.caption2.weight(.medium)).studioSecondaryLabel()
                         .fixedSize(horizontal: false, vertical: true)
                     Text("Exposure and tone shape the image before film is applied.")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(.caption2).studioSecondaryLabel()
                     DraftScalarSlider(
                         label: "Exposure", committedValue: raw.developExposureEV, range: -5...5, precision: 2,
                         helpText: "CIRAWFilter exposure. Locked behavior.", resetValue: 0,
@@ -742,7 +742,7 @@ struct ControlsView: View {
                             )
                         if raw.autoExposureApplied {
                             Text(String(format: "Auto %+.2f EV", raw.developExposureEV))
-                                .font(.caption2).foregroundStyle(.secondary)
+                                .font(.caption2).studioSecondaryLabel()
                         }
                     }
                     DraftScalarSlider(
@@ -768,7 +768,7 @@ struct ControlsView: View {
                         onEnd: { model.endEditGesture() })
                 }
 
-                Divider().opacity(0.5)
+                studioDivider()
                 Text(active == nil ? "Light" : "Masked Light").font(.caption.weight(.semibold))
                 if active == nil {
                     HStack(spacing: 8) {
@@ -779,7 +779,7 @@ struct ControlsView: View {
                             )
                         if let black = tone.resolvedAutoContrastBlack, let white = tone.resolvedAutoContrastWhite {
                             Text(String(format: "Auto %.2f–%.2f", black, white))
-                                .font(.caption2).foregroundStyle(.secondary)
+                                .font(.caption2).studioSecondaryLabel()
                         }
                     }
                 }
@@ -809,7 +809,7 @@ struct ControlsView: View {
                 }
 
                 if active == nil {
-                    Divider().opacity(0.5)
+                    studioDivider()
                     HStack {
                         Text("Tone Curve").font(.caption.weight(.semibold))
                         Spacer()
@@ -871,7 +871,7 @@ struct ControlsView: View {
                     "ME deSatch density uses the cone-coordinate behavior from Moaz Elgabry's GPL-3.0 ME_Desatch DCTL. Zero is untouched; move left toward −1 to progressively deSatch/darken density globally or around one hue family. This is intentionally not a normal Saturation control."
                 )
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .studioSecondaryLabel()
                 .fixedSize(horizontal: false, vertical: true)
 
                 DensitySlider(
@@ -900,7 +900,7 @@ struct ControlsView: View {
 
                 Text("Source behavior: ME_Desatch.dctl · GPL-3.0 · attribution is bundled with the app.")
                     .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
+                    .studioTertiaryLabel()
             }
             .padding(.top, 8)
 
@@ -931,7 +931,7 @@ struct ControlsView: View {
                 "Live Metal image-processing stages injected after the film pass on the interactive preview path. These are preview-side filters independent of RAW develop denoise and the exact export path."
             )
             .font(.caption2)
-            .foregroundStyle(.secondary)
+            .studioSecondaryLabel()
             .fixedSize(horizontal: false, vertical: true)
 
             ForEach(PipeStage.allCases) { stage in
@@ -980,7 +980,7 @@ struct ControlsView: View {
                 if openAdjustment == "geometry" {
                     Image(systemName: "crop")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                        .studioSecondaryLabel()
                 }
                 Button {
                     model.resetGeometry()
@@ -995,7 +995,7 @@ struct ControlsView: View {
                 HStack(spacing: 8) {
                     Text("Crop handles are live in the viewer while this section is open.")
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .studioSecondaryLabel()
 
                     Spacer()
 
@@ -1028,7 +1028,7 @@ struct ControlsView: View {
                 .pickerStyle(.menu)
                 .help("Changes only the crop guide drawn over the photo. It does not change the image.")
 
-                Divider().opacity(0.5)
+                studioDivider()
 
                 HStack {
                     Text("Geometry")
@@ -1440,7 +1440,7 @@ struct DraftScalarSlider: View {
             Text(label)
                 .font(StudioType.label)
                 .lineLimit(1).truncationMode(.tail)
-                .frame(width: RedlampMetrics.labelWidth, alignment: .leading)
+                .frame(width: StudioDesign.Metrics.labelWidth, alignment: .leading)
                 .help(label)
             // Redlamp's own track, not the system slider: shift fine-trims 10%
             // of the motion, matching its SliderRowView.
@@ -1494,7 +1494,7 @@ struct DraftScalarSlider: View {
                 ), format: .number.precision(.fractionLength(0...precision))
             )
             .textFieldStyle(.plain).multilineTextAlignment(.trailing)
-            .font(StudioType.value).frame(width: RedlampMetrics.valueWidth)
+            .font(StudioType.value).frame(width: StudioDesign.Metrics.valueWidth)
             if let onReset {
                 Button {
                     if let resetValue { draft = resetValue }
@@ -1507,7 +1507,7 @@ struct DraftScalarSlider: View {
             }
         }
         .font(StudioType.label)
-        .frame(minHeight: RedlampMetrics.rowHeight)
+        .frame(minHeight: StudioDesign.Metrics.rowHeight)
         .disabled(disabled)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
@@ -1653,7 +1653,7 @@ private struct WhiteBalanceTemperatureSlider: View {
                 }
                 Text("\(Int(draftKelvin.rounded())) K")
                     .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                    .studioSecondaryLabel()
             }
             Slider(
                 value: Binding(
@@ -1938,7 +1938,7 @@ struct PipeToggleRow: View {
             }
             Text("GPU preview stages: live only — they do not change the settled/export path.")
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .studioSecondaryLabel()
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 4)
         }
@@ -2048,7 +2048,7 @@ struct NLMeansParamSliders: View {
             )
         }
         .padding(8)
-        .background(StudioPalette.recessed.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+        .background(StudioPalette.recessed.opacity(0.5), in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
     }
 }
 
@@ -2088,7 +2088,7 @@ struct BilateralParamSliders: View {
             )
         }
         .padding(8)
-        .background(StudioPalette.recessed.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+        .background(StudioPalette.recessed.opacity(0.5), in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
     }
 }
 
@@ -2142,7 +2142,7 @@ struct LensParamSliders: View {
             )
         }
         .padding(8)
-        .background(StudioPalette.recessed.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+        .background(StudioPalette.recessed.opacity(0.5), in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
     }
 }
 // MARK: - Bool toggle for pipe params
@@ -2180,7 +2180,7 @@ struct PipelineFloatSlider: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(label).font(.caption2).foregroundStyle(.secondary)
+            Text(label).font(.caption2).studioSecondaryLabel()
                 .frame(width: 80, alignment: .leading)
             Slider(
                 value: Binding(
@@ -2192,7 +2192,7 @@ struct PipelineFloatSlider: View {
             Text(String(format: "%.3g", value))
                 .font(.caption2.monospacedDigit())
                 .frame(width: 44, alignment: .trailing)
-                .foregroundStyle(.secondary)
+                .studioSecondaryLabel()
         }
         .padding(.horizontal, 4)
     }

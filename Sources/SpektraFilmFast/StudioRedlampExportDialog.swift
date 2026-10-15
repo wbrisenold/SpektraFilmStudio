@@ -7,7 +7,7 @@ import SwiftUI
 // SpektraFilm adds the user-required large output preview and batch selection.
 // This view does not implement a second renderer or export worker.
 struct StudioRedlampExportDialog: View {
-    @ObservedObject var model: AppModel
+    @Bindable var model: AppModel
     let onClose: () -> Void
     @State private var choosePhotos = false
     @State private var showPresetName = false

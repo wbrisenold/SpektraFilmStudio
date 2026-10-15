@@ -27,11 +27,11 @@ struct PresetBrowserView: View {
                     .controlSize(.small).disabled(model.selectedImage == nil)
                 }
                 HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    Image(systemName: "magnifyingglass").studioSecondaryLabel()
                     TextField("Search presets", text: $search).textFieldStyle(.plain)
                 }
                 .padding(.horizontal, 8).frame(height: 30)
-                .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 7))
+                .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
             }.padding(10)
 
             ScrollView(.horizontal, showsIndicators: false) {

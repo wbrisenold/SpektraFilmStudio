@@ -279,16 +279,18 @@ actor CullEngine {
             if let faceCaptureQuality, face.count > 0 {
                 // Vision quality offers independent portrait/burst evidence.
                 // Low-quality portraits are demoted; require higher bar for positive contribution.
-                if faceCaptureQuality >= 0.7 {
-                    score += (faceCaptureQuality - 0.7) * 30
-                } else if faceCaptureQuality < 0.4 {
-                    score -= (0.4 - faceCaptureQuality) * 40
+                // Stricter portrait bar: positive face evidence must be clearly
+                // usable; borderline captures lose points instead of inflating.
+                if faceCaptureQuality >= 0.75 {
+                    score += (faceCaptureQuality - 0.75) * 30
+                } else if faceCaptureQuality < 0.45 {
+                    score -= (0.45 - faceCaptureQuality) * 40
                 }
             }
             if let aestheticScore {
                 // Aesthetics: require stronger composition for positive points.
-                if aestheticScore >= 0.4 {
-                    score += (aestheticScore - 0.4) * 25
+                if aestheticScore >= 0.45 {
+                    score += (aestheticScore - 0.45) * 25
                 } else if aestheticScore < -0.2 {
                     score += aestheticScore * 16  // negative
                 }
@@ -312,9 +314,9 @@ actor CullEngine {
             if face.possibleBlink { reasons.append("Possible blink") }
             if let faceCaptureQuality, face.count > 0 {
                 reasons.append(
-                    faceCaptureQuality >= 0.65
+                    faceCaptureQuality >= 0.75
                         ? "Strong Vision face capture"
-                        : (faceCaptureQuality < 0.35 ? "Weak Vision face capture" : "Moderate Vision face capture"))
+                        : (faceCaptureQuality < 0.45 ? "Weak Vision face capture" : "Moderate Vision face capture"))
             }
             if let aestheticScore {
                 reasons.append(
@@ -335,9 +337,13 @@ actor CullEngine {
             if reasons.isEmpty { reasons.append("Balanced technical quality") }
 
             let recommendation: CullRecommendation
-            if score >= 82, !face.possibleBlink, face.sharpness >= 0.4 || face.count == 0 {
+            if score >= 86, !face.possibleBlink,
+                (face.count == 0 || (face.sharpness >= 0.45 && (faceCaptureQuality ?? 0.5) >= 0.35))
+            {
                 recommendation = .keep
-            } else if score < 50 || (face.count > 0 && face.sharpness < 0.25) {
+            } else if score < 55
+                || (face.count > 0 && (face.sharpness < 0.3 || (faceCaptureQuality ?? 1.0) < 0.3))
+            {
                 recommendation = .reject
             } else {
                 recommendation = .review
@@ -537,6 +543,7 @@ actor CullEngine {
         var count: Int
         var sharpness: Double
         var possibleBlink: Bool
+        var largestFaceArea: Double
     }
 
     private nonisolated static func imageMetrics(_ payload: ThumbnailPayload) -> BasicMetrics {
@@ -604,9 +611,10 @@ actor CullEngine {
     }
 
     private nonisolated static func faceMetrics(_ payload: ThumbnailPayload, faces: [DetectedFace]) -> FaceMetrics {
-        guard !faces.isEmpty else { return FaceMetrics(count: 0, sharpness: 0, possibleBlink: false) }
+        guard !faces.isEmpty else { return FaceMetrics(count: 0, sharpness: 0, possibleBlink: false, largestFaceArea: 0) }
         var sharpness = 0.0
         var possibleBlink = false
+        var largestFaceArea = 0.0
         for face in faces {
             let normalized = CGRect(
                 x: face.bounds.minX / Double(payload.width),
@@ -614,6 +622,7 @@ actor CullEngine {
                 width: face.bounds.width / Double(payload.width),
                 height: face.bounds.height / Double(payload.height)
             )
+            largestFaceArea = max(largestFaceArea, normalized.width * normalized.height)
             sharpness = max(sharpness, regionalSharpness(payload, normalizedRect: normalized, topLeftOrigin: true))
 
             // Face rectangles provide approximate eye centers rather than eyelid contours. Use a deliberately
@@ -626,7 +635,9 @@ actor CullEngine {
                 possibleBlink = true
             }
         }
-        return FaceMetrics(count: faces.count, sharpness: min(1, sharpness), possibleBlink: possibleBlink)
+        // Down-weight tiny detections so background faces cannot inflate crop priority.
+        let areaWeight = min(1, sqrt(max(largestFaceArea, 0.004) / 0.004))
+        return FaceMetrics(count: faces.count, sharpness: min(1, sharpness) * areaWeight, possibleBlink: possibleBlink, largestFaceArea: largestFaceArea)
     }
 
     private nonisolated static func eyeRegionDetail(

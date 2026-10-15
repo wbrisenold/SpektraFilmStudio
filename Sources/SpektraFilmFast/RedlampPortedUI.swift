@@ -10,28 +10,7 @@
 import AppKit
 import SwiftUI
 
-// Direct port of Redlamp's exact panel metrics, with namespace changed to avoid
-// colliding with host app symbols.
-enum RedlampMetrics {
-    static let labelWidth: CGFloat = 76
-    static let valueWidth: CGFloat = 44
-    static let rowHeight: CGFloat = 20
-    static let rowSpacing: CGFloat = 6
-    static let panelRowSpacing: CGFloat = 3
-    static let panelPadding: CGFloat = 14
-    static let panelBottomPadding: CGFloat = 14
-    static let panelHeaderHeight: CGFloat = 32
-    static let panelSymbolSlot: CGFloat = 16
-    static let controlRowMinHeight: CGFloat = 24
-    static let thumbSize: CGFloat = 11
-    static let trackHeight: CGFloat = 16
-    static let subsectionTopPadding: CGFloat = 10
-    static let subsectionBottomPadding: CGFloat = 2
-    static let groupGap: CGFloat = 4
-    static let cardRadius: CGFloat = 8
-    static let cardPadding: CGFloat = 8
-}
-
+// Redlamp-specific metrics that differ from StudioDesign — only the unique ones.
 enum RedlampPaletteMetrics {
     static let width: CGFloat = 620
     static let rowHeight: CGFloat = 32

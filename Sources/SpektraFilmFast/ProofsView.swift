@@ -28,13 +28,13 @@ struct ProofsWorkspaceView: View {
                 VStack(spacing: 14) {
                     Image(systemName: "heart.text.square")
                         .font(.system(size: 37, weight: .ultraLight))
-                        .foregroundStyle(.secondary)
+                        .studioSecondaryLabel()
                     Text("Client proofing, without another app")
                         .font(.title2.weight(.semibold))
                     Text(
                         "Create a gallery from your picks, share the link, and bring client selections back into your library."
                     )
-                    .font(.subheadline).foregroundStyle(.secondary)
+                    .font(.subheadline).studioSecondaryLabel()
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 440)
                     Button("Create Proof Gallery…") { showingNewGallery = true }
@@ -86,10 +86,10 @@ struct ProofsWorkspaceView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("PROOFDOCK")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .studioSecondaryLabel()
                     Text("Client Proofing")
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .studioTertiaryLabel()
                 }
                 Spacer()
                 Button {
@@ -102,7 +102,7 @@ struct ProofsWorkspaceView: View {
             }
             .padding(11)
 
-            Divider().opacity(0.55)
+            studioDivider()
 
             if model.proofGalleries.isEmpty {
                 ContentUnavailableView(
@@ -135,7 +135,7 @@ struct ProofsWorkspaceView: View {
                                 Text("\(gallery.selectedCount) picks")
                             }
                             .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.secondary)
+                            .studioSecondaryLabel()
                         }
                         .padding(.vertical, 4)
                         .tag(gallery.id)
@@ -144,7 +144,7 @@ struct ProofsWorkspaceView: View {
                 .listStyle(.sidebar)
             }
 
-            Divider().opacity(0.55)
+            studioDivider()
             Button {
                 showingNewGallery = true
             } label: {
@@ -162,11 +162,11 @@ struct ProofsWorkspaceView: View {
         if let gallery = model.selectedProofGallery {
             VStack(spacing: 0) {
                 galleryHeader(gallery)
-                Divider().opacity(0.55)
+                studioDivider()
                 shareBar(gallery)
-                Divider().opacity(0.55)
+                studioDivider()
                 galleryGrid(gallery)
-                Divider().opacity(0.55)
+                studioDivider()
                 footer(gallery)
             }
         } else {
@@ -191,7 +191,7 @@ struct ProofsWorkspaceView: View {
                     if gallery.finished { Label("Client finished", systemImage: "checkmark.seal.fill") }
                 }
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .studioSecondaryLabel()
             }
             Spacer()
             if gallery.finished {
@@ -259,7 +259,7 @@ struct ProofsWorkspaceView: View {
                 }
             }
             .font(.caption2)
-            .foregroundStyle(.tertiary)
+            .studioTertiaryLabel()
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
@@ -284,7 +284,7 @@ struct ProofsWorkspaceView: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .background(Color.black.opacity(0.45))
-                    .clipShape(RoundedRectangle(cornerRadius: 7))
+                    .studioCompactCorner()
 
                 HStack(spacing: 5) {
                     if photo.selected {
@@ -332,7 +332,7 @@ struct ProofsWorkspaceView: View {
         HStack(spacing: 10) {
             Text(model.proofStatus)
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .studioSecondaryLabel()
                 .lineLimit(1)
             if model.isGeneratingProofs {
                 ProgressView(value: model.proofGenerationProgress).frame(width: 130)
@@ -358,7 +358,7 @@ struct ProofsWorkspaceView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("New Client Proof Gallery").font(.title3.weight(.semibold))
                     Text("Generate edited JPEG proofs directly from the current project.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).studioSecondaryLabel()
                 }
                 Spacer()
             }
@@ -411,12 +411,12 @@ struct ProofsWorkspaceView: View {
                         Text(
                             "Proofs use the current WB, Exposure/Curve, SpektraFilm look, and Crop/Geometry. GPS/private metadata is not copied. Full-resolution originals are never served to the client."
                         )
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(.caption2).studioSecondaryLabel()
                     }
                 }
                 if candidates.isEmpty {
                     Text("No photos match this source. Choose another source or import photos in Library.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).studioSecondaryLabel()
                 }
             }
             .formStyle(.grouped)
@@ -470,7 +470,7 @@ private struct ProofLocalImage: View {
             Image(nsImage: image).resizable().interpolation(.high)
         } else {
             ZStack {
-                Color.black.opacity(0.35); Image(systemName: "photo").foregroundStyle(.secondary)
+                Color.black.opacity(0.35); Image(systemName: "photo").studioSecondaryLabel()
             }
         }
     }

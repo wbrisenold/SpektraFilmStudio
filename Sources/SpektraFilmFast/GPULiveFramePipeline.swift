@@ -72,7 +72,8 @@ final class GPULiveDevice: @unchecked Sendable {
     let effects: RedlampFilmEffectsEngine
 
     // MTLHeap for efficient scratch buffer allocation (reduces driver overhead)
-    private let scratchHeap: MTLHeap
+    // Optional to allow fallback on memory-constrained devices.
+    private let scratchHeap: MTLHeap?
     private let scratchHeapSize = 256 * 1024 * 1024  // 256 MB
 
     private let outputLock = NSLock()
@@ -90,15 +91,16 @@ final class GPULiveDevice: @unchecked Sendable {
         }
         self.queue = queue
 
-        // Create scratch heap for efficient buffer allocation
+        // Create scratch heap for efficient buffer allocation.
+        // Fall back to device.makeBuffer() if heap creation fails (e.g., low memory).
         let heapDesc = MTLHeapDescriptor()
         heapDesc.size = scratchHeapSize
         heapDesc.storageMode = .private
         heapDesc.cpuCacheMode = .defaultCache
-        guard let heap = device.makeHeap(descriptor: heapDesc) else {
-            throw GPULiveError.unavailable("Failed to create scratch heap")
+        self.scratchHeap = device.makeHeap(descriptor: heapDesc)
+        if self.scratchHeap == nil {
+            print("GPULiveDevice: Warning - failed to create scratch heap, falling back to device.makeBuffer()")
         }
-        self.scratchHeap = heap
         self.context = CIContext(
             mtlDevice: device,
             options: [
@@ -135,11 +137,21 @@ final class GPULiveDevice: @unchecked Sendable {
         seenDeviceRegistryIDs.insert(device.registryID)
     }
 
-    /// Allocate a buffer from the scratch heap (much faster than device.makeBuffer)
+    /// Allocate a buffer from the scratch heap (much faster than device.makeBuffer),
+    /// falling back to device.makeBuffer() if heap is unavailable or exhausted.
     func allocateFromHeap(length: Int, options: MTLResourceOptions = []) throws -> MTLBuffer {
         let alignedLength = (length + 255) & ~255  // 256-byte alignment
-        guard let buffer = scratchHeap.makeBuffer(length: alignedLength, options: options) else {
-            throw GPULiveError.unavailable("Scratch heap exhausted")
+        if let heap = scratchHeap, let buffer = heap.makeBuffer(length: alignedLength, options: options) {
+            return buffer
+        }
+        // Fallback: allocate directly from device with the requested options
+        if let buffer = device.makeBuffer(length: alignedLength, options: options) {
+            return buffer
+        }
+        // Last resort: try with shared storage (for CPU-accessible buffers)
+        let fallbackOptions = options.union(.storageModeShared)
+        guard let buffer = device.makeBuffer(length: alignedLength, options: fallbackOptions) else {
+            throw GPULiveError.unavailable("Scratch buffer allocation failed (heap and device fallback both exhausted)")
         }
         return buffer
     }
@@ -255,10 +267,11 @@ final class GPULiveDevice: @unchecked Sendable {
         let key = "\(device.registryID)|\(texture.width)|\(texture.height)"
         outputLock.lock()
         defer { outputLock.unlock() }
+        let currentPool = availableOutputTextures[key] ?? []
         guard outputPoolBytes + texture.allocatedSize <= maxOutputPoolBytes,
-            availableOutputTextures[key, default: []].count < 3
+            currentPool.count < 3
         else { return }
-        availableOutputTextures[key, default: []].append(texture)
+        availableOutputTextures[key] = currentPool + [texture]
         outputPoolBytes += texture.allocatedSize
     }
 }
@@ -305,6 +318,7 @@ actor GPULiveFramePipeline {
         // Reset scratch pool when GPU modules are invalidated (device change)
         scratchByBytes.removeAll()
         scratchResidentBytes = 0
+        renderGeneration = 0
     }
 
     /// Pre-warm scratch pool with common buffer sizes to avoid allocation spikes
@@ -329,7 +343,8 @@ actor GPULiveFramePipeline {
                 do {
                     let buffer = try gpu.allocateFloatBuffer(width: w, height: h)
                     let key = bytes
-                    scratchByBytes[key, default: []].append(buffer)
+                    // Pre-warmed buffers are available immediately (generation 0)
+                    scratchByBytes[key, default: []].append(ScratchEntry(buffer: buffer, recycledAtGeneration: 0))
                     scratchResidentBytes += bytes
                 } catch {
                     // Ignore allocation failures during pre-warm
@@ -349,12 +364,20 @@ actor GPULiveFramePipeline {
     // A cancellation/error before the fence deliberately discards its borrowed
     // buffers instead of returning possibly in-flight GPU memory to the pool.
     // Output textures stay frame-owned: MTKView may still present an old frame.
-    private var scratchByBytes: [Int: [any MTLBuffer]] = [:]
+    /// Scratch buffer pool entry with generation tracking to prevent use-after-free.
+    private struct ScratchEntry {
+        let buffer: any MTLBuffer
+        let recycledAtGeneration: Int
+    }
+    private var scratchByBytes: [Int: [ScratchEntry]] = [:]
     private var scratchResidentBytes = 0
     private let scratchBudgetBytes = 96 * 1024 * 1024
     private let maxScratchPerSize = 5
     private var scratchReuseCount = 0
     private var scratchAllocCount = 0
+    /// Monotonically increasing generation counter; incremented each render() call.
+    /// Buffers are only reused after 2 full generations to ensure GPU completion.
+    private var renderGeneration = 0
 
     private func borrowScratch(gpu: GPULiveDevice, width: Int, height: Int) throws -> any MTLBuffer {
         let product = width.multipliedReportingOverflow(by: height)
@@ -364,13 +387,18 @@ actor GPULiveFramePipeline {
             throw GPULiveError.unavailable("Invalid GPU scratch dimensions")
         }
         let bytes = product.partialValue * 16
-        if var slots = scratchByBytes[bytes], let reused = slots.popLast() {
+        // Only reuse buffers that were recycled at least 2 generations ago,
+        // ensuring the GPU work that used them has fully completed.
+        let safeGenerationThreshold = renderGeneration - 2
+        if var slots = scratchByBytes[bytes],
+           let idx = slots.lastIndex(where: { $0.recycledAtGeneration <= safeGenerationThreshold }) {
+            let entry = slots.remove(at: idx)
             if slots.isEmpty { scratchByBytes.removeValue(forKey: bytes) } else { scratchByBytes[bytes] = slots }
             scratchResidentBytes -= bytes
-            if reused.device.registryID == gpu.device.registryID {
+            if entry.buffer.device.registryID == gpu.device.registryID {
                 scratchReuseCount += 1
                 PerformanceMonitor.shared.recordScratchReuse()
-                return reused
+                return entry.buffer
             }
             // Don't pass a scratch buffer from an old GPU device to this queue.
         }
@@ -388,13 +416,18 @@ actor GPULiveFramePipeline {
                 scratchResidentBytes <= scratchBudgetBytes - bytes,
                 scratchByBytes[bytes, default: []].count < maxScratchPerSize
             else { continue }
-            scratchByBytes[bytes, default: []].append(buffer)
+            scratchByBytes[bytes, default: []].append(ScratchEntry(buffer: buffer, recycledAtGeneration: renderGeneration))
             scratchResidentBytes += bytes
         }
     }
 
     func scratchPoolStats() -> (reused: Int, allocated: Int, retainedBytes: Int) {
         (scratchReuseCount, scratchAllocCount, scratchResidentBytes)
+    }
+
+    /// Current render generation for diagnostic purposes.
+    func currentRenderGeneration() -> Int {
+        renderGeneration
     }
 
     /// Stable hash over the independent prefix stages (RAW decode identity +
@@ -412,6 +445,7 @@ actor GPULiveFramePipeline {
         prefixCache = nil
         scratchByBytes.removeAll()
         scratchResidentBytes = 0
+        renderGeneration = 0
         invalidateGPUModules()
     }
 
@@ -461,6 +495,9 @@ actor GPULiveFramePipeline {
             newGpu.purgeStaleOutputPools(currentDeviceRegistryID: newGpu.device.registryID)
         }
         guard let gpu else { throw GPULiveError.unavailable("Metal device unavailable") }
+        // Increment generation counter for scratch buffer reuse tracking.
+        // This ensures buffers are only reused after GPU work from 2+ generations ago completes.
+        renderGeneration &+= 1
         // SFS_DECODE_KEY_FINGERPRINT_V1: without the file fingerprint this key made
         // rawCache and prefixCache serve stale GPU frames after an in-place edit of
         // the source (Lightroom round-trip, synced folder, camera write finishing).

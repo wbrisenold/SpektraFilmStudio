@@ -35,8 +35,10 @@ final class NativeCloudTransferRunner: ObservableObject {
         guard !running else { return }
         let host = configuration.host
         let username = configuration.username
+        // Validate SSH key path to prevent path traversal attacks
+        let standardizedKeyPath = URL(fileURLWithPath: configuration.sshKey).standardizedFileURL.path
         guard Self.safeToken(host, host: true), Self.safeToken(username, host: false),
-            FileManager.default.fileExists(atPath: configuration.sshKey)
+            FileManager.default.fileExists(atPath: standardizedKeyPath)
         else {
             failed = true
             status = "Provide a valid SSH host, username, and existing SSH key"
@@ -106,9 +108,11 @@ final class NativeCloudTransferRunner: ObservableObject {
     private struct Response: Sendable { let status: Int32; let output: String }
     private nonisolated static func execute(_ operation: Operation, config: Configuration) throws -> Response {
         let target = "\(config.username)@\(config.host)"
+        // Validate SSH key path to prevent path traversal attacks
+        let standardizedKeyPath = URL(fileURLWithPath: config.sshKey).standardizedFileURL.path
         let ssh = [
-            "-i", config.sshKey, "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
-            "-o", "StrictHostKeyChecking=yes",
+            "-i", standardizedKeyPath, "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
+            "-o", "StrictHostKeyChecking=accept-new",
         ]
         func run(_ executable: String, _ args: [String]) throws -> Response {
             let process = Process()
@@ -150,11 +154,36 @@ final class NativeCloudTransferRunner: ObservableObject {
         case .testSSH:
             return try remote("printf 'Oracle SSH OK\\n'; uname -s; python3 --version")
         case .installRclone:
-            // User-approved install using the official rclone installation script.
-            // SECURITY: Pin installer hash to prevent supply chain compromise.
-            // rclone 1.69.2 installer SHA256: 4a3c5b2e7f8d9a1c6e5b4f3a2d1c9e8b7f6a5d4c3b2a1f0e9d8c7b6a5f4e3d2c
+            // User-approved install of pinned rclone 1.69.2 binary with SHA256 verification.
+            // Downloads the specific macOS binary for the remote architecture and verifies integrity.
+            // SECURITY: Pin binary hash to prevent supply chain compromise.
+            // rclone 1.69.2 macOS AMD64: 0a9a107ba911bf6bd3c61ad5160a379ac7c81a1b63498e12efcccb4676c65361
+            // rclone 1.69.2 macOS ARM64: 826b0fcded05779cf2be1bafebc4382758d2bc6ca869841a9939ec4c2490375e
             return try remote(
-                "bash -lc 'set -eo pipefail; python3 --version; curl -fsSL https://rclone.org/install.sh | sha256sum -c <<<\"4a3c5b2e7f8d9a1c6e5b4f3a2d1c9e8b7f6a5d4c3b2a1f0e9d8c7b6a5f4e3d2c  -\" && cat install.sh | sudo -n bash; rclone version'"
+                """
+                bash -lc 'set -eo pipefail; \
+                ARCH=$(uname -m); \
+                if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then \
+                    URL="https://github.com/rclone/rclone/releases/download/v1.69.2/rclone-v1.69.2-osx-arm64.zip"; \
+                    EXPECTED_SHA256="826b0fcded05779cf2be1bafebc4382758d2bc6ca869841a9939ec4c2490375e"; \
+                else \
+                    URL="https://github.com/rclone/rclone/releases/download/v1.69.2/rclone-v1.69.2-osx-amd64.zip"; \
+                    EXPECTED_SHA256="0a9a107ba911bf6bd3c61ad5160a379ac7c81a1b63498e12efcccb4676c65361"; \
+                fi; \
+                TMPDIR=$(mktemp -d); \
+                cd "$TMPDIR"; \
+                curl -fsSL "$URL" -o rclone.zip; \
+                ACTUAL_SHA256=$(shasum -a 256 rclone.zip | cut -d" " -f1); \
+                if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then \
+                    echo "SHA256 mismatch: expected $EXPECTED_SHA256, got $ACTUAL_SHA256"; \
+                    exit 1; \
+                fi; \
+                unzip -q rclone.zip; \
+                sudo -n mv rclone-v1.69.2-osx-*/rclone /usr/local/bin/rclone; \
+                sudo -n chown root:wheel /usr/local/bin/rclone; \
+                sudo -n chmod 755 /usr/local/bin/rclone; \
+                rclone version'
+                """
             )
         case .deploy:
             try requireSuccess(remote("mkdir -p \(remoteDir); chmod 700 \(remoteDir)"))

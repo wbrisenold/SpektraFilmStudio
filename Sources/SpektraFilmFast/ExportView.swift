@@ -91,12 +91,12 @@ struct ExportWorkspaceView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Export Studio").font(.title3.weight(.semibold))
                 Text("Prepare, preview and deliver your photos")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).studioSecondaryLabel()
             }
             Spacer(minLength: 8)
             Text("\(model.selectedExportCount) selected")
                 .font(.caption.weight(.medium).monospacedDigit())
-                .foregroundStyle(.secondary)
+                .studioSecondaryLabel()
             Menu {
                 Button("All Photos") { model.setAllExportSelection(true) }
                 Button("Picked Photos") { model.selectExportPicksOnly() }
@@ -175,7 +175,7 @@ struct ExportWorkspaceView: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text("EXPORT SET")
                             .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                            .studioSecondaryLabel()
                         Text("\(model.selectedExportCount) queued").font(.headline)
                     }
                     Spacer()
@@ -196,13 +196,13 @@ struct ExportWorkspaceView: View {
 
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
+                        .studioSecondaryLabel()
                     TextField("Filter photos", text: $search)
                         .textFieldStyle(.plain)
                 }
                 .padding(.horizontal, 8)
                 .frame(height: 30)
-                .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 7))
+                .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
 
                 Picker("Show photos", selection: $sourceFilter) {
                     ForEach(ExportSourceFilter.allCases) { Text($0.rawValue).tag($0) }
@@ -239,7 +239,7 @@ struct ExportWorkspaceView: View {
                                 if image.clientPicked { Image(systemName: "heart.fill") }
                             }
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .studioSecondaryLabel()
                         }
 
                         Spacer()
@@ -282,7 +282,7 @@ struct ExportWorkspaceView: View {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("LIVE DELIVERY PREVIEW")
-                        .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                        .font(.caption2.weight(.semibold)).studioSecondaryLabel()
                     Text(previewImage?.fileName ?? "Choose a photo")
                         .font(.headline).lineLimit(1).truncationMode(.middle)
                 }
@@ -366,17 +366,17 @@ struct ExportWorkspaceView: View {
             HStack {
                 Text("QUEUE")
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .studioSecondaryLabel()
                 if let job = model.activeExportJob {
                     Text("· \(job.completedCount) done")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(.caption2).studioSecondaryLabel()
                     if let seconds = job.estimatedRemainingSeconds {
                         Text("· ETA \(Self.duration(seconds))")
-                            .font(.caption2).foregroundStyle(.secondary)
+                            .font(.caption2).studioSecondaryLabel()
                     }
                     if let bytes = job.estimatedTotalOutputBytes {
                         Text("· ~\(Self.byteCount(bytes))")
-                            .font(.caption2).foregroundStyle(.secondary)
+                            .font(.caption2).studioSecondaryLabel()
                     }
                 }
                 Spacer()
@@ -411,15 +411,15 @@ struct ExportWorkspaceView: View {
                         Spacer()
                         Text(item.state.label)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .studioSecondaryLabel()
                     }
                 }
                 .listStyle(.inset)
             } else {
                 VStack(spacing: 5) {
-                    Text("Queue is empty").font(.caption).foregroundStyle(.secondary)
+                    Text("Queue is empty").font(.caption).studioSecondaryLabel()
                     Text("Use Select Photos above, choose a destination, then export.")
-                        .font(.caption2).foregroundStyle(.tertiary)
+                        .font(.caption2).studioTertiaryLabel()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -451,7 +451,7 @@ struct ExportWorkspaceView: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("DELIVERY SETTINGS")
-                        .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                        .font(.caption2.weight(.semibold)).studioSecondaryLabel()
                     Text(selectedPresetTitle).font(.subheadline.weight(.semibold)).lineLimit(1)
                 }
                 Spacer()
@@ -532,7 +532,7 @@ struct ExportWorkspaceView: View {
                     : "Preserve the renderer output for controlled color-managed workflows."
             )
             .font(.caption2)
-            .foregroundStyle(.secondary)
+            .studioSecondaryLabel()
         }
     }
 
@@ -566,7 +566,7 @@ struct ExportWorkspaceView: View {
                     Toggle("16-bit", isOn: $model.project.exportSettings.tiff16Bit)
                         .toggleStyle(.switch).controlSize(.mini)
                 } else {
-                    Text("8-bit").font(.caption).foregroundStyle(.secondary)
+                    Text("8-bit").font(.caption).studioSecondaryLabel()
                 }
             }
         }
@@ -590,19 +590,19 @@ struct ExportWorkspaceView: View {
             switch model.project.exportSettings.resizeMode {
             case .none:
                 Text("Keep the rendered photo's full pixel dimensions and framing.")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(.caption2).studioSecondaryLabel()
             case .longEdge:
                 numericField("Long edge", value: $model.project.exportSettings.resizeLongEdge)
                 Text("Aspect ratio stays unchanged. No crop.")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(.caption2).studioSecondaryLabel()
             case .width:
                 numericField("Width", value: $model.project.exportSettings.resizeWidth)
                 Text("Height follows the photo automatically. No crop.")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(.caption2).studioSecondaryLabel()
             case .height:
                 numericField("Height", value: $model.project.exportSettings.resizeHeight)
                 Text("Width follows the photo automatically. No crop.")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(.caption2).studioSecondaryLabel()
             case .fitBox, .cropToFill:
                 numericField("Target width", value: $model.project.exportSettings.resizeWidth)
                 numericField("Target height", value: $model.project.exportSettings.resizeHeight)
@@ -611,7 +611,7 @@ struct ExportWorkspaceView: View {
                         "Fit keeps the whole photo. The target is a maximum box; no padding is exported.",
                         systemImage: "arrow.down.right.and.arrow.up.left"
                     )
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(.caption2).studioSecondaryLabel()
                 } else {
                     Label(
                         "Fill never stretches the photo. It center-crops edges until the target aspect is filled.",
@@ -630,7 +630,7 @@ struct ExportWorkspaceView: View {
                 fieldLabel("Platform target")
                 Spacer()
                 Text("sets size · defaults to Fit")
-                    .font(.caption2).foregroundStyle(.tertiary)
+                    .font(.caption2).studioTertiaryLabel()
             }
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
                 ForEach(ExportPresetDefinition.all.filter { $0.category == .social }) { preset in
@@ -681,7 +681,7 @@ struct ExportWorkspaceView: View {
                 }
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 7))
+                .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
             }
         }
     }
@@ -693,7 +693,7 @@ struct ExportWorkspaceView: View {
                 Toggle("Strip GPS location", isOn: $model.project.exportSettings.stripGPS)
             }
             Text("Orientation, output profile, dimensions, and bit depth always describe the exported pixels.")
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(.caption2).studioSecondaryLabel()
         }
     }
 
@@ -705,7 +705,7 @@ struct ExportWorkspaceView: View {
                 fieldLabel("Export to")
                 Spacer()
                 if model.project.exportSettings.destinationPath.isEmpty {
-                    Text("Not set").foregroundStyle(.secondary)
+                    Text("Not set").studioSecondaryLabel()
                     Button("Choose…") { requestExportFolder() }
                         .controlSize(.small)
                 } else {
@@ -731,13 +731,13 @@ struct ExportWorkspaceView: View {
                     model.project.exportSettings.destinationPath.isEmpty
                         ? "—" : model.project.exportSettings.destinationPath
                 )
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.caption).studioSecondaryLabel()
                 .lineLimit(1).truncationMode(.middle)
                 .textSelection(.enabled)
             }
             Label("Existing files are never silently overwritten.", systemImage: "checkmark.shield")
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .studioSecondaryLabel()
         }
     }
 
@@ -748,10 +748,10 @@ struct ExportWorkspaceView: View {
                     ProgressView(value: job.fractionComplete)
                         .frame(maxWidth: .infinity)
                     Text("\(job.processedCount) / \(job.items.count)")
-                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        .font(.caption.monospacedDigit()).studioSecondaryLabel()
                     if let eta = job.estimatedRemainingSeconds, model.isExporting {
                         Text("ETA \(Self.duration(eta))")
-                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                            .font(.caption.monospacedDigit()).studioSecondaryLabel()
                     }
                     if job.failedCount > 0 {
                         Label("\(job.failedCount) failed", systemImage: "exclamationmark.triangle")
@@ -765,13 +765,13 @@ struct ExportWorkspaceView: View {
                         .font(.subheadline.weight(.medium)).lineLimit(1)
                     if let issue = exportBlockingReason, !model.isExporting {
                         Label(issue, systemImage: "info.circle")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.caption).studioSecondaryLabel()
                     } else {
                         Text(
                             model.isExporting
                                 ? model.exportCurrentFileName : model.project.exportSettings.destinationPath
                         )
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).studioSecondaryLabel()
                         .lineLimit(1).truncationMode(.middle)
                     }
                 }
@@ -780,7 +780,7 @@ struct ExportWorkspaceView: View {
             if !model.exportPerformanceSummary.isEmpty {
                 Text(model.exportPerformanceSummary)
                     .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.tertiary).lineLimit(1)
+                    .studioTertiaryLabel().lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -895,7 +895,7 @@ struct ExportWorkspaceView: View {
         VStack(alignment: .leading, spacing: 5) {
             Label(label, systemImage: icon)
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .studioSecondaryLabel()
             Text(value).font(.subheadline.weight(.semibold)).lineLimit(1)
         }
         .padding(10)
@@ -908,7 +908,7 @@ struct ExportWorkspaceView: View {
     }
 
     private func fieldLabel(_ text: String) -> some View {
-        Text(text).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        Text(text).font(.caption.weight(.semibold)).studioSecondaryLabel()
     }
 
     private func numericField(_ label: String, value: Binding<Int>) -> some View {
@@ -919,7 +919,7 @@ struct ExportWorkspaceView: View {
                 .textFieldStyle(.roundedBorder)
                 .multilineTextAlignment(.trailing)
                 .frame(width: 105)
-            Text("px").font(.caption).foregroundStyle(.secondary)
+            Text("px").font(.caption).studioSecondaryLabel()
         }
     }
 

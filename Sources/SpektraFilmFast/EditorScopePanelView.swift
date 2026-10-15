@@ -495,7 +495,7 @@ struct EditorScopePanelView: View {
         VStack(spacing: 1) {
             Text(label)
                 .font(.system(size: 7, weight: .semibold))
-                .foregroundStyle(.tertiary)
+                .studioTertiaryLabel()
             Text(value)
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)

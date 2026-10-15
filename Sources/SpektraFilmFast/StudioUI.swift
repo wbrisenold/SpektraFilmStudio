@@ -4,96 +4,96 @@ import SwiftUI
 // Inspired by Redlamp's neutral, color-accurate editing surfaces and its compact
 // macOS 26 workspace system. Original SpektraFilmStudio adaptation; no Redlamp source
 // has been copied. Exact reference: pdcgomes/redlamp d8a892a (MPL-2.0).
-enum StudioLayout {
-    static let toolbarHeight: CGFloat = 48
-    static let statusHeight: CGFloat = 26
-    static let presetSidebarWidth: CGFloat = 300
-    static let editorInspectorWidth: CGFloat = 316
-    static let panelCornerRadius: CGFloat = 16
-    static let compactCornerRadius: CGFloat = 8
-    static let panelPadding: CGFloat = 14
-    static let paneInset: CGFloat = 8
-    /// Redlamp PanelMetrics: the filmstrip floats at a fixed height and is
-    /// revealed by hovering the bottom edge, so neither value is user-resizable.
-    static let filmstripHeight: CGFloat = 110
-    static let filmstripTrigger: CGFloat = 14
-}
 
-/// Redlamp Typography.swift + Metrics.swift, verbatim. `section` carries the
-/// 0.6pt tracking and the row metrics are Redlamp's (76pt labels, 20pt rows),
-/// which is why our rows were visibly wider and looser than Redlamp's.
-enum StudioType {
+/// Unified design tokens — single source of truth for layout, type, and color.
+/// Eliminates duplication between StudioType/StudioLayout and RedlampMetrics.
+enum StudioDesign {
+    // MARK: Layout
+    enum Layout {
+        static let toolbarHeight: CGFloat = 48
+        static let statusHeight: CGFloat = 26
+        static let presetSidebarWidth: CGFloat = 300
+        static let editorInspectorWidth: CGFloat = 316
+        static let panelCornerRadius: CGFloat = 16
+        static let compactCornerRadius: CGFloat = 8
+        static let panelPadding: CGFloat = 14
+        static let paneInset: CGFloat = 8
+        static let filmstripHeight: CGFloat = 110
+        static let filmstripTrigger: CGFloat = 14
+        static let panelHeaderHeight: CGFloat = 32
+        static let panelBottomPadding: CGFloat = 14
+    }
+
     // MARK: Typography
-    static let label = Font.system(size: 11)
-    static let value = Font.system(size: 11).monospacedDigit()
-    static let panelTitle = Font.system(size: 11.5, weight: .semibold)
-    /// Redlamp Typography.section: 10pt semibold, 0.6pt letter spacing.
-    static let section = Font.system(size: 10, weight: .semibold)
-    static let sectionTracking: CGFloat = 0.6
-    static let caption = Font.system(size: 10)
-    static let badge = Font.system(size: 9, weight: .medium)
+    enum Typography {
+        static let label = Font.system(size: 11)
+        static let value = Font.system(size: 11).monospacedDigit()
+        static let panelTitle = Font.system(size: 11.5, weight: .semibold)
+        static let section = Font.system(size: 10, weight: .semibold)
+        static let sectionTracking: CGFloat = 0.6
+        static let caption = Font.system(size: 10)
+        static let caption2 = Font.system(size: 9)
+        static let badge = Font.system(size: 9, weight: .medium)
+    }
 
     // MARK: Metrics
-    static let labelWidth: CGFloat = 76
-    static let valueWidth: CGFloat = 44
-    static let rowHeight: CGFloat = 20
-    static let rowSpacing: CGFloat = 6
-    static let panelRowSpacing: CGFloat = 3
-    static let panelSymbolSlot: CGFloat = 16
-    static let controlRowMinHeight: CGFloat = 24
-    static let thumbSize: CGFloat = 11
-    static let trackHeight: CGFloat = 16
-    static let subsectionTopPadding: CGFloat = 10
-    static let subsectionBottomPadding: CGFloat = 2
-    static let groupGap: CGFloat = 4
-    static let cardRadius: CGFloat = 8
-    static let cardPadding: CGFloat = 8
+    enum Metrics {
+        static let labelWidth: CGFloat = 76
+        static let valueWidth: CGFloat = 44
+        static let rowHeight: CGFloat = 20
+        static let rowSpacing: CGFloat = 6
+        static let panelRowSpacing: CGFloat = 3
+        static let panelSymbolSlot: CGFloat = 16
+        static let controlRowMinHeight: CGFloat = 24
+        static let thumbSize: CGFloat = 11
+        static let trackHeight: CGFloat = 16
+        static let subsectionTopPadding: CGFloat = 10
+        static let subsectionBottomPadding: CGFloat = 2
+        static let groupGap: CGFloat = 4
+        static let cardRadius: CGFloat = 8
+        static let cardPadding: CGFloat = 8
+        static let dividerOpacity: CGFloat = 0.42
+    }
+
+    // MARK: Palette (neutral, non-tinting)
+    enum Palette {
+        private static func white(_ alpha: CGFloat) -> Color { Color.white.opacity(alpha) }
+        private static func black(_ alpha: CGFloat) -> Color { Color.black.opacity(alpha) }
+
+        // Text ramp
+        static let label = white(0.72)
+        static let labelHover = white(0.95)
+        static let secondaryLabel = white(0.45)
+        static let tertiaryLabel = white(0.28)
+        static let value = white(0.90)
+
+        // Surfaces
+        static let canvas = black(0.28)
+        static let panel = white(0.115)
+        static let recessed = black(0.28)
+        static let raised = white(0.16)
+
+        // Lines and states
+        static let divider = white(0.07)
+        static let hover = white(0.055)
+        static let selected = white(0.10)
+        static let selectedBorder = white(0.38)
+        static let subtleBorder = white(0.07)
+
+        // Slider
+        static let track = white(0.16)
+        static let trackFill = white(0.55)
+        static let thumb = white(0.92)
+        static let editedDot = white(0.55)
+
+        static let muted = secondaryLabel
+    }
 }
 
-// These neutral greys adapt to the user's macOS appearance. Photo pixels remain
-// wholly isolated from UI tint, even when a different system accent is selected.
-/// Redlamp's Palette.swift `standard` tokens, verbatim.
-///
-/// The previous values used `Color.primary` / `Color.secondary`, which are the
-/// *system* label colors — blue-tinted on macOS. Redlamp's editing surfaces are
-/// deliberately neutral: an explicit white-alpha ramp over near-black, so nothing
-/// tints the photographer's judgement of colour. That difference is most of why our
-/// rail did not read as Redlamp's.
-enum StudioPalette {
-    private static func white(_ alpha: CGFloat) -> Color { Color.white.opacity(alpha) }
-    private static func black(_ alpha: CGFloat) -> Color { Color.black.opacity(alpha) }
-
-    // MARK: Text ramp
-    static let label = white(0.72)
-    static let labelHover = white(0.95)
-    static let secondaryLabel = white(0.45)
-    static let tertiaryLabel = white(0.28)
-    static let value = white(0.90)
-
-    // MARK: Surfaces
-    /// The canvas the photo sits on: black 0.28 behind everything.
-    static let canvas = black(0.28)
-    /// Floating pane fill.
-    static let panel = white(0.115)
-    /// Wells (histogram, tool strip, pickers).
-    static let recessed = black(0.28)
-    static let raised = white(0.16)
-
-    // MARK: Lines and states
-    static let divider = white(0.07)
-    static let hover = white(0.055)
-    static let selected = white(0.10)
-    static let selectedBorder = white(0.38)
-    static let subtleBorder = white(0.07)
-
-    // MARK: Slider
-    static let track = white(0.16)
-    static let trackFill = white(0.55)
-    static let thumb = white(0.92)
-    static let editedDot = white(0.55)
-
-    static let muted = secondaryLabel
-}
+// Backward-compatible aliases — migrate callers incrementally.
+typealias StudioLayout = StudioDesign.Layout
+typealias StudioType = StudioDesign.Typography
+typealias StudioPalette = StudioDesign.Palette
 
 // Blur belongs to the interface, never to the photo or an image stage. This also
 // works on macOS 15, where the new macOS 26 native glass is not available.
@@ -109,6 +109,7 @@ private struct StudioGlassPaneModifier: ViewModifier {
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
         let opacity = isPalette ? RedlampPaletteMetrics.paneOpacity(1 - transparency) : 1 - transparency
+// RedlampPaletteMetrics is kept for palette-specific opacity calculation
         if reduceTransparency || !enabled {
             content
                 .background(StudioPalette.panel, in: shape)
@@ -175,7 +176,7 @@ struct StudioDevelopSectionHeader: View {
             }
             .foregroundStyle(.primary)
             .padding(.horizontal, StudioLayout.panelPadding)
-            .frame(height: RedlampMetrics.panelHeaderHeight)
+            .frame(height: StudioLayout.panelHeaderHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -194,7 +195,7 @@ struct StudioIconButton: View {
             Image(systemName: systemImage)
                 .font(.system(size: 12, weight: .medium))
                 .frame(width: 27, height: 27)
-                .background(isSelected ? StudioPalette.selected : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+                .background(isSelected ? StudioPalette.selected : Color.clear, in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
         }
         .buttonStyle(.plain)
         .help(help)
@@ -219,6 +220,36 @@ struct StudioSelectionOutline: ViewModifier {
 extension View {
     func studioSelection(_ selected: Bool) -> some View {
         modifier(StudioSelectionOutline(selected: selected))
+    }
+    
+    /// Consistent divider using design system opacity.
+    func studioDivider() -> some View {
+        Divider().opacity(StudioDesign.Metrics.dividerOpacity)
+    }
+    
+    /// Neutral secondary text — avoids macOS blue-tinted .secondary.
+    func studioSecondaryLabel() -> some View {
+        foregroundStyle(StudioPalette.secondaryLabel)
+    }
+    
+    /// Neutral tertiary text.
+    func studioTertiaryLabel() -> some View {
+        foregroundStyle(StudioPalette.tertiaryLabel)
+    }
+    
+    /// Standard panel corner radius (16pt).
+    func studioPanelCorner() -> some View {
+        clipShape(RoundedRectangle(cornerRadius: StudioLayout.panelCornerRadius, style: .continuous))
+    }
+    
+    /// Compact corner radius (8pt) for buttons, cards, small elements.
+    func studioCompactCorner() -> some View {
+        clipShape(RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius, style: .continuous))
+    }
+    
+    /// Card corner radius (8pt).
+    func studioCardCorner() -> some View {
+        clipShape(RoundedRectangle(cornerRadius: StudioDesign.Metrics.cardRadius, style: .continuous))
     }
 }
 
@@ -335,19 +366,19 @@ struct StudioSliderTrack: View {
             // click position and drag position. The thumb's center moves only
             // across the usable width; capsule and circle are both vertically
             // centered by the same ZStack (no .position into a 4pt child view).
-            let thumbRadius = StudioType.thumbSize / 2
-            let usableWidth = max(0, width - StudioType.thumbSize)
+            let thumbRadius = StudioDesign.Metrics.thumbSize / 2
+            let usableWidth = max(0, width - StudioDesign.Metrics.thumbSize)
             let thumbX = thumbRadius + usableWidth * fraction
 
             ZStack(alignment: .leading) {
                 Capsule().fill(StudioPalette.track)
-                    .frame(height: StudioType.trackHeight)
+                    .frame(height: StudioDesign.Metrics.trackHeight)
                 Capsule()
                     .fill(StudioPalette.trackFill)
-                    .frame(width: thumbX, height: StudioType.trackHeight)
+                    .frame(width: thumbX, height: StudioDesign.Metrics.trackHeight)
                 Circle()
                     .fill(StudioPalette.thumb)
-                    .frame(width: StudioType.thumbSize, height: StudioType.thumbSize)
+                    .frame(width: StudioDesign.Metrics.thumbSize, height: StudioDesign.Metrics.thumbSize)
                     .offset(x: thumbX - thumbRadius)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -370,7 +401,7 @@ struct StudioSliderTrack: View {
                         guard enabled, span > 0 else { return }
                         if !dragging { dragging = true; onEditingChanged(true) }
                         let usable = max(1, usableWidth)
-                        let t = min(1, max(0, (drag.location.x - StudioType.thumbSize / 2) / usable))
+                        let t = min(1, max(0, (drag.location.x - StudioDesign.Metrics.thumbSize / 2) / usable))
                         value = clamp(range.lowerBound + t * span)
                     }
                     .onEnded { _ in
@@ -380,7 +411,7 @@ struct StudioSliderTrack: View {
                     }
             )
         }
-        .frame(height: StudioType.controlRowMinHeight)
+        .frame(height: StudioDesign.Metrics.controlRowMinHeight)
         .opacity(enabled ? 1 : 0.4)
         .accessibilityValue(String(format: "%.0f", value))
     }

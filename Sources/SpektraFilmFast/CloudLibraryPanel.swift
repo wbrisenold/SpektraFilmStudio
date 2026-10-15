@@ -69,7 +69,7 @@ struct CloudLibraryPanel: View {
                 if let last = model.cloudLastSync {
                     Text("Last sync \(last.formatted(date: .omitted, time: .shortened))")
                         .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
+                        .studioTertiaryLabel()
                 }
             } else {
                 VStack(alignment: .leading, spacing: 6) {

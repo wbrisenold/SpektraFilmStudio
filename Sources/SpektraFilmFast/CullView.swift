@@ -165,7 +165,7 @@ struct CullWorkspaceView: View {
                     .controlSize(.mini)
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
         }
     }
 
@@ -241,11 +241,11 @@ struct CullWorkspaceView: View {
                             viewerBadge(image)
                         }
                         .overlay {
-                            RoundedRectangle(cornerRadius: 6)
+                            RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius)
                                 .stroke(
                                     model.project.selectedImageID == image.id
                                         ? Color.accentColor
-                                        : Color.secondary.opacity(0.18),
+                                        : StudioPalette.subtleBorder,
                                     lineWidth:
                                         model.project.selectedImageID == image.id
                                         ? 2 : 0.5
@@ -271,11 +271,11 @@ struct CullWorkspaceView: View {
                                 viewerBadge(image)
                             }
                             .overlay {
-                                RoundedRectangle(cornerRadius: 6)
+                                RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius)
                                     .stroke(
                                         model.project.selectedImageID == image.id
                                             ? Color.accentColor
-                                            : Color.secondary.opacity(0.18),
+                                            : StudioPalette.subtleBorder,
                                         lineWidth:
                                             model.project.selectedImageID == image.id
                                             ? 2 : 0.5
@@ -518,7 +518,7 @@ struct CullWorkspaceView: View {
                 }
             }
             .padding(8)
-            .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 7))
+            .background(StudioPalette.recessed, in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
             .padding(.horizontal, 9)
             ScrollView(.vertical) {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 7) {

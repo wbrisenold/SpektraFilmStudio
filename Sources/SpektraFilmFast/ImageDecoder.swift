@@ -718,8 +718,9 @@ actor ImageDecoder {
     }
 
     /// Base key without longEdge — shared by all decode sizes of the same source.
+    /// Uses a stable hash of RawSettings to prevent silent cache invalidation when new fields are added.
     private func baseKey(for key: DecodeKey) -> String {
-        "\(key.path)|\(key.sourceFingerprint)|\(key.raw)|\(key.bypassImportTransform)"
+        "\(key.path)|\(key.sourceFingerprint)|\(key.raw.stableDecodeHash)|\(key.bypassImportTransform)"
     }
 
     private func reusableInFlightTask(for requested: DecodeKey) -> (key: DecodeKey, task: Task<PixelBufferF32, Error>)? {

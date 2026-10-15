@@ -134,7 +134,7 @@ struct MaskPanelView: View {
             }
 
             Text(model.semanticMaskStatus)
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(.caption2).studioSecondaryLabel()
                 .fixedSize(horizontal: false, vertical: true)
 
             if grades.isEmpty {
@@ -144,7 +144,7 @@ struct MaskPanelView: View {
                     Text(
                         "Choose Subject, Skin, Object, or a gradient. Adjust this selection below without leaving Masks."
                     )
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).studioSecondaryLabel()
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
@@ -165,7 +165,7 @@ struct MaskPanelView: View {
                                 Text(grade.name).font(.subheadline).lineLimit(1)
                                 Spacer()
                                 Text("\(grade.masks.sources.filter(\.enabled).count)")
-                                    .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                                    .font(.caption2.monospacedDigit()).studioSecondaryLabel()
                             }
                         }
                         .buttonStyle(.plain)
@@ -179,14 +179,14 @@ struct MaskPanelView: View {
                     .padding(8)
                     .background(
                         model.activeLocalGradeID == grade.id ? StudioPalette.selected : StudioPalette.recessed,
-                        in: RoundedRectangle(cornerRadius: 7))
+                        in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
                 }
             }
 
             if let grade = selectedGrade {
                 Divider()
                 HStack {
-                    Text("COMPONENTS").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("COMPONENTS").font(.caption2.weight(.semibold)).studioSecondaryLabel()
                     Spacer()
                     Menu("Add") {
                         Button("Brush") { model.beginMaskBrush(gradeID: grade.id) }
@@ -216,7 +216,7 @@ struct MaskPanelView: View {
                         ).labelsHidden().toggleStyle(.checkbox)
                         Text(source.name).font(.caption).lineLimit(1)
                         Spacer()
-                        Text(source.blendMode.rawValue).font(.caption2).foregroundStyle(.secondary)
+                        Text(source.blendMode.rawValue).font(.caption2).studioSecondaryLabel()
                         if source.kind == .linearGradient {
                             Button {
                                 model.selectedGradientMaskID = source.id; model.isGradientMaskEditing = true
@@ -280,11 +280,11 @@ struct MaskPanelView: View {
 
                 Divider()
                 Text("LOCAL ADJUSTMENTS").font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .studioSecondaryLabel()
                 Text(
                     "Changes below affect only the selected red area. Switching to RAW edits the complete photo automatically."
                 )
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(.caption2).studioSecondaryLabel()
                 let tone = grade.tone ?? ToneSettings()
                 localSlider(
                     "Exposure", value: tone.exposureEV, range: -5...5,
@@ -560,7 +560,7 @@ struct ObjectMaskPickOverlay: View {
                     if model.objectSelectionTool == "Paint" || model.objectSelectionTool == "Brush" {
                         Slider(value: $model.maskBrushSize, in: 0.005...0.15).frame(width: 80).help("Brush size")
                     }
-                    Text("⌥ Remove").font(.caption2).foregroundStyle(.secondary)
+                    Text("⌥ Remove").font(.caption2).studioSecondaryLabel()
                     Button("Done") { model.cancelObjectMaskPick() }
                 }
                 .padding(8).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))

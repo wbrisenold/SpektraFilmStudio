@@ -2,15 +2,15 @@ import Foundation
 import os.signpost
 
 /// Thread-safe performance monitoring for SpektraFilmStudio.
-/// Uses a lock for thread-safe access to mutable state.
+/// Uses a custom Sendable lock wrapper around os_unfair_lock for thread-safe access.
 final class PerformanceMonitor: @unchecked Sendable {
     static let shared = PerformanceMonitor()
     
     private let log = OSLog(subsystem: "com.spektrafilm", category: "performance")
     private let signpostLog = OSLog(subsystem: "com.spektrafilm", category: "signpost")
     
-    // Use a lock for thread-safe access to all mutable state
-    private let lock = NSLock()
+    // Use a Sendable lock wrapper around os_unfair_lock
+    private let lock = SendableLock()
     
     // Cache metrics
     private var decodeCacheHits: UInt64 = 0
@@ -37,66 +37,49 @@ final class PerformanceMonitor: @unchecked Sendable {
     // MARK: - Cache Metrics (thread-safe via lock)
     
     func recordDecodeCacheHit() {
-        lock.lock()
-        decodeCacheHits += 1
-        lock.unlock()
+        lock.withLock { decodeCacheHits += 1 }
     }
     
     func recordDecodeCacheMiss() {
-        lock.lock()
-        decodeCacheMisses += 1
-        lock.unlock()
+        lock.withLock { decodeCacheMisses += 1 }
     }
     
     func recordDiskCacheHit() {
-        lock.lock()
-        diskCacheHits += 1
-        lock.unlock()
+        lock.withLock { diskCacheHits += 1 }
     }
     
     func recordDiskCacheMiss() {
-        lock.lock()
-        diskCacheMisses += 1
-        lock.unlock()
+        lock.withLock { diskCacheMisses += 1 }
     }
     
     func recordTextureReuse() {
-        lock.lock()
-        textureReuses += 1
-        lock.unlock()
+        lock.withLock { textureReuses += 1 }
     }
     
     func recordTextureAllocation() {
-        lock.lock()
-        textureAllocations += 1
-        lock.unlock()
+        lock.withLock { textureAllocations += 1 }
     }
     
     // MARK: - Render Metrics
     
     func recordFrame(frameTimeMs: Double, gpuTimeMs: Double, passCount: Int) {
-        lock.lock()
-        frameCount += 1
-        totalFrameTimeMs += frameTimeMs
-        totalGpuTimeMs += gpuTimeMs
-        totalPassCount += UInt64(passCount)
-        
-        if frameTimeMs < minFrameTimeMs { minFrameTimeMs = frameTimeMs }
-        if frameTimeMs > maxFrameTimeMs { maxFrameTimeMs = frameTimeMs }
-        totalGpuTimeMs += gpuTimeMs
-        lock.unlock()
+        lock.withLock {
+            frameCount += 1
+            totalFrameTimeMs += frameTimeMs
+            totalGpuTimeMs += gpuTimeMs
+            totalPassCount += UInt64(passCount)
+            
+            if frameTimeMs < minFrameTimeMs { minFrameTimeMs = frameTimeMs }
+            if frameTimeMs > maxFrameTimeMs { maxFrameTimeMs = frameTimeMs }
+        }
     }
     
     func recordScratchReuse() {
-        lock.lock()
-        scratchReuses += 1
-        lock.unlock()
+        lock.withLock { scratchReuses += 1 }
     }
     
     func recordScratchAllocation() {
-        lock.lock()
-        scratchAllocations += 1
-        lock.unlock()
+        lock.withLock { scratchAllocations += 1 }
     }
     
     // MARK: - Signpost Integration
@@ -119,7 +102,7 @@ final class PerformanceMonitor: @unchecked Sendable {
     
     // MARK: - Metrics Export
     
-    struct PerformanceReport: Codable {
+    struct PerformanceReport: Codable, Sendable {
         let timestamp: Date
         let frameCount: UInt64
         let avgFrameTimeMs: Double
@@ -135,51 +118,51 @@ final class PerformanceMonitor: @unchecked Sendable {
     }
     
     func exportReport() -> PerformanceReport {
-        lock.lock()
-        let localFrameCount = self.frameCount
-        let localTotalFrameTimeMs = self.totalFrameTimeMs
-        let localTotalGpuTimeMs = self.totalGpuTimeMs
-        let localTotalPassCount = self.totalPassCount
-        let localDecodeCacheHits = self.decodeCacheHits
-        let localDecodeCacheMisses = self.decodeCacheMisses
-        let localDiskCacheHits = self.diskCacheHits
-        let localDiskCacheMisses = self.diskCacheMisses
-        let localTextureReuses = self.textureReuses
-        let localTextureAllocations = self.textureAllocations
-        let localScratchReuses = self.scratchReuses
-        let localScratchAllocations = self.scratchAllocations
-        let localMinFrameTimeMs = self.minFrameTimeMs
-        let localMaxFrameTimeMs = self.maxFrameTimeMs
-        lock.unlock()
-        
-        let localDecodeTotal = localDecodeCacheHits + localDecodeCacheMisses
-        let localDiskTotal = localDiskCacheHits + localDiskCacheMisses
-        let localTextureTotal = localTextureReuses + localTextureAllocations
-        let localScratchTotal = localScratchReuses + localScratchAllocations
-        
-        let localDecodeHitRate = localDecodeTotal > 0 ? Double(localDecodeCacheHits) / Double(localDecodeTotal) : 0
-        let localDiskHitRate = localDiskTotal > 0 ? Double(localDiskCacheHits) / Double(localDiskTotal) : 0
-        let localTextureReuseRate = localTextureTotal > 0 ? Double(localTextureReuses) / Double(localTextureTotal) : 0
-        let localScratchReuseRate = localScratchTotal > 0 ? Double(localScratchReuses) / Double(localScratchTotal) : 0
-        
-        let localAvgFrameTime = localFrameCount > 0 ? localTotalFrameTimeMs / Double(localFrameCount) : 0
-        let localAvgGpuTime = localFrameCount > 0 ? localTotalGpuTimeMs / Double(localFrameCount) : 0
-        let localAvgPasses = localFrameCount > 0 ? Double(localTotalPassCount) / Double(localFrameCount) : 0
-        
-        return PerformanceReport(
-            timestamp: Date(),
-            frameCount: localFrameCount,
-            avgFrameTimeMs: localAvgFrameTime,
-            minFrameTimeMs: localMinFrameTimeMs == .infinity ? 0 : localMinFrameTimeMs,
-            maxFrameTimeMs: localMaxFrameTimeMs,
-            avgGpuTimeMs: localAvgGpuTime,
-            avgPassCount: localAvgPasses,
-            decodeCacheHitRate: localDecodeHitRate,
-            diskCacheHitRate: localDiskHitRate,
-            textureReuseRate: localTextureReuseRate,
-            scratchReuseRate: localScratchReuseRate,
-            avgPassesPerFrame: localAvgPasses
-        )
+        lock.withLock {
+            let localFrameCount = self.frameCount
+            let localTotalFrameTimeMs = self.totalFrameTimeMs
+            let localTotalGpuTimeMs = self.totalGpuTimeMs
+            let localTotalPassCount = self.totalPassCount
+            let localDecodeCacheHits = self.decodeCacheHits
+            let localDecodeCacheMisses = self.decodeCacheMisses
+            let localDiskCacheHits = self.diskCacheHits
+            let localDiskCacheMisses = self.diskCacheMisses
+            let localTextureReuses = self.textureReuses
+            let localTextureAllocations = self.textureAllocations
+            let localScratchReuses = self.scratchReuses
+            let localScratchAllocations = self.scratchAllocations
+            let localMinFrameTimeMs = self.minFrameTimeMs
+            let localMaxFrameTimeMs = self.maxFrameTimeMs
+            
+            let localDecodeTotal = localDecodeCacheHits + localDecodeCacheMisses
+            let localDiskTotal = localDiskCacheHits + localDiskCacheMisses
+            let localTextureTotal = localTextureReuses + localTextureAllocations
+            let localScratchTotal = localScratchReuses + localScratchAllocations
+            
+            let localDecodeHitRate = localDecodeTotal > 0 ? Double(localDecodeCacheHits) / Double(localDecodeTotal) : 0
+            let localDiskHitRate = localDiskTotal > 0 ? Double(localDiskCacheHits) / Double(localDiskTotal) : 0
+            let localTextureReuseRate = localTextureTotal > 0 ? Double(localTextureReuses) / Double(localTextureTotal) : 0
+            let localScratchReuseRate = localScratchTotal > 0 ? Double(localScratchReuses) / Double(localScratchTotal) : 0
+            
+            let localAvgFrameTime = localFrameCount > 0 ? localTotalFrameTimeMs / Double(localFrameCount) : 0
+            let localAvgGpuTime = localFrameCount > 0 ? localTotalGpuTimeMs / Double(localFrameCount) : 0
+            let localAvgPasses = localFrameCount > 0 ? Double(localTotalPassCount) / Double(localFrameCount) : 0
+            
+            return PerformanceReport(
+                timestamp: Date(),
+                frameCount: localFrameCount,
+                avgFrameTimeMs: localAvgFrameTime,
+                minFrameTimeMs: localMinFrameTimeMs == .infinity ? 0 : localMinFrameTimeMs,
+                maxFrameTimeMs: localMaxFrameTimeMs,
+                avgGpuTimeMs: localAvgGpuTime,
+                avgPassCount: localAvgPasses,
+                decodeCacheHitRate: localDecodeHitRate,
+                diskCacheHitRate: localDiskHitRate,
+                textureReuseRate: localTextureReuseRate,
+                scratchReuseRate: localScratchReuseRate,
+                avgPassesPerFrame: localAvgPasses
+            )
+        }
     }
     
     func exportJSON() throws -> Data {
@@ -196,8 +179,35 @@ final class PerformanceMonitor: @unchecked Sendable {
     }
     
     func reset() {
-        lock.lock()
-        // Reset all counters
-        lock.unlock()
+        lock.withLock {
+            // Reset all counters
+            decodeCacheHits = 0
+            decodeCacheMisses = 0
+            diskCacheHits = 0
+            diskCacheMisses = 0
+            textureReuses = 0
+            textureAllocations = 0
+            frameCount = 0
+            totalFrameTimeMs = 0
+            totalGpuTimeMs = 0
+            totalPassCount = 0
+            scratchReuses = 0
+            scratchAllocations = 0
+            minFrameTimeMs = Double.infinity
+            maxFrameTimeMs = 0
+        }
+    }
+}
+
+/// A Sendable wrapper around os_unfair_lock for thread-safe synchronization.
+/// os_unfair_lock is a primitive lock that is safe to use across threads and
+/// can be made Sendable since it doesn't capture any non-Sendable state.
+private final class SendableLock: @unchecked Sendable {
+    private var lock = os_unfair_lock()
+    
+    func withLock<T>(_ body: () throws -> T) rethrows -> T {
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        return try body()
     }
 }

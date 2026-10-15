@@ -29,12 +29,12 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Image(systemName: "command.square")
-                    .font(.system(size: 13)).foregroundStyle(.secondary)
+                    .font(.system(size: 13)).studioSecondaryLabel()
                 Text("Settings").font(.system(size: 16, weight: .semibold))
                 Spacer()
                 Text("SpektraFilm Studio · ⌘,")
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .studioSecondaryLabel()
             }
             .padding(.horizontal, 20).padding(.vertical, 14)
             Divider()
@@ -62,12 +62,12 @@ struct SettingsView: View {
                 LabeledContent("Edit proxy") {
                     Text("1080 px · live + idle")
                         .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                        .studioSecondaryLabel()
                 }
                 Text(
                     "The editor uses the native spectral renderer only. Imported LUT and Looks GPU preview paths have been removed."
                 )
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.caption).studioSecondaryLabel()
                 Toggle("Paper background", isOn: $model.project.preferences.paperBackground)
                 DisclosureGroup("Advanced color handling") {
                     Toggle("Bypass import color transform", isOn: $model.project.preferences.bypassImportTransform)
@@ -82,7 +82,7 @@ struct SettingsView: View {
 
                 Text("Editing uses a fast preview. Full-resolution preview and export use your original photo.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .studioSecondaryLabel()
             }
 
             Section("Local Cache") {
@@ -113,7 +113,7 @@ struct SettingsView: View {
                         if !model.cacheDirectoryParentPath.isEmpty {
                             Text("Custom")
                                 .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                                .studioSecondaryLabel()
                         }
                     }
                     Text(model.cacheRootPath.isEmpty ? "Configuring…" : model.cacheRootPath)
@@ -153,13 +153,13 @@ struct SettingsView: View {
                 }
 
                 if !model.cacheHealthStatus.isEmpty {
-                    Text(model.cacheHealthStatus).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
+                    Text(model.cacheHealthStatus).font(.caption2).studioSecondaryLabel().textSelection(.enabled)
                 }
 
                 if !model.cacheStatus.isEmpty {
                     Text(model.cacheStatus)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .studioSecondaryLabel()
                         .textSelection(.enabled)
                 }
 
@@ -167,7 +167,7 @@ struct SettingsView: View {
                     "The cache can live on an internal SSD, another local volume, or a mounted external drive. SpektraFilm Studio creates a visible “SpektraFilmFast Cache” folder inside the selected location. If that drive is disconnected, disk caching is marked unavailable instead of silently moving elsewhere."
                 )
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .studioSecondaryLabel()
             }
         }
         .formStyle(.grouped)
@@ -193,7 +193,7 @@ struct SettingsView: View {
                         .monospacedDigit().frame(width: 46)
                 }
                 Text("The photo itself is never blurred or tinted. Accessibility Reduce Transparency overrides glass.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).studioSecondaryLabel()
             }
             Section("Workspace Visibility") {
                 Toggle("Editor adjustment inspector", isOn: $editorInspectorVisible)
@@ -204,7 +204,7 @@ struct SettingsView: View {
                 Text(
                     "These toggles update the workspaces immediately. Essential photo tools remain in their workspaces."
                 )
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.caption).studioSecondaryLabel()
             }
             Section("Adjustment Panel Organization") {
                 EditorPanelVisibilityMenu(
@@ -252,7 +252,7 @@ struct SettingsView: View {
                     "Scopes float over the viewer in a movable, resizable glass panel. Drag its header or bottom corner to reposition and resize. The Photos and adjustments columns remain visible, and the scopes preserve their measured aspect ratio."
                 )
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .studioSecondaryLabel()
                 HStack {
                     Text("Floating scopes width")
                     Slider(value: $scopesRailWidth, in: 300...500, step: 8)
@@ -404,7 +404,7 @@ struct SettingsView: View {
 
                 HStack(spacing: 12) {
                     Label("Risk", systemImage: "circle.fill")
-                        .foregroundStyle(.secondary)
+                        .studioSecondaryLabel()
                     Text("lighter overlay = detail is getting dangerous")
                     Label("Hard clip", systemImage: "circle.fill")
                         .foregroundStyle(.primary)
@@ -415,7 +415,7 @@ struct SettingsView: View {
                 Text(
                     "Hard clipping follows darktable-style Full Gamut / RGB / luminance / saturation tests with red-over and blue-under defaults. SpektraFilm Studio keeps an additional translucent risk layer before hard clipping. All tests use the final rendered image after White Balance, tone/curves, SpektraFilm stock/print processing, and Crop/Geometry; they are display-only and never exported."
                 )
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.caption).studioSecondaryLabel()
             }
 
             Section("Skin Check") {
@@ -466,7 +466,7 @@ struct SettingsView: View {
                 Text(
                     "Skin Check first isolates people with Apple Vision, then classifies skin using published open-source YCbCr and HSV ranges spanning a wide range of complexions. The Skin Vector scope uses only those detected skin pixels; the overlay is display-only and never exported."
                 )
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.caption).studioSecondaryLabel()
             }
         }
         .formStyle(.grouped)
@@ -480,7 +480,7 @@ struct SettingsView: View {
                 Text(
                     "Subject and people use Apple Vision. Face parts use Vision landmarks. Hair, body skin and clothes use embedded mattes or optional SAM 3. Photos stay on this Mac."
                 )
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.caption).studioSecondaryLabel()
             }
 
             Section("Shortcut Keys") {
@@ -490,7 +490,7 @@ struct SettingsView: View {
                 shortcut("Reject", text: $model.project.preferences.shortcutReject)
                 shortcut("Unflag", text: $model.project.preferences.shortcutUnflag)
                 Text("Click a shortcut field, then press the key you want. Escape cancels capture.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).studioSecondaryLabel()
             }
         }
         .formStyle(.grouped)

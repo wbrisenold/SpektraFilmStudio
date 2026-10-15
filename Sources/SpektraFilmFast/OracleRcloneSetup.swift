@@ -16,8 +16,10 @@ final class OracleRcloneTerminal: ObservableObject {
 
     func start(configuration: NativeCloudTransferRunner.Configuration) {
         guard !running else { return }
+        // Validate SSH key path to prevent path traversal attacks
+        let standardizedKeyPath = URL(fileURLWithPath: configuration.sshKey).standardizedFileURL.path
         guard Self.safeHost(configuration.host), Self.safeUser(configuration.username),
-            FileManager.default.fileExists(atPath: configuration.sshKey)
+            FileManager.default.fileExists(atPath: standardizedKeyPath)
         else {
             output = "Enter a valid Oracle host, SSH username and local private-key path first."
             return
@@ -25,8 +27,8 @@ final class OracleRcloneTerminal: ObservableObject {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
         task.arguments = [
-            "-tt", "-i", configuration.sshKey,
-            "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+            "-tt", "-i", standardizedKeyPath,
+            "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
             "-o", "ConnectTimeout=15", "\(configuration.username)@\(configuration.host)",
             "umask 077; exec rclone config",
         ]
@@ -183,7 +185,7 @@ final class OracleRcloneConfigImporter: ObservableObject {
             configuration.username.utf8.allSatisfy({
                 (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 95
             }),
-            FileManager.default.fileExists(atPath: configuration.sshKey)
+            FileManager.default.fileExists(atPath: URL(fileURLWithPath: configuration.sshKey).standardizedFileURL.path)
         else {
             failed = true; status = "Enter the Oracle host, SSH username and SSH key first"; return
         }
@@ -205,9 +207,10 @@ final class OracleRcloneConfigImporter: ObservableObject {
 
     private nonisolated static func upload(path: String, configuration: NativeCloudTransferRunner.Configuration) -> Bool {
         let target = "\(configuration.username)@\(configuration.host)"
+        let standardizedKeyPath = URL(fileURLWithPath: configuration.sshKey).standardizedFileURL.path
         let sshOptions = [
-            "-i", configuration.sshKey, "-o", "BatchMode=yes",
-            "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=15",
+            "-i", standardizedKeyPath, "-o", "BatchMode=yes",
+            "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=15",
         ]
         func execute(_ program: String, _ args: [String]) -> Bool {
             let process = Process()

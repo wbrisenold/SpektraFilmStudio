@@ -337,6 +337,30 @@ struct RawSettings: Codable, Equatable, Hashable, Sendable {
         try c.encode(developCurvePoints, forKey: .developCurvePoints)
         try c.encode(autoExposureApplied, forKey: .autoExposureApplied)
     }
+
+    /// Stable hash of only the fields that affect RAW decoding.
+    /// Used for cache keys to prevent silent invalidation when new fields are added.
+    var stableDecodeHash: String {
+        var hasher = Hasher()
+        hasher.combine(workflowPreset)
+        hasher.combine(whiteBalanceMode)
+        hasher.combine(temperature)
+        hasher.combine(tint)
+        hasher.combine(lensCorrection)
+        hasher.combine(temperatureOffsetMired)
+        hasher.combine(tintOffset)
+        hasher.combine(denoiseMode)
+        hasher.combine(denoiseLuma)
+        hasher.combine(denoiseChroma)
+        hasher.combine(developExposureEV)
+        hasher.combine(developGlobalTone)
+        hasher.combine(developShadowBoost)
+        hasher.combine(developHighlightHeadroom)
+        hasher.combine(developCurvePoints)
+        hasher.combine(autoExposureApplied)
+        // Note: denoiseModel is intentionally excluded as it doesn't affect CIRAWFilter decode
+        return String(hasher.finalize(), radix: 16)
+    }
 }
 
 struct ToneCurvePoint: Codable, Equatable, Hashable, Sendable, Identifiable {

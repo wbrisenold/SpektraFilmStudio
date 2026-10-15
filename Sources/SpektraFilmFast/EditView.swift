@@ -152,7 +152,7 @@ struct EditWorkspaceView: View {
                 Text("Photos")
                     .font(.caption)
                 Text("\(filteredEditPhotos.count) / \(model.visibleImages.count)")
-                    .foregroundStyle(.secondary)
+                    .studioSecondaryLabel()
 
                 if model.librarySelection.count > 1 {
                     Text("\(model.librarySelection.count) selected")
@@ -179,7 +179,7 @@ struct EditWorkspaceView: View {
 
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
+                    .studioSecondaryLabel()
                 TextField("Search filenames", text: $editPhotosSearch)
                     .textFieldStyle(.plain)
                     .font(.caption)
@@ -253,7 +253,7 @@ struct EditWorkspaceView: View {
 
                             VStack(spacing: 4) {
                                 ZStack {
-                                    RoundedRectangle(cornerRadius: 7)
+                                    RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius)
                                         .fill(Color.black.opacity(0.28))
 
                                     LocalThumbnail(url: model.thumbnailURL(for: image), contentMode: .fit)
@@ -302,9 +302,9 @@ struct EditWorkspaceView: View {
                                     .padding(6)
                                 }
                                 .frame(width: filmstripThumbnailWidth, height: filmstripThumbnailHeight)
-                                .clipShape(RoundedRectangle(cornerRadius: 7))
+                                .clipShape(RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
                                 .overlay {
-                                    RoundedRectangle(cornerRadius: 7)
+                                    RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius)
                                         .stroke(
                                             active
                                                 ? Color.accentColor
@@ -391,9 +391,9 @@ private struct EditorInspectorView: View {
                             Image(systemName: item.symbol)
                                 .font(.system(size: 13))
                                 .frame(maxWidth: .infinity, minHeight: 26)
-                                .foregroundStyle(mode == item ? Color.primary : Color.secondary)
+                                .foregroundStyle(mode == item ? Color.primary : StudioPalette.secondaryLabel)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 6)
+                                    RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius)
                                         .fill(mode == item ? StudioPalette.selected : Color.clear)
                                 )
                                 .contentShape(Rectangle())

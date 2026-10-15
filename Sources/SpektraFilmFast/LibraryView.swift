@@ -93,12 +93,12 @@ struct LibraryWorkspaceView: View {
                         .aspectRatio(3.0 / 2.0, contentMode: .fit)
                         .frame(maxWidth: .infinity)
                         .background(StudioPalette.recessed)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                    Text(photo.fileName).font(.caption2).foregroundStyle(.secondary)
+                        .studioCompactCorner()
+                    Text(photo.fileName).font(.caption2).studioSecondaryLabel()
                         .lineLimit(1).truncationMode(.middle)
                 } else {
                     Label("Select a photo", systemImage: "photo")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).studioSecondaryLabel()
                         .frame(maxWidth: .infinity, minHeight: 80)
                 }
             }
@@ -118,7 +118,7 @@ struct LibraryWorkspaceView: View {
                                 Text(filter.rawValue)
                                 Spacer()
                                 Text("\(model.libraryCount(filter))")
-                                    .foregroundStyle(.secondary).monospacedDigit()
+                                    .studioSecondaryLabel().monospacedDigit()
                             }
                             .contentShape(Rectangle())
                             .padding(.vertical, 2)
@@ -182,7 +182,7 @@ struct LibraryWorkspaceView: View {
                             HStack {
                                 Label(group.name, systemImage: "person.crop.circle")
                                 Spacer()
-                                Text("\(group.imageIDs.count)").foregroundStyle(.secondary)
+                                Text("\(group.imageIDs.count)").studioSecondaryLabel()
                             }
                         }
                         .buttonStyle(.plain)
@@ -259,7 +259,7 @@ struct LibraryWorkspaceView: View {
                         Text("\(model.librarySelection.count) selected · \(exportCount) queued").lineLimit(1)
                     }
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .studioSecondaryLabel()
 
                     Menu("Batch") {
                         Menu("Rating") {
@@ -414,7 +414,7 @@ struct LibraryWorkspaceView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         LocalThumbnail(url: model.thumbnailURL(for: image)).aspectRatio(3 / 2, contentMode: .fit)
-                            .clipShape(RoundedRectangle(cornerRadius: 7))
+                            .studioCompactCorner()
                         Text(image.fileName).font(.headline).lineLimit(2)
                         HStack {
                             Button("Cull") {
@@ -449,7 +449,7 @@ struct LibraryWorkspaceView: View {
                         metadataRow("Folder", image.url.deletingLastPathComponent().lastPathComponent)
                         if let cull = image.cullAnalysis {
                             Divider()
-                            Text("SMART CULL").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                            Text("SMART CULL").font(.caption2.weight(.semibold)).studioSecondaryLabel()
                             HStack(alignment: .firstTextBaseline) {
                                 Text(String(format: "%.0f", cull.score)).font(
                                     .system(size: 30, weight: .semibold, design: .rounded))
@@ -465,7 +465,7 @@ struct LibraryWorkspaceView: View {
                                 Label("Possible blink", systemImage: "eye.slash").foregroundStyle(.orange)
                             }
                             ForEach(cull.reasons, id: \.self) {
-                                Text("• \($0)").font(.caption).foregroundStyle(.secondary)
+                                Text("• \($0)").font(.caption).studioSecondaryLabel()
                             }
                         } else {
                             Divider()
@@ -518,7 +518,7 @@ struct LibraryWorkspaceView: View {
 
     private func metadataRow(_ label: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(label).foregroundStyle(.secondary); Spacer(); Text(value).multilineTextAlignment(.trailing)
+            Text(label).studioSecondaryLabel(); Spacer(); Text(value).multilineTextAlignment(.trailing)
         }.font(.caption)
     }
 
@@ -609,7 +609,7 @@ private struct LibraryPhotoCard: View {
                     Image(systemName: "eye.slash").font(.caption2).help("Possible blink")
                 }
             }
-            .foregroundStyle(.secondary)
+            .studioSecondaryLabel()
             .frame(height: 12)
         }
         .padding(6)

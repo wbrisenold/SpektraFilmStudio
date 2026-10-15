@@ -192,7 +192,7 @@ struct PreviewView: View {
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.orange)
                         .padding(8)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                         .padding(.top, 56)
                         .padding(.leading, 12)
@@ -205,10 +205,10 @@ struct PreviewView: View {
                         Text("Rendering")
                     }
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .studioSecondaryLabel()
                     .padding(.horizontal, 9)
                     .frame(height: 28)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                     .padding(12)
                 }
@@ -252,7 +252,7 @@ struct PreviewView: View {
         .font(.caption2.weight(.semibold))
         .padding(.horizontal, 10)
         .frame(height: 28)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(12)
         .allowsHitTesting(false)
@@ -288,10 +288,10 @@ struct PreviewView: View {
             }
         }
         .font(.caption2)
-        .foregroundStyle(.secondary)
+        .studioSecondaryLabel()
         .padding(.horizontal, 8)
         .frame(height: 24)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         .padding(10)
         .padding(.bottom, 36)
@@ -392,7 +392,7 @@ struct PreviewView: View {
                     }
                 }
                 .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .studioSecondaryLabel()
                 .help(
                     "Over/Under use the same final display-referred signal as False Color. Parentheses show the hottest / deepest subset."
                 )
@@ -400,12 +400,12 @@ struct PreviewView: View {
 
             Text("\(Int(zoom * 100))%")
                 .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .studioSecondaryLabel()
         }
         .padding(.horizontal, 8)
         .frame(height: 36)
         .background(StudioPalette.panel)
-        .overlay(alignment: .top) { Divider().opacity(0.55) }
+        .overlay(alignment: .top) { studioDivider() }
     }
 
     private func fit() {
