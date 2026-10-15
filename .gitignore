@@ -10,3 +10,8 @@ DerivedData/
 __pycache__/
 Vendor/
 Resources/AIModels/
+repomix-output.xml
+
+# Git hooks (removed repomix hooks)
+.git/hooks/pre-commit
+.git/hooks/pre-push
