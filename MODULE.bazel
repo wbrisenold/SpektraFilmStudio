@@ -1,0 +1,112 @@
+# MODULE.bazel — Modern Bzlmod configuration for SpektraFilmStudio
+# Uses Bazel Central Registry (BCR) for dependency resolution with verified hashes
+
+module(
+    name = "spektrafilmstudio",
+    version = "1.0.0",
+    bazel_compatibility = ">=8.0.0",
+)
+
+# =========================================================================
+# Swift / Apple / CC Rules from BCR (hashes pre-verified in registry)
+# =========================================================================
+
+bazel_dep(name = "rules_swift", version = "4.2.1")
+bazel_dep(name = "rules_apple", version = "4.5.3")
+bazel_dep(name = "rules_cc", version = "0.0.11")
+bazel_dep(name = "bazel_skylib", version = "1.7.1")
+bazel_dep(name = "platforms", version = "0.0.8")
+bazel_dep(name = "apple_support", version = "1.3.0")
+
+# =========================================================================
+# Register toolchains (Swift, Apple, CC)
+# =========================================================================
+
+# Swift toolchain — rules_swift provides a Bzlmod extension for standalone toolchains
+# See: https://github.com/bazelbuild/rules_swift/blob/main/doc/standalone_toolchain.md
+swift = use_extension("@rules_swift//swift/extensions:swift.bzl", "swift")
+swift.toolchain(
+    name = "swift_toolchain",
+    swift_version = "6.3",
+    # Platform SHA256 will be auto-resolved from rules_swift's metadata
+)
+
+use_repo(swift, "swift_toolchain")
+
+# Apple toolchains (Xcode, etc.)
+apple = use_extension("@build_bazel_rules_apple//apple:repositories.bzl", "apple")
+apple.register_toolchains()
+
+use_repo(apple, "apple_toolchains")
+
+# CC toolchains
+cc = use_extension("@rules_cc//cc:repositories.bzl", "cc")
+cc.configure()
+
+use_repo(cc, "cc_toolchain")
+
+# =========================================================================
+# Local dependencies (vendored)
+# =========================================================================
+
+# ONNX Runtime (vendored at Vendor/onnxruntime)
+native.new_local_repository(
+    name = "onnxruntime",
+    path = "//Vendor/onnxruntime",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "onnxruntime",
+    srcs = glob(["lib/libonnxruntime*.dylib"]),
+    hdrs = glob(["include/**/*.h"]),
+    linkstatic = False,
+    alwayslink = True,
+)
+""",
+)
+
+# LightCraft Rust crate (vendored at Vendor/lightcraft)
+native.new_local_repository(
+    name = "lightcraft",
+    path = "//Vendor/lightcraft",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+
+# Rust crate built externally via Cargo
+filegroup(
+    name = "lightcraft_srcs",
+    srcs = glob(["crates/**/*.rs", "Cargo.toml", "Cargo.lock"]),
+)
+""",
+)
+
+# =========================================================================
+# Generated native curves
+# =========================================================================
+
+native.new_local_repository(
+    name = "generated_curves",
+    path = "//Native/generated",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "generated_curves",
+    srcs = ["SpektraGeneratedProfileCurves.cpp"],
+    hdrs = [
+        "SpektraGeneratedProfileCounts.h",
+        "SpektraDensityLutShader.h",
+        "SpektraSpatialShader.h",
+    ],
+    includes = [".", "//Native/src"],
+    copts = [
+        "-std=c++17",
+        "-O3",
+        "-DNDEBUG",
+        "-mmacosx-version-min=15.0",
+        "-arch", "x86_64",
+    ],
+)
+""",
+)

@@ -1,0 +1,80 @@
+# Bazel WORKSPACE for SpektraFilmStudio
+# Intel x86_64 macOS 15.0+ only
+
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
+
+# Bazel version pin
+workspace(name = "spektrafilmstudio")
+
+# Rules for Swift (macOS/iOS)
+http_archive(
+    name = "build_bazel_rules_swift",
+    sha256 = "e8b9f5a1c2d4e6f8a0b3c5d7e9f1a2b4c6d8e0f2a4b6c8d0e2f4a6c8d0e2f4a6",  # UPDATE: get from release page
+    urls = [
+        "https://github.com/bazelbuild/rules_swift/releases/download/1.38.0/rules_swift.1.38.0.tar.gz",
+    ],
+)
+
+# Rules for Apple (macOS/iOS bundles, codesigning)
+http_archive(
+    name = "build_bazel_rules_apple",
+    sha256 = "f1a3c5e7b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b7d9f1a3",  # UPDATE: get from release page
+    urls = [
+        "https://github.com/bazelbuild/rules_apple/releases/download/3.3.1/rules_apple.3.3.1.tar.gz",
+    ],
+)
+
+# Rules for C++ (Metal renderer)
+http_archive(
+    name = "rules_cc",
+    sha256 = "a1b3c5d7e9f1a3c5e7b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3",  # UPDATE
+    urls = [
+        "https://github.com/bazelbuild/rules_cc/archive/refs/tags/0.0.11.tar.gz",
+    ],
+)
+
+# Load rules
+load("@build_bazel_rules_swift//swift:repositories.bzl", "swift_repositories")
+swift_repositories()
+
+load("@build_bazel_rules_apple//apple:repositories.bzl", "apple_repositories")
+apple_repositories()
+
+load("@rules_cc//cc:repositories.bzl", "cc_repositories")
+cc_repositories()
+
+# ONNX Runtime native dependency (vendored)
+native.new_local_repository(
+    name = "onnxruntime",
+    path = "/Users/A1990/Downloads/SpektraFilmStudio/Vendor/onnxruntime",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "onnxruntime",
+    srcs = glob(["lib/libonnxruntime*.dylib"]),
+    hdrs = glob(["include/**/*.h"]),
+    linkstatic = False,
+    alwayslink = True,
+)
+""",
+)
+
+# LightCraft Rust dependency (vendored)
+native.new_local_repository(
+    name = "lightcraft",
+    path = "/Users/A1990/Downloads/SpektraFilmStudio/Vendor/lightcraft",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+
+# Rust crate — built via rules_rust (if available) or pre-built
+filegroup(
+    name = "lightcraft_srcs",
+    srcs = glob(["crates/**/*.rs", "Cargo.toml", "Cargo.lock"]),
+)
+""",
+)
+
+# System frameworks (macOS SDK)
+apple.register_toolchains()
