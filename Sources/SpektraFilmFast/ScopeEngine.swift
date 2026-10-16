@@ -18,7 +18,7 @@ actor ScopeEngine {
         skinMeanCbNormalized: Double = 0.0,
         skinMeanCrNormalized: Double = 0.0,
         skinMeanDeviationDegrees: Double = 0.0,
-        skinMeasurementConfidencePercent: Double = 0.0
+        skinMeasurementConfidencePercent: Double = 0.0,
     ) async throws -> ScopePayload {
         try Task.checkCancellation()
         return try await Task.detached(priority: .utility) {
@@ -32,7 +32,8 @@ actor ScopeEngine {
                 return Self.waveform(buffer, look: look, parade: true)
             case .vectorscope:
                 return Self.vectorscope(
-                    buffer, look: look, skinReference: false, toleranceDegrees: skinToleranceDegrees)
+                    buffer, look: look, skinReference: false, toleranceDegrees: skinToleranceDegrees,
+                )
             case .saturation:
                 return Self.saturationScope(buffer, look: look)
             case .falseColor:
@@ -44,7 +45,7 @@ actor ScopeEngine {
                     skinMeanCbNormalized: skinMeanCbNormalized,
                     skinMeanCrNormalized: skinMeanCrNormalized,
                     skinMeanDeviationDegrees: skinMeanDeviationDegrees,
-                    skinMeasurementConfidencePercent: skinMeasurementConfidencePercent
+                    skinMeasurementConfidencePercent: skinMeasurementConfidencePercent,
                 )
             case .chromaticity:
                 return Self.chromaticity(buffer)
@@ -71,7 +72,7 @@ actor ScopeEngine {
 
         func rgb(_ r: Float, _ g: Float, _ b: Float) -> (Float, Float, Float) {
             if let display = SkinToneReference.canonicalDisplayRGB(
-                r: r, g: g, b: b, outputRole: role, outputSpace: space
+                r: r, g: g, b: b, outputRole: role, outputSpace: space,
             ) {
                 return display
             }
@@ -79,7 +80,7 @@ actor ScopeEngine {
             return (
                 DisplayMonitorSignal.code(r, outputSpace: space),
                 DisplayMonitorSignal.code(g, outputSpace: space),
-                DisplayMonitorSignal.code(b, outputSpace: space)
+                DisplayMonitorSignal.code(b, outputSpace: space),
             )
         }
 
@@ -90,7 +91,8 @@ actor ScopeEngine {
             let luma = 0.2126 * m.0 + 0.7152 * m.1 + 0.0722 * m.2
             let saturation = peak > 1.0e-6 ? (peak - floor) / peak : 0
             return DisplayMonitorSample(
-                r: m.0, g: m.1, b: m.2, luma: luma, saturation: saturation, peak: peak, floor: floor)
+                r: m.0, g: m.1, b: m.2, luma: luma, saturation: saturation, peak: peak, floor: floor,
+            )
         }
     }
 
@@ -112,7 +114,8 @@ actor ScopeEngine {
             for x in stride(from: 0, to: buffer.width, by: step) {
                 let p = (y * buffer.width + x) * 4
                 let values = monitor.rgb(
-                    buffer.pixels[p], buffer.pixels[p + 1], buffer.pixels[p + 2])
+                    buffer.pixels[p], buffer.pixels[p + 1], buffer.pixels[p + 2],
+                )
                 red[Int((max(0, min(1, values.0)) * 255).rounded())] &+= 1
                 green[Int((max(0, min(1, values.1)) * 255).rounded())] &+= 1
                 blue[Int((max(0, min(1, values.2)) * 255).rounded())] &+= 1
@@ -131,9 +134,9 @@ actor ScopeEngine {
         var envelope = [Double](repeating: 0, count: width)
         for (values, color) in channels {
             var smooth = [Double](repeating: 0, count: bins)
-            for bin in 0..<bins {
+            for bin in 0 ..< bins {
                 var sum = 0.0, weight = 0.0
-                for offset in -2...2 {
+                for offset in -2 ... 2 {
                     let index = max(0, min(bins - 1, bin + offset))
                     let w = Double(3 - abs(offset))
                     sum += Double(values[index]) * w
@@ -143,7 +146,7 @@ actor ScopeEngine {
             }
             let peak = max(1, smooth.max() ?? 1)
             var prior: (Int, Int)?
-            for x in 0..<width {
+            for x in 0 ..< width {
                 let v = smooth[min(bins - 1, x * bins / width)]
                 // Compress outliers without erasing low-level information.
                 let normalized = pow(log1p(v) / log1p(peak), 0.85)
@@ -151,7 +154,7 @@ actor ScopeEngine {
                 let y = height - 3 - Int(normalized * Double(height - 17))
                 let top = max(8, min(height - 3, y))
                 if top < height - 3 {
-                    for fillY in (top + 1)..<(height - 2) {
+                    for fillY in (top + 1) ..< (height - 2) {
                         blend(&out, width, height, x, fillY, color.0, color.1, color.2, 21)
                     }
                 }
@@ -161,7 +164,7 @@ actor ScopeEngine {
                 prior = (x, top)
             }
         }
-        for x in 1..<width {
+        for x in 1 ..< width {
             let y0 = height - 3 - Int(envelope[x - 1] * Double(height - 17))
             let y1 = height - 3 - Int(envelope[x] * Double(height - 17))
             drawLine(&out, width, height, (x - 1, y0), (x, y1), 233, 235, 241, 85)
@@ -189,9 +192,10 @@ actor ScopeEngine {
             for sx in stride(from: 0, to: buffer.width, by: xStep) {
                 let p = (sy * buffer.width + sx) * 4
                 let values = monitor.rgb(
-                    buffer.pixels[p], buffer.pixels[p + 1], buffer.pixels[p + 2])
+                    buffer.pixels[p], buffer.pixels[p + 1], buffer.pixels[p + 2],
+                )
 
-                for channel in 0..<3 {
+                for channel in 0 ..< 3 {
                     let value = channel == 0 ? values.0 : (channel == 1 ? values.1 : values.2)
                     let x: Int
                     if parade {
@@ -212,30 +216,38 @@ actor ScopeEngine {
         if parade {
             for x in [segmentWidth, segmentWidth * 2] {
                 guard x < width else { continue }
-                for y in 0..<height { blend(&out, width, height, x, y, 80, 84, 92, 62) }
+                for y in 0 ..< height {
+                    blend(&out, width, height, x, y, 80, 84, 92, 62)
+                }
             }
         }
 
         let maxCount = max(1, counts.max() ?? 1)
 
-        for y in 0..<height {
-            for x in 0..<width {
+        for y in 0 ..< height {
+            for x in 0 ..< width {
                 let base = y * width + x
                 // Three scalar locals, not a per-pixel [Double] heap allocation.
                 var density0 = 0.0, density1 = 0.0, density2 = 0.0
                 let count0 = counts[base]
-                if count0 > 0 { density0 = sqrt(Double(count0) / Double(maxCount)) }
+                if count0 > 0 {
+                    density0 = sqrt(Double(count0) / Double(maxCount))
+                }
                 let count1 = counts[planeSize + base]
-                if count1 > 0 { density1 = sqrt(Double(count1) / Double(maxCount)) }
+                if count1 > 0 {
+                    density1 = sqrt(Double(count1) / Double(maxCount))
+                }
                 let count2 = counts[2 * planeSize + base]
-                if count2 > 0 { density2 = sqrt(Double(count2) / Double(maxCount)) }
+                if count2 > 0 {
+                    density2 = sqrt(Double(count2) / Double(maxCount))
+                }
                 let peak = max(density0, max(density1, density2))
                 guard peak > 0.008 else { continue }
 
                 let mixed = (
                     1.00 * density0 + 0.18 * density1 + 0.18 * density2,
                     0.18 * density0 + 1.00 * density1 + 0.42 * density2,
-                    0.22 * density0 + 0.42 * density1 + 1.00 * density2
+                    0.22 * density0 + 0.42 * density1 + 1.00 * density2,
                 )
                 let colorPeak = max(0.001, max(mixed.0, max(mixed.1, mixed.2)))
                 let r = UInt8(clamping: Int((mixed.0 / colorPeak * 255).rounded()))
@@ -250,8 +262,8 @@ actor ScopeEngine {
         return ScopePayload(width: width, height: height, rgba: out)
     }
 
-    // Both diagnostics use the *final* post-lens/post-geometry rendered frame,
-    // never camera-linear RAW before grading. Interpret coded signal properly.
+    /// Both diagnostics use the *final* post-lens/post-geometry rendered frame,
+    /// never camera-linear RAW before grading. Interpret coded signal properly.
     private nonisolated static func monitorCode(_ x: Float, outputSpace: Int) -> Float {
         DisplayMonitorSignal.code(x, outputSpace: outputSpace)
     }
@@ -261,31 +273,32 @@ actor ScopeEngine {
             height = max(150, Int((Double(384) * Double(buffer.height) / Double(max(1, buffer.width))).rounded()))
         var out = [UInt8](repeating: 0, count: width * height * 4)
         let lookup = MonitorLookup(look: look)
-        for y in 0..<height {
-            for x in 0..<width {
+        for y in 0 ..< height {
+            for x in 0 ..< width {
                 let sx = min(buffer.width - 1, x * buffer.width / width)
                 let sy = min(buffer.height - 1, y * buffer.height / height)
                 let p = (sy * buffer.width + sx) * 4
                 let monitor = lookup.sample(
-                    buffer.pixels[p], buffer.pixels[p + 1], buffer.pixels[p + 2])
+                    buffer.pixels[p], buffer.pixels[p + 1], buffer.pixels[p + 2],
+                )
                 let mx = monitor.peak
                 let saturation = monitor.saturation
                 let luma = monitor.luma
                 let intensity = min(0.8, max(0.07, luma)) * 155
                 var color: (UInt8, UInt8, UInt8) = (
-                    UInt8(clamping: Int(intensity)), UInt8(clamping: Int(intensity)), UInt8(clamping: Int(intensity))
+                    UInt8(clamping: Int(intensity)), UInt8(clamping: Int(intensity)), UInt8(clamping: Int(intensity)),
                 )
                 // Black and near-white pixels have unreliable/noisy HSV saturation.
-                if mx >= 0.12 && luma <= 0.94 {
+                if mx >= 0.12, luma <= 0.94 {
                     switch saturation {
                     case ..<0.50: break
-                    case ..<0.70: color = (58, 160, 144)  // moderately colorful
-                    case ..<0.85: color = (236, 184, 72)  // strong color
-                    case ..<0.95: color = (244, 107, 72)  // caution
-                    default: color = (230, 54, 102)  // very high HSV saturation
+                    case ..<0.70: color = (58, 160, 144) // moderately colorful
+                    case ..<0.85: color = (236, 184, 72) // strong color
+                    case ..<0.95: color = (244, 107, 72) // caution
+                    default: color = (230, 54, 102) // very high HSV saturation
                     }
                 }
-                let o = (y * width + x) * 4; out[o] = color.0; out[o + 1] = color.1; out[o + 2] = color.2;
+                let o = (y * width + x) * 4; out[o] = color.0; out[o + 1] = color.1; out[o + 2] = color.2
                 out[o + 3] = 255
             }
         }
@@ -297,26 +310,26 @@ actor ScopeEngine {
             height = max(150, Int((Double(384) * Double(buffer.height) / Double(max(1, buffer.width))).rounded()))
         var out = [UInt8](repeating: 0, count: width * height * 4)
         let lookup = MonitorLookup(look: look)
-        for y in 0..<height {
-            for x in 0..<width {
+        for y in 0 ..< height {
+            for x in 0 ..< width {
                 let sx = min(buffer.width - 1, x * buffer.width / width),
                     sy = min(buffer.height - 1, y * buffer.height / height), p = (sy * buffer.width + sx) * 4
                 let monitor = lookup.sample(
-                    buffer.pixels[p], buffer.pixels[p + 1], buffer.pixels[p + 2])
+                    buffer.pixels[p], buffer.pixels[p + 1], buffer.pixels[p + 2],
+                )
                 let yPrime = monitor.luma
-                let color: (UInt8, UInt8, UInt8)
-                switch yPrime {
-                case ..<0.03: color = (30, 29, 91)  // deepest shadows
-                case ..<0.10: color = (51, 75, 158)
-                case ..<0.20: color = (53, 147, 198)
-                case ..<0.40: color = (70, 171, 121)
-                case ..<0.60: color = (135, 145, 138)  // gray around expected middle
-                case ..<0.75: color = (227, 190, 79)
-                case ..<0.88: color = (246, 124, 57)
-                case ..<0.97: color = (224, 69, 87)
-                default: color = (255, 242, 240)
+                let color: (UInt8, UInt8, UInt8) = switch yPrime {
+                case ..<0.03: (30, 29, 91) // deepest shadows
+                case ..<0.10: (51, 75, 158)
+                case ..<0.20: (53, 147, 198)
+                case ..<0.40: (70, 171, 121)
+                case ..<0.60: (135, 145, 138) // gray around expected middle
+                case ..<0.75: (227, 190, 79)
+                case ..<0.88: (246, 124, 57)
+                case ..<0.97: (224, 69, 87)
+                default: (255, 242, 240)
                 }
-                let o = (y * width + x) * 4; out[o] = color.0; out[o + 1] = color.1; out[o + 2] = color.2;
+                let o = (y * width + x) * 4; out[o] = color.0; out[o + 1] = color.1; out[o + 2] = color.2
                 out[o + 3] = 255
             }
         }
@@ -336,7 +349,7 @@ actor ScopeEngine {
         skinMeanCbNormalized: Double = 0.0,
         skinMeanCrNormalized: Double = 0.0,
         skinMeanDeviationDegrees: Double = 0.0,
-        skinMeasurementConfidencePercent: Double = 0.0
+        skinMeasurementConfidencePercent: Double = 0.0,
     ) -> ScopePayload {
         let size = 448
         let pixelCount = size * size
@@ -369,7 +382,7 @@ actor ScopeEngine {
                     guard
                         let canonical = SkinToneReference.canonicalDisplayRGB(
                             r: rawR, g: rawG, b: rawB,
-                            outputRole: lookup.role, outputSpace: lookup.space
+                            outputRole: lookup.role, outputSpace: lookup.space,
                         )
                     else { continue }
                     r = canonical.0; g = canonical.1; b = canonical.2
@@ -398,13 +411,14 @@ actor ScopeEngine {
         if skinReference {
             drawSkinReference(
                 &out, size, referenceDegrees: SkinToneReference.referenceAngleDegrees,
-                toleranceDegrees: toleranceDegrees)
+                toleranceDegrees: toleranceDegrees,
+            )
         }
         drawVectorTargets(&out, size)
 
         let maxCount = max(1, counts.max() ?? 1)
-        for y in 0..<size {
-            for x in 0..<size {
+        for y in 0 ..< size {
+            for x in 0 ..< size {
                 let index = y * size + x
                 let count = counts[index]
                 guard count > 0 else { continue }
@@ -425,7 +439,7 @@ actor ScopeEngine {
                     UInt8(clamping: Int((r * 255).rounded())),
                     UInt8(clamping: Int((g * 255).rounded())),
                     UInt8(clamping: Int((b * 255).rounded())),
-                    alpha
+                    alpha,
                 )
             }
         }
@@ -437,7 +451,7 @@ actor ScopeEngine {
                 cbNormalized: skinMeanCbNormalized,
                 crNormalized: skinMeanCrNormalized,
                 deviationDegrees: skinMeanDeviationDegrees,
-                toleranceDegrees: toleranceDegrees
+                toleranceDegrees: toleranceDegrees,
             )
         }
 
@@ -451,7 +465,7 @@ actor ScopeEngine {
         cbNormalized: Double,
         crNormalized: Double,
         deviationDegrees: Double,
-        toleranceDegrees: Double
+        toleranceDegrees: Double,
     ) {
         let center = Double(size - 1) * 0.5
         let radiusScale = Double(size - 1) * 0.5
@@ -462,14 +476,14 @@ actor ScopeEngine {
 
         let measured = (
             Int((center + cb * radiusScale).rounded()),
-            Int((center - cr * radiusScale).rounded())
+            Int((center - cr * radiusScale).rounded()),
         )
         let radians = SkinToneReference.referenceAngleDegrees * Double.pi / 180.0
         let targetCb = cos(radians) * measuredRadius
         let targetCr = sin(radians) * measuredRadius
         let target = (
             Int((center + targetCb * radiusScale).rounded()),
-            Int((center - targetCr * radiusScale).rounded())
+            Int((center - targetCr * radiusScale).rounded()),
         )
 
         // Connector answers the grading question immediately: where detected skin is vs
@@ -485,39 +499,39 @@ actor ScopeEngine {
         let wing = 4.5
         let left = (
             Int((Double(target.0) - ux * arrow - uy * wing).rounded()),
-            Int((Double(target.1) - uy * arrow + ux * wing).rounded())
+            Int((Double(target.1) - uy * arrow + ux * wing).rounded()),
         )
         let right = (
             Int((Double(target.0) - ux * arrow + uy * wing).rounded()),
-            Int((Double(target.1) - uy * arrow - ux * wing).rounded())
+            Int((Double(target.1) - uy * arrow - ux * wing).rounded()),
         )
         drawLine(&out, size, size, left, target, 236, 198, 126, 220)
         drawLine(&out, size, size, right, target, 236, 198, 126, 220)
 
-        let stateColor: (UInt8, UInt8, UInt8)
-        if deviationDegrees < -toleranceDegrees {
-            stateColor = (210, 92, 136)  // too magenta
+        let stateColor: (UInt8, UInt8, UInt8) = if deviationDegrees < -toleranceDegrees {
+            (210, 92, 136) // too magenta
         } else if deviationDegrees > toleranceDegrees {
-            stateColor = (72, 184, 136)  // too green
+            (72, 184, 136) // too green
         } else {
-            stateColor = (230, 186, 104)  // on target
+            (230, 186, 104) // on target
         }
 
         // Target = compact champagne crosshair.
-        for d in -5...5 {
+        for d in -5 ... 5 {
             blend(&out, size, size, target.0 + d, target.1, 236, 198, 126, 220)
             blend(&out, size, size, target.0, target.1 + d, 236, 198, 126, 220)
         }
         // Measured = high-contrast ring/dot so it stays legible over dense traces.
-        for oy in -5...5 {
-            for ox in -5...5 {
+        for oy in -5 ... 5 {
+            for ox in -5 ... 5 {
                 let rr = ox * ox + oy * oy
-                if rr >= 16 && rr <= 26 {
+                if rr >= 16, rr <= 26 {
                     blend(&out, size, size, measured.0 + ox, measured.1 + oy, 244, 244, 246, 230)
                 } else if rr <= 9 {
                     blend(
                         &out, size, size, measured.0 + ox, measured.1 + oy,
-                        stateColor.0, stateColor.1, stateColor.2, 242)
+                        stateColor.0, stateColor.1, stateColor.2, 242,
+                    )
                 }
             }
         }
@@ -555,8 +569,8 @@ actor ScopeEngine {
         var out = background(width, height)
         drawChromaticityGrid(&out, width, height)
         let maxCount = max(1, counts.max() ?? 1)
-        for y in 0..<height {
-            for x in 0..<width {
+        for y in 0 ..< height {
+            for x in 0 ..< width {
                 let count = counts[y * width + x]
                 guard count > 0 else { continue }
                 let density = log1p(Double(count)) / log1p(Double(maxCount))
@@ -582,23 +596,27 @@ actor ScopeEngine {
     }
 
     private nonisolated static func drawCartesianGrid(
-        _ out: inout [UInt8], _ width: Int, _ height: Int, vertical: Bool
+        _ out: inout [UInt8], _ width: Int, _ height: Int, vertical: Bool,
     ) {
-        for i in 1..<4 {
+        for i in 1 ..< 4 {
             let y = Int((Double(i) / 4.0) * Double(height - 1))
-            for x in 0..<width { blend(&out, width, height, x, y, 75, 80, 89, 48) }
+            for x in 0 ..< width {
+                blend(&out, width, height, x, y, 75, 80, 89, 48)
+            }
             if vertical {
                 let x = Int((Double(i) / 4.0) * Double(width - 1))
-                for yy in 0..<height { blend(&out, width, height, x, yy, 75, 80, 89, 42) }
+                for yy in 0 ..< height {
+                    blend(&out, width, height, x, yy, 75, 80, 89, 42)
+                }
             }
         }
     }
 
     private nonisolated static func drawTopBottomRules(
-        _ out: inout [UInt8], _ width: Int, _ height: Int
+        _ out: inout [UInt8], _ width: Int, _ height: Int,
     ) {
         guard height > 1 else { return }
-        for x in 0..<width {
+        for x in 0 ..< width {
             blend(&out, width, height, x, 0, 104, 110, 120, 82)
             blend(&out, width, height, x, height - 1, 104, 110, 120, 82)
         }
@@ -608,8 +626,8 @@ actor ScopeEngine {
         let center = Double(size - 1) / 2
         let outerRadius = center * 0.91
         let innerRadius = outerRadius * 0.75
-        for y in 0..<size {
-            for x in 0..<size {
+        for y in 0 ..< size {
+            for x in 0 ..< size {
                 let dx = Double(x) - center
                 let dy = Double(y) - center
                 let radius = sqrt(dx * dx + dy * dy)
@@ -627,24 +645,30 @@ actor ScopeEngine {
         _ out: inout [UInt8],
         _ size: Int,
         referenceDegrees: Double,
-        toleranceDegrees: Double
+        toleranceDegrees: Double,
     ) {
         let center = (Double(size - 1) / 2, Double(size - 1) / 2)
         let radius = Double(size - 1) * 0.455
         let tolerance = max(2, min(30, toleranceDegrees))
 
         // Subtle tolerance wedge behind the trace.
-        for y in 0..<size {
-            for x in 0..<size {
+        for y in 0 ..< size {
+            for x in 0 ..< size {
                 let dx = Double(x) - center.0
                 let dy = center.1 - Double(y)
                 let distance = sqrt(dx * dx + dy * dy)
                 guard distance <= radius else { continue }
                 var angle = atan2(dy, dx) * 180 / .pi
-                if angle < 0 { angle += 360 }
+                if angle < 0 {
+                    angle += 360
+                }
                 var delta = angle - referenceDegrees
-                while delta > 180 { delta -= 360 }
-                while delta < -180 { delta += 360 }
+                while delta > 180 {
+                    delta -= 360
+                }
+                while delta < -180 {
+                    delta += 360
+                }
                 if abs(delta) <= tolerance {
                     blend(&out, size, size, x, y, 255, 167, 70, 8)
                 }
@@ -675,8 +699,8 @@ actor ScopeEngine {
             let cr = (r - luma) / (2 * (1 - 0.2126))
             let x = min(size - 1, max(0, Int(((cb + 0.5) * Float(size - 1)).rounded())))
             let y = min(size - 1, max(0, Int(((0.5 - cr) * Float(size - 1)).rounded())))
-            for oy in -3...3 {
-                for ox in -3...3 where abs(ox) == 3 || abs(oy) == 3 {
+            for oy in -3 ... 3 {
+                for ox in -3 ... 3 where abs(ox) == 3 || abs(oy) == 3 {
                     blend(&out, size, size, x + ox, y + oy, color.0, color.1, color.2, 150)
                 }
             }
@@ -684,18 +708,22 @@ actor ScopeEngine {
     }
 
     private nonisolated static func drawChromaticityGrid(
-        _ out: inout [UInt8], _ width: Int, _ height: Int
+        _ out: inout [UInt8], _ width: Int, _ height: Int,
     ) {
         for fraction in [0.25, 0.5, 0.75] {
             let x = Int(Double(width - 1) * fraction)
             let y = Int(Double(height - 1) * fraction)
-            for yy in 0..<height { blend(&out, width, height, x, yy, 75, 80, 89, 44) }
-            for xx in 0..<width { blend(&out, width, height, xx, y, 75, 80, 89, 44) }
+            for yy in 0 ..< height {
+                blend(&out, width, height, x, yy, 75, 80, 89, 44)
+            }
+            for xx in 0 ..< width {
+                blend(&out, width, height, xx, y, 75, 80, 89, 44)
+            }
         }
         func plot(_ xy: (Double, Double)) -> (Int, Int) {
             (
                 min(width - 1, max(0, Int((xy.0 / 0.8 * Double(width - 1)).rounded()))),
-                min(height - 1, max(0, Int(((1 - xy.1 / 0.9) * Double(height - 1)).rounded())))
+                min(height - 1, max(0, Int(((1 - xy.1 / 0.9) * Double(height - 1)).rounded()))),
             )
         }
         let red = plot((0.708, 0.292))
@@ -712,8 +740,8 @@ actor ScopeEngine {
             (white, (232, 232, 232)),
         ]
         for (point, color) in markers {
-            for oy in -2...2 {
-                for ox in -2...2 {
+            for oy in -2 ... 2 {
+                for ox in -2 ... 2 {
                     blend(&out, width, height, point.0 + ox, point.1 + oy, color.0, color.1, color.2, 180)
                 }
             }
@@ -721,24 +749,24 @@ actor ScopeEngine {
     }
 
     private nonisolated static func polar(
-        center: (Double, Double), radius: Double, degrees: Double
+        center: (Double, Double), radius: Double, degrees: Double,
     ) -> (Int, Int) {
         let radians = degrees * .pi / 180
         return (
             Int((center.0 + radius * cos(radians)).rounded()),
-            Int((center.1 - radius * sin(radians)).rounded())
+            Int((center.1 - radius * sin(radians)).rounded()),
         )
     }
 
     private nonisolated static func drawDashedLine(
         _ out: inout [UInt8], _ width: Int, _ height: Int,
         _ a: (Int, Int), _ b: (Int, Int),
-        _ r: UInt8, _ g: UInt8, _ blue: UInt8, _ alpha: UInt8
+        _ r: UInt8, _ g: UInt8, _ blue: UInt8, _ alpha: UInt8,
     ) {
         let dx = b.0 - a.0
         let dy = b.1 - a.1
         let steps = max(1, max(abs(dx), abs(dy)))
-        for i in 0...steps where (i / 5) % 2 == 0 {
+        for i in 0 ... steps where (i / 5) % 2 == 0 {
             let t = Double(i) / Double(steps)
             let x = Int((Double(a.0) + Double(dx) * t).rounded())
             let y = Int((Double(a.1) + Double(dy) * t).rounded())
@@ -751,12 +779,12 @@ actor ScopeEngine {
     private nonisolated static func drawLine(
         _ out: inout [UInt8], _ width: Int, _ height: Int,
         _ a: (Int, Int), _ b: (Int, Int),
-        _ r: UInt8, _ g: UInt8, _ blue: UInt8, _ alpha: UInt8
+        _ r: UInt8, _ g: UInt8, _ blue: UInt8, _ alpha: UInt8,
     ) {
         let dx = b.0 - a.0
         let dy = b.1 - a.1
         let steps = max(1, max(abs(dx), abs(dy)))
-        for i in 0...steps {
+        for i in 0 ... steps {
             let t = Double(i) / Double(steps)
             let x = Int((Double(a.0) + Double(dx) * t).rounded())
             let y = Int((Double(a.1) + Double(dy) * t).rounded())
@@ -766,12 +794,12 @@ actor ScopeEngine {
         }
     }
 
-    // `height` is passed in: `out` is `inout [UInt8]`, so the optimizer cannot hoist
-    // `out.count / (width * 4)` out of the per-pixel caller's loop.
+    /// `height` is passed in: `out` is `inout [UInt8]`, so the optimizer cannot hoist
+    /// `out.count / (width * 4)` out of the per-pixel caller's loop.
     @inline(__always)
     private nonisolated static func blend(
         _ out: inout [UInt8], _ width: Int, _ height: Int, _ x: Int, _ y: Int,
-        _ r: UInt8, _ g: UInt8, _ b: UInt8, _ a: UInt8
+        _ r: UInt8, _ g: UInt8, _ b: UInt8, _ a: UInt8,
     ) {
         guard x >= 0, y >= 0, x < width else { return }
         guard y < height else { return }

@@ -19,11 +19,11 @@ enum CloudPreviewGenerator {
     static func writeJPEG(
         image: CGImage,
         destination: URL,
-        quality: Double = 0.82
+        quality: Double = 0.82,
     ) throws {
         try FileManager.default.createDirectory(
             at: destination.deletingLastPathComponent(),
-            withIntermediateDirectories: true
+            withIntermediateDirectories: true,
         )
         let temp = destination.deletingLastPathComponent()
             .appendingPathComponent(".\(destination.lastPathComponent).\(UUID().uuidString).partial")
@@ -33,23 +33,25 @@ enum CloudPreviewGenerator {
                 temp as CFURL,
                 UTType.jpeg.identifier as CFString,
                 1,
-                nil
+                nil,
             )
         else {
             throw NSError(
                 domain: "SpektraFilm.CloudPreview", code: 5,
-                userInfo: [NSLocalizedDescriptionKey: "Could not create rendered cloud preview destination."])
+                userInfo: [NSLocalizedDescriptionKey: "Could not create rendered cloud preview destination."],
+            )
         }
         CGImageDestinationAddImage(
             dest,
             image,
-            [kCGImageDestinationLossyCompressionQuality: min(1, max(0.2, quality))] as CFDictionary
+            [kCGImageDestinationLossyCompressionQuality: min(1, max(0.2, quality))] as CFDictionary,
         )
         guard CGImageDestinationFinalize(dest) else {
             try? FileManager.default.removeItem(at: temp)
             throw NSError(
                 domain: "SpektraFilm.CloudPreview", code: 6,
-                userInfo: [NSLocalizedDescriptionKey: "Could not finalize rendered cloud preview."])
+                userInfo: [NSLocalizedDescriptionKey: "Could not finalize rendered cloud preview."],
+            )
         }
         if FileManager.default.fileExists(atPath: destination.path) {
             try FileManager.default.removeItem(at: destination)
@@ -61,12 +63,13 @@ enum CloudPreviewGenerator {
         source: URL,
         destination: URL,
         maxPixel: Int = 1280,
-        quality: Double = 0.82
+        quality: Double = 0.82,
     ) throws {
         guard let imageSource = CGImageSourceCreateWithURL(source as CFURL, nil) else {
             throw NSError(
                 domain: "SpektraFilm.CloudPreview", code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Could not open \(source.lastPathComponent) for cloud preview."])
+                userInfo: [NSLocalizedDescriptionKey: "Could not open \(source.lastPathComponent) for cloud preview."],
+            )
         }
 
         let options: [CFString: Any] = [
@@ -77,19 +80,20 @@ enum CloudPreviewGenerator {
         ]
         guard
             let thumbnail = CGImageSourceCreateThumbnailAtIndex(
-                imageSource, 0, options as CFDictionary
+                imageSource, 0, options as CFDictionary,
             )
         else {
             throw NSError(
                 domain: "SpektraFilm.CloudPreview", code: 2,
                 userInfo: [
-                    NSLocalizedDescriptionKey: "Could not create a cloud preview for \(source.lastPathComponent)."
-                ])
+                    NSLocalizedDescriptionKey: "Could not create a cloud preview for \(source.lastPathComponent).",
+                ],
+            )
         }
 
         try FileManager.default.createDirectory(
             at: destination.deletingLastPathComponent(),
-            withIntermediateDirectories: true
+            withIntermediateDirectories: true,
         )
         let temp = destination.deletingLastPathComponent()
             .appendingPathComponent(".\(destination.lastPathComponent).\(UUID().uuidString).partial")
@@ -99,24 +103,26 @@ enum CloudPreviewGenerator {
                 temp as CFURL,
                 UTType.jpeg.identifier as CFString,
                 1,
-                nil
+                nil,
             )
         else {
             throw NSError(
                 domain: "SpektraFilm.CloudPreview", code: 3,
-                userInfo: [NSLocalizedDescriptionKey: "Could not create cloud preview destination."])
+                userInfo: [NSLocalizedDescriptionKey: "Could not create cloud preview destination."],
+            )
         }
 
         CGImageDestinationAddImage(
             dest,
             thumbnail,
-            [kCGImageDestinationLossyCompressionQuality: min(1, max(0.2, quality))] as CFDictionary
+            [kCGImageDestinationLossyCompressionQuality: min(1, max(0.2, quality))] as CFDictionary,
         )
         guard CGImageDestinationFinalize(dest) else {
             try? FileManager.default.removeItem(at: temp)
             throw NSError(
                 domain: "SpektraFilm.CloudPreview", code: 4,
-                userInfo: [NSLocalizedDescriptionKey: "Could not finalize cloud preview."])
+                userInfo: [NSLocalizedDescriptionKey: "Could not finalize cloud preview."],
+            )
         }
 
         if FileManager.default.fileExists(atPath: destination.path) {

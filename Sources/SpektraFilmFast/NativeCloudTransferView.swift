@@ -25,6 +25,7 @@ final class NativeCloudTransferRunner: ObservableObject {
         let allowedCDNHost: String
         let isBulk: Bool
     }
+
     enum Operation: Sendable { case testSSH, installRclone, deploy, checkICloud, validate, pilot, migrate }
     @Published var running = false
     @Published var status = "Not connected"
@@ -38,7 +39,7 @@ final class NativeCloudTransferRunner: ObservableObject {
         // Validate SSH key path to prevent path traversal attacks
         let standardizedKeyPath = URL(fileURLWithPath: configuration.sshKey).standardizedFileURL.path
         guard Self.safeToken(host, host: true), Self.safeToken(username, host: false),
-            FileManager.default.fileExists(atPath: standardizedKeyPath)
+              FileManager.default.fileExists(atPath: standardizedKeyPath)
         else {
             failed = true
             status = "Provide a valid SSH host, username, and existing SSH key"
@@ -48,11 +49,13 @@ final class NativeCloudTransferRunner: ObservableObject {
             guard
                 FileManager.default.fileExists(
                     atPath: URL(fileURLWithPath: configuration.workerDirectory).appendingPathComponent("transfer.py")
-                        .path),
+                        .path,
+                ),
                 FileManager.default.fileExists(
                     atPath: URL(fileURLWithPath: configuration.workerDirectory).appendingPathComponent(
-                        "bulk_zip_migrate.py"
-                    ).path)
+                        "bulk_zip_migrate.py",
+                    ).path,
+                )
             else {
                 status = "Select the full Tools/OracleTransfer directory from the checked-out repository"
                 failed = true
@@ -62,8 +65,8 @@ final class NativeCloudTransferRunner: ObservableObject {
         if operation == .validate || operation == .pilot || operation == .migrate {
             guard
                 configuration.allowedCDNHost.isEmpty
-                    || (Self.safeToken(configuration.allowedCDNHost, host: true)
-                        && configuration.allowedCDNHost.contains("."))
+                || (Self.safeToken(configuration.allowedCDNHost, host: true)
+                    && configuration.allowedCDNHost.contains("."))
             else {
                 status = "Review and enter a valid Adobe download/CDN hostname"
                 failed = true
@@ -88,7 +91,7 @@ final class NativeCloudTransferRunner: ObservableObject {
                 failed = response.status != 0
                 status =
                     response.status == 0
-                    ? "Finished · inspect transfer verification log" : "Failed (exit \(response.status)) · see details"
+                        ? "Finished · inspect transfer verification log" : "Failed (exit \(response.status)) · see details"
             } catch {
                 failed = true
                 status = error.localizedDescription
@@ -128,7 +131,7 @@ final class NativeCloudTransferRunner: ObservableObject {
             let raw = String(decoding: bytes, as: UTF8.self)
             let redactedURLs = raw.replacingOccurrences(
                 of: #"https?://[^\s]+"#, with: "[transfer URL redacted]",
-                options: .regularExpression
+                options: .regularExpression,
             )
             let safe = redactedURLs.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
                 let s = String(line)
@@ -143,10 +146,13 @@ final class NativeCloudTransferRunner: ObservableObject {
             if response.status != 0 {
                 throw NSError(
                     domain: "SpektraFilm.CloudTransfer", code: Int(response.status),
-                    userInfo: [NSLocalizedDescriptionKey: response.output])
+                    userInfo: [NSLocalizedDescriptionKey: response.output],
+                )
             }
         }
-        func remote(_ cmd: String) throws -> Response { try run("/usr/bin/ssh", ssh + [target, cmd]) }
+        func remote(_ cmd: String) throws -> Response {
+            try run("/usr/bin/ssh", ssh + [target, cmd])
+        }
         // Shell commands are fixed literals; host/user are validated. No arbitrary
         // manifest-supplied strings are interpolated into a remote command.
         let remoteDir = "$HOME/SpektraFilmWorker"
@@ -183,7 +189,7 @@ final class NativeCloudTransferRunner: ObservableObject {
                 sudo -n chown root:wheel /usr/local/bin/rclone; \
                 sudo -n chmod 755 /usr/local/bin/rclone; \
                 rclone version'
-                """
+                """,
             )
         case .deploy:
             try requireSuccess(remote("mkdir -p \(remoteDir); chmod 700 \(remoteDir)"))
@@ -211,7 +217,7 @@ final class NativeCloudTransferRunner: ObservableObject {
             let command = operation == .validate ? "validate" : operation == .pilot ? "pilot" : "migrate"
             let approvedHostOption = config.allowedCDNHost.isEmpty ? "" : " --allowed-host \(config.allowedCDNHost)"
             return try remote(
-                "cd \(remoteDir) && chmod 600 \(name) && python3 -u \(script) \(command) --manifest \(name)\(approvedHostOption)"
+                "cd \(remoteDir) && chmod 600 \(name) && python3 -u \(script) \(command) --manifest \(name)\(approvedHostOption)",
             )
         }
     }
@@ -220,7 +226,8 @@ final class NativeCloudTransferRunner: ObservableObject {
         if response.status != 0 {
             throw NSError(
                 domain: "SpektraFilm.CloudTransfer", code: Int(response.status),
-                userInfo: [NSLocalizedDescriptionKey: response.output])
+                userInfo: [NSLocalizedDescriptionKey: response.output],
+            )
         }
     }
 }

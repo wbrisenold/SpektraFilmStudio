@@ -25,7 +25,7 @@ struct CanonicalMaskBuffer: Sendable, Equatable {
         red: UInt8 = 0,
         green: UInt8 = 225,
         blue: UInt8 = 255,
-        maximumAlpha: UInt8 = 150
+        maximumAlpha: UInt8 = 150,
     ) -> [UInt8] {
         var rgba = [UInt8](repeating: 0, count: coverage.count * 4)
         for i in coverage.indices {

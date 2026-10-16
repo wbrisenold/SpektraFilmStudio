@@ -1,5 +1,6 @@
 import CoreGraphics
 import CryptoKit
+
 // Adapted from pdcgomes/redlamp at 0ed3a59211e4128111f2c8ba11bc5d249b0cb8dd.
 // SPDX-License-Identifier: MPL-2.0. See Resources/Redlamp-MPL-2.0.txt.
 import Foundation
@@ -163,8 +164,8 @@ public struct MaskRequest: Sendable, Hashable {
         self.box = box
         self.people = people
     }
-
 }
+
 public enum MaskComputationError: Error, Equatable, CustomStringConvertible {
     /// The kind of mask needs a model this device doesn't have yet.
     case unsupported(MaskKind)
@@ -322,15 +323,22 @@ public struct MaskBitmap: Sendable, Hashable {
     public var png: Data
     public var width: Int
     public var height: Int
-    public init(png: Data, width: Int, height: Int) { self.png = png; self.width = width; self.height = height }
+    public init(png: Data, width: Int, height: Int) {
+        self.png = png; self.width = width; self.height = height
+    }
 }
+
 enum HalfPrecision {
     static func float(_ half: UInt16) -> Float {
         let sign = UInt32(half & 0x8000) << 16
         let exponent = Int((half >> 10) & 31)
         let mantissa = UInt32(half & 1023)
-        if exponent == 0 { return (half & 0x8000 == 0 ? 1 : -1) * Float(mantissa) * pow(2, -24) }
-        if exponent == 31 { return Float(bitPattern: sign | 0x7f800000 | (mantissa << 13)) }
+        if exponent == 0 {
+            return (half & 0x8000 == 0 ? 1 : -1) * Float(mantissa) * pow(2, -24)
+        }
+        if exponent == 31 {
+            return Float(bitPattern: sign | 0x7F80_0000 | (mantissa << 13))
+        }
         return Float(bitPattern: sign | (UInt32(exponent + 112) << 23) | (mantissa << 13))
     }
 }

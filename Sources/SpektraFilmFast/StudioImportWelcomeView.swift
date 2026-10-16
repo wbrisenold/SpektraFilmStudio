@@ -135,7 +135,8 @@ struct StudioImportWelcomeView: View {
                                 model.importFolder()
                             } label: {
                                 Label("Import Folder or Card…", systemImage: "externaldrive").frame(
-                                    maxWidth: .infinity, minHeight: 26)
+                                    maxWidth: .infinity, minHeight: 26,
+                                )
                             }.buttonStyle(.bordered)
                             quickOption("Lightroom Classic", icon: "square.stack.3d.up", source: "Lightroom Classic")
                         }
@@ -143,7 +144,7 @@ struct StudioImportWelcomeView: View {
                             preferredSource = "Folder or card"
                             showingWizard = true
                         }.buttonStyle(.link)
-                        if !model.cloudLibraryStatus.isEmpty && model.cloudLibraryStatus != "Not connected" {
+                        if !model.cloudLibraryStatus.isEmpty, model.cloudLibraryStatus != "Not connected" {
                             Text(model.cloudLibraryStatus)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)

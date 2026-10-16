@@ -4,14 +4,18 @@ enum MaskBlendMode: String, Codable, CaseIterable, Identifiable, Sendable {
     case add = "Add"
     case subtract = "Subtract"
     case intersect = "Intersect"
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 }
 
 enum MaskSourceKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case radial = "Radial"
     case linearGradient = "Linear Gradient"
     case raster = "Raster"
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 }
 
 struct NormalizedPoint: Codable, Equatable, Hashable, Sendable {
@@ -42,9 +46,9 @@ struct RasterMaskPayload: Codable, Equatable, Hashable, Sendable {
     var height: Int
     var rle: Data
 
-    // A corrupted or hand-edited saved project must never overflow dimensions
-    // or force unbounded allocation when masks are decoded on project open.
-    // 64 megapixels is well above the canonical 1080px editing mask size.
+    /// A corrupted or hand-edited saved project must never overflow dimensions
+    /// or force unbounded allocation when masks are decoded on project open.
+    /// 64 megapixels is well above the canonical 1080px editing mask size.
     private static let maximumRasterPixels = 64 * 1024 * 1024
 
     private static func checkedPixelCount(width: Int, height: Int) -> Int? {
@@ -59,12 +63,12 @@ struct RasterMaskPayload: Codable, Equatable, Hashable, Sendable {
         guard let pixelCount = Self.checkedPixelCount(width: w, height: h) else {
             self.width = 1
             self.height = 1
-            self.rle = Self.encodeRLE([0], expectedCount: 1)
+            rle = Self.encodeRLE([0], expectedCount: 1)
             return
         }
         self.width = w
         self.height = h
-        self.rle = Self.encodeRLE(alpha, expectedCount: pixelCount)
+        rle = Self.encodeRLE(alpha, expectedCount: pixelCount)
     }
 
     private enum CodingKeys: String, CodingKey { case width, height, rle }
@@ -76,7 +80,7 @@ struct RasterMaskPayload: Codable, Equatable, Hashable, Sendable {
         guard Self.checkedPixelCount(width: w, height: h) != nil else {
             throw DecodingError.dataCorruptedError(
                 forKey: .width, in: c,
-                debugDescription: "Invalid mask dimensions (zero, overflow, or >64 megapixels)"
+                debugDescription: "Invalid mask dimensions (zero, overflow, or >64 megapixels)",
             )
         }
         width = w
@@ -95,7 +99,9 @@ struct RasterMaskPayload: Codable, Equatable, Hashable, Sendable {
             source = alpha
         } else {
             var copy = Array(alpha.prefix(expectedCount))
-            if copy.count < expectedCount { copy += Array(repeating: 0, count: expectedCount - copy.count) }
+            if copy.count < expectedCount {
+                copy += Array(repeating: 0, count: expectedCount - copy.count)
+            }
             source = copy
         }
         var out = Data()
@@ -103,9 +109,11 @@ struct RasterMaskPayload: Codable, Equatable, Hashable, Sendable {
         while i < source.count {
             let value = source[i]
             var run = 1
-            while i + run < source.count, source[i + run] == value, run < 65535 { run += 1 }
-            out.append(UInt8(run & 0xff))
-            out.append(UInt8((run >> 8) & 0xff))
+            while i + run < source.count, source[i + run] == value, run < 65535 {
+                run += 1
+            }
+            out.append(UInt8(run & 0xFF))
+            out.append(UInt8((run >> 8) & 0xFF))
             out.append(value)
             i += run
         }
@@ -124,7 +132,9 @@ struct RasterMaskPayload: Codable, Equatable, Hashable, Sendable {
             guard run > 0 else { continue }
             let end = min(expectedCount, outputIndex + run)
             if end > outputIndex {
-                for index in outputIndex..<end { out[index] = value }
+                for index in outputIndex ..< end {
+                    out[index] = value
+                }
                 outputIndex = end
             }
         }
@@ -149,15 +159,21 @@ struct MaskSourceRecord: Codable, Equatable, Hashable, Identifiable, Sendable {
     mutating func normalize() {
         opacity = min(1, max(0, opacity))
         feather = min(1, max(0, feather))
-        if kind == .radial, radial == nil { radial = RadialMaskGeometry() }
-        if kind == .linearGradient, linearGradient == nil { linearGradient = LinearGradientMaskGeometry() }
+        if kind == .radial, radial == nil {
+            radial = RadialMaskGeometry()
+        }
+        if kind == .linearGradient, linearGradient == nil {
+            linearGradient = LinearGradientMaskGeometry()
+        }
     }
 }
 
 struct MaskStackRecord: Codable, Equatable, Hashable, Sendable {
     var sources: [MaskSourceRecord] = []
 
-    var isEffectivelyFullFrame: Bool { sources.filter(\.enabled).isEmpty }
+    var isEffectivelyFullFrame: Bool {
+        sources.filter(\.enabled).isEmpty
+    }
 }
 
 /// One non-destructive local grade. The grade carries its own ordered mask stack,
@@ -175,7 +191,9 @@ struct LocalGradeRecord: Codable, Equatable, Hashable, Identifiable, Sendable {
 
     mutating func normalize() {
         opacity = min(1, max(0, opacity))
-        for index in masks.sources.indices { masks.sources[index].normalize() }
+        for index in masks.sources.indices {
+            masks.sources[index].normalize()
+        }
     }
 }
 
@@ -199,7 +217,8 @@ struct AIMaskRecipe: Codable, Hashable, Sendable {
     var request: MaskRequest {
         MaskRequest(
             kind: kind, part: part, prompts: prompts, excluded: excluded,
-            landscape: landscape, box: box, people: instance.map { [$0] })
+            landscape: landscape, box: box, people: instance.map { [$0] },
+        )
     }
 }
 

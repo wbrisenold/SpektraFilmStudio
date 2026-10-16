@@ -79,7 +79,8 @@ enum FaceParts {
                 context.fillEllipse(
                     in: CGRect(
                         x: pupil.x - irisRadius, y: pupil.y - irisRadius, width: irisRadius * 2, height: irisRadius * 2,
-                    ))
+                    ),
+                )
             }
         }
 
@@ -105,8 +106,8 @@ enum FaceParts {
 
         func iris() -> GrayMask? {
             guard !pupils.isEmpty, irisRadius > 0,
-                let discs = FaceParts.draw(size, irisDiscs),
-                let eyeShapes = FaceParts.draw(size, { context in eyes.forEach { FaceParts.fill(context, $0) } })
+                  let discs = FaceParts.draw(size, irisDiscs),
+                  let eyeShapes = FaceParts.draw(size, { context in eyes.forEach { FaceParts.fill(context, $0) } })
             else { return nil }
             return discs.intersection(eyeShapes)
         }
@@ -136,7 +137,8 @@ enum FaceParts {
                         eyes.forEach { FaceParts.fill(context, $0) }
                         FaceParts.fill(context, outerLips)
                         browStrokes(context)
-                    })
+                    },
+                )
             else { return nil }
             if let pixels, let grown = foreheadSkin(face, pixels: pixels) {
                 face = grown
@@ -152,10 +154,10 @@ enum FaceParts {
         /// Bright, pale pixels inside the lips.
         func teeth(_ pixels: RGBImage) -> GrayMask? {
             guard innerLips.count >= 3,
-                let mouth = FaceParts.draw(
-                    size,
-                    { context in FaceParts.fill(context, innerLips) },
-                )
+                  let mouth = FaceParts.draw(
+                      size,
+                      { context in FaceParts.fill(context, innerLips) },
+                  )
             else { return nil }
             var teeth = mouth.pixels
             for index in teeth.indices where teeth[index] > 0 {

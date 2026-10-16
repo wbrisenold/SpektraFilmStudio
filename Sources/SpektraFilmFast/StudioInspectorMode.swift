@@ -4,12 +4,15 @@ enum StudioInspectorMode: String, CaseIterable, Identifiable {
     case adjust = "RAW"
     case film = "FILM"
     case masks = "MASK"
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
+
     var symbol: String {
         switch self {
-        case .adjust: return "slider.horizontal.3"
-        case .film: return "camera.filters"
-        case .masks: return "circle.lefthalf.filled"
+        case .adjust: "slider.horizontal.3"
+        case .film: "camera.filters"
+        case .masks: "circle.lefthalf.filled"
         }
     }
 }

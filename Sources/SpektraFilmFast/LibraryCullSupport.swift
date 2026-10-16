@@ -4,19 +4,20 @@ import Foundation
 extension AppModel {
     func libraryCount(_ filter: LibraryFilter) -> Int {
         project.images.reduce(into: 0) { count, image in
-            let matches: Bool
-            switch filter {
-            case .all: matches = true
-            case .picked: matches = image.flag == .picked
-            case .clientPicks: matches = image.clientPicked
-            case .rejected: matches = image.flag == .rejected
-            case .unrated: matches = image.rating == 0
-            case .fiveStar: matches = image.rating == 5
-            case .needsReview: matches = image.cullAnalysis?.recommendation == .review
-            case .exportQueued: matches = image.selectedForExport
-            case .missing: matches = !FileManager.default.fileExists(atPath: image.sourcePath)
+            let matches: Bool = switch filter {
+            case .all: true
+            case .picked: image.flag == .picked
+            case .clientPicks: image.clientPicked
+            case .rejected: image.flag == .rejected
+            case .unrated: image.rating == 0
+            case .fiveStar: image.rating == 5
+            case .needsReview: image.cullAnalysis?.recommendation == .review
+            case .exportQueued: image.selectedForExport
+            case .missing: !FileManager.default.fileExists(atPath: image.sourcePath)
             }
-            if matches { count += 1 }
+            if matches {
+                count += 1
+            }
         }
     }
 
@@ -56,7 +57,7 @@ extension AppModel {
             guard let image = project.images.first(where: { $0.id == id }) else { return nil }
             let source = thumbnailURL(for: image)
             guard source.path != "/dev/null",
-                FileManager.default.fileExists(atPath: source.path)
+                  FileManager.default.fileExists(atPath: source.path)
             else { return nil }
             return (id, source)
         }
@@ -76,23 +77,25 @@ extension AppModel {
             var completed = 0
 
             for start in stride(from: 0, to: items.count, by: chunkSize) {
-                if Task.isCancelled { break }
-                let chunk = Array(items[start..<min(items.count, start + chunkSize)])
+                if Task.isCancelled {
+                    break
+                }
+                let chunk = Array(items[start ..< min(items.count, start + chunkSize)])
                 let results = await withTaskGroup(
-                    of: (UUID, CullAnalysisRecord?).self, returning: [(UUID, CullAnalysisRecord?)].self
+                    of: (UUID, CullAnalysisRecord?).self, returning: [(UUID, CullAnalysisRecord?)].self,
                 ) { group in
                     for (id, url) in chunk {
                         group.addTask {
                             guard !Task.isCancelled else { return (id, nil) }
                             if let cached = await analysisCache.analysis(url: url),
-                                cached.aestheticScore != nil,
-                                cached.faceCount == 0 || cached.faceCaptureQuality != nil
+                               cached.aestheticScore != nil,
+                               cached.faceCount == 0 || cached.faceCaptureQuality != nil
                             {
                                 return (id, cached)
                             }
                             guard let payload = try? await thumbnailer.thumbnail(url: url, maxPixel: 1280),
-                                !Task.isCancelled,
-                                let analyzed = try? await engine.analyze(payload)
+                                  !Task.isCancelled,
+                                  let analyzed = try? await engine.analyze(payload)
                             else {
                                 return (id, nil)
                             }
@@ -101,11 +104,15 @@ extension AppModel {
                         }
                     }
                     var values: [(UUID, CullAnalysisRecord?)] = []
-                    for await value in group { values.append(value) }
+                    for await value in group {
+                        values.append(value)
+                    }
                     return values
                 }
 
-                if Task.isCancelled { break }
+                if Task.isCancelled {
+                    break
+                }
                 for (id, record) in results {
                     if let record, let index = project.images.firstIndex(where: { $0.id == id }) {
                         project.images[index].cullAnalysis = record
@@ -140,7 +147,7 @@ extension AppModel {
             .filter { project.images[$0].captureDate != nil }
             .sorted {
                 guard let lhs = project.images[$0].captureDate,
-                    let rhs = project.images[$1].captureDate
+                      let rhs = project.images[$1].captureDate
                 else { return false }
                 return lhs < rhs
             }
@@ -150,12 +157,14 @@ extension AppModel {
         for index in ordered {
             guard let analysis = project.images[index].cullAnalysis else { continue }
             if let previous = current.last,
-                let previousAnalysis = project.images[previous].cullAnalysis
+               let previousAnalysis = project.images[previous].cullAnalysis
             {
                 guard let lhsDate = project.images[previous].captureDate,
-                    let rhsDate = project.images[index].captureDate
+                      let rhsDate = project.images[index].captureDate
                 else {
-                    if current.count > 1 { groups.append(current) }
+                    if current.count > 1 {
+                        groups.append(current)
+                    }
                     current = [index]
                     continue
                 }
@@ -164,15 +173,21 @@ extension AppModel {
                 if seconds <= 3.0 && hashDistance <= 18 {
                     current.append(index)
                 } else {
-                    if current.count > 1 { groups.append(current) }
+                    if current.count > 1 {
+                        groups.append(current)
+                    }
                     current = [index]
                 }
             } else {
-                if current.count > 1 { groups.append(current) }
+                if current.count > 1 {
+                    groups.append(current)
+                }
                 current = [index]
             }
         }
-        if current.count > 1 { groups.append(current) }
+        if current.count > 1 {
+            groups.append(current)
+        }
 
         // Clear stale stack metadata before rebuilding.
         for index in project.images.indices {
@@ -205,7 +220,7 @@ extension AppModel {
 @MainActor
 extension AppModel {
     var librarySelectedImages: [ProjectImageRecord] {
-        let ids = librarySelection.isEmpty ? Set([project.selectedImageID].compactMap { $0 }) : librarySelection
+        let ids = librarySelection.isEmpty ? Set([project.selectedImageID].compactMap(\.self)) : librarySelection
         return project.images.filter { ids.contains($0.id) }
     }
 
@@ -214,13 +229,19 @@ extension AppModel {
         // not silently include hidden photos between two selected thumbnails.
         let ordered = orderedIDs ?? visibleImages.map(\.id)
         if range, let anchor = librarySelectionAnchor,
-            let a = ordered.firstIndex(of: anchor), let b = ordered.firstIndex(of: id)
+           let a = ordered.firstIndex(of: anchor), let b = ordered.firstIndex(of: id)
         {
             let lo = min(a, b), hi = max(a, b)
-            if !additive { librarySelection.removeAll() }
-            librarySelection.formUnion(ordered[lo...hi])
+            if !additive {
+                librarySelection.removeAll()
+            }
+            librarySelection.formUnion(ordered[lo ... hi])
         } else if additive {
-            if librarySelection.contains(id) { librarySelection.remove(id) } else { librarySelection.insert(id) }
+            if librarySelection.contains(id) {
+                librarySelection.remove(id)
+            } else {
+                librarySelection.insert(id)
+            }
             librarySelectionAnchor = id
         } else {
             librarySelection = [id]
@@ -286,12 +307,17 @@ extension AppModel {
 
         var changed = 0
         for index in project.images.indices
-        where ids.contains(project.images[index].id) && project.images[index].id != source.id {
+            where ids.contains(project.images[index].id) && project.images[index].id != source.id
+        {
             let targetRaw = project.images[index].look.raw
             let targetGeometry = project.images[index].look.geometry
             var synced = source.look
-            if !copyWhiteBalance { synced.raw = targetRaw }
-            if !copyGeometry { synced.geometry = targetGeometry }
+            if !copyWhiteBalance {
+                synced.raw = targetRaw
+            }
+            if !copyGeometry {
+                synced.geometry = targetGeometry
+            }
             synced.normalizeForProOnly()
             if project.images[index].look != synced {
                 project.images[index].look = synced
@@ -301,8 +327,8 @@ extension AppModel {
 
         status =
             "Synced look to \(changed) photo\(changed == 1 ? "" : "s")"
-            + (copyWhiteBalance ? " · WB included" : " · each photo kept its WB")
-            + (copyGeometry ? " · crop included" : " · each photo kept its crop")
+                + (copyWhiteBalance ? " · WB included" : " · each photo kept its WB")
+                + (copyGeometry ? " · crop included" : " · each photo kept its crop")
     }
 
     func batchSetClientPicked(_ selected: Bool) {
@@ -313,8 +339,8 @@ extension AppModel {
         }
         status =
             selected
-            ? "Marked \(ids.count) photo\(ids.count == 1 ? "" : "s") as Client Pick"
-            : "Cleared Client Pick from \(ids.count) photo\(ids.count == 1 ? "" : "s")"
+                ? "Marked \(ids.count) photo\(ids.count == 1 ? "" : "s") as Client Pick"
+                : "Cleared Client Pick from \(ids.count) photo\(ids.count == 1 ? "" : "s")"
     }
 
     func createAlbum(name: String, imageIDs: Set<UUID>? = nil) {
@@ -336,7 +362,7 @@ extension AppModel {
 
     func removeSelectionFromCurrentAlbum() {
         guard let id = libraryAlbumFilter,
-            let albumIndex = project.albums.firstIndex(where: { $0.id == id })
+              let albumIndex = project.albums.firstIndex(where: { $0.id == id })
         else { return }
         let ids = Set(librarySelectedImages.map(\.id))
         project.albums[albumIndex].imageIDs.subtract(ids)
@@ -346,21 +372,21 @@ extension AppModel {
 
     func deleteAlbum(_ id: UUID) {
         project.albums.removeAll { $0.id == id }
-        if libraryAlbumFilter == id { libraryAlbumFilter = nil }
+        if libraryAlbumFilter == id {
+            libraryAlbumFilter = nil
+        }
     }
 
     func createSmartCollection(name: String) {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
         let recommendation: CullRecommendation? = libraryFilter == .needsReview ? .review : nil
-        let flag: ProjectFlag? = {
-            switch libraryFilter {
-            case .picked: .picked
-            case .rejected: .rejected
-            case .clientPicks, .exportQueued: nil
-            default: nil
-            }
-        }()
+        let flag: ProjectFlag? = switch libraryFilter {
+        case .picked: .picked
+        case .rejected: .rejected
+        case .clientPicks, .exportQueued: nil
+        default: nil
+        }
         let minimumRating = libraryFilter == .fiveStar ? 5 : project.filterRating
         project.smartCollections.append(
             SmartCollection(
@@ -369,8 +395,9 @@ extension AppModel {
                 flag: flag,
                 colorLabel: nil,
                 cullRecommendation: recommendation,
-                searchText: librarySearch
-            ))
+                searchText: librarySearch,
+            ),
+        )
         librarySmartCollectionFilter = project.smartCollections.last?.id
         libraryAlbumFilter = nil
         status = "Saved smart collection “\(clean)”"
@@ -378,7 +405,9 @@ extension AppModel {
 
     func deleteSmartCollection(_ id: UUID) {
         project.smartCollections.removeAll { $0.id == id }
-        if librarySmartCollectionFilter == id { librarySmartCollectionFilter = nil }
+        if librarySmartCollectionFilter == id {
+            librarySmartCollectionFilter = nil
+        }
     }
 
     func rebuildPeopleGroups() {
@@ -386,7 +415,7 @@ extension AppModel {
         let items = project.images.compactMap { image -> (UUID, URL)? in
             let source = thumbnailURL(for: image)
             guard source.path != "/dev/null",
-                FileManager.default.fileExists(atPath: source.path)
+                  FileManager.default.fileExists(atPath: source.path)
             else { return nil }
             return (image.id, source)
         }
@@ -428,8 +457,8 @@ extension AppModel {
             // indistinguishable from a broken feature.
             peopleGroupingStatus =
                 groups.isEmpty
-                ? "No repeat identities · read \(outcome.photosRead) photo\(outcome.photosRead == 1 ? "" : "s"), found \(outcome.facesFound) face\(outcome.facesFound == 1 ? "" : "s") in \(outcome.photosWithFace). A person must appear in 2+ photos."
-                : "Grouped \(groups.count) identit\(groups.count == 1 ? "y" : "ies") from \(outcome.facesFound) face\(outcome.facesFound == 1 ? "" : "s") in \(outcome.photosWithFace) photo\(outcome.photosWithFace == 1 ? "" : "s")"
+                    ? "No repeat identities · read \(outcome.photosRead) photo\(outcome.photosRead == 1 ? "" : "s"), found \(outcome.facesFound) face\(outcome.facesFound == 1 ? "" : "s") in \(outcome.photosWithFace). A person must appear in 2+ photos."
+                    : "Grouped \(groups.count) identit\(groups.count == 1 ? "y" : "ies") from \(outcome.facesFound) face\(outcome.facesFound == 1 ? "" : "s") in \(outcome.photosWithFace) photo\(outcome.photosWithFace == 1 ? "" : "s")"
             status = peopleGroupingStatus
         }
     }
@@ -450,8 +479,8 @@ extension AppModel {
     /// uncertain. Rebuilds leave named groups intact when their photo overlap supports it.
     func mergePeopleGroup(_ sourceID: UUID, into destinationID: UUID) {
         guard sourceID != destinationID,
-            let a = project.peopleGroups.firstIndex(where: { $0.id == sourceID }),
-            let b = project.peopleGroups.firstIndex(where: { $0.id == destinationID })
+              let a = project.peopleGroups.firstIndex(where: { $0.id == sourceID }),
+              let b = project.peopleGroups.firstIndex(where: { $0.id == destinationID })
         else { return }
         project.peopleGroups[b].imageIDs.formUnion(project.peopleGroups[a].imageIDs)
         project.peopleGroups[b].detectedFaceCount += project.peopleGroups[a].detectedFaceCount
@@ -485,8 +514,8 @@ extension AppModel {
         bestPicksPendingFolder = nil
         let folders =
             requested == "__all__"
-            ? Array(Set(project.images.map(Self.cullFolderPath))).sorted()
-            : [requested]
+                ? Array(Set(project.images.map(Self.cullFolderPath))).sorted()
+                : [requested]
         var winners = Set<UUID>()
         for folder in folders {
             let group = project.images.filter { Self.cullFolderPath($0) == folder }
@@ -503,8 +532,12 @@ extension AppModel {
             let inScope = requested == "__all__" ? folders.contains(folder) : folder == requested
             guard inScope, photo.flag != .rejected else { continue }
             let shouldPick = winners.contains(photo.id)
-            if shouldPick, photo.flag != .picked { project.images[index].flag = .picked; changed += 1 }
-            if !shouldPick, photo.flag == .picked { project.images[index].flag = .unflagged; changed += 1 }
+            if shouldPick, photo.flag != .picked {
+                project.images[index].flag = .picked; changed += 1
+            }
+            if !shouldPick, photo.flag == .picked {
+                project.images[index].flag = .unflagged; changed += 1
+            }
         }
         let analyzed = project.images.filter { photo in
             let folder = Self.cullFolderPath(photo)
@@ -539,8 +572,8 @@ extension AppModel {
             guard let self else { return }
             status =
                 failures.isEmpty
-                ? "XMP written for \(images.count) photo\(images.count == 1 ? "" : "s")"
-                : "XMP finished with \(failures.count) failure\(failures.count == 1 ? "" : "s")"
+                    ? "XMP written for \(images.count) photo\(images.count == 1 ? "" : "s")"
+                    : "XMP finished with \(failures.count) failure\(failures.count == 1 ? "" : "s")"
         }
     }
 
@@ -553,22 +586,36 @@ extension AppModel {
             var values: [UUID: XMPSidecarState] = [:]
             await withTaskGroup(of: (UUID, XMPSidecarState?).self) { group in
                 for (id, url) in inputs {
-                    group.addTask { (id, await XMPService.shared.read(for: url)) }
+                    group.addTask { await (id, XMPService.shared.read(for: url)) }
                 }
-                for await (id, state) in group { if let state { values[id] = state } }
+                for await (id, state) in group {
+                    if let state {
+                        values[id] = state
+                    }
+                }
             }
             for index in project.images.indices {
                 guard let state = values[project.images[index].id] else { continue }
-                if let rating = state.rating { project.images[index].rating = rating }
-                if let flag = state.flag { project.images[index].flag = flag }
-                if let label = state.colorLabel { project.images[index].colorLabel = label }
+                if let rating = state.rating {
+                    project.images[index].rating = rating
+                }
+                if let flag = state.flag {
+                    project.images[index].flag = flag
+                }
+                if let label = state.colorLabel {
+                    project.images[index].colorLabel = label
+                }
             }
             status = "Read XMP from \(values.count) photo\(values.count == 1 ? "" : "s")"
         }
     }
 
     func toggleCullStackCollapsed(_ id: UUID) {
-        if collapsedCullStacks.contains(id) { collapsedCullStacks.remove(id) } else { collapsedCullStacks.insert(id) }
+        if collapsedCullStacks.contains(id) {
+            collapsedCullStacks.remove(id)
+        } else {
+            collapsedCullStacks.insert(id)
+        }
     }
 
     private func writeXMPForSelectionIfEnabled(ids: Set<UUID>) {

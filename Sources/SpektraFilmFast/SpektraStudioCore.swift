@@ -4,11 +4,13 @@ import Foundation
 enum SpektraStudioCore {
     static let abiVersion = Int(sf_core_abi_version())
     static let capabilities = UInt64(sf_core_capabilities())
-    static var isAvailable: Bool { abiVersion == 3 }
+    static var isAvailable: Bool {
+        abiVersion == 3
+    }
 
     static func jsonString(
         initialCapacity: Int = 64 * 1024,
-        _ call: (UnsafeMutablePointer<UInt8>?, Int) -> Int32
+        _ call: (UnsafeMutablePointer<UInt8>?, Int) -> Int32,
     ) -> String? {
         var buffer = [UInt8](repeating: 0, count: initialCapacity)
         var rc = buffer.withUnsafeMutableBufferPointer { call($0.baseAddress, $0.count) }

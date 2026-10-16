@@ -3,27 +3,27 @@ import CoreImage
 import MetalKit
 import SwiftUI
 
-// GPL-3.0-or-later — SpektraFilm Studio.
-// GPU-backed presentation surface. Keeps a stable CAMetalLayer/MTKView alive across
-// slider frames; updating a preview changes GPU work, not the SwiftUI view tree.
-// GPU-live frames already contain native host/film/post passes and are presented
-// directly from MTLTexture; settled/exact and unsupported advanced edits retain
-// the original display-image path until all remaining effects have parity.
+/// GPL-3.0-or-later — SpektraFilm Studio.
+///
+/// GPU-backed presentation surface for SpektraFilm's pinned presentation device.
+/// The fast preview/display layer now has an adapter boundary in
+/// HarbethPresentation, so the view layer here expresses itself as a host
+/// adapter instead of owning raw device/queue presentation policy directly.
+///
+/// This file remains the local MTKView delegate and composition host. It does
+/// NOT depend on Harbeth as an external package at this layer; HarbethPresentation
+/// is the boundary that owns the host/conversion semantics for the fast preview
+/// layer, whether or not the app later imports a Harbeth package.
 struct MetalPreviewCanvas: NSViewRepresentable {
     let image: CGImage
     let liveFrame: GPULiveFrame?
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
 
     func makeNSView(context: Context) -> MTKView {
-        let view = MTKView(frame: .zero, device: StudioGPUDevice.shared)
-        view.isPaused = true
-        view.enableSetNeedsDisplay = true
-        view.preferredFramesPerSecond = 60
-        view.framebufferOnly = false
-        view.colorPixelFormat = .bgra8Unorm
-        view.clearColor = MTLClearColorMake(0, 0, 0, 1)
-        view.autoResizeDrawable = true
+        let view = PublicPresentationHost.makeView(frame: .zero)
         view.delegate = context.coordinator
         context.coordinator.install(view: view)
         context.coordinator.setImage(image, liveFrame: liveFrame, view: view)
@@ -47,33 +47,30 @@ struct MetalPreviewCanvas: NSViewRepresentable {
         private var ciContext: CIContext?
         private let displayColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
 
-        // AppKit view access (device, setNeedsDisplay, bounds) is main-actor isolated.
-        // Both methods are only invoked from makeNSView/updateNSView, which are
-        // themselves main-actor, so the annotation reflects existing call sites
-        // rather than introducing a new hop.
+        /// AppKit view access (device, setNeedsDisplay, bounds) is main-actor isolated.
+        /// Both methods are only invoked from makeNSView/updateNSView, which are
+        /// themselves main-actor, so the annotation reflects existing call sites
+        /// rather than introducing a new hop.
         @MainActor
         func install(view: MTKView) {
             hostView = view
-            guard let device = view.device else { return }
-            queue = device.makeCommandQueue()
+            queue = PublicPresentationHost.commandQueue
             ciContext = CIContext(
-                mtlDevice: device,
+                mtlDevice: PublicPresentationHost.device,
                 options: [
                     .cacheIntermediates: true,
                     .useSoftwareRenderer: false,
-                ])
+                ],
+            )
         }
 
         @MainActor
         func setImage(_ image: CGImage, liveFrame: GPULiveFrame?, view: MTKView) {
-            // Intel dual-GPU: the draw device must match the native film engine's
-            // output device. Otherwise a Core Image texture import can fail.
-            if let liveFrame,
-                view.device?.registryID != liveFrame.texture.device.registryID
-            {
-                view.device = liveFrame.texture.device
-                install(view: view)
-            }
+            // Keep the MTKView on one device for its life. Hot-swapping view.device
+            // while the MTKViewDelegate can be drawing is a main-thread device/queue
+            // race on dual-GPU Intel Macs. If a live frame arrives from a different
+            // device, we still accept the frame and let draw(in:) import/convert it
+            // into the view's already-installed device rather than changing the view.
             let identity = ObjectIdentifier(image as AnyObject)
             lock.lock()
             let imageChanged = identity != lastImageID
@@ -82,46 +79,60 @@ struct MetalPreviewCanvas: NSViewRepresentable {
                 lastImageID = identity
                 lastGPUFrameID = liveFrame?.id
                 liveGPUFrame = liveFrame
-                if imageChanged { queuedCIImage = CIImage(cgImage: image) }
+                if imageChanged {
+                    queuedCIImage = CIImage(cgImage: image)
+                }
                 needsLatest = true
             }
             lock.unlock()
-            if imageChanged || gpuChanged { view.setNeedsDisplay(view.bounds) }
+            if imageChanged || gpuChanged {
+                view.setNeedsDisplay(view.bounds)
+            }
         }
 
-        func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
+        func mtkView(_ view: MTKView, drawableSizeWillChange _: CGSize) {
             // Redraw the last selected image after resizing, never start a RAW decode.
             view.setNeedsDisplay(view.bounds)
         }
 
         func draw(in view: MTKView) {
             guard let drawable = view.currentDrawable,
-                let queue, let context = ciContext
+                  let queue, let context = ciContext
             else { return }
             lock.lock()
             let gpu = liveGPUFrame
-            // The exact same content importer and aspect-fit composition
-            // are exercised by the real-Metal smoke test. No silent nil CIImage.
-            let imported = gpu.flatMap {
-                try? MetalPreviewComposition.content(texture: $0.texture, colorSpace: $0.colorSpace)
+            // The view keeps one device for its life. A live frame can still arrive
+            // from a different device, and a CIContext may not import a foreign
+            // texture directly. When that can happen, copy the frame into the view's
+            // device through a shared CPU-accessible buffer instead of presenting an
+            // error frame or importing from the wrong device.
+            var image: CIImage? = if let gpu {
+                if gpu.texture.device.registryID == PublicPresentationHost.device.registryID {
+                    (try? MetalPreviewComposition.content(texture: gpu.texture, colorSpace: gpu.colorSpace)) ?? queuedCIImage
+                } else {
+                    PublicPresentationHost.displayFrame(from: gpu.texture, colorSpace: gpu.colorSpace, into: view) ?? queuedCIImage
+                }
+            } else {
+                queuedCIImage
             }
             // A requested GPU texture must NEVER silently display an older CPU
             // picture. Mark a presentation failure visibly with a red error frame.
-            let importFailed = gpu != nil && imported == nil
-            let image =
-                importFailed
-                ? CIImage(
+            if gpu != nil && image == nil {
+                image = CIImage(
                     color: CIColor(
                         red: 0.65, green: 0.02,
-                        blue: 0.04, alpha: 1)
+                        blue: 0.04, alpha: 1,
+                    ),
                 ).cropped(
                     to: CGRect(
                         x: 0, y: 0,
                         width: max(1, view.drawableSize.width),
-                        height: max(1, view.drawableSize.height)))
-                : (imported ?? queuedCIImage)
+                        height: max(1, view.drawableSize.height),
+                    ),
+                )
+                NSLog("SPEKTRA_GPU_PRESENTATION_ERROR: Unable to import the current Metal frame")
+            }
             guard let image else { lock.unlock(); return }
-            if importFailed { NSLog("SPEKTRA_GPU_PRESENTATION_ERROR: Unable to import the current Metal frame") }
             if inFlight >= 2 {
                 needsLatest = true
                 lock.unlock()
@@ -138,11 +149,12 @@ struct MetalPreviewCanvas: NSViewRepresentable {
             let tex = drawable.texture
             let composition = MetalPreviewComposition.letterbox(
                 image,
-                width: tex.width, height: tex.height)
+                width: tex.width, height: tex.height,
+            )
             context.render(
                 composition, to: tex, commandBuffer: command,
                 bounds: CGRect(x: 0, y: 0, width: tex.width, height: tex.height),
-                colorSpace: displayColorSpace
+                colorSpace: displayColorSpace,
             )
             command.present(drawable)
             command.addCompletedHandler { [weak self, gpu] command in
@@ -152,12 +164,21 @@ struct MetalPreviewCanvas: NSViewRepresentable {
                     if command.status != .completed {
                         NSLog(
                             "SPEKTRA_GPU_PRESENTATION_ERROR: %@",
-                            command.error?.localizedDescription ?? "GPU display failed")
+                            command.error?.localizedDescription ?? "GPU display failed",
+                        )
                     }
                     self?.frameCompleted()
                 }
             }
             command.commit()
+        }
+
+        private func importLiveFrameForView(_ texture: any MTLTexture, colorSpace: CGColorSpace, view: MTKView) -> CIImage? {
+            // Kept as the local fallback importer for the pinned presentation device.
+            // When the fast preview layer adopts Harbeth, this helper is the place
+            // where a Harbeth-side conversion path could be swapped in without
+            // changing the rest of the canvas.
+            PublicPresentationHost.displayFrame(from: texture, colorSpace: colorSpace, into: view)
         }
 
         private func frameCompleted() {
@@ -167,7 +188,7 @@ struct MetalPreviewCanvas: NSViewRepresentable {
             lock.unlock()
             if redraw {
                 DispatchQueue.main.async { [weak self] in
-                    guard let self, let view = self.hostView else { return }
+                    guard let self, let view = hostView else { return }
                     view.setNeedsDisplay(view.bounds)
                 }
             }

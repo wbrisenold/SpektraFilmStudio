@@ -8,43 +8,55 @@ import UniformTypeIdentifiers
 enum SpektraFilePanel {
     private static var controller: BrowserWindow?
     private(set) static var lastPresentation = "not presented"
-    static var isPickerVisible: Bool { controller?.window?.isVisible == true }
+    static var isPickerVisible: Bool {
+        controller?.window?.isVisible == true
+    }
 
     @discardableResult
     static func chooseFiles(
         title: String, types: [UTType]? = nil, multiple: Bool = false,
-        completion: @escaping @MainActor ([URL]) -> Void
+        completion: @escaping @MainActor ([URL]) -> Void,
     ) -> Bool {
         present(title: title, mode: .files, types: types ?? [], multiple: multiple) {
-            if !$0.isEmpty { completion($0) }
+            if !$0.isEmpty {
+                completion($0)
+            }
         }
     }
 
     @discardableResult
     static func chooseFolder(title: String, completion: @escaping @MainActor (URL) -> Void) -> Bool {
-        present(title: title, mode: .folder) { if let url = $0.first { completion(url) } }
+        present(title: title, mode: .folder) {
+            if let url = $0.first {
+                completion(url)
+            }
+        }
     }
 
     static func folder(title: String) async -> URL? {
         await withCheckedContinuation { continuation in
             let started = present(title: title, mode: .folder) { continuation.resume(returning: $0.first) }
-            if !started { continuation.resume(returning: nil) }
+            if !started {
+                continuation.resume(returning: nil)
+            }
         }
     }
 
     static func saveFile(
         title: String, types: [UTType], filename: String,
-        completion: @escaping @MainActor (URL?) -> Void
+        completion: @escaping @MainActor (URL?) -> Void,
     ) {
         let started = present(title: title, mode: .save, types: types, filename: filename) { completion($0.first) }
-        if !started { completion(nil) }
+        if !started {
+            completion(nil)
+        }
     }
 
     @discardableResult
     private static func present(
         title: String, mode: StudioFileBrowser.Mode, types: [UTType] = [],
         multiple: Bool = false, filename: String = "",
-        completion: @escaping @MainActor ([URL]) -> Void
+        completion: @escaping @MainActor ([URL]) -> Void,
     ) -> Bool {
         guard controller == nil else {
             controller?.window?.makeKeyAndOrderFront(nil)
@@ -56,7 +68,9 @@ enum SpektraFilePanel {
             guard !finished, let current = controller else { return }
             finished = true
             controller = nil
-            if let window = current.window, let parent = window.sheetParent { parent.endSheet(window) }
+            if let window = current.window, let parent = window.sheetParent {
+                parent.endSheet(window)
+            }
             current.window?.orderOut(nil)
             lastPresentation = urls.isEmpty ? "cancelled" : "selected \(urls.count) item(s)"
             // Leave sheet teardown before model callbacks can replace the workspace.
@@ -84,7 +98,8 @@ enum SpektraFilePanel {
             self.browser = browser
             let panel = NSPanel(
                 contentRect: NSRect(x: 0, y: 0, width: 760, height: 500),
-                styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+                styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false,
+            )
             panel.title = title
             panel.isReleasedWhenClosed = false
             panel.contentViewController = NSHostingController(rootView: StudioFileBrowserView(browser: browser))
@@ -92,8 +107,15 @@ enum SpektraFilePanel {
             panel.delegate = self
             panel.center()
         }
-        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-        func windowShouldClose(_ sender: NSWindow) -> Bool { browser.cancel(); return false }
+
+        @available(*, unavailable)
+        required init?(coder _: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        func windowShouldClose(_: NSWindow) -> Bool {
+            browser.cancel(); return false
+        }
     }
 }
 
@@ -103,7 +125,7 @@ extension SpektraFilePanel {
         current.browser.navigate(directory)
         try? await Task.sleep(for: .milliseconds(900))
         guard let view = current.window?.contentView,
-            let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+              let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)
         else { return false }
         view.cacheDisplay(in: view.bounds, to: bitmap)
         guard let data = bitmap.representation(using: .png, properties: [:]) else { return false }
@@ -120,8 +142,10 @@ extension SpektraFilePanel {
             return passed
         }
         @MainActor func waitFor(_ predicate: () -> Bool) async -> Bool {
-            for _ in 0..<100 {
-                if predicate() { return true }
+            for _ in 0 ..< 100 {
+                if predicate() {
+                    return true
+                }
                 try? await Task.sleep(for: .milliseconds(100))
             }
             return predicate()
@@ -168,7 +192,7 @@ extension SpektraFilePanel {
             try? FileManager.default.removeItem(at: folder)
         }
         guard chooseFolder(title: "Nested Wizard Picker Smoke Test", completion: { selected = $0 }),
-            await waitFor({ isPickerVisible }), report("nested foreground", lastPresentation.hasPrefix("foreground:"))
+              await waitFor({ isPickerVisible }), report("nested foreground", lastPresentation.hasPrefix("foreground:"))
         else { return false }
         let original = controller
         guard report("duplicate rejected", !chooseFolder(title: "Duplicate") { _ in } && controller === original) else {
@@ -178,11 +202,11 @@ extension SpektraFilePanel {
         guard await waitFor({ controller?.browser.loading == false }) else { return false }
         controller?.browser.choose()
         guard await waitFor({ selected != nil && controller == nil }),
-            report("selected folder callback", selected?.standardizedFileURL == folder.standardizedFileURL)
+              report("selected folder callback", selected?.standardizedFileURL == folder.standardizedFileURL)
         else { return false }
         var cancelledCallback = false
         guard chooseFiles(title: "Reopen", completion: { _ in cancelledCallback = true }),
-            await waitFor({ isPickerVisible })
+              await waitFor({ isPickerVisible })
         else { return report("reopen", false) }
         controller?.browser.cancel()
         try? await Task.sleep(for: .milliseconds(100))
@@ -208,7 +232,7 @@ extension SpektraFilePanel {
         var document = SpektraProjectDocument()
         document.name = "Picker End-to-End Test"
         document.images = [
-            ProjectImageRecord(sourcePath: folder.appendingPathComponent("Missing.jpg").path, captureDate: nil)
+            ProjectImageRecord(sourcePath: folder.appendingPathComponent("Missing.jpg").path, captureDate: nil),
         ]
         document.selectedImageID = document.images.first?.id
         do {
@@ -222,9 +246,10 @@ extension SpektraFilePanel {
         controller?.browser.selection = [projectURL]
         controller?.browser.choose()
         guard await waitFor({ model.projectURL == projectURL }),
-            report(
-                "project decoded into Library",
-                model.project.name == document.name && !model.showProjectHome && model.page == .library)
+              report(
+                  "project decoded into Library",
+                  model.project.name == document.name && !model.showProjectHome && model.page == .library,
+              )
         else { return false }
         do {
             let original = folder.appendingPathComponent("copy-source.bin")
@@ -238,8 +263,9 @@ extension SpektraFilePanel {
                 return report("conflicting cloud copy rejected", false)
             } catch SpektraCloudLibrary.CloudError.destinationConflict {}
             guard
-                report(
-                    "cloud copy preserves conflicting existing bytes", try Data(contentsOf: copy) == Data([1, 2, 3]))
+                try report(
+                    "cloud copy preserves conflicting existing bytes", Data(contentsOf: copy) == Data([1, 2, 3]),
+                )
             else { return false }
         } catch { return report("cloud copy regression", false) }
         let malformed = folder.appendingPathComponent("Broken.spektrafilm")
@@ -252,6 +278,7 @@ extension SpektraFilePanel {
         guard await waitFor({ model.status.hasPrefix("Open failed:") }) else { return false }
         return report(
             "malformed project preserves workspace",
-            model.projectURL == projectURL && model.project.name == document.name)
+            model.projectURL == projectURL && model.project.name == document.name,
+        )
     }
 }

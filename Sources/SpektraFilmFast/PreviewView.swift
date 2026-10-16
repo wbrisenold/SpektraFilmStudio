@@ -25,8 +25,8 @@ struct PreviewView: View {
 
                 let previewImage: CGImage? =
                     model.showingBefore
-                    ? frameState.sourcePreview
-                    : (frameState.renderedPreview ?? frameState.sourcePreview)
+                        ? frameState.sourcePreview
+                        : (frameState.renderedPreview ?? frameState.sourcePreview)
                 if let image = previewImage {
                     let canvasImage: CGImage = model.showingBefore ? image : (redlampCompositedFrame ?? image)
                     let canvasLiveFrame = model.showingBefore ? nil : model.liveGPUFrame
@@ -38,7 +38,7 @@ struct PreviewView: View {
                     ZStack {
                         MetalPreviewCanvas(
                             image: canvasImage,
-                            liveFrame: canvasLiveFrame
+                            liveFrame: canvasLiveFrame,
                         )
                         .aspectRatio(aspectRatio, contentMode: .fit)
                         // Overlay follows exactly the displayed image's layout, not
@@ -66,8 +66,8 @@ struct PreviewView: View {
                         }
 
                         if !model.showingBefore,
-                            let overlay = model.analysisOverlay,
-                            model.project.preferences.clippingEnabled || model.project.preferences.skinCheckEnabled
+                           let overlay = model.analysisOverlay,
+                           model.project.preferences.clippingEnabled || model.project.preferences.skinCheckEnabled
                         {
                             Image(decorative: overlay, scale: 1)
                                 .resizable()
@@ -87,7 +87,7 @@ struct PreviewView: View {
                             CropEditorOverlay(
                                 model: model,
                                 imageWidth: image.width,
-                                imageHeight: image.height
+                                imageHeight: image.height,
                             )
                         }
                     }
@@ -95,8 +95,8 @@ struct PreviewView: View {
                         redlampCompositedFrame = nil
                         maskOverlayError = nil
                         guard !model.showingBefore, maskOverlayEnabled,
-                            let grade = model.activeLocalGrade,
-                            !grade.masks.sources.isEmpty
+                              let grade = model.activeLocalGrade,
+                              !grade.masks.sources.isEmpty
                         else { return }
                         // Never invent pre-geometry dimensions from a transformed CGImage.
                         guard let dims = model.maskSourceDimensions else {
@@ -117,7 +117,7 @@ struct PreviewView: View {
                                 rgba: bytes, displayWidth: width, displayHeight: height,
                                 grade: grade, preGeometryWidth: dims.width,
                                 preGeometryHeight: dims.height, geometry: geometry,
-                                style: chosenStyle
+                                style: chosenStyle,
                             )
                         }
                         let output = await withTaskCancellationHandler {
@@ -126,8 +126,8 @@ struct PreviewView: View {
                             task.cancel()
                         }
                         guard !Task.isCancelled, model.activeLocalGradeID == grade.id,
-                            model.project.selectedImageID == expectedPhotoID,
-                            model.selectedLook.geometry == expectedGeometry
+                              model.project.selectedImageID == expectedPhotoID,
+                              model.selectedLook.geometry == expectedGeometry
                         else { return }
                         guard let output else {
                             maskOverlayError = "Mask overlay Metal/geometry evaluation failed"
@@ -136,7 +136,7 @@ struct PreviewView: View {
                         guard
                             let composed = RedlampMaskDisplay.image(
                                 width: width, height: height, rgba: output,
-                                colorSpace: image.colorSpace
+                                colorSpace: image.colorSpace,
                             )
                         else {
                             maskOverlayError = "Mask overlay display image could not be created"
@@ -151,27 +151,27 @@ struct PreviewView: View {
                             .onChanged { value in
                                 zoom = max(0.1, min(16, committedZoom * value.magnification))
                             }
-                            .onEnded { _ in committedZoom = zoom }
+                            .onEnded { _ in committedZoom = zoom },
                     )
                     .simultaneousGesture(
                         DragGesture()
                             .onChanged { value in
                                 guard
-                                    !model.isCropToolActive && !model.isObjectMaskPicking
-                                        && !model.isGradientMaskEditing && !model.isLensCenterEditing
+                                    !model.isCropToolActive, !model.isObjectMaskPicking,
+                                    !model.isGradientMaskEditing, !model.isLensCenterEditing
                                 else { return }
                                 offset = CGSize(
                                     width: committedOffset.width + value.translation.width,
-                                    height: committedOffset.height + value.translation.height
+                                    height: committedOffset.height + value.translation.height,
                                 )
                             }
                             .onEnded { _ in
                                 guard
-                                    !model.isCropToolActive && !model.isObjectMaskPicking
-                                        && !model.isGradientMaskEditing && !model.isLensCenterEditing
+                                    !model.isCropToolActive, !model.isObjectMaskPicking,
+                                    !model.isGradientMaskEditing, !model.isLensCenterEditing
                                 else { return }
                                 committedOffset = offset
-                            }
+                            },
                     )
                     .onTapGesture(count: 2) { fit() }
                     .padding(22)
@@ -179,11 +179,11 @@ struct PreviewView: View {
                     ContentUnavailableView(
                         "No Preview",
                         systemImage: "photo",
-                        description: Text("Select a photo in Library or the Photos tab.")
+                        description: Text("Select a photo in Library or the Photos tab."),
                     )
                 }
 
-                if !model.showingBefore && model.project.preferences.skinCheckEnabled {
+                if !model.showingBefore, model.project.preferences.skinCheckEnabled {
                     skinOverlayLegend
                 }
 
@@ -228,7 +228,7 @@ struct PreviewView: View {
             revision: model.maskOverlayRevision,
             geometry: model.selectedLook.geometry,
             enabled: maskOverlayEnabled && !model.showingBefore,
-            style: redlampStyle
+            style: redlampStyle,
         )
     }
 
@@ -318,8 +318,12 @@ struct PreviewView: View {
             return .secondary
         }
         let tolerance = model.project.preferences.skinToleranceDegrees
-        if metrics.skinMeanDeviationDegrees < -tolerance { return Color(red: 0.86, green: 0.36, blue: 0.54) }
-        if metrics.skinMeanDeviationDegrees > tolerance { return Color(red: 0.28, green: 0.72, blue: 0.50) }
+        if metrics.skinMeanDeviationDegrees < -tolerance {
+            return Color(red: 0.86, green: 0.36, blue: 0.54)
+        }
+        if metrics.skinMeanDeviationDegrees > tolerance {
+            return Color(red: 0.28, green: 0.72, blue: 0.50)
+        }
         return Color(red: 0.90, green: 0.69, blue: 0.35)
     }
 
@@ -328,7 +332,7 @@ struct PreviewView: View {
             StudioIconButton(
                 systemImage: "sidebar.left",
                 help: model.isPresetSidebarVisible ? "Hide Presets" : "Show Presets",
-                isSelected: model.isPresetSidebarVisible
+                isSelected: model.isPresetSidebarVisible,
             ) {
                 model.isPresetSidebarVisible.toggle()
             }
@@ -353,7 +357,8 @@ struct PreviewView: View {
                 } label: {
                     Label(
                         maskOverlayEnabled ? "Overlay On" : "Overlay Off",
-                        systemImage: maskOverlayEnabled ? "eye.fill" : "eye.slash")
+                        systemImage: maskOverlayEnabled ? "eye.fill" : "eye.slash",
+                    )
                 }
                 .buttonStyle(.borderless)
                 .help("Show or hide the active mask overlay on the photo")
@@ -373,7 +378,7 @@ struct PreviewView: View {
             }
             .buttonStyle(.borderless)
             .help(
-                "Full-resolution inspection is explicit. Exit 100% Check to return to the configured exact preview resolution."
+                "Full-resolution inspection is explicit. Exit 100% Check to return to the configured exact preview resolution.",
             )
 
             Spacer()
@@ -394,7 +399,7 @@ struct PreviewView: View {
                 .font(.caption2.monospacedDigit())
                 .studioSecondaryLabel()
                 .help(
-                    "Over/Under use the same final display-referred signal as False Color. Parentheses show the hottest / deepest subset."
+                    "Over/Under use the same final display-referred signal as False Color. Parentheses show the hottest / deepest subset.",
                 )
             }
 
@@ -427,7 +432,9 @@ private struct CropEditorOverlay: View {
         case topLeft, top, topRight, right, bottomRight, bottom, bottomLeft, left
     }
 
-    private var geometry: GeometrySettings { model.selectedLook.geometry ?? GeometrySettings() }
+    private var geometry: GeometrySettings {
+        model.selectedLook.geometry ?? GeometrySettings()
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -437,11 +444,11 @@ private struct CropEditorOverlay: View {
                 x: fitted.minX + CGFloat(crop.x) * fitted.width,
                 y: fitted.minY + CGFloat(crop.y) * fitted.height,
                 width: CGFloat(crop.width) * fitted.width,
-                height: CGFloat(crop.height) * fitted.height
+                height: CGFloat(crop.height) * fitted.height,
             )
 
             ZStack {
-                Canvas { context, size in
+                Canvas { context, _ in
                     drawShade(context: &context, imageRect: fitted, cropRect: cropRect)
                     drawGuides(context: &context, cropRect: cropRect, guide: geometry.overlayGuide)
                 }
@@ -568,22 +575,34 @@ private struct CropEditorOverlay: View {
             Path(
                 CGRect(
                     x: imageRect.minX, y: imageRect.minY, width: imageRect.width,
-                    height: max(0, cropRect.minY - imageRect.minY))), with: .color(shade))
+                    height: max(0, cropRect.minY - imageRect.minY),
+                ),
+            ), with: .color(shade),
+        )
         context.fill(
             Path(
                 CGRect(
                     x: imageRect.minX, y: cropRect.maxY, width: imageRect.width,
-                    height: max(0, imageRect.maxY - cropRect.maxY))), with: .color(shade))
+                    height: max(0, imageRect.maxY - cropRect.maxY),
+                ),
+            ), with: .color(shade),
+        )
         context.fill(
             Path(
                 CGRect(
                     x: imageRect.minX, y: cropRect.minY, width: max(0, cropRect.minX - imageRect.minX),
-                    height: cropRect.height)), with: .color(shade))
+                    height: cropRect.height,
+                ),
+            ), with: .color(shade),
+        )
         context.fill(
             Path(
                 CGRect(
                     x: cropRect.maxX, y: cropRect.minY, width: max(0, imageRect.maxX - cropRect.maxX),
-                    height: cropRect.height)), with: .color(shade))
+                    height: cropRect.height,
+                ),
+            ), with: .color(shade),
+        )
         context.stroke(Path(cropRect), with: .color(.white.opacity(0.92)), lineWidth: 1.1)
     }
 
@@ -610,9 +629,9 @@ private struct CropEditorOverlay: View {
             let inner = cropRect.insetBy(dx: cropRect.width * 0.10, dy: cropRect.height * 0.10)
             lines.addRect(outer); lines.addRect(inner)
         case .diagonal:
-            lines.move(to: CGPoint(x: cropRect.minX, y: cropRect.minY));
+            lines.move(to: CGPoint(x: cropRect.minX, y: cropRect.minY))
             lines.addLine(to: CGPoint(x: cropRect.maxX, y: cropRect.maxY))
-            lines.move(to: CGPoint(x: cropRect.maxX, y: cropRect.minY));
+            lines.move(to: CGPoint(x: cropRect.maxX, y: cropRect.minY))
             lines.addLine(to: CGPoint(x: cropRect.minX, y: cropRect.maxY))
         case .none:
             break

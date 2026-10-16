@@ -12,6 +12,7 @@ struct ExportWorkspaceView: View {
         self.isDialog = isDialog
         self.onClose = onClose
     }
+
     @State private var dialogPhotosOpen = false
     @State private var sourceFilter: ExportSourceFilter = .all
     @State private var search = ""
@@ -38,7 +39,7 @@ struct ExportWorkspaceView: View {
                         if showExportBrowser {
                             sourceBrowser.frame(
                                 minWidth: StudioLayout.presetSidebarWidth, idealWidth: StudioLayout.presetSidebarWidth,
-                                maxWidth: 380
+                                maxWidth: 380,
                             )
                             .padding(StudioLayout.paneInset).studioGlassPane()
                         }
@@ -46,7 +47,7 @@ struct ExportWorkspaceView: View {
                         if showExportInspector {
                             inspector.frame(
                                 minWidth: StudioLayout.editorInspectorWidth,
-                                idealWidth: StudioLayout.editorInspectorWidth, maxWidth: 440
+                                idealWidth: StudioLayout.editorInspectorWidth, maxWidth: 440,
                             )
                             .padding(StudioLayout.paneInset).studioGlassPane()
                         }
@@ -71,15 +72,17 @@ struct ExportWorkspaceView: View {
         }
     }
 
-    // RedlampUI/Export/ExportSheet.swift @ 657beb41: grouped native form,
-    // one preset selector, one fixed action row. Larger left preview is the
-    // SpektraFilm extension; no old workspace/queue embedded in the modal.
+    /// RedlampUI/Export/ExportSheet.swift @ 657beb41: grouped native form,
+    /// one preset selector, one fixed action row. Larger left preview is the
+    /// SpektraFilm extension; no old workspace/queue embedded in the modal.
     private var exportDialog: some View {
         StudioRedlampExportDialog(model: model) { onClose?() }
     }
 
-    // Kept for existing documentation and UI smoke-test callers.
-    var documentationSettings: some View { inspector.frame(width: 400, height: 720) }
+    /// Kept for existing documentation and UI smoke-test callers.
+    var documentationSettings: some View {
+        inspector.frame(width: 400, height: 720)
+    }
 
     private var workspaceHeader: some View {
         HStack(spacing: 14) {
@@ -221,8 +224,8 @@ struct ExportWorkspaceView: View {
                             "",
                             isOn: Binding(
                                 get: { image.selectedForExport },
-                                set: { _ in model.toggleExportSelection(image.id) }
-                            )
+                                set: { _ in model.toggleExportSelection(image.id) },
+                            ),
                         )
                         .labelsHidden()
                         .disabled(model.isExporting)
@@ -234,9 +237,13 @@ struct ExportWorkspaceView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(image.fileName).lineLimit(1)
                             HStack(spacing: 5) {
-                                if image.rating > 0 { Text("\(image.rating)★") }
+                                if image.rating > 0 {
+                                    Text("\(image.rating)★")
+                                }
                                 Text(image.flag.label)
-                                if image.clientPicked { Image(systemName: "heart.fill") }
+                                if image.clientPicked {
+                                    Image(systemName: "heart.fill")
+                                }
                             }
                             .font(.caption2)
                             .studioSecondaryLabel()
@@ -264,14 +271,13 @@ struct ExportWorkspaceView: View {
     private var filteredImages: [ProjectImageRecord] {
         let needle = search.trimmingCharacters(in: .whitespacesAndNewlines)
         return model.project.images.filter { image in
-            let categoryMatch: Bool
-            switch sourceFilter {
-            case .all: categoryMatch = true
-            case .queued: categoryMatch = image.selectedForExport
-            case .picks: categoryMatch = image.flag == .picked
-            case .client: categoryMatch = image.clientPicked
-            case .rated: categoryMatch = image.rating >= 4
-            case .rejected: categoryMatch = image.flag == .rejected
+            let categoryMatch: Bool = switch sourceFilter {
+            case .all: true
+            case .queued: image.selectedForExport
+            case .picks: image.flag == .picked
+            case .client: image.clientPicked
+            case .rated: image.rating >= 4
+            case .rejected: image.flag == .rejected
             }
             return categoryMatch && (needle.isEmpty || image.fileName.localizedCaseInsensitiveContains(needle))
         }
@@ -299,7 +305,9 @@ struct ExportWorkspaceView: View {
                     }
                     .disabled(model.isExporting)
                     Button {
-                        if isDialog { onClose?() }
+                        if isDialog {
+                            onClose?()
+                        }
                         model.focusPhoto(image.id, destination: .edit)
                     } label: {
                         Label("Edit", systemImage: "slider.horizontal.3")
@@ -319,7 +327,7 @@ struct ExportWorkspaceView: View {
                     RoundedRectangle(cornerRadius: 11).fill(Color.black.opacity(0.92))
                     if let image = previewImage {
                         if model.isCropToolActive,
-                            model.project.selectedImageID == image.id
+                           model.project.selectedImageID == image.id
                         {
                             PreviewView(model: model)
                                 .padding(4)
@@ -332,7 +340,7 @@ struct ExportWorkspaceView: View {
                         ContentUnavailableView(
                             "No Export Preview",
                             systemImage: "photo.on.rectangle",
-                            description: Text("Queue or select a photo.")
+                            description: Text("Queue or select a photo."),
                         )
                     }
                 }
@@ -496,7 +504,7 @@ struct ExportWorkspaceView: View {
                 showingSavePreset = true
             }
             if let id = selectedCustomPreset,
-                let preset = savedPresets.first(where: { $0.id == id })
+               let preset = savedPresets.first(where: { $0.id == id })
             {
                 Button("Update \(preset.name)") { updateCustomPreset(id) }
                 Button("Delete \(preset.name)", role: .destructive) { deleteCustomPreset(id) }
@@ -529,7 +537,7 @@ struct ExportWorkspaceView: View {
             Text(
                 model.project.exportSettings.colorMode == .sRGB
                     ? "Actual sRGB pixels for web, phone, messaging, and social delivery."
-                    : "Preserve the renderer output for controlled color-managed workflows."
+                    : "Preserve the renderer output for controlled color-managed workflows.",
             )
             .font(.caption2)
             .studioSecondaryLabel()
@@ -555,7 +563,7 @@ struct ExportWorkspaceView: View {
                     Text("\(Int((model.project.exportSettings.jpegQuality * 100).rounded()))")
                         .font(.caption.monospacedDigit())
                 }
-                Slider(value: $model.project.exportSettings.jpegQuality, in: 0.1...1)
+                Slider(value: $model.project.exportSettings.jpegQuality, in: 0.1 ... 1)
             }
 
             // Redlamp keeps bit depth in the SAME section as format and quality.
@@ -609,13 +617,13 @@ struct ExportWorkspaceView: View {
                 if model.project.exportSettings.resizeMode == .fitBox {
                     Label(
                         "Fit keeps the whole photo. The target is a maximum box; no padding is exported.",
-                        systemImage: "arrow.down.right.and.arrow.up.left"
+                        systemImage: "arrow.down.right.and.arrow.up.left",
                     )
                     .font(.caption2).studioSecondaryLabel()
                 } else {
                     Label(
                         "Fill never stretches the photo. It center-crops edges until the target aspect is filled.",
-                        systemImage: "crop"
+                        systemImage: "crop",
                     )
                     .font(.caption2).foregroundStyle(.orange)
                 }
@@ -666,7 +674,7 @@ struct ExportWorkspaceView: View {
             Stepper(
                 "Sequence starts at \(model.project.exportSettings.sequenceStart)",
                 value: $model.project.exportSettings.sequenceStart,
-                in: 0...999999
+                in: 0 ... 999_999,
             )
 
             if !model.exportPreflightNames.isEmpty {
@@ -674,7 +682,7 @@ struct ExportWorkspaceView: View {
                     fieldLabel("Examples")
                     ForEach(
                         Array(model.exportPreflightNames.prefix(3).enumerated()),
-                        id: \.offset
+                        id: \.offset,
                     ) { _, name in
                         Text(name).font(.caption.monospaced()).lineLimit(1)
                     }
@@ -711,7 +719,7 @@ struct ExportWorkspaceView: View {
                 } else {
                     Button {
                         NSWorkspace.shared.activateFileViewerSelecting([
-                            URL(fileURLWithPath: model.project.exportSettings.destinationPath)
+                            URL(fileURLWithPath: model.project.exportSettings.destinationPath),
                         ])
                     } label: {
                         Text(URL(fileURLWithPath: model.project.exportSettings.destinationPath).lastPathComponent)
@@ -729,7 +737,7 @@ struct ExportWorkspaceView: View {
                 Spacer()
                 Text(
                     model.project.exportSettings.destinationPath.isEmpty
-                        ? "—" : model.project.exportSettings.destinationPath
+                        ? "—" : model.project.exportSettings.destinationPath,
                 )
                 .font(.caption).studioSecondaryLabel()
                 .lineLimit(1).truncationMode(.middle)
@@ -769,7 +777,7 @@ struct ExportWorkspaceView: View {
                     } else {
                         Text(
                             model.isExporting
-                                ? model.exportCurrentFileName : model.project.exportSettings.destinationPath
+                                ? model.exportCurrentFileName : model.project.exportSettings.destinationPath,
                         )
                         .font(.caption).studioSecondaryLabel()
                         .lineLimit(1).truncationMode(.middle)
@@ -789,22 +797,36 @@ struct ExportWorkspaceView: View {
         .background(.regularMaterial)
     }
 
-    private func requestExportFolder() { model.chooseExportDestination() }
+    private func requestExportFolder() {
+        model.chooseExportDestination()
+    }
 
     private var exportBlockingReason: String? {
         let settings = model.project.exportSettings
-        if model.selectedExportCount == 0 { return "Select at least one photo to export" }
+        if model.selectedExportCount == 0 {
+            return "Select at least one photo to export"
+        }
         // One chooser, per the Export must have one destination chooser rule.
-        if settings.destinationPath.isEmpty { return "Choose a destination folder to enable Export" }
-        if settings.sequenceStart < 1 { return "Sequence must start at 1 or later" }
+        if settings.destinationPath.isEmpty {
+            return "Choose a destination folder to enable Export"
+        }
+        if settings.sequenceStart < 1 {
+            return "Sequence must start at 1 or later"
+        }
         switch settings.resizeMode {
         case .none: break
         case .longEdge:
-            if settings.resizeLongEdge < 1 { return "Long edge must be greater than zero" }
+            if settings.resizeLongEdge < 1 {
+                return "Long edge must be greater than zero"
+            }
         case .width:
-            if settings.resizeWidth < 1 { return "Width must be greater than zero" }
+            if settings.resizeWidth < 1 {
+                return "Width must be greater than zero"
+            }
         case .height:
-            if settings.resizeHeight < 1 { return "Height must be greater than zero" }
+            if settings.resizeHeight < 1 {
+                return "Height must be greater than zero"
+            }
         case .fitBox, .cropToFill:
             if settings.resizeWidth < 1 || settings.resizeHeight < 1 {
                 return "Output dimensions must be greater than zero"
@@ -819,7 +841,7 @@ struct ExportWorkspaceView: View {
 
     private var selectedPresetTitle: String {
         guard let id = selectedCustomPreset,
-            let preset = savedPresets.first(where: { $0.id == id })
+              let preset = savedPresets.first(where: { $0.id == id })
         else {
             return "Custom Export"
         }
@@ -842,7 +864,9 @@ struct ExportWorkspaceView: View {
         var all = savedPresets
         guard let index = all.firstIndex(where: { $0.id == id }) else { return }
         all[index].settings = model.project.exportSettings
-        if let encoded = try? JSONEncoder().encode(all) { savedPresetsData = encoded }
+        if let encoded = try? JSONEncoder().encode(all) {
+            savedPresetsData = encoded
+        }
     }
 
     private func deleteCustomPreset(_ id: UUID) {
@@ -860,10 +884,9 @@ struct ExportWorkspaceView: View {
     private var formatSummary: String {
         switch model.project.exportSettings.format {
         case .jpeg, .heic:
-            return
-                "\(model.project.exportSettings.format.rawValue) \(Int((model.project.exportSettings.jpegQuality * 100).rounded()))"
+            "\(model.project.exportSettings.format.rawValue) \(Int((model.project.exportSettings.jpegQuality * 100).rounded()))"
         case .tiff:
-            return model.project.exportSettings.tiff16Bit ? "TIFF 16-bit" : "TIFF 8-bit"
+            model.project.exportSettings.tiff16Bit ? "TIFF 16-bit" : "TIFF 8-bit"
         }
     }
 
@@ -937,7 +960,9 @@ struct ExportWorkspaceView: View {
 
     private static func duration(_ seconds: Double) -> String {
         let total = max(0, Int(seconds.rounded()))
-        if total < 60 { return "\(total)s" }
+        if total < 60 {
+            return "\(total)s"
+        }
         let minutes = total / 60
         let remainder = total % 60
         if minutes < 60 {

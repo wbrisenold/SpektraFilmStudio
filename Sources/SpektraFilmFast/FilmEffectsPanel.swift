@@ -2,7 +2,9 @@ import SwiftUI
 
 struct FilmEffectsPanel: View {
     @ObservedObject var model: AppModel
-    private var settings: FilmEffectsSettings { model.selectedLook.filmEffects ?? FilmEffectsSettings() }
+    private var settings: FilmEffectsSettings {
+        model.selectedLook.filmEffects ?? FilmEffectsSettings()
+    }
 
     /// The photo's own aspect, so only borders whose window matches are offered.
     private var photoAspect: CGFloat? {
@@ -11,6 +13,7 @@ struct FilmEffectsPanel: View {
         }
         return nil
     }
+
     /// Catalog indices of the frames that fit the current photo's aspect.
     private var availableFrameIndices: [Int] {
         guard let aspect = photoAspect else { return Array(TextureEffectCatalog.frames.indices) }
@@ -28,7 +31,7 @@ struct FilmEffectsPanel: View {
             }
             Text("Light Leaks").font(.caption.weight(.semibold))
             slider("Amount", \.leakAmount)
-            slider("Warmth", \.leakWarmth, range: -100...100)
+            slider("Warmth", \.leakWarmth, range: -100 ... 100)
             variationPicker
             Divider()
             Text("Surface").font(.caption.weight(.semibold))
@@ -43,7 +46,8 @@ struct FilmEffectsPanel: View {
                 "Frame",
                 selection: Binding(
                     get: { settings.frameStyle },
-                    set: { value in model.setFilmEffectsSettings { $0.frameStyle = value } })
+                    set: { value in model.setFilmEffectsSettings { $0.frameStyle = value } },
+                ),
             ) {
                 Text("None").tag(0)
                 Text("Keyline").tag(1)
@@ -65,9 +69,10 @@ struct FilmEffectsPanel: View {
             "Variation",
             selection: Binding(
                 get: { Int(settings.leakVariation.rounded()) },
-                set: { value in model.setFilmEffectsSettings { $0.leakVariation = Double(value) } })
+                set: { value in model.setFilmEffectsSettings { $0.leakVariation = Double(value) } },
+            ),
         ) {
-            ForEach(0..<6) { index in
+            ForEach(0 ..< 6) { index in
                 Text("Arrangement \(index + 1)").tag(index)
             }
         }
@@ -79,7 +84,8 @@ struct FilmEffectsPanel: View {
             "Border",
             selection: Binding(
                 get: { settings.frameTextureIndex },
-                set: { value in model.setFilmEffectsSettings { $0.frameTextureIndex = value } })
+                set: { value in model.setFilmEffectsSettings { $0.frameTextureIndex = value } },
+            ),
         ) {
             Text("None").tag(-1)
             // Tags carry the catalog index so a saved choice stays valid when the
@@ -90,7 +96,8 @@ struct FilmEffectsPanel: View {
         }
         .help(
             "A film border drawn over the photo, replacing the procedural frame style. "
-                + "Only borders whose window fits this photo's shape are listed.")
+                + "Only borders whose window fits this photo's shape are listed.",
+        )
     }
 
     private var paperPicker: some View {
@@ -101,9 +108,12 @@ struct FilmEffectsPanel: View {
                 set: { value in
                     model.setFilmEffectsSettings {
                         $0.paperTextureIndex = value
-                        if value < 0 { $0.paperTextureAmount = 50 }
+                        if value < 0 {
+                            $0.paperTextureAmount = 50
+                        }
                     }
-                })
+                },
+            ),
         ) {
             Text("None").tag(-1)
             ForEach(Array(TextureEffectCatalog.papers.enumerated()), id: \.offset) { index, asset in
@@ -111,8 +121,9 @@ struct FilmEffectsPanel: View {
             }
         }
     }
+
     private func slider(
-        _ title: String, _ key: WritableKeyPath<FilmEffectsSettings, Double>, range: ClosedRange<Double> = 0...100
+        _ title: String, _ key: WritableKeyPath<FilmEffectsSettings, Double>, range: ClosedRange<Double> = 0 ... 100,
     ) -> some View {
         DraftScalarSlider(
             label: title, committedValue: settings[keyPath: key], range: range, precision: 0,
@@ -120,8 +131,10 @@ struct FilmEffectsPanel: View {
             onReset: { model.setFilmEffectsSettings { $0[keyPath: key] = FilmEffectsSettings()[keyPath: key] } },
             onBegin: { model.beginEditGesture() },
             onChange: { value in model.setFilmEffectsSettings(interactive: true) { $0[keyPath: key] = value } },
-            onEnd: { model.endEditGesture() })
+            onEnd: { model.endEditGesture() },
+        )
     }
+
     private func help(for title: String) -> String {
         switch title {
         case "Amount": "Strength of the colored light entering from the frame edges."

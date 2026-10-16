@@ -25,7 +25,9 @@ extension AppModel {
             rawDenoiseStatus =
                 "\(label): \(result.prepared) ready · \(result.cacheHits) warm hits · \(result.failed) failed · \(seconds)s"
             refreshStage5CacheAccounting()
-            if project.selectedImageID != nil { requestPreviewRefresh() }
+            if project.selectedImageID != nil {
+                requestPreviewRefresh()
+            }
         }
     }
 
@@ -46,7 +48,8 @@ extension AppModel {
         let fm = FileManager.default
         guard
             let e = fm.enumerator(
-                at: root, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey], options: [.skipsHiddenFiles])
+                at: root, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey], options: [.skipsHiddenFiles],
+            )
         else { return .init() }
         var out = RawForgeCacheStats()
         for case let url as URL in e {

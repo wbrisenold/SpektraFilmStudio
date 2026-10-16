@@ -39,16 +39,18 @@ struct StudioSceneAssistantView: View {
                         .font(.caption2).studioSecondaryLabel()
                     HStack(spacing: 8) {
                         Text("Separate").font(.caption2).studioSecondaryLabel()
-                        Slider(value: $similarity, in: 0.45...1.10)
+                        Slider(value: $similarity, in: 0.45 ... 1.10)
                             .frame(width: 150)
                         Text("Merge").font(.caption2).studioSecondaryLabel()
                     }
                 }
                 .help(
-                    "Left separates aggressively into small groups. Right merges visually different frames. Groups also require close capture time (within 20 minutes) and the same session folder."
+                    "Left separates aggressively into small groups. Right merges visually different frames. Groups also require close capture time (within 20 minutes) and the same session folder.",
                 )
                 Spacer()
-                if working { ProgressView().controlSize(.small) }
+                if working {
+                    ProgressView().controlSize(.small)
+                }
                 Button("Analyze Thumbnails") { Task { await analyze() } }
                     .disabled(working || model.project.images.isEmpty)
             }
@@ -67,13 +69,14 @@ struct StudioSceneAssistantView: View {
                                         LocalThumbnail(url: model.thumbnailURL(for: image), contentMode: .fit)
                                             .frame(width: 76, height: 56)
                                             .background(
-                                                Color.black.opacity(0.24), in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius))
+                                                Color.black.opacity(0.24), in: RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius),
+                                            )
                                     }
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(group.label).font(.subheadline.weight(.medium))
                                         Text(
                                             "\(group.count) photo\(group.count == 1 ? "" : "s") · "
-                                                + group.topTags.prefix(2).joined(separator: ", ")
+                                                + group.topTags.prefix(2).joined(separator: ", "),
                                         )
                                         .font(.caption2).studioSecondaryLabel().lineLimit(2)
                                     }
@@ -83,7 +86,8 @@ struct StudioSceneAssistantView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(
                                     selectedID == group.id ? StudioPalette.selected : Color.clear,
-                                    in: RoundedRectangle(cornerRadius: 9))
+                                    in: RoundedRectangle(cornerRadius: 9),
+                                )
                             }.buttonStyle(.plain)
                         }
                     }.padding(12)
@@ -125,11 +129,12 @@ struct StudioSceneAssistantView: View {
                                     }
                                     .padding(11)
                                     .background(
-                                        StudioPalette.panel.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
+                                        StudioPalette.panel.opacity(0.6), in: RoundedRectangle(cornerRadius: 10),
+                                    )
                                 }
                                 Label(
                                     "Suggestions are starting points, not measured film matches. Review skin color, highlight response, and print density in the exact renderer before batch application.",
-                                    systemImage: "info.circle"
+                                    systemImage: "info.circle",
                                 )
                                 .font(.caption).studioSecondaryLabel()
                             }.padding(17)
@@ -137,15 +142,18 @@ struct StudioSceneAssistantView: View {
                     } else if let errorText {
                         ContentUnavailableView(
                             "Analysis unavailable", systemImage: "exclamationmark.triangle",
-                            description: Text(errorText))
+                            description: Text(errorText),
+                        )
                     } else if working {
                         ContentUnavailableView(
                             "Analyzing your local previews", systemImage: "sparkles",
-                            description: Text("No RAW originals are uploaded or downloaded for this analysis."))
+                            description: Text("No RAW originals are uploaded or downloaded for this analysis."),
+                        )
                     } else {
                         ContentUnavailableView(
                             "No scene groups yet", systemImage: "photo.stack",
-                            description: Text("Analyze local thumbnails to find related shots."))
+                            description: Text("Analyze local thumbnails to find related shots."),
+                        )
                     }
                 }
                 .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
@@ -164,8 +172,13 @@ struct StudioSceneAssistantView: View {
         .confirmationDialog(
             "Apply film stock and print paper to this entire set?",
             isPresented: Binding(
-                get: { pendingApply != nil }, set: { if !$0 { pendingApply = nil; pendingGroupID = nil } }),
-            titleVisibility: .visible
+                get: { pendingApply != nil }, set: {
+                    if !$0 {
+                        pendingApply = nil; pendingGroupID = nil
+                    }
+                },
+            ),
+            titleVisibility: .visible,
         ) {
             Button("Apply Stock + Paper") {
                 if let pendingApply, let group = sets.first(where: { $0.id == pendingGroupID }) {
@@ -179,7 +192,7 @@ struct StudioSceneAssistantView: View {
             }
         } message: {
             Text(
-                "Only stock and paper change; individual white balance, crop and tone settings remain. Batch changes are not a single-step Undo. Save a project copy first if you need a rollback."
+                "Only stock and paper change; individual white balance, crop and tone settings remain. Batch changes are not a single-step Undo. Save a project copy first if you need a rollback.",
             )
         }
     }
@@ -198,15 +211,19 @@ struct StudioSceneAssistantView: View {
                 id: image.id,
                 previewURL: model.thumbnailURL(for: image),
                 captureTime: image.captureDate ?? image.metadata?.captureDate ?? image.importedAt,
-                folder: image.logicalFolderPath ?? image.url.deletingLastPathComponent().path)
+                folder: image.logicalFolderPath ?? image.url.deletingLastPathComponent().path,
+            )
         }
         do {
             let results = try await StudioSceneIntelligence.shared.group(
                 inputs, similarity: Float(similarity),
-                films: BridgeCatalog.shared.films, papers: BridgeCatalog.shared.papers)
+                films: BridgeCatalog.shared.films, papers: BridgeCatalog.shared.papers,
+            )
             guard !Task.isCancelled else { return }
             sets = results
-            if !sets.contains(where: { $0.id == selectedID }) { selectedID = sets.first?.id }
+            if !sets.contains(where: { $0.id == selectedID }) {
+                selectedID = sets.first?.id
+            }
             if sets.isEmpty {
                 errorText = "No local thumbnails are ready. Generate previews in Library or Cull before analyzing."
             }
@@ -217,7 +234,9 @@ struct StudioSceneAssistantView: View {
         guard let first = group.imageIDs.first else { return }
         model.clearLibrarySelection()
         model.selectLibraryImage(first)
-        for id in group.imageIDs.dropFirst() { model.selectLibraryImage(id, additive: true) }
+        for id in group.imageIDs.dropFirst() {
+            model.selectLibraryImage(id, additive: true)
+        }
         model.showProjectHome = false
         model.page = .library
     }

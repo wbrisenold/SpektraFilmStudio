@@ -19,8 +19,8 @@ enum RemovalRegion {
             while let index = stack.popLast() {
                 count += 1
                 let (x, y) = (index % width, index / width)
-                for ny in max(y - 1, 0)...min(y + 1, height - 1) {
-                    for nx in max(x - 1, 0)...min(x + 1, width - 1) where region[ny * width + nx] {
+                for ny in max(y - 1, 0) ... min(y + 1, height - 1) {
+                    for nx in max(x - 1, 0) ... min(x + 1, width - 1) where region[ny * width + nx] {
                         let neighbour = ny * width + nx
                         guard label[neighbour] < 0 else { continue }
                         label[neighbour] = next
@@ -36,5 +36,4 @@ enum RemovalRegion {
         guard best >= 0 else { return [Bool](repeating: false, count: region.count) }
         return label.map { $0 == best }
     }
-
 }

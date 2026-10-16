@@ -30,7 +30,7 @@ struct EditorScopeStrip: View {
     /// `previous == nil` guard drops the initial `onChange` callback, since the
     /// caller already seeds a sane collapsed-height fallback.
     private static func report(
-        previous: CGFloat?, _ height: CGFloat, to handler: @escaping @MainActor (CGFloat) -> Void
+        previous: CGFloat?, _ height: CGFloat, to handler: @escaping @MainActor (CGFloat) -> Void,
     ) {
         guard let previous, previous != height, height.isFinite, height > 0 else { return }
         Task { @MainActor in
@@ -51,7 +51,7 @@ struct EditorScopeStrip: View {
                 Color.clear.onChange(of: proxy.size.height) { previous, height in
                     Self.report(previous: previous, height, to: onHeightChange)
                 }
-            }
+            },
         )
         .studioGlassPane()
     }
@@ -87,7 +87,9 @@ struct EditorScopeStrip: View {
             } else {
                 overlayToggles
                 Spacer()
-                if model.isScopeAnalyzing { ProgressView().controlSize(.mini) }
+                if model.isScopeAnalyzing {
+                    ProgressView().controlSize(.mini)
+                }
                 Button("Collapse") { isExpanded = false }
                     .buttonStyle(.borderless).controlSize(.small)
             }
@@ -112,19 +114,21 @@ struct EditorScopeStrip: View {
             Toggle(
                 isOn: Binding(
                     get: { model.project.preferences.clippingEnabled },
-                    set: { model.setClippingEnabled($0) })
+                    set: { model.setClippingEnabled($0) },
+                ),
             ) {
                 Label("Clipping", systemImage: "arrowtriangle.up.fill")
             }
             .toggleStyle(.button).controlSize(.mini)
             .help(
-                "Warn when final output approaches white/red or black/blue. Bright warning is not always irreversible clipping."
+                "Warn when final output approaches white/red or black/blue. Bright warning is not always irreversible clipping.",
             )
 
             Toggle(
                 isOn: Binding(
                     get: { model.project.preferences.skinCheckEnabled },
-                    set: { model.setSkinCheckEnabled($0) })
+                    set: { model.setSkinCheckEnabled($0) },
+                ),
             ) {
                 Label("Skin", systemImage: "hand.raised.fill")
             }
@@ -176,7 +180,7 @@ struct EditorScopePanelView: View {
                     Text(
                         model.selectedImage == nil
                             ? "Select an image to view scopes"
-                            : "Reading display scope"
+                            : "Reading display scope",
                     )
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -190,7 +194,8 @@ struct EditorScopePanelView: View {
                     "Scope",
                     selection: Binding(
                         get: { model.project.preferences.scopeMode },
-                        set: { model.setEditorScopeMode($0) })
+                        set: { model.setEditorScopeMode($0) },
+                    ),
                 ) {
                     ForEach(ScopeMode.allCases) { mode in
                         Label(mode.rawValue, systemImage: icon(mode)).tag(mode)
@@ -200,9 +205,11 @@ struct EditorScopePanelView: View {
             .background(
                 GeometryReader { proxy in
                     Color.clear.onChange(of: proxy.size.width) { _, w in
-                        if w > 0 { lastWellWidth = w }
+                        if w > 0 {
+                            lastWellWidth = w
+                        }
                     }
-                }
+                },
             )
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay {
@@ -237,7 +244,8 @@ struct EditorScopePanelView: View {
                     clippingIndicator(
                         isClipped: model.analysisMetrics.hardShadowPercent > 0,
                         value: model.analysisMetrics.hardShadowPercent,
-                        tint: .blue, isFlipped: false)
+                        tint: .blue, isFlipped: false,
+                    )
                     Spacer()
                     if let zone = histogramZone {
                         Text("\(tuningName(for: zone))  \(tuningValue(for: zone))")
@@ -249,7 +257,8 @@ struct EditorScopePanelView: View {
                     clippingIndicator(
                         isClipped: model.analysisMetrics.hardHighlightPercent > 0,
                         value: model.analysisMetrics.hardHighlightPercent,
-                        tint: .red, isFlipped: true)
+                        tint: .red, isFlipped: true,
+                    )
                 } else {
                     Text(" ").foregroundStyle(.secondary)
                 }
@@ -268,7 +277,9 @@ struct EditorScopePanelView: View {
             // histogram well, with the clipping/skin state on the readout row below.
             // The previous invented "SCOPES / Histogram" pill row was not Redlamp.
             HStack(spacing: 8) {
-                if model.isScopeAnalyzing { ProgressView().controlSize(.mini) }
+                if model.isScopeAnalyzing {
+                    ProgressView().controlSize(.mini)
+                }
                 Spacer()
                 Text(model.project.preferences.scopeMode.rawValue)
                     .font(.caption2).foregroundStyle(.secondary)
@@ -278,22 +289,22 @@ struct EditorScopePanelView: View {
                 skinReadout
             } else if model.project.preferences.scopeMode == .falseColor {
                 Text(
-                    "Display-code \u{2032} \u{00B7} blue: low \u{00B7} green: shadows \u{00B7} gray: mid \u{00B7} yellow/orange: bright \u{00B7} red/white: near clip"
+                    "Display-code \u{2032} \u{00B7} blue: low \u{00B7} green: shadows \u{00B7} gray: mid \u{00B7} yellow/orange: bright \u{00B7} red/white: near clip",
                 )
                 .font(.caption2).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 if ![14, 15, 16, 17, 18, 24, 25].contains(
-                    Int(model.selectedLook.values["outputColorSpace"]?.intValue ?? 25))
-                {
+                    Int(model.selectedLook.values["outputColorSpace"]?.intValue ?? 25),
+                ) {
                     Label(
                         "Nonstandard output transfer: false color is not calibrated for this output space",
-                        systemImage: "exclamationmark.triangle"
+                        systemImage: "exclamationmark.triangle",
                     )
                     .font(.caption2).foregroundStyle(.orange)
                 }
             } else if model.project.preferences.scopeMode == .saturation {
                 Text(
-                    "HSV saturation \u{00B7} gray: low \u{00B7} teal: moderate \u{00B7} amber: strong \u{00B7} orange: high \u{00B7} pink: very high. Not a creative judgment."
+                    "HSV saturation \u{00B7} gray: low \u{00B7} teal: moderate \u{00B7} amber: strong \u{00B7} orange: high \u{00B7} pink: very high. Not a creative judgment.",
                 )
                 .font(.caption2).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -317,8 +328,8 @@ struct EditorScopePanelView: View {
     /// Redlamp splits the well into five fixed regions (HistogramView.Region) and
     /// drags one tone parameter per region, rather than sampling arbitrary x.
     private static let regions: [(name: String, span: ClosedRange<Double>)] = [
-        ("blacks", 0.00...0.08), ("shadows", 0.08...0.32), ("exposure", 0.32...0.68),
-        ("highlights", 0.68...0.92), ("whites", 0.92...1.00),
+        ("blacks", 0.00 ... 0.08), ("shadows", 0.08 ... 0.32), ("exposure", 0.32 ... 0.68),
+        ("highlights", 0.68 ... 0.92), ("whites", 0.92 ... 1.00),
     ]
 
     private static func regionIndex(at fraction: Double) -> Int {
@@ -391,7 +402,9 @@ struct EditorScopePanelView: View {
     }
 
     private func finishHistogramDrag() {
-        if histogramZone != nil { model.endEditGesture() }
+        if histogramZone != nil {
+            model.endEditGesture()
+        }
         histogramZone = nil; histogramPhoto = nil
     }
 
@@ -461,33 +474,37 @@ struct EditorScopePanelView: View {
         if magenta >= 18, green >= 18, abs(magenta - green) < 16 {
             return "Mixed Green / Magenta"
         }
-        if green > max(onTarget, magenta), green >= 28 { return "Too Green" }
-        if magenta > max(onTarget, green), magenta >= 28 { return "Too Magenta" }
+        if green > max(onTarget, magenta), green >= 28 {
+            return "Too Green"
+        }
+        if magenta > max(onTarget, green), magenta >= 28 {
+            return "Too Magenta"
+        }
         return "On Target"
     }
 
     private var skinCorrectionLabel: String {
         switch skinStatusLabel {
         case "Too Magenta":
-            return "CORRECT → push tint toward GREEN"
+            "CORRECT → push tint toward GREEN"
         case "Too Green":
-            return "CORRECT → push tint toward MAGENTA"
+            "CORRECT → push tint toward MAGENTA"
         case "On Target":
-            return "ON LINE → no global hue/tint push needed"
+            "ON LINE → no global hue/tint push needed"
         case "Mixed Green / Magenta":
-            return "MIXED LIGHT → global WB will trade one region for another"
+            "MIXED LIGHT → global WB will trade one region for another"
         default:
-            return "Skin correction direction unavailable"
+            "Skin correction direction unavailable"
         }
     }
 
     private var skinStatusColor: Color {
         switch skinStatusLabel {
-        case "Too Magenta": return Color(red: 0.86, green: 0.36, blue: 0.54)
-        case "Too Green": return Color(red: 0.28, green: 0.72, blue: 0.50)
-        case "On Target": return Color(red: 0.90, green: 0.69, blue: 0.35)
-        case "Mixed Green / Magenta": return .orange
-        default: return .secondary
+        case "Too Magenta": Color(red: 0.86, green: 0.36, blue: 0.54)
+        case "Too Green": Color(red: 0.28, green: 0.72, blue: 0.50)
+        case "On Target": Color(red: 0.90, green: 0.69, blue: 0.35)
+        case "Mixed Green / Magenta": .orange
+        default: .secondary
         }
     }
 

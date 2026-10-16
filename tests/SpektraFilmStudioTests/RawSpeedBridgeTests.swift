@@ -1,8 +1,7 @@
-import XCTest
 import RawSpeedBridge
+import XCTest
 
 final class RawSpeedBridgeTests: XCTestCase {
-    
     func testSupportedExtensions() {
         let extensions = RawSpeedDecoder.getSupportedExtensions()
         XCTAssertTrue(extensions.contains("cr2"))
@@ -11,13 +10,13 @@ final class RawSpeedBridgeTests: XCTestCase {
         XCTAssertTrue(extensions.contains("dng"))
         XCTAssertFalse(extensions.contains("txt"))
     }
-    
+
     func testExtensionSupported() {
         XCTAssertTrue(RawSpeedDecoder.isExtensionSupported(URL(fileURLWithPath: "test.cr2")))
         XCTAssertTrue(RawSpeedDecoder.isExtensionSupported(URL(fileURLWithPath: "test.NEF")))
         XCTAssertFalse(RawSpeedDecoder.isExtensionSupported(URL(fileURLWithPath: "test.txt")))
     }
-    
+
     func testMetadataStructure() {
         // Test that the metadata structs can be created
         let metadata = RawSpeedMetadata(from: RawSpeedBridge.RawSpeedMetadata())
@@ -29,7 +28,7 @@ final class RawSpeedBridgeTests: XCTestCase {
         XCTAssertEqual(metadata.xtrans.count, 6)
         XCTAssertEqual(metadata.xtrans[0].count, 6)
     }
-    
+
     func testImageStructure() {
         let image = RawSpeedImage(from: RawSpeedBridge.RawSpeedImage())
         XCTAssertEqual(image.data.count, 0)

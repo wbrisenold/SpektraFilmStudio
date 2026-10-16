@@ -8,7 +8,9 @@ private enum ProofSourceMode: String, CaseIterable, Identifiable {
     case fourStar = "4+ Stars"
     case fiveStar = "5 Stars"
     case librarySelection = "Library Selection"
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 }
 
 struct ProofsWorkspaceView: View {
@@ -32,7 +34,7 @@ struct ProofsWorkspaceView: View {
                     Text("Client proofing, without another app")
                         .font(.title2.weight(.semibold))
                     Text(
-                        "Create a gallery from your picks, share the link, and bring client selections back into your library."
+                        "Create a gallery from your picks, share the link, and bring client selections back into your library.",
                     )
                     .font(.subheadline).studioSecondaryLabel()
                     .multilineTextAlignment(.center)
@@ -47,7 +49,7 @@ struct ProofsWorkspaceView: View {
                     gallerySidebar
                         .frame(
                             minWidth: StudioLayout.presetSidebarWidth, idealWidth: StudioLayout.presetSidebarWidth,
-                            maxWidth: 380
+                            maxWidth: 380,
                         )
                         .padding(StudioLayout.paneInset).studioFloatingPane()
                     galleryBody
@@ -108,15 +110,15 @@ struct ProofsWorkspaceView: View {
                 ContentUnavailableView(
                     "No Proof Galleries",
                     systemImage: "heart.text.square",
-                    description: Text("Create a client gallery directly from your cull picks.")
+                    description: Text("Create a client gallery directly from your cull picks."),
                 )
                 .padding(.horizontal, 10)
             } else {
                 List(
                     selection: Binding(
                         get: { model.selectedProofGalleryID },
-                        set: { model.selectedProofGalleryID = $0 }
-                    )
+                        set: { model.selectedProofGalleryID = $0 },
+                    ),
                 ) {
                     ForEach(model.proofGalleries) { gallery in
                         VStack(alignment: .leading, spacing: 4) {
@@ -174,8 +176,8 @@ struct ProofsWorkspaceView: View {
                 "Client Proofing Stays Here",
                 systemImage: "person.2.crop.square.stack",
                 description: Text(
-                    "Cull, create a client gallery, send the short link, sync their picks, then keep editing without leaving SpektraFilm Studio."
-                )
+                    "Cull, create a client gallery, send the short link, sync their picks, then keep editing without leaving SpektraFilm Studio.",
+                ),
             )
         }
     }
@@ -188,7 +190,9 @@ struct ProofsWorkspaceView: View {
                 HStack(spacing: 8) {
                     Label("\(gallery.photos.count) proofs", systemImage: "photo.stack")
                     Label("\(gallery.selectedCount) selected", systemImage: "heart.fill")
-                    if gallery.finished { Label("Client finished", systemImage: "checkmark.seal.fill") }
+                    if gallery.finished {
+                        Label("Client finished", systemImage: "checkmark.seal.fill")
+                    }
                 }
                 .font(.caption2)
                 .studioSecondaryLabel()
@@ -221,7 +225,7 @@ struct ProofsWorkspaceView: View {
                 Label(
                     gallery.shareRunning && gallery.publicLink != nil ? "ONLINE" : "LOCAL",
                     systemImage: gallery.shareRunning && gallery.publicLink != nil
-                        ? "network.badge.shield.half.filled" : "wifi"
+                        ? "network.badge.shield.half.filled" : "wifi",
                 )
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(gallery.shareRunning && gallery.publicLink != nil ? .green : .secondary)
@@ -249,8 +253,9 @@ struct ProofsWorkspaceView: View {
                     gallery.publicLink != nil
                         ? "Internet link ready to share"
                         : gallery.shareRunning
-                            ? "Creating internet link…"
-                            : "Local link works on the same Wi-Fi. Start an internet link to share remotely.")
+                        ? "Creating internet link…"
+                        : "Local link works on the same Wi-Fi. Start an internet link to share remotely.",
+                )
                 Spacer()
                 if let limit = gallery.maxSelections {
                     Text("Selection limit: \(limit)")
@@ -319,12 +324,13 @@ struct ProofsWorkspaceView: View {
         }
         .padding(6)
         .background(
-            photo.selected ? StudioPalette.selected : StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 9)
+            photo.selected ? StudioPalette.selected : StudioPalette.recessed, in: RoundedRectangle(cornerRadius: 9),
         )
         .overlay {
             RoundedRectangle(cornerRadius: 9).stroke(
                 photo.selected ? StudioPalette.selectedBorder : StudioPalette.subtleBorder,
-                lineWidth: photo.selected ? 1 : 0.5)
+                lineWidth: photo.selected ? 1 : 0.5,
+            )
         }
     }
 
@@ -371,16 +377,17 @@ struct ProofsWorkspaceView: View {
                 LabeledContent("Photos") { Text("\(candidates.count)").monospacedDigit() }
                 Stepper(
                     "Selection limit: \(selectionLimit == 0 ? "None" : String(selectionLimit))", value: $selectionLimit,
-                    in: 0...999)
+                    in: 0 ... 999,
+                )
                 SecureField("Optional client password", text: $password)
 
                 Section {
                     DisclosureGroup("Image size and quality") {
                         LabeledContent("Long edge") {
                             HStack {
-                                Slider(value: $longEdge, in: 1200...3200, step: 100)
+                                Slider(value: $longEdge, in: 1200 ... 3200, step: 100)
                                     .help(
-                                        "Sets the maximum proof size. Larger proofs show more detail but upload more slowly through the client link."
+                                        "Sets the maximum proof size. Larger proofs show more detail but upload more slowly through the client link.",
                                     )
                                 Button {
                                     longEdge = 2048
@@ -394,9 +401,9 @@ struct ProofsWorkspaceView: View {
                         }
                         LabeledContent("JPEG quality") {
                             HStack {
-                                Slider(value: $quality, in: 0.65...0.98, step: 0.01)
+                                Slider(value: $quality, in: 0.65 ... 0.98, step: 0.01)
                                     .help(
-                                        "Controls proof JPEG compression. Around 85–90% is usually a good balance between detail and fast client loading."
+                                        "Controls proof JPEG compression. Around 85–90% is usually a good balance between detail and fast client loading.",
                                     )
                                 Button {
                                     quality = 0.88
@@ -409,7 +416,7 @@ struct ProofsWorkspaceView: View {
                             }
                         }
                         Text(
-                            "Proofs use the current WB, Exposure/Curve, SpektraFilm look, and Crop/Geometry. GPS/private metadata is not copied. Full-resolution originals are never served to the client."
+                            "Proofs use the current WB, Exposure/Curve, SpektraFilm look, and Crop/Geometry. GPS/private metadata is not copied. Full-resolution originals are never served to the client.",
                         )
                         .font(.caption2).studioSecondaryLabel()
                     }
@@ -432,7 +439,7 @@ struct ProofsWorkspaceView: View {
                         maxSelections: selectionLimit == 0 ? nil : selectionLimit,
                         password: password,
                         longEdge: Int(longEdge),
-                        jpegQuality: quality
+                        jpegQuality: quality,
                     )
                     showingNewGallery = false
                 }

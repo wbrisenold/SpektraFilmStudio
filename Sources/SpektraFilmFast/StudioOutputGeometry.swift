@@ -10,7 +10,7 @@ struct StudioOutputGeometry: Equatable, Sendable {
         sourceWidth: Int,
         sourceHeight: Int,
         targetWidth: Int,
-        targetHeight: Int
+        targetHeight: Int,
     ) -> CGRect {
         let sw = min(16384, max(1, sourceWidth))
         let sh = min(16384, max(1, sourceHeight))
@@ -32,7 +32,7 @@ struct StudioOutputGeometry: Equatable, Sendable {
             x: (sw - cropW) / 2,
             y: (sh - cropH) / 2,
             width: cropW,
-            height: cropH
+            height: cropH,
         )
     }
 
@@ -43,7 +43,7 @@ struct StudioOutputGeometry: Equatable, Sendable {
         width: Int,
         height: Int,
         longEdge: Int,
-        dontEnlarge: Bool
+        dontEnlarge: Bool,
     ) -> Self {
         let sw = min(16384, max(1, sourceWidth))
         let sh = min(16384, max(1, sourceHeight))
@@ -60,38 +60,37 @@ struct StudioOutputGeometry: Equatable, Sendable {
                 sourceWidth: sw,
                 sourceHeight: sh,
                 targetWidth: w,
-                targetHeight: h
+                targetHeight: h,
             )
             let cw = Int(crop.width)
             let ch = Int(crop.height)
             let factor =
                 dontEnlarge
-                ? min(1, min(Double(cw) / Double(w), Double(ch) / Double(h)))
-                : 1.0
+                    ? min(1, min(Double(cw) / Double(w), Double(ch) / Double(h)))
+                    : 1.0
             return .init(
                 width: max(1, Int((Double(w) * factor).rounded())),
-                height: max(1, Int((Double(h) * factor).rounded()))
+                height: max(1, Int((Double(h) * factor).rounded())),
             )
         }
 
-        let ratio: Double
-        switch mode {
+        let ratio: Double = switch mode {
         case .none, .cropToFill:
-            ratio = 1
+            1
         case .longEdge:
-            ratio = Double(edge) / Double(max(sw, sh))
+            Double(edge) / Double(max(sw, sh))
         case .width:
-            ratio = Double(w) / Double(sw)
+            Double(w) / Double(sw)
         case .height:
-            ratio = Double(h) / Double(sh)
+            Double(h) / Double(sh)
         case .fitBox:
-            ratio = min(Double(w) / Double(sw), Double(h) / Double(sh))
+            min(Double(w) / Double(sw), Double(h) / Double(sh))
         }
 
         var tw = mode == .width ? w : max(1, Int((Double(sw) * ratio).rounded()))
         var th = mode == .height ? h : max(1, Int((Double(sh) * ratio).rounded()))
 
-        if dontEnlarge && tw >= sw && th >= sh {
+        if dontEnlarge, tw >= sw, th >= sh {
             return .init(width: sw, height: sh)
         }
         if dontEnlarge {

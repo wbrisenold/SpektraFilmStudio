@@ -11,13 +11,14 @@ enum StudioUXSmokeTest {
             return false
         }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "SpektraUX-\(ProcessInfo.processInfo.processIdentifier)")
+            "SpektraUX-\(ProcessInfo.processInfo.processIdentifier)",
+        )
         do {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             let photo = root.appendingPathComponent("Photo.jpg")
             var pixels = [Float](repeating: 1, count: 320 * 200 * 4)
-            for y in 0..<200 {
-                for x in 0..<320 {
+            for y in 0 ..< 200 {
+                for x in 0 ..< 320 {
                     let p = (y * 320 + x) * 4
                     pixels[p] = Float(x) / 320
                     pixels[p + 1] = Float(y) / 200
@@ -26,7 +27,8 @@ enum StudioUXSmokeTest {
             }
             guard
                 let cg = PixelBufferF32(width: 320, height: 200, pixels: pixels).makeCGImage8(
-                    colorSpace: CGColorSpaceCreateDeviceRGB()),
+                    colorSpace: CGColorSpaceCreateDeviceRGB(),
+                ),
                 let writer = CGImageDestinationCreateWithURL(photo as CFURL, UTType.jpeg.identifier as CFString, 1, nil)
             else { return false }
             CGImageDestinationAddImage(writer, cg, nil)
@@ -56,8 +58,10 @@ enum StudioUXSmokeTest {
                     model.showProjectHome = false
                     model.page = page
                     if page == .edit {
-                        for _ in 0..<100 {
-                            if model.frameState.renderedPreview != nil && !model.frameState.isRendering { break }
+                        for _ in 0 ..< 100 {
+                            if model.frameState.renderedPreview != nil, !model.frameState.isRendering {
+                                break
+                            }
                             try? await Task.sleep(for: .milliseconds(200))
                         }
                         guard model.frameState.renderedPreview != nil else {
@@ -71,39 +75,45 @@ enum StudioUXSmokeTest {
             }
             let panel = NSPanel(
                 contentRect: NSRect(x: 0, y: 0, width: 700, height: 650), styleMask: [.titled], backing: .buffered,
-                defer: false)
+                defer: false,
+            )
             panel.appearance = NSAppearance(named: .darkAqua)
             panel.contentView = NSHostingView(rootView: StudioImportWizard(model: model))
             panel.orderFront(nil)
             guard await capture(panel, to: root.appendingPathComponent("advanced-import.png")) else { return false }
             guard
                 await SpektraFilePanel.captureDocumentationBrowser(
-                    directory: root, destination: root.appendingPathComponent("file-browser.png"))
+                    directory: root, destination: root.appendingPathComponent("file-browser.png"),
+                )
             else { return false }
             panel.contentView = NSHostingView(rootView: SettingsView(model: model))
             panel.setContentSize(NSSize(width: 660, height: 540))
             guard await capture(panel, to: root.appendingPathComponent("settings.png")) else { return false }
             panel.contentView = NSHostingView(
                 rootView: ControlsView(model: model, mode: .film, initialSection: "film.film").background(
-                    StudioPalette.panel
-                ).preferredColorScheme(.dark))
+                    StudioPalette.panel,
+                ).preferredColorScheme(.dark),
+            )
             panel.setContentSize(NSSize(width: 360, height: 760))
             guard await capture(panel, to: root.appendingPathComponent("film-inspector.png")) else { return false }
             // Auto buttons (Task 5): camera development/WB panel and the light panel.
             panel.setContentSize(NSSize(width: 360, height: 960))
             panel.contentView = NSHostingView(
                 rootView: ControlsView(model: model, mode: .adjust, initialSection: "raw").background(
-                    StudioPalette.panel
-                ).preferredColorScheme(.dark))
+                    StudioPalette.panel,
+                ).preferredColorScheme(.dark),
+            )
             guard await capture(panel, to: root.appendingPathComponent("camera-inspector.png")) else { return false }
             panel.contentView = NSHostingView(
                 rootView: ControlsView(model: model, mode: .adjust, initialSection: "tone").background(
-                    StudioPalette.panel
-                ).preferredColorScheme(.dark))
+                    StudioPalette.panel,
+                ).preferredColorScheme(.dark),
+            )
             panel.setContentSize(NSSize(width: 360, height: 960))
             guard await capture(panel, to: root.appendingPathComponent("light-inspector.png")) else { return false }
             panel.contentView = NSHostingView(
-                rootView: FilmEffectsPanel(model: model).background(StudioPalette.panel).preferredColorScheme(.dark))
+                rootView: FilmEffectsPanel(model: model).background(StudioPalette.panel).preferredColorScheme(.dark),
+            )
             panel.setContentSize(NSSize(width: 360, height: 580))
             guard await capture(panel, to: root.appendingPathComponent("film-finish.png")) else { return false }
             panel.setContentSize(NSSize(width: 360, height: 760))
@@ -113,13 +123,16 @@ enum StudioUXSmokeTest {
             model.selectLocalGrade(grade.id)
             panel.contentView = NSHostingView(
                 rootView: ControlsView(model: model, mode: .masks).background(StudioPalette.panel).preferredColorScheme(
-                    .dark))
+                    .dark,
+                ),
+            )
             guard await capture(panel, to: root.appendingPathComponent("masks-inspector.png")) else { return false }
             panel.contentView = NSHostingView(rootView: ExportWorkspaceView(model: model).documentationSettings)
             panel.setContentSize(NSSize(width: 540, height: 720))
             guard await capture(panel, to: root.appendingPathComponent("export-settings.png")) else { return false }
             panel.contentView = NSHostingView(
-                rootView: CullWorkspaceView(model: model, initialFiltersVisible: true).preferredColorScheme(.dark))
+                rootView: CullWorkspaceView(model: model, initialFiltersVisible: true).preferredColorScheme(.dark),
+            )
             panel.setContentSize(NSSize(width: 1100, height: 760))
             guard await capture(panel, to: root.appendingPathComponent("cull-filters.png")) else { return false }
             panel.orderOut(nil)

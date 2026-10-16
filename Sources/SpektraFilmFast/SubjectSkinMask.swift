@@ -13,7 +13,8 @@ struct SubjectMaskPayload: Sendable {
     static func empty(width: Int, height: Int) -> SubjectMaskPayload {
         SubjectMaskPayload(
             width: width, height: height, personAlpha: [UInt8](repeating: 255, count: max(1, width * height)),
-            faceRects: [])
+            faceRects: [],
+        )
     }
 
     func alpha(x: Int, y: Int) -> UInt8 {
@@ -32,7 +33,7 @@ struct SubjectMaskPayload: Sendable {
                 x: max(0, rect.minX - rect.width * 0.10),
                 y: max(0, rect.minY - rect.height * 0.32),
                 width: min(1, rect.width * 1.20),
-                height: min(1, rect.height * 1.42)
+                height: min(1, rect.height * 1.42),
             )
             return expanded.contains(CGPoint(x: nx, y: nyBottom))
         }
@@ -47,8 +48,9 @@ struct SubjectMaskPayload: Sendable {
 actor SubjectSkinMaskEngine {
     func subjectMask(from buffer: PixelBufferF32, width: Int, height: Int) throws -> SubjectMaskPayload {
         guard width > 0, height > 0,
-            let cg = buffer.makeCGImage8(
-                colorSpace: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB())
+              let cg = buffer.makeCGImage8(
+                  colorSpace: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+              )
         else {
             return .empty(width: width, height: height)
         }
@@ -75,10 +77,10 @@ actor SubjectSkinMaskEngine {
         let sourceHeight = CVPixelBufferGetHeight(pixelBuffer)
         let rowBytes = CVPixelBufferGetBytesPerRow(pixelBuffer)
         var out = [UInt8](repeating: 0, count: width * height)
-        for y in 0..<height {
+        for y in 0 ..< height {
             let syf = min(
                 Double(sourceHeight - 1),
-                max(0.0, (Double(y) + 0.5) * Double(sourceHeight) / Double(height) - 0.5)
+                max(0.0, (Double(y) + 0.5) * Double(sourceHeight) / Double(height) - 0.5),
             )
             let y0 = Int(floor(syf))
             let y1 = min(sourceHeight - 1, y0 + 1)
@@ -86,10 +88,10 @@ actor SubjectSkinMaskEngine {
             let row0 = base.advanced(by: y0 * rowBytes).assumingMemoryBound(to: UInt8.self)
             let row1 = base.advanced(by: y1 * rowBytes).assumingMemoryBound(to: UInt8.self)
 
-            for x in 0..<width {
+            for x in 0 ..< width {
                 let sxf = min(
                     Double(sourceWidth - 1),
-                    max(0.0, (Double(x) + 0.5) * Double(sourceWidth) / Double(width) - 0.5)
+                    max(0.0, (Double(x) + 0.5) * Double(sourceWidth) / Double(width) - 0.5),
                 )
                 let x0 = Int(floor(sxf))
                 let x1 = min(sourceWidth - 1, x0 + 1)
@@ -105,7 +107,7 @@ actor SubjectSkinMaskEngine {
     }
 }
 
-struct OpenSourceSkinClassifier {
+enum OpenSourceSkinClassifier {
     struct Result: Sendable {
         let matches: Bool
         let confidence: Double
@@ -158,11 +160,10 @@ struct OpenSourceSkinClassifier {
         // allowed to rescue low-light/low-saturation skin. Body: require rg plus at least one of
         // the conventional display-domain gates to reject skin-colored clothes and wood.
         let conventionalCount = (ycbcr ? 1 : 0) + (hsvMatch ? 1 : 0)
-        let matches: Bool
-        if inFaceRegion {
-            matches = conventionalCount >= 2 || (rgMatch && conventionalCount >= 1) || chromaticityScore >= 0.62
+        let matches: Bool = if inFaceRegion {
+            conventionalCount >= 2 || (rgMatch && conventionalCount >= 1) || chromaticityScore >= 0.62
         } else {
-            matches = rgMatch && conventionalCount >= 1
+            rgMatch && conventionalCount >= 1
         }
 
         let confidence: Double
@@ -201,7 +202,9 @@ struct OpenSourceSkinClassifier {
                 hue = 60 * ((r - g) / delta + 4)
             }
         }
-        if hue < 0 { hue += 360 }
+        if hue < 0 {
+            hue += 360
+        }
         let saturation = maximum <= 1e-9 ? 0 : delta / maximum
         return (hue, saturation, maximum)
     }

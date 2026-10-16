@@ -19,14 +19,14 @@ actor StudioAnalysisEngine {
     static let scopeSize = 256
     private let subjectMaskEngine = SubjectSkinMaskEngine()
 
-    // Independent Swift adaptation of darktable's final-view overexposure tests.
+    /// Independent Swift adaptation of darktable's final-view overexposure tests.
     private static func clippingFlags(
         r: Float,
         g: Float,
         b: Float,
         mode: ClippingPreviewMode,
         upper: Float,
-        lower: Float
+        lower: Float,
     ) -> (highlight: Bool, shadow: Bool) {
         let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
         let anyRGBUpper = r >= upper || g >= upper || b >= upper
@@ -49,13 +49,21 @@ actor StudioAnalysisEngine {
         case .luminance:
             return (luminanceUpper, luminanceLower)
         case .saturation:
-            guard luminance < upper && luminance > lower else { return (false, false) }
+            guard luminance < upper, luminance > lower else { return (false, false) }
             return (saturationUpper || anyRGBUpper, false)
         case .fullGamut:
-            if luminanceUpper { return (true, false) }
-            if luminanceLower { return (false, true) }
-            if saturationUpper || anyRGBUpper { return (true, false) }
-            if allRGBLower { return (false, true) }
+            if luminanceUpper {
+                return (true, false)
+            }
+            if luminanceLower {
+                return (false, true)
+            }
+            if saturationUpper || anyRGBUpper {
+                return (true, false)
+            }
+            if allRGBLower {
+                return (false, true)
+            }
             return (false, false)
         }
     }
@@ -65,7 +73,7 @@ actor StudioAnalysisEngine {
         look: RenderLook,
         preferences: AppPreferences,
         maxLongEdge: Int,
-        canonicalSkinMask: CanonicalSkinMaskPayload? = nil
+        canonicalSkinMask: CanonicalSkinMaskPayload? = nil,
     ) async throws -> StudioAnalysisPayload {
         try Task.checkCancellation()
 
@@ -76,7 +84,7 @@ actor StudioAnalysisEngine {
                 overlayWidth: 0, overlayHeight: 0, overlayRGBA: [],
                 scopeWidth: 0, scopeHeight: 0, scopeRGBA: [],
                 skinMaskWidth: 0, skinMaskHeight: 0, skinMaskAlpha: [],
-                metrics: StudioAnalysisMetrics()
+                metrics: StudioAnalysisMetrics(),
             )
         }
 
@@ -89,10 +97,12 @@ actor StudioAnalysisEngine {
 
         var diagnosticPixels = [Float](repeating: 0, count: sampledPixels * 4)
         var monitorPixels = [Float](repeating: 0, count: sampledPixels * 4)
-        for oy in 0..<overlayHeight {
-            if oy & 31 == 0 { try Task.checkCancellation() }
+        for oy in 0 ..< overlayHeight {
+            if oy & 31 == 0 {
+                try Task.checkCancellation()
+            }
             let y = min(height - 1, oy * analysisStep)
-            for ox in 0..<overlayWidth {
+            for ox in 0 ..< overlayWidth {
                 let x = min(width - 1, ox * analysisStep)
                 let sourceIndex = (y * width + x) * 4
                 let p = (oy * overlayWidth + ox) * 4
@@ -101,7 +111,7 @@ actor StudioAnalysisEngine {
                         r: output.pixels[sourceIndex],
                         g: output.pixels[sourceIndex + 1],
                         b: output.pixels[sourceIndex + 2],
-                        look: look
+                        look: look,
                     )
                 else {
                     throw DiagnosticColorError.unsupportedOutputSpace(SkinToneReference.outputSpaceIndex(look))
@@ -114,7 +124,7 @@ actor StudioAnalysisEngine {
                     r: output.pixels[sourceIndex],
                     g: output.pixels[sourceIndex + 1],
                     b: output.pixels[sourceIndex + 2],
-                    look: look
+                    look: look,
                 )
                 monitorPixels[p] = monitor.0
                 monitorPixels[p + 1] = monitor.1
@@ -125,12 +135,12 @@ actor StudioAnalysisEngine {
         let diagnosticBuffer = PixelBufferF32(
             width: overlayWidth,
             height: overlayHeight,
-            pixels: diagnosticPixels
+            pixels: diagnosticPixels,
         )
 
         let wantsSkinOverlay =
             preferences.skinCheckEnabled
-            && (preferences.skinCheckMode == .overlay || preferences.skinCheckMode == .both)
+                && (preferences.skinCheckMode == .overlay || preferences.skinCheckMode == .both)
         let wantsScope =
             preferences.skinCheckEnabled && (preferences.skinCheckMode == .scope || preferences.skinCheckMode == .both)
         let wantsSkinAnalysis = preferences.skinCheckEnabled || preferences.scopeMode == .skinVectorscope
@@ -140,13 +150,13 @@ actor StudioAnalysisEngine {
 
         // Subject isolation is performed before skin color classification. This prevents warm
         // wood, walls, flowers and clothing from polluting the skin vectorscope in portrait and event work.
-        let subjectMask: SubjectMaskPayload
-        if wantsSkinAnalysis && canonicalSkinMask == nil {
+        let subjectMask: SubjectMaskPayload = if wantsSkinAnalysis && canonicalSkinMask == nil {
             // Fallback only. Once available, every consumer uses the same canonical AI mask.
-            subjectMask = try await subjectMaskEngine.subjectMask(
-                from: diagnosticBuffer, width: overlayWidth, height: overlayHeight)
+            try await subjectMaskEngine.subjectMask(
+                from: diagnosticBuffer, width: overlayWidth, height: overlayHeight,
+            )
         } else {
-            subjectMask = .empty(width: overlayWidth, height: overlayHeight)
+            .empty(width: overlayWidth, height: overlayHeight)
         }
 
         let scopeSize = Self.scopeSize
@@ -169,9 +179,11 @@ actor StudioAnalysisEngine {
         let tolerance = min(45.0, max(1.0, preferences.skinToleranceDegrees))
         let baseSkinOpacity = min(0.85, max(0.05, preferences.skinOverlayOpacity))
 
-        for oy in 0..<overlayHeight {
-            if oy & 31 == 0 { try Task.checkCancellation() }
-            for ox in 0..<overlayWidth {
+        for oy in 0 ..< overlayHeight {
+            if oy & 31 == 0 {
+                try Task.checkCancellation()
+            }
+            for ox in 0 ..< overlayWidth {
                 let overlayIndex = (oy * overlayWidth + ox) * 4
                 let maskIndex = oy * overlayWidth + ox
                 let diagnosticIndex = maskIndex * 4
@@ -183,7 +195,7 @@ actor StudioAnalysisEngine {
                 let monitor = DisplayMonitorSignal.sampleDisplay(
                     r: monitorPixels[diagnosticIndex],
                     g: monitorPixels[diagnosticIndex + 1],
-                    b: monitorPixels[diagnosticIndex + 2]
+                    b: monitorPixels[diagnosticIndex + 2],
                 )
 
                 // Analyze the exact settled display output. Clipping is governed by the
@@ -193,7 +205,7 @@ actor StudioAnalysisEngine {
                     r: monitor.r, g: monitor.g, b: monitor.b,
                     mode: preferences.clippingPreviewMode,
                     upper: Float(preferences.clippingHighlightThreshold),
-                    lower: Float(preferences.clippingShadowThreshold)
+                    lower: Float(preferences.clippingShadowThreshold),
                 )
                 let risk = Self.clippingFlags(
                     r: monitor.r, g: monitor.g, b: monitor.b,
@@ -201,57 +213,70 @@ actor StudioAnalysisEngine {
                     upper: Float(
                         min(
                             preferences.clippingHighlightThreshold,
-                            preferences.exposureHighlightRiskThreshold)),
+                            preferences.exposureHighlightRiskThreshold,
+                        ),
+                    ),
                     lower: Float(
                         max(
                             preferences.clippingShadowThreshold,
-                            preferences.exposureShadowRiskThreshold))
+                            preferences.exposureShadowRiskThreshold,
+                        ),
+                    ),
                 )
                 let isHardHighlight = hard.highlight
                 let isHardShadow = hard.shadow
                 let isHighlightRisk = risk.highlight
                 let isShadowRisk = risk.shadow
-                if isHighlightRisk { highlightCount += 1 }
-                if isShadowRisk { shadowCount += 1 }
-                if isHardHighlight { hardHighlightCount += 1 }
-                if isHardShadow { hardShadowCount += 1 }
+                if isHighlightRisk {
+                    highlightCount += 1
+                }
+                if isShadowRisk {
+                    shadowCount += 1
+                }
+                if isHardHighlight {
+                    hardHighlightCount += 1
+                }
+                if isHardShadow {
+                    hardShadowCount += 1
+                }
 
                 let chroma = chromaPosition(r: outR, g: outG, b: outB)
                 let personConfidence = Double(subjectMask.alpha(x: ox, y: oy)) / 255.0
                 let insideFace = subjectMask.isInsideFace(x: ox, y: oy)
                 let skin = OpenSourceSkinClassifier.classify(
-                    displayR: outR, displayG: outG, displayB: outB, inFaceRegion: insideFace
+                    displayR: outR, displayG: outG, displayB: outB, inFaceRegion: insideFace,
                 )
                 let candidate =
                     wantsSkinAnalysis && canonicalSkinMask == nil
-                    && personConfidence >= (insideFace ? 0.18 : 0.42)
-                    && skin.matches
-                    && chroma.luma > 0.015 && chroma.luma < 0.995
-                    && chroma.radius > 0.012
+                        && personConfidence >= (insideFace ? 0.18 : 0.42)
+                        && skin.matches
+                        && chroma.luma > 0.015 && chroma.luma < 0.995
+                        && chroma.radius > 0.012
 
                 if candidate {
                     let alpha = UInt8(
-                        clamping: Int((max(0.30, min(1.0, skin.confidence * personConfidence)) * 255.0).rounded()))
+                        clamping: Int((max(0.30, min(1.0, skin.confidence * personConfidence)) * 255.0).rounded()),
+                    )
                     skinMask[maskIndex] = alpha
                 }
 
-                if preferences.clippingEnabled && isHardHighlight {
+                if preferences.clippingEnabled, isHardHighlight {
                     // darktable default look: solid red = over-clipped.
                     setRGBA(&overlay, overlayIndex, 255, 0, 0, 255)
-                } else if preferences.clippingEnabled && isHardShadow {
+                } else if preferences.clippingEnabled, isHardShadow {
                     // darktable default look: solid blue = under-clipped.
                     setRGBA(&overlay, overlayIndex, 0, 0, 255, 255)
-                } else if preferences.clippingEnabled && isHighlightRisk {
+                } else if preferences.clippingEnabled, isHighlightRisk {
                     // User-configurable near-clipping risk, on the final displayed image.
                     setRGBA(&overlay, overlayIndex, 255, 34, 22, 216)
-                } else if preferences.clippingEnabled && isShadowRisk {
+                } else if preferences.clippingEnabled, isShadowRisk {
                     setRGBA(&overlay, overlayIndex, 20, 75, 255, 175)
                 }
 
                 if wantsScope {
                     let sx = Int(((chroma.uNormalized * 0.5 + 0.5) * Float(scopeSize - 1)).rounded())
                     let sy = Int((((-chroma.vNormalized) * 0.5 + 0.5) * Float(scopeSize - 1)).rounded())
-                    if sx >= 0 && sx < scopeSize && sy >= 0 && sy < scopeSize {
+                    if sx >= 0, sx < scopeSize, sy >= 0, sy < scopeSize {
                         let si = sy * scopeSize + sx
                         density[si] &+= 1
                     }
@@ -268,7 +293,7 @@ actor StudioAnalysisEngine {
                     diagnostic: diagnosticBuffer,
                     subjectMask: subjectMask,
                     width: overlayWidth,
-                    height: overlayHeight
+                    height: overlayHeight,
                 )
             }
 
@@ -286,7 +311,7 @@ actor StudioAnalysisEngine {
             skinDensity = [UInt32](repeating: 0, count: scopeSize * scopeSize)
             skinDeviationByBin = [Double](repeating: 0, count: scopeSize * scopeSize)
 
-            for i in 0..<sampledPixels {
+            for i in 0 ..< sampledPixels {
                 let maskStrength = Double(skinMask[i]) / 255.0
                 guard maskStrength > 0.06 else { continue }
 
@@ -297,14 +322,14 @@ actor StudioAnalysisEngine {
                 let chroma = chromaPosition(r: r, g: g, b: b)
 
                 guard chroma.luma > 0.01,
-                    chroma.luma < 0.995,
-                    chroma.radius > 0.008
+                      chroma.luma < 0.995,
+                      chroma.radius > 0.008
                 else { continue }
 
                 skinCount += 1
                 let deviation = angularDifferenceDegrees(
                     chroma.angleDegrees,
-                    Self.skinReferenceDegrees
+                    Self.skinReferenceDegrees,
                 )
                 let chromaWeight =
                     0.65 + 0.35 * min(1.0, Double(chroma.radius) / 0.18)
@@ -324,12 +349,12 @@ actor StudioAnalysisEngine {
 
                 if wantsScope {
                     let sx = Int(
-                        ((chroma.uNormalized * 0.5 + 0.5) * Float(scopeSize - 1)).rounded()
+                        ((chroma.uNormalized * 0.5 + 0.5) * Float(scopeSize - 1)).rounded(),
                     )
                     let sy = Int(
-                        (((-chroma.vNormalized) * 0.5 + 0.5) * Float(scopeSize - 1)).rounded()
+                        (((-chroma.vNormalized) * 0.5 + 0.5) * Float(scopeSize - 1)).rounded(),
                     )
-                    if sx >= 0 && sx < scopeSize && sy >= 0 && sy < scopeSize {
+                    if sx >= 0, sx < scopeSize, sy >= 0, sy < scopeSize {
                         let si = sy * scopeSize + sx
                         skinDensity[si] &+= 1
                         skinDeviationByBin[si] += deviation
@@ -347,29 +372,31 @@ actor StudioAnalysisEngine {
                 height: overlayHeight,
                 tolerance: tolerance,
                 opacity: baseSkinOpacity,
-                preserveExistingOverlay: preferences.clippingEnabled
+                preserveExistingOverlay: preferences.clippingEnabled,
             )
             drawSkinBoundary(mask: skinMask, overlay: &overlay, width: overlayWidth, height: overlayHeight)
         }
 
         let scope =
             wantsScope
-            ? makeScopeRGBA(
-                density: density,
-                skinDensity: skinDensity,
-                skinDeviationByBin: skinDeviationByBin,
-                tolerance: tolerance,
-                size: scopeSize
-            ) : []
+                ? makeScopeRGBA(
+                    density: density,
+                    skinDensity: skinDensity,
+                    skinDeviationByBin: skinDeviationByBin,
+                    tolerance: tolerance,
+                    size: scopeSize,
+                ) : []
         let centroidCb = skinWeightSum > 0 ? skinCbWeightedSum / skinWeightSum : 0.0
         let centroidCr = skinWeightSum > 0 ? skinCrWeightedSum / skinWeightSum : 0.0
         let centroidRadius = hypot(centroidCb, centroidCr)
         var centroidAngle = atan2(centroidCr, centroidCb) * 180.0 / .pi
-        if centroidAngle < 0 { centroidAngle += 360.0 }
+        if centroidAngle < 0 {
+            centroidAngle += 360.0
+        }
         let centroidDeviation =
             skinWeightSum > 0
-            ? angularDifferenceDegrees(centroidAngle, Self.skinReferenceDegrees)
-            : 0.0
+                ? angularDifferenceDegrees(centroidAngle, Self.skinReferenceDegrees)
+                : 0.0
         let weightedDenominator = max(1.0e-9, skinWeightSum)
         let metrics = StudioAnalysisMetrics(
             highlightPercent: Double(highlightCount) * 100.0 / Double(sampledPixels),
@@ -385,7 +412,7 @@ actor StudioAnalysisEngine {
             skinMeanCrNormalized: centroidCr,
             skinMeanRadius: centroidRadius,
             skinMeasurementConfidencePercent: min(100.0, skinWeightSum * 100.0 / Double(max(1, skinCount))),
-            sampledPixels: sampledPixels
+            sampledPixels: sampledPixels,
         )
 
         return StudioAnalysisPayload(
@@ -398,7 +425,7 @@ actor StudioAnalysisEngine {
             skinMaskWidth: overlayWidth,
             skinMaskHeight: overlayHeight,
             skinMaskAlpha: skinMask,
-            metrics: metrics
+            metrics: metrics,
         )
     }
 
@@ -416,7 +443,7 @@ actor StudioAnalysisEngine {
         diagnostic: PixelBufferF32,
         subjectMask: SubjectMaskPayload,
         width: Int,
-        height: Int
+        height: Int,
     ) -> [UInt8] {
         guard width > 2, height > 2, mask.count == width * height else { return mask }
         var refined = mask
@@ -428,8 +455,8 @@ actor StudioAnalysisEngine {
         let sigmaChroma = 0.060
         let inv2SigmaChroma2 = 1.0 / (2.0 * sigmaChroma * sigmaChroma)
 
-        for y in 0..<height {
-            for x in 0..<width {
+        for y in 0 ..< height {
+            for x in 0 ..< width {
                 let i = y * width + x
                 let own = Double(mask[i]) / 255.0
                 let person = Double(subjectMask.alpha(x: x, y: y)) / 255.0
@@ -463,7 +490,9 @@ actor StudioAnalysisEngine {
                     let sg = Double(diagnostic.pixels[sp + 1])
                     let sb = Double(diagnostic.pixels[sp + 2])
                     let ssum = sr + sg + sb
-                    if ssum < 0.01 { continue }
+                    if ssum < 0.01 {
+                        continue
+                    }
 
                     let sgn = sg / ssum
                     let sdn = (sr - sb) / ssum
@@ -479,9 +508,9 @@ actor StudioAnalysisEngine {
                 let pooled = weightedMask / max(1.0e-9, weightSum)
                 var union = 1.0 - (1.0 - own) * (1.0 - pooled)
 
-                if own < 0.10 && pooled < (inFace ? 0.10 : 0.18) {
+                if own < 0.10, pooled < (inFace ? 0.10 : 0.18) {
                     union = 0
-                } else if inFace && pooled > 0.12 {
+                } else if inFace, pooled > 0.12 {
                     union = max(union, min(1.0, pooled * 1.15))
                 }
 
@@ -501,18 +530,20 @@ actor StudioAnalysisEngine {
         height: Int,
         tolerance: Double,
         opacity: Double,
-        preserveExistingOverlay: Bool
+        preserveExistingOverlay: Bool,
     ) {
         guard mask.count == width * height, overlay.count == width * height * 4 else { return }
         // A solid skin overlay must not resemble a sparse color-classifier heatmap.
         let visibleOpacity = max(0.86, min(0.98, opacity))
 
-        for i in 0..<(width * height) {
+        for i in 0 ..< (width * height) {
             let strength = Double(mask[i]) / 255.0
             guard strength > 0.06 else { continue }
 
             let p = i * 4
-            if preserveExistingOverlay && overlay[p + 3] > 0 { continue }
+            if preserveExistingOverlay && overlay[p + 3] > 0 {
+                continue
+            }
 
             let r = diagnostic.pixels[p]
             let g = diagnostic.pixels[p + 1]
@@ -543,21 +574,22 @@ actor StudioAnalysisEngine {
 
             let alpha = UInt8(
                 clamping: Int(
-                    (255.0 * visibleOpacity * alphaScale * sqrt(strength)).rounded()
-                ))
+                    (255.0 * visibleOpacity * alphaScale * sqrt(strength)).rounded(),
+                ),
+            )
             setRGBA(
                 &overlay,
                 p,
                 rr, gg, bb,
-                max(alpha, deviation > tolerance || deviation < -tolerance ? 74 : 36)
+                max(alpha, deviation > tolerance || deviation < -tolerance ? 74 : 36),
             )
         }
     }
 
     private func drawSkinBoundary(mask: [UInt8], overlay: inout [UInt8], width: Int, height: Int) {
         guard width > 2, height > 2, overlay.count == width * height * 4 else { return }
-        for y in 1..<(height - 1) {
-            for x in 1..<(width - 1) {
+        for y in 1 ..< (height - 1) {
+            for x in 1 ..< (width - 1) {
                 let i = y * width + x
                 guard mask[i] > 80 else { continue }
                 let edge = mask[i - 1] <= 80 || mask[i + 1] <= 80 || mask[i - width] <= 80 || mask[i + width] <= 80
@@ -572,7 +604,7 @@ actor StudioAnalysisEngine {
 
     private func makeScopeRGBA(
         density: [UInt32], skinDensity: [UInt32], skinDeviationByBin: [Double],
-        tolerance: Double, size: Int
+        tolerance: Double, size: Int,
     ) -> [UInt8] {
         var out = [UInt8](repeating: 0, count: size * size * 4)
         let maximum = max(1, density.max() ?? 1)
@@ -598,7 +630,9 @@ actor StudioAnalysisEngine {
         return out
     }
 
-    private func clamp01(_ value: Float) -> Float { max(0, min(1, value)) }
+    private func clamp01(_ value: Float) -> Float {
+        max(0, min(1, value))
+    }
 
     private func setRGBA(_ bytes: inout [UInt8], _ p: Int, _ r: UInt8, _ g: UInt8, _ b: UInt8, _ a: UInt8) {
         guard p + 3 < bytes.count else { return }
@@ -618,7 +652,7 @@ actor StudioAnalysisEngine {
 extension CGImage {
     static func fromRGBA8(width: Int, height: Int, bytes: [UInt8], colorSpace: CGColorSpace? = nil) -> CGImage? {
         guard width > 0, height > 0, bytes.count == width * height * 4,
-            let provider = CGDataProvider(data: Data(bytes) as CFData)
+              let provider = CGDataProvider(data: Data(bytes) as CFData)
         else { return nil }
         let space = colorSpace ?? (CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB())
         return CGImage(
@@ -632,7 +666,7 @@ extension CGImage {
             provider: provider,
             decode: nil,
             shouldInterpolate: true,
-            intent: .defaultIntent
+            intent: .defaultIntent,
         )
     }
 }

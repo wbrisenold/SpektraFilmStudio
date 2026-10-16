@@ -5,11 +5,13 @@ import Foundation
 extension AppModel {
     func setEditorScopeMode(_ mode: ScopeMode) {
         project.preferences.scopeMode = mode
-        if mode == .skinVectorscope { refreshStudioAnalysis() }
+        if mode == .skinVectorscope {
+            refreshStudioAnalysis()
+        }
         requestEditorScopeUpdate()
     }
 
-    func setEditorScopeEnabled(_ enabled: Bool) {
+    func setEditorScopeEnabled(_: Bool) {
         // Scopes are a permanent editor monitor. Keep the persisted field for old project
         // compatibility, but normalize it on instead of allowing the Edit workspace to hide it.
         project.preferences.scopeEnabled = true
@@ -23,7 +25,9 @@ extension AppModel {
         // LUT/looks modes removed; scopes sample the native CPU frame.
         guard page == .edit, latestRenderedBuffer != nil else { return }
         scopeGeneration += 1
-        if scopeTask == nil { startEditorScopeLoop() }
+        if scopeTask == nil {
+            startEditorScopeLoop()
+        }
     }
 
     private func startEditorScopeLoop() {
@@ -43,8 +47,8 @@ extension AppModel {
                     try? await Task.sleep(for: .seconds(interval - elapsed))
                 }
                 guard !Task.isCancelled,
-                    page == .edit,
-                    let frame = latestRenderedBuffer
+                      page == .edit,
+                      let frame = latestRenderedBuffer
                 else { break }
 
                 isScopeAnalyzing = true
@@ -61,28 +65,33 @@ extension AppModel {
                         skinMeanCbNormalized: analysisMetrics.skinMeanCbNormalized,
                         skinMeanCrNormalized: analysisMetrics.skinMeanCrNormalized,
                         skinMeanDeviationDegrees: analysisMetrics.skinMeanDeviationDegrees,
-                        skinMeasurementConfidencePercent: analysisMetrics.skinMeasurementConfidencePercent
+                        skinMeasurementConfidencePercent: analysisMetrics.skinMeasurementConfidencePercent,
                     )
                     guard !Task.isCancelled, page == .edit else { break }
                     // Never publish a completed trace over a newer frame/slider generation.
-                    if requestedGeneration != scopeGeneration { continue }
+                    if requestedGeneration != scopeGeneration {
+                        continue
+                    }
                     editorScopeImage = CGImage.fromRGBA8(
-                        width: payload.width, height: payload.height, bytes: payload.rgba)
+                        width: payload.width, height: payload.height, bytes: payload.rgba,
+                    )
                     lastScopeUpdateUptime = ProcessInfo.processInfo.systemUptime
                 } catch {
                     // Scope failures never fail or interrupt the edit render path.
                 }
                 isScopeAnalyzing = false
 
-                if requestedGeneration == scopeGeneration { break }
+                if requestedGeneration == scopeGeneration {
+                    break
+                }
             }
             isScopeAnalyzing = false
             scopeTask = nil
             if !Task.isCancelled,
-                page == .edit,
-                latestRenderedBuffer != nil,
-                scopeGeneration > 0,
-                ProcessInfo.processInfo.systemUptime - lastScopeUpdateUptime > 0.05
+               page == .edit,
+               latestRenderedBuffer != nil,
+               scopeGeneration > 0,
+               ProcessInfo.processInfo.systemUptime - lastScopeUpdateUptime > 0.05
             {
                 // A frame may have landed between the final generation check and task cleanup.
                 requestEditorScopeUpdate()

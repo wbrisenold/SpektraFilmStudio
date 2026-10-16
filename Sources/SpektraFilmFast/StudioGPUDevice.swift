@@ -12,14 +12,16 @@ enum StudioGPUDevice {
         case integrated = "Integrated"
         case specific = "Specific"
 
-        var id: String { rawValue }
+        var id: String {
+            rawValue
+        }
 
         var displayName: String {
             switch self {
-            case .automatic: return "Automatic (Recommended)"
-            case .discrete: return "Discrete / External GPU"
-            case .integrated: return "Integrated GPU"
-            case .specific: return "Specific GPU"
+            case .automatic: "Automatic (Recommended)"
+            case .discrete: "Discrete / External GPU"
+            case .integrated: "Integrated GPU"
+            case .specific: "Specific GPU"
             }
         }
     }
@@ -33,11 +35,11 @@ enum StudioGPUDevice {
     static func selectedDevice() -> MTLDevice? {
         let selection =
             UserDefaults.standard.string(forKey: "StudioGPUSelection")
-            .flatMap { GPUSelection(rawValue: $0) } ?? .automatic
+                .flatMap { GPUSelection(rawValue: $0) } ?? .automatic
 
         let devices = MTLCopyAllDevices()
         let discreteDevices = devices.filter { !$0.isLowPower && !$0.isRemovable }
-        let integratedDevices = devices.filter { $0.isLowPower }
+        let integratedDevices = devices.filter(\.isLowPower)
 
         switch selection {
         case .automatic:
@@ -48,7 +50,7 @@ enum StudioGPUDevice {
             return integratedDevices.first ?? devices.first
         case .specific:
             if let gpuName = UserDefaults.standard.string(forKey: "StudioGPUSpecificName"),
-                let device = devices.first(where: { $0.name == gpuName || $0.name.contains(gpuName) })
+               let device = devices.first(where: { $0.name == gpuName || $0.name.contains(gpuName) })
             {
                 return device
             }
@@ -63,10 +65,8 @@ enum StudioGPUDevice {
 
     /// Get the user's GPU selection preference
     static var currentSelection: GPUSelection {
-        let selection =
-            UserDefaults.standard.string(forKey: "StudioGPUSelection")
+        UserDefaults.standard.string(forKey: "StudioGPUSelection")
             .flatMap { GPUSelection(rawValue: $0) } ?? .automatic
-        return selection
     }
 
     /// Set the GPU selection preference
@@ -85,7 +85,7 @@ enum StudioGPUDevice {
 
     /// Set the specific GPU name
     static func setSpecificGPUName(_ name: String?) {
-        if let name = name {
+        if let name {
             UserDefaults.standard.set(name, forKey: "StudioGPUSpecificName")
         } else {
             UserDefaults.standard.removeObject(forKey: "StudioGPUSpecificName")
@@ -106,7 +106,7 @@ enum StudioGPUDevice {
         // The same exact model passes on the paired Intel UHD 630 GPU.
         // This is GPU device selection, never a CPU-only inference retry.
         if forSAM2, let device = selectedDevice(), device.name.contains("555X") == true,
-            let integrated = MTLCopyAllDevices().first(where: { $0.isLowPower })
+           let integrated = MTLCopyAllDevices().first(where: { $0.isLowPower })
         {
             configuration.preferredMetalDevice = integrated
         } else {

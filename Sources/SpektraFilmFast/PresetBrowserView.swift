@@ -10,8 +10,13 @@ struct PresetBrowserView: View {
     @AppStorage("SpektraFilmFast.favoritePresetIDs") private var favoritesStorage = ""
     @AppStorage("SpektraFilmFast.recentPresetIDs") private var recentsStorage = ""
 
-    private var favorites: Set<String> { Set(favoritesStorage.split(separator: ",").map(String.init)) }
-    private var recents: [String] { recentsStorage.split(separator: ",").map(String.init) }
+    private var favorites: Set<String> {
+        Set(favoritesStorage.split(separator: ",").map(String.init))
+    }
+
+    private var recents: [String] {
+        recentsStorage.split(separator: ",").map(String.init)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -58,7 +63,7 @@ struct PresetBrowserView: View {
                             addRecent(preset.id); model.applyPreset(preset)
                         },
                         toggleFavorite: { toggleFavorite(preset.id) },
-                        delete: { model.deletePreset(preset) }
+                        delete: { model.deletePreset(preset) },
                     )
                 }
             }
@@ -88,7 +93,8 @@ struct PresetBrowserView: View {
                     Button("Save Preset") {
                         model.savePreset(
                             name: newName.trimmingCharacters(in: .whitespacesAndNewlines),
-                            category: newCategory.trimmingCharacters(in: .whitespacesAndNewlines))
+                            category: newCategory.trimmingCharacters(in: .whitespacesAndNewlines),
+                        )
                         newName = ""; showingSaveSheet = false
                     }.buttonStyle(.borderedProminent).disabled(model.selectedImage == nil)
                 }
@@ -124,7 +130,11 @@ struct PresetBrowserView: View {
     private func toggleFavorite(_ id: UUID) {
         var set = favorites
         let key = id.uuidString
-        if set.contains(key) { set.remove(key) } else { set.insert(key) }
+        if set.contains(key) {
+            set.remove(key)
+        } else {
+            set.insert(key)
+        }
         favoritesStorage = set.sorted().joined(separator: ",")
     }
 

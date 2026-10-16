@@ -10,8 +10,11 @@ final class StudioFileBrowser: ObservableObject {
         let url: URL
         let directory: Bool
         let selectable: Bool
-        var id: URL { url }
+        var id: URL {
+            url
+        }
     }
+
     enum Mode { case files, folder, save }
     let mode: Mode
     let types: [UTType]
@@ -42,8 +45,12 @@ final class StudioFileBrowser: ObservableObject {
         guard !types.isEmpty else { return true }
         let ext = url.pathExtension.lowercased()
         return types.contains { type in
-            if type.identifier == "org.spektrafilm.project" { return ext == "spektrafilm" }
-            if type.identifier == "com.spektrafilm.preset" { return ext == "sfpreset" }
+            if type.identifier == "org.spektrafilm.project" {
+                return ext == "spektrafilm"
+            }
+            if type.identifier == "com.spektrafilm.preset" {
+                return ext == "sfpreset"
+            }
             guard let candidate = UTType(filenameExtension: ext) else { return false }
             return candidate.conforms(to: type)
         }
@@ -52,7 +59,7 @@ final class StudioFileBrowser: ObservableObject {
     /// A slow/unavailable drive cannot block the UI; stale results are ignored.
     private func perform<T: Sendable>(
         _ work: @escaping @Sendable () throws -> T,
-        receive: @escaping (T) -> Void
+        receive: @escaping (T) -> Void,
     ) {
         timeout?.cancel()
         let token = UUID()
@@ -63,17 +70,17 @@ final class StudioFileBrowser: ObservableObject {
             try? await Task.sleep(for: .seconds(8))
             guard !Task.isCancelled, let self, self.generation == token else { return }
             self.generation = UUID()
-            self.loading = false
-            self.problem = "This location is not responding. Choose another folder or check the drive connection."
+            loading = false
+            problem = "This location is not responding. Choose another folder or check the drive connection."
         }
         Task { [weak self] in
             let result = await Task.detached(priority: .userInitiated) { Result { try work() } }.value
             guard let self, self.generation == token else { return }
-            self.timeout?.cancel()
-            self.loading = false
+            timeout?.cancel()
+            loading = false
             switch result {
-            case .success(let value): receive(value)
-            case .failure(let error): self.problem = error.localizedDescription
+            case let .success(value): receive(value)
+            case let .failure(error): problem = error.localizedDescription
             }
         }
     }
@@ -84,47 +91,51 @@ final class StudioFileBrowser: ObservableObject {
         selection = []
         entries = []
         let folder = directory, hidden = showHidden, allowed = types
-        perform(
-            {
-                let fm = FileManager.default
-                // Do not stat mounted drives just to display the Locations list.
-                let volumes = folder.path == "/Volumes"
-                let urls = try fm.contentsOfDirectory(
-                    at: folder, includingPropertiesForKeys: nil,
-                    options: hidden ? [] : [.skipsHiddenFiles])
-                return try urls.map { url -> Entry in
-                    let isDirectory: Bool
-                    if volumes {
-                        isDirectory = true
-                    } else {
-                        isDirectory = try url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
-                    }
-                    return Entry(
-                        url: url, directory: isDirectory,
-                        selectable: Self.accepts(url, types: allowed))
-                }.sorted {
-                    if $0.directory != $1.directory { return $0.directory }
-                    return $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent)
-                        == .orderedAscending
+        perform {
+            let fm = FileManager.default
+            // Do not stat mounted drives just to display the Locations list.
+            let volumes = folder.path == "/Volumes"
+            let urls = try fm.contentsOfDirectory(
+                at: folder, includingPropertiesForKeys: nil,
+                options: hidden ? [] : [.skipsHiddenFiles],
+            )
+            return try urls.map { url -> Entry in
+                let isDirectory: Bool = if volumes {
+                    true
+                } else {
+                    try url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
                 }
-            }, receive: { [weak self] in self?.entries = $0 })
+                return Entry(
+                    url: url, directory: isDirectory,
+                    selectable: Self.accepts(url, types: allowed),
+                )
+            }.sorted {
+                if $0.directory != $1.directory {
+                    return $0.directory
+                }
+                return $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent)
+                    == .orderedAscending
+            }
+        } receive: {
+            [weak self] in self?.entries = $0
+        }
     }
 
     func goToPath() {
         let expanded = (path as NSString).expandingTildeInPath
         let url = URL(fileURLWithPath: expanded, relativeTo: directory).standardizedFileURL
-        perform(
-            { try url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true },
-            receive: { [weak self] isDirectory in
-                guard let self else { return }
-                if isDirectory {
-                    self.navigate(url)
-                } else {
-                    self.navigate(url.deletingLastPathComponent())
-                    self.filename = url.lastPathComponent
-                    self.selection = [url]
-                }
-            })
+        perform {
+            try url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
+        } receive: { [weak self] isDirectory in
+            guard let self else { return }
+            if isDirectory {
+                navigate(url)
+            } else {
+                navigate(url.deletingLastPathComponent())
+                filename = url.lastPathComponent
+                selection = [url]
+            }
+        }
     }
 
     func cancel() {
@@ -147,9 +158,11 @@ final class StudioFileBrowser: ObservableObject {
             if url.pathExtension.isEmpty, let type = types.first {
                 let ext =
                     type.identifier == "org.spektrafilm.project"
-                    ? "spektrafilm"
-                    : type.identifier == "com.spektrafilm.preset" ? "sfpreset" : type.preferredFilenameExtension
-                if let ext { url.appendPathExtension(ext) }
+                        ? "spektrafilm"
+                        : type.identifier == "com.spektrafilm.preset" ? "sfpreset" : type.preferredFilenameExtension
+                if let ext {
+                    url.appendPathExtension(ext)
+                }
             }
             urls = [url]
         }
@@ -158,28 +171,34 @@ final class StudioFileBrowser: ObservableObject {
             return
         }
         let folderMode = mode == .folder, saveMode = mode == .save, allowed = types
-        perform(
-            {
-                let fm = FileManager.default
-                for url in urls {
-                    if !folderMode && !Self.accepts(url, types: allowed) {
-                        throw CocoaError(
-                            .fileReadUnknown, userInfo: [NSLocalizedDescriptionKey: "Choose a supported file type."])
-                    }
-                    if saveMode && !fm.fileExists(atPath: url.path) { continue }
-                    let isDirectory = try url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
-                    guard isDirectory == folderMode else {
-                        throw CocoaError(
-                            .fileReadUnknown,
-                            userInfo: [NSLocalizedDescriptionKey: folderMode ? "Choose a folder." : "Choose a file."])
-                    }
+        perform {
+            let fm = FileManager.default
+            for url in urls {
+                if !folderMode, !Self.accepts(url, types: allowed) {
+                    throw CocoaError(
+                        .fileReadUnknown, userInfo: [NSLocalizedDescriptionKey: "Choose a supported file type."],
+                    )
                 }
-                return saveMode && fm.fileExists(atPath: urls[0].path)
-            },
-            receive: { [weak self] exists in
-                guard let self else { return }
-                if exists { self.overwriteURL = urls[0] } else { self.complete(urls) }
-            })
+                if saveMode, !fm.fileExists(atPath: url.path) {
+                    continue
+                }
+                let isDirectory = try url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
+                guard isDirectory == folderMode else {
+                    throw CocoaError(
+                        .fileReadUnknown,
+                        userInfo: [NSLocalizedDescriptionKey: folderMode ? "Choose a folder." : "Choose a file."],
+                    )
+                }
+            }
+            return saveMode && fm.fileExists(atPath: urls[0].path)
+        } receive: { [weak self] exists in
+            guard let self else { return }
+            if exists {
+                overwriteURL = urls[0]
+            } else {
+                complete(urls)
+            }
+        }
     }
 
     func createFolder() {
@@ -189,36 +208,34 @@ final class StudioFileBrowser: ObservableObject {
             return
         }
         let url = directory.appendingPathComponent(name, isDirectory: true)
-        perform(
-            {
-                try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false); return url
-            },
-            receive: { [weak self] in
-                self?.newFolderName = ""; self?.navigate($0)
-            })
+        perform {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false); return url
+        } receive: { [weak self] in
+            self?.newFolderName = ""; self?.navigate($0)
+        }
     }
+
     static func runResponsivenessTest(in folder: URL) async -> Bool {
         let browser = StudioFileBrowser(mode: .files, types: [], multiple: false) { _ in }
-        browser.perform(
-            {
-                Thread.sleep(forTimeInterval: 0.4); return "stale"
-            },
-            receive: { browser.problem = $0 })
+        browser.perform {
+            Thread.sleep(forTimeInterval: 0.4); return "stale"
+        } receive: {
+            browser.problem = $0
+        }
         browser.navigate(folder)
         try? await Task.sleep(for: .seconds(1))
         guard !browser.loading, browser.problem == nil else { return false }
-        browser.perform(
-            {
-                Thread.sleep(forTimeInterval: 9); return "late"
-            },
-            receive: { browser.problem = $0 })
+        browser.perform {
+            Thread.sleep(forTimeInterval: 9); return "late"
+        } receive: {
+            browser.problem = $0
+        }
         try? await Task.sleep(for: .milliseconds(8300))
         guard !browser.loading, browser.problem?.contains("not responding") == true else { return false }
         browser.navigate(folder)
         try? await Task.sleep(for: .seconds(1))
         return !browser.loading && browser.problem == nil && browser.directory == folder.standardizedFileURL
     }
-
 }
 
 struct StudioFileBrowserView: View {
@@ -227,13 +244,15 @@ struct StudioFileBrowserView: View {
         Binding(
             get: { browser.selection },
             set: { values in
-                if !browser.multiple && values.count > 1 {
+                if !browser.multiple, values.count > 1 {
                     browser.selection = Set(values.subtracting(browser.selection).prefix(1))
                 } else {
                     browser.selection = values
                 }
-            })
+            },
+        )
     }
+
     var body: some View {
         VStack(spacing: 12) {
             HStack {
@@ -251,13 +270,16 @@ struct StudioFileBrowserView: View {
                     location("Home", "house", FileManager.default.homeDirectoryForCurrentUser)
                     location(
                         "Desktop", "desktopcomputer",
-                        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop"))
+                        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop"),
+                    )
                     location(
                         "Documents", "doc",
-                        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents"))
+                        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents"),
+                    )
                     location(
                         "Downloads", "arrow.down.circle",
-                        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads"))
+                        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads"),
+                    )
                     location("Drives", "externaldrive", URL(fileURLWithPath: "/Volumes"))
                     Spacer()
                 }.padding(12).frame(width: 135)
@@ -289,7 +311,9 @@ struct StudioFileBrowserView: View {
                     }
                 }
             }.frame(minHeight: 300)
-            if browser.mode == .save { TextField("File name", text: $browser.filename) }
+            if browser.mode == .save {
+                TextField("File name", text: $browser.filename)
+            }
             HStack {
                 Toggle("Show hidden files", isOn: $browser.showHidden).onChange(of: browser.showHidden) { _, _ in
                     browser.navigate(browser.directory)
@@ -304,7 +328,9 @@ struct StudioFileBrowserView: View {
                 if browser.loading {
                     ProgressView().controlSize(.small); Text("Reading folder…").foregroundStyle(.secondary)
                 }
-                if let problem = browser.problem { Text(problem).foregroundStyle(.red).font(.caption) }
+                if let problem = browser.problem {
+                    Text(problem).foregroundStyle(.red).font(.caption)
+                }
                 Spacer()
                 Button("Cancel") { browser.cancel() }.keyboardShortcut(.cancelAction)
                 Button(browser.mode == .folder ? "Choose Folder" : browser.mode == .save ? "Save" : "Open") {
@@ -316,8 +342,12 @@ struct StudioFileBrowserView: View {
         .padding(16).frame(minWidth: 720, minHeight: 470)
         .alert(
             "Replace existing file?",
-            isPresented: Binding(get: { browser.overwriteURL != nil }, set: { if !$0 { browser.overwriteURL = nil } }),
-            presenting: browser.overwriteURL
+            isPresented: Binding(get: { browser.overwriteURL != nil }, set: {
+                if !$0 {
+                    browser.overwriteURL = nil
+                }
+            }),
+            presenting: browser.overwriteURL,
         ) { url in
             Button("Replace", role: .destructive) { browser.complete([url]) }
             Button("Cancel", role: .cancel) { browser.overwriteURL = nil }
@@ -325,6 +355,7 @@ struct StudioFileBrowserView: View {
             Text("The existing file will be replaced when you save.")
         }
     }
+
     private func location(_ title: String, _ icon: String, _ url: URL) -> some View {
         Button {
             browser.navigate(url)

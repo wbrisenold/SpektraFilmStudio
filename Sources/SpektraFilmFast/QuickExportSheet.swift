@@ -62,7 +62,7 @@ struct QuickExportSheet: View {
                         if settings.format == .jpeg || settings.format == .heic {
                             HStack(spacing: 10) {
                                 Text("Quality").font(.caption.weight(.medium))
-                                Slider(value: $settings.jpegQuality, in: 0.1...1)
+                                Slider(value: $settings.jpegQuality, in: 0.1 ... 1)
                                 Text("\(Int((settings.jpegQuality * 100).rounded()))")
                                     .font(.caption.monospacedDigit()).frame(width: 32, alignment: .trailing)
                             }
@@ -145,23 +145,39 @@ struct QuickExportSheet: View {
     }
 
     private var blockingIssue: String? {
-        if model.isExporting { return "Another export is running" }
-        if image == nil { return "Photo unavailable" }
-        if settings.destinationPath.isEmpty { return "Choose a destination" }
-        if settings.sequenceStart < 1 { return "Sequence must be positive" }
+        if model.isExporting {
+            return "Another export is running"
+        }
+        if image == nil {
+            return "Photo unavailable"
+        }
+        if settings.destinationPath.isEmpty {
+            return "Choose a destination"
+        }
+        if settings.sequenceStart < 1 {
+            return "Sequence must be positive"
+        }
         switch settings.resizeMode {
         case .none: break
-        case .longEdge: if settings.resizeLongEdge < 1 { return "Enter a positive long edge" }
-        case .width: if settings.resizeWidth < 1 { return "Enter a positive width" }
-        case .height: if settings.resizeHeight < 1 { return "Enter a positive height" }
+        case .longEdge: if settings.resizeLongEdge < 1 {
+                return "Enter a positive long edge"
+            }
+        case .width: if settings.resizeWidth < 1 {
+                return "Enter a positive width"
+            }
+        case .height: if settings.resizeHeight < 1 {
+                return "Enter a positive height"
+            }
         case .fitBox, .cropToFill:
-            if settings.resizeWidth < 1 || settings.resizeHeight < 1 { return "Enter positive dimensions" }
+            if settings.resizeWidth < 1 || settings.resizeHeight < 1 {
+                return "Enter positive dimensions"
+            }
         }
         return nil
     }
 
-    private func quickSection<Content: View>(
-        _ title: String, symbol: String, @ViewBuilder content: () -> Content
+    private func quickSection(
+        _ title: String, symbol: String, @ViewBuilder content: () -> some View,
     ) -> some View {
         VStack(alignment: .leading, spacing: 11) {
             Label(title, systemImage: symbol).font(.subheadline.weight(.semibold))

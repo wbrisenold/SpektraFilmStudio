@@ -87,8 +87,8 @@ public enum ClosedFormMatte {
                 guard x0 <= x1, y0 <= y1 else { continue }
                 let segment = end - start
                 let length = simd_length_squared(segment)
-                for y in y0...y1 {
-                    for x in x0...x1 {
+                for y in y0 ... y1 {
+                    for x in x0 ... x1 {
                         let pixel = SIMD2(Double(x) + 0.5, Double(y) + 0.5)
                         let t = length > 0 ? min(max(simd_dot(pixel - start, segment) / length, 0), 1) : 0
                         if simd_distance(pixel, start + t * segment) <= radius {
@@ -165,7 +165,7 @@ public enum ClosedFormMatte {
     }
 
     static func colours(_ rgb: RGBImage) -> [SIMD3<Float>] {
-        (0..<rgb.width * rgb.height).map { rgb.rgb($0 % rgb.width, $0 / rgb.width) }
+        (0 ..< rgb.width * rgb.height).map { rgb.rgb($0 % rgb.width, $0 / rgb.width) }
     }
 
     // MARK: - Solve
@@ -189,12 +189,12 @@ public enum ClosedFormMatte {
             self.image = image
             var centres: [Int32] = []
             var window = [Int32](repeating: -1, count: width * height)
-            for y in 1..<max(1, height - 1) {
-                for x in 1..<max(1, width - 1) {
+            for y in 1 ..< max(1, height - 1) {
+                for x in 1 ..< max(1, width - 1) {
                     let index = y * width + x
                     var touches = false
-                    for dy in -1...1 where !touches {
-                        for dx in -1...1 where unknown[index + dy * width + dx] {
+                    for dy in -1 ... 1 where !touches {
+                        for dx in -1 ... 1 where unknown[index + dy * width + dx] {
                             touches = true
                             break
                         }
@@ -221,8 +221,8 @@ public enum ClosedFormMatte {
                             // and its inverse huge.
                             var sum = SIMD3<Double>.zero
                             var outer = simd_double3x3()
-                            for dy in -1...1 {
-                                for dx in -1...1 {
+                            for dy in -1 ... 1 {
+                                for dx in -1 ... 1 {
                                     let colour = SIMD3<Double>(image[centre + dy * width + dx])
                                     sum += colour
                                     outer += simd_double3x3(colour * colour.x, colour * colour.y, colour * colour.z)
@@ -231,7 +231,7 @@ public enum ClosedFormMatte {
                             let mean = sum / 9
                             let covariance =
                                 outer * (1.0 / 9)
-                                - simd_double3x3(mean * mean.x, mean * mean.y, mean * mean.z)
+                                    - simd_double3x3(mean * mean.x, mean * mean.y, mean * mean.z)
                             meanOut[k] = SIMD3<Float>(mean)
                             let inverse = (covariance + regularised).inverse
                             inverseOut[k] = simd_float3x3(
@@ -275,9 +275,9 @@ public enum ClosedFormMatte {
                                     let centre = Int(centres[k])
                                     var sumP: Double = 0
                                     var sumIP = SIMD3<Double>.zero
-                                    for dy in -1...1 {
+                                    for dy in -1 ... 1 {
                                         let row = centre + dy * width
-                                        for index in row - 1...row + 1 {
+                                        for index in row - 1 ... row + 1 {
                                             let value = field[index]
                                             sumP += value
                                             sumIP += SIMD3<Double>(image[index]) * value
@@ -289,8 +289,8 @@ public enum ClosedFormMatte {
                                     let difference = sumIP / 9 - mean * meanP
                                     let coefficient =
                                         SIMD3<Double>(inverse.columns.0) * difference.x
-                                        + SIMD3<Double>(inverse.columns.1) * difference.y
-                                        + SIMD3<Double>(inverse.columns.2) * difference.z
+                                            + SIMD3<Double>(inverse.columns.1) * difference.y
+                                            + SIMD3<Double>(inverse.columns.2) * difference.z
                                     aOut[k] = coefficient
                                     bOut[k] = meanP - simd_dot(coefficient, mean)
                                 }
@@ -309,12 +309,13 @@ public enum ClosedFormMatte {
                                 let colour = SIMD3<Double>(image[index])
                                 var count: Double = 0
                                 var fitted: Double = 0
-                                for dy in -1...1 {
+                                for dy in -1 ... 1 {
                                     let row = index + dy * width
                                     // Past the first or last row there is no window; past either
                                     // side, the next row's border pixel has none either.
-                                    for neighbour in row - 1...row + 1
-                                    where neighbour >= 0 && neighbour < window.count {
+                                    for neighbour in row - 1 ... row + 1
+                                        where neighbour >= 0 && neighbour < window.count
+                                    {
                                         let k = Int(window[neighbour])
                                         if k >= 0 {
                                             count += 1
@@ -335,8 +336,8 @@ public enum ClosedFormMatte {
             targets.map { target in
                 let index = Int(target)
                 var sum: Double = 0
-                for dy in -1...1 {
-                    for dx in -1...1 {
+                for dy in -1 ... 1 {
+                    for dx in -1 ... 1 {
                         let neighbour = index + dy * width + dx
                         guard neighbour >= 0, neighbour < window.count else { continue }
                         let k = Int(window[neighbour])
@@ -353,7 +354,7 @@ public enum ClosedFormMatte {
         static func chunks(_ count: Int, _ body: @Sendable (Range<Int>) -> Void) {
             let parts = max(1, min(count / 4096, ProcessInfo.processInfo.activeProcessorCount * 4))
             DispatchQueue.concurrentPerform(iterations: parts) { part in
-                body(part * count / parts..<(part + 1) * count / parts)
+                body(part * count / parts ..< (part + 1) * count / parts)
             }
         }
     }
@@ -382,7 +383,7 @@ public enum ClosedFormMatte {
         let field = UnsafeMutableBufferPointer<Double>.allocate(capacity: trimap.count)
         let a = UnsafeMutableBufferPointer<SIMD3<Double>>.allocate(capacity: windows)
         let b = UnsafeMutableBufferPointer<Double>.allocate(capacity: windows)
-        let vectors = (0..<5).map { _ in UnsafeMutableBufferPointer<Double>.allocate(capacity: n) }
+        let vectors = (0 ..< 5).map { _ in UnsafeMutableBufferPointer<Double>.allocate(capacity: n) }
         defer {
             field.deallocate()
             a.deallocate()
@@ -418,14 +419,14 @@ public enum ClosedFormMatte {
 
         // L (known + x) = 0 on the uncertain pixels: A x = -L known there, so r = -L (known + x).
         let inverseDiagonal = laplacian.diagonal(at: unknown).map { 1 / $0 }
-        for t in 0..<n {
+        for t in 0 ..< n {
             x[t] = Double(initial[Int(unknown[t])])
         }
         scatter(x)
         laplacian.apply(UnsafeBufferPointer(field), at: unknown, into: r, a: a, b: b)
         var minusOne: Double = -1
         vDSP_vsmulD(r.baseAddress!, 1, &minusOne, r.baseAddress!, 1, vDSP_Length(n))
-        for t in 0..<n {
+        for t in 0 ..< n {
             z[t] = r[t] * inverseDiagonal[t]
             d[t] = z[t]
         }
@@ -436,7 +437,7 @@ public enum ClosedFormMatte {
         for index in trimap.indices where !unknownMask[index] {
             field[index] = 0
         }
-        for _ in 0..<iterations {
+        for _ in 0 ..< iterations {
             apply(d, into: q)
             let curvature = dot(d, q)
             // The matrix is positive semi-definite; anything else is rounding: stop there.
@@ -448,7 +449,7 @@ public enum ClosedFormMatte {
             if dot(r, r).squareRoot() / norm < tolerance {
                 break
             }
-            for t in 0..<n {
+            for t in 0 ..< n {
                 z[t] = r[t] * inverseDiagonal[t]
             }
             let rzNext = dot(r, z)
@@ -457,7 +458,7 @@ public enum ClosedFormMatte {
             rz = rzNext
         }
         var out = trimap
-        for t in 0..<n {
+        for t in 0 ..< n {
             let value = x[t].isFinite ? x[t] : Double(initial[Int(unknown[t])])
             out[Int(unknown[t])] = Float(min(max(value, 0), 1))
         }

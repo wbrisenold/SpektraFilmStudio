@@ -18,10 +18,10 @@ enum ExportWriterError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .cannotCreateImage: "Could not construct the export image buffer."
-        case .cannotCreateDestination(let type): "ImageIO could not create a \(type) encoder on this Mac."
+        case let .cannotCreateDestination(type): "ImageIO could not create a \(type) encoder on this Mac."
         case .encoderFinalizeFailed: "Image encoder failed while finalizing the file."
-        case .destinationExists(let name): "Export refused to overwrite existing file: \(name)"
-        case .verificationFailed(let reason): "Export verification failed: \(reason)"
+        case let .destinationExists(name): "Export refused to overwrite existing file: \(name)"
+        case let .verificationFailed(reason): "Export verification failed: \(reason)"
         }
     }
 }
@@ -32,7 +32,7 @@ enum ExportWriter {
         look: RenderLook,
         sourceURL: URL,
         destination: URL,
-        settings: ExportSettings
+        settings: ExportSettings,
     ) throws {
         try Task.checkCancellation()
         let profile = OutputColorProfile.forLook(look)
@@ -49,11 +49,10 @@ enum ExportWriter {
             image = cg
         }
 
-        let type: CFString
-        switch settings.format {
-        case .jpeg: type = UTType.jpeg.identifier as CFString
-        case .heic: type = UTType.heic.identifier as CFString
-        case .tiff: type = UTType.tiff.identifier as CFString
+        let type: CFString = switch settings.format {
+        case .jpeg: UTType.jpeg.identifier as CFString
+        case .heic: UTType.heic.identifier as CFString
+        case .tiff: UTType.tiff.identifier as CFString
         }
 
         try Task.checkCancellation()
@@ -63,7 +62,8 @@ enum ExportWriter {
             throw ExportWriterError.destinationExists(destination.lastPathComponent)
         }
         let temp = destination.deletingLastPathComponent().appendingPathComponent(
-            ".\(UUID().uuidString)-\(destination.lastPathComponent)")
+            ".\(UUID().uuidString)-\(destination.lastPathComponent)",
+        )
         defer { try? fm.removeItem(at: temp) }
 
         guard let dest = CGImageDestinationCreateWithURL(temp as CFURL, type, 1, nil) else {
@@ -98,7 +98,7 @@ enum ExportWriter {
             expectedWidth: output.width,
             expectedHeight: output.height,
             expectedBitDepth:
-                settings.format == .tiff ? (settings.tiff16Bit ? 16 : 8) : nil
+            settings.format == .tiff ? (settings.tiff16Bit ? 16 : 8) : nil,
         )
 
         guard !fm.fileExists(atPath: destination.path) else {
@@ -111,14 +111,14 @@ enum ExportWriter {
         let finalBytes = (finalAttrs[.size] as? NSNumber)?.intValue ?? 0
         guard finalBytes == validatedBytes else {
             throw ExportWriterError.verificationFailed(
-                "committed file size is \(finalBytes) bytes, expected \(validatedBytes)"
+                "committed file size is \(finalBytes) bytes, expected \(validatedBytes)",
             )
         }
     }
 
     private static func sourceMetadata(url: URL, stripGPS: Bool) -> [CFString: Any] {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-            let raw = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+              let raw = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
         else { return [:] }
         var result = raw
         result.removeValue(forKey: kCGImagePropertyPixelWidth)
@@ -142,29 +142,29 @@ enum ExportWriter {
         guard bytes > 0 else { throw ExportWriterError.verificationFailed("file is empty") }
 
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-            CGImageSourceGetCount(source) > 0,
-            let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+              CGImageSourceGetCount(source) > 0,
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
         else {
             throw ExportWriterError.verificationFailed("ImageIO cannot read the written file")
         }
 
         let width = (props[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue ?? 0
         let height = (props[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue ?? 0
-        guard width == expectedWidth && height == expectedHeight else {
+        guard width == expectedWidth, height == expectedHeight else {
             throw ExportWriterError.verificationFailed(
-                "encoded dimensions are \(width)×\(height), expected \(expectedWidth)×\(expectedHeight)"
+                "encoded dimensions are \(width)×\(height), expected \(expectedWidth)×\(expectedHeight)",
             )
         }
 
         // The encoder already received the intended TIFF depth. Do not decode
         // the entire just-written image solely to re-check that value.
         if let expectedBitDepth,
-            let depth = (props[kCGImagePropertyDepth] as? NSNumber)?.intValue,
-            depth > 0,
-            depth < expectedBitDepth
+           let depth = (props[kCGImagePropertyDepth] as? NSNumber)?.intValue,
+           depth > 0,
+           depth < expectedBitDepth
         {
             throw ExportWriterError.verificationFailed(
-                "container reports \(depth)-bit, expected at least \(expectedBitDepth)-bit"
+                "container reports \(depth)-bit, expected at least \(expectedBitDepth)-bit",
             )
         }
         return bytes
@@ -177,7 +177,7 @@ struct ExportEngine: Sendable {
         look: RenderLook,
         sourceURL: URL,
         destination: URL,
-        settings: ExportSettings
+        settings: ExportSettings,
     ) async throws {
         try Task.checkCancellation()
         try autoreleasepool {
@@ -186,7 +186,7 @@ struct ExportEngine: Sendable {
                 look: look,
                 sourceURL: sourceURL,
                 destination: destination,
-                settings: settings
+                settings: settings,
             )
         }
     }

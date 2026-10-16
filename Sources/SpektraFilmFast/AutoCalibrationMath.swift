@@ -1,8 +1,8 @@
 import Foundation
 
-// One-shot auto calibration helpers. Darktable's iop/exposure.c percentile
-// meter and channelmixerrgb auto-WB run once per explicit user action (or
-// once at gesture begin), never inside a per-frame render.
+/// One-shot auto calibration helpers. Darktable's iop/exposure.c percentile
+/// meter and channelmixerrgb auto-WB run once per explicit user action (or
+/// once at gesture begin), never inside a per-frame render.
 enum AutoCalibrationMath {
     /// Develop-stage auto exposure in EV, targeting mid-gray ≈ 0.18 linear.
     /// Sampled from the already-developed linear working buffer (same domain
@@ -14,7 +14,7 @@ enum AutoCalibrationMath {
         let pixelCount = pixels.count / 4
         let strideXY = max(1, Int(Double(pixelCount).squareRoot() / 320))
         var lumas: [Double] = []
-        lumas.reserveCapacity(80_000)
+        lumas.reserveCapacity(80000)
         var p = 0
         while p + 2 < pixels.count {
             let r = Double(pixels[p])
@@ -22,7 +22,9 @@ enum AutoCalibrationMath {
             let b = Double(pixels[p + 2])
             if r.isFinite, g.isFinite, b.isFinite {
                 let y = 0.2126 * r + 0.7152 * g + 0.0722 * b
-                if y.isFinite, y > 1e-6, y < 64 { lumas.append(y) }
+                if y.isFinite, y > 1e-6, y < 64 {
+                    lumas.append(y)
+                }
             }
             p += 4 * strideXY
         }
@@ -48,18 +50,18 @@ enum AutoCalibrationMath {
     /// PixelBufferF32.applyingAutoWhiteBalance() but without mutating pixels.
     /// UI layer converts gains to temperature/tint; raw layer may apply gains.
     static func whiteBalanceGains(
-        width: Int, height: Int, pixels: [Float]
+        width: Int, height: Int, pixels: [Float],
     ) -> (r: Double, g: Double, b: Double)? {
         guard width > 0, height > 0, pixels.count == width * height * 4 else { return nil }
 
         let pixelCount = width * height
-        let targetSamples = 80_000
+        let targetSamples = 80000
         let sampleStride = max(1, Int((Double(pixelCount) / Double(targetSamples)).squareRoot().rounded(.down)))
 
         var redRatios: [Double] = []
         var blueRatios: [Double] = []
-        redRatios.reserveCapacity(12_000)
-        blueRatios.reserveCapacity(12_000)
+        redRatios.reserveCapacity(12000)
+        blueRatios.reserveCapacity(12000)
 
         var fallbackR = 0.0, fallbackG = 0.0, fallbackB = 0.0, fallbackWeight = 0.0
 
@@ -112,7 +114,7 @@ enum AutoCalibrationMath {
     /// Neutralizing gains → camera-space temperature/tint offsets from the as-shot base.
     /// Convention matches SkinWB: positive mired → cooler, positive tint → magenta.
     static func whiteBalanceOffsets(
-        gains: (r: Double, g: Double, b: Double)
+        gains: (r: Double, g: Double, b: Double),
     ) -> (mired: Double, tint: Double) {
         // Warm cast (blue gain above red gain) → positive mired (cooler result).
         let logBR = log(max(1.0e-6, gains.b) / max(1.0e-6, gains.r))
@@ -128,9 +130,11 @@ enum AutoCalibrationMath {
         let trim = sorted.count / 10
         let lo = min(trim, sorted.count - 1)
         let hi = max(lo + 1, sorted.count - trim)
-        let kept = Array(sorted[lo..<hi])
+        let kept = Array(sorted[lo ..< hi])
         let mid = kept.count / 2
-        if kept.count % 2 == 0 { return (kept[mid - 1] + kept[mid]) * 0.5 }
+        if kept.count % 2 == 0 {
+            return (kept[mid - 1] + kept[mid]) * 0.5
+        }
         return kept[mid]
     }
 

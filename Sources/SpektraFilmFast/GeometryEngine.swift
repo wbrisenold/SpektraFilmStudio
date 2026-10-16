@@ -11,13 +11,15 @@ enum CropPresetCategory: String, CaseIterable, Identifiable, Sendable {
     case photo = "Photo & Print"
     case social = "Social"
     case cinema = "Film & Cinema"
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 }
 
 struct CropAspectPreset: Identifiable, Hashable, Sendable {
     let id: String
     let label: String
-    let ratio: Double?  // width / height; nil = original/free
+    let ratio: Double? // width / height; nil = original/free
     let category: CropPresetCategory
 
     static let all: [CropAspectPreset] = [
@@ -57,7 +59,7 @@ struct CropAspectPreset: Identifiable, Hashable, Sendable {
 }
 
 private struct Matrix3 {
-    var m: [Double]  // row-major 9
+    var m: [Double] // row-major 9
     static let identity = Matrix3(m: [1, 0, 0, 0, 1, 0, 0, 0, 1])
 
     static func * (lhs: Matrix3, rhs: Matrix3) -> Matrix3 {
@@ -110,11 +112,11 @@ enum GeometryEngine {
         fromDisplay point: CGPoint,
         sourceWidth: Int,
         sourceHeight: Int,
-        settings: GeometrySettings?
+        settings: GeometrySettings?,
     ) -> CGPoint? {
         guard sourceWidth > 0, sourceHeight > 0,
-            point.x.isFinite, point.y.isFinite,
-            point.x >= 0, point.x <= 1, point.y >= 0, point.y <= 1
+              point.x.isFinite, point.y.isFinite,
+              point.x >= 0, point.x <= 1, point.y >= 0, point.y <= 1
         else { return nil }
         guard let settings else { return point }
         let crop = normalizedCrop(settings.crop)
@@ -122,7 +124,7 @@ enum GeometryEngine {
         if settings.autoCrop {
             effective.scale = max(
                 settings.scale,
-                minimumScaleToCoverCrop(settings: settings, width: sourceWidth, height: sourceHeight)
+                minimumScaleToCoverCrop(settings: settings, width: sourceWidth, height: sourceHeight),
             )
         }
         let fullW = sourceWidth, fullH = sourceHeight
@@ -136,7 +138,7 @@ enum GeometryEngine {
         let nx = (pixelX / Double(max(1, fullW - 1)) - 0.5) * aspect
         let ny = pixelY / Double(max(1, fullH - 1)) - 0.5
         guard let inverse = forwardMatrix(settings: effective, width: fullW, height: fullH).inverted(),
-            let mapped = inverse.map(nx, ny)
+              let mapped = inverse.map(nx, ny)
         else { return nil }
         let u = mapped.0 / aspect + 0.5
         let v = mapped.1 + 0.5
@@ -145,7 +147,7 @@ enum GeometryEngine {
     }
 
     static func applyAspectPreset(
-        _ preset: CropAspectPreset, sourceWidth: Int, sourceHeight: Int, to settings: inout GeometrySettings
+        _ preset: CropAspectPreset, sourceWidth: Int, sourceHeight: Int, to settings: inout GeometrySettings,
     ) {
         settings.lastAspectPresetID = preset.id
         guard let r = preset.ratio else { return }
@@ -166,7 +168,9 @@ enum GeometryEngine {
         settings.crop = crop
     }
 
-    static func reset(_ settings: inout GeometrySettings) { settings = GeometrySettings() }
+    static func reset(_ settings: inout GeometrySettings) {
+        settings = GeometrySettings()
+    }
 
     static func transformed(_ input: PixelBufferF32, settings: GeometrySettings?) -> PixelBufferF32 {
         guard let settings else { return input }
@@ -178,20 +182,22 @@ enum GeometryEngine {
             // implementation only intersected rectangles, which could still leave black wedges.
             effectiveSettings.scale = max(
                 settings.scale,
-                minimumScaleToCoverCrop(settings: settings, width: input.width, height: input.height)
+                minimumScaleToCoverCrop(settings: settings, width: input.width, height: input.height),
             )
         }
         let crop = requestedCrop
         let isIdentity =
             abs(effectiveSettings.rotationDegrees) < 1e-9
-            && abs(effectiveSettings.verticalPerspective) < 1e-9
-            && abs(effectiveSettings.horizontalPerspective) < 1e-9
-            && abs(effectiveSettings.aspect) < 1e-9
-            && abs(effectiveSettings.scale - 100) < 1e-9
-            && abs(effectiveSettings.xOffset) < 1e-9 && abs(effectiveSettings.yOffset) < 1e-9
-            && !effectiveSettings.flipHorizontal && !effectiveSettings.flipVertical
-            && crop == NormalizedCropRect()
-        if isIdentity { return input }
+                && abs(effectiveSettings.verticalPerspective) < 1e-9
+                && abs(effectiveSettings.horizontalPerspective) < 1e-9
+                && abs(effectiveSettings.aspect) < 1e-9
+                && abs(effectiveSettings.scale - 100) < 1e-9
+                && abs(effectiveSettings.xOffset) < 1e-9 && abs(effectiveSettings.yOffset) < 1e-9
+                && !effectiveSettings.flipHorizontal && !effectiveSettings.flipVertical
+                && crop == NormalizedCropRect()
+        if isIdentity {
+            return input
+        }
 
         let fullW = input.width, fullH = input.height
         guard fullW > 0, fullH > 0 else { return input }
@@ -204,11 +210,13 @@ enum GeometryEngine {
         guard let inverse = matrix.inverted() else { return input }
         var out = [Float](repeating: 0, count: cropW * cropH * 4)
         let aspect = Double(fullW) / Double(max(1, fullH))
-        for oy in 0..<cropH {
-            if (oy & 31) == 0, Task.isCancelled { return input }
+        for oy in 0 ..< cropH {
+            if (oy & 31) == 0, Task.isCancelled {
+                return input
+            }
             let py = cropY + oy
             let ny = Double(py) / Double(max(1, fullH - 1)) - 0.5
-            for ox in 0..<cropW {
+            for ox in 0 ..< cropW {
                 let px = cropX + ox
                 let nx = (Double(px) / Double(max(1, fullW - 1)) - 0.5) * aspect
                 guard let mapped = inverse.map(nx, ny) else { continue }
@@ -254,20 +262,26 @@ enum GeometryEngine {
         }
 
         let starting = max(10.0, settings.scale)
-        if cropIsCovered(at: starting) { return starting }
+        if cropIsCovered(at: starting) {
+            return starting
+        }
 
         var low = starting
         var high = max(200.0, starting)
-        while high < 800.0 && !cropIsCovered(at: high) {
+        while high < 800.0, !cropIsCovered(at: high) {
             low = high
             high *= 1.5
         }
         high = min(800.0, high)
         guard cropIsCovered(at: high) else { return high }
 
-        for _ in 0..<30 {
+        for _ in 0 ..< 30 {
             let mid = (low + high) * 0.5
-            if cropIsCovered(at: mid) { high = mid } else { low = mid }
+            if cropIsCovered(at: mid) {
+                high = mid
+            } else {
+                low = mid
+            }
         }
         return high
     }
@@ -277,20 +291,21 @@ enum GeometryEngine {
     }
 
     private static func sampleBilinear(
-        _ input: PixelBufferF32, x: Double, y: Double, into out: inout [Float], at q: Int
+        _ input: PixelBufferF32, x: Double, y: Double, into out: inout [Float], at q: Int,
     ) {
         let x0 = max(0, min(input.width - 1, Int(floor(x)))), y0 = max(0, min(input.height - 1, Int(floor(y))))
         let x1 = min(input.width - 1, x0 + 1), y1 = min(input.height - 1, y0 + 1)
         let tx = Float(x - Double(x0)), ty = Float(y - Double(y0))
         let i00 = (y0 * input.width + x0) * 4, i10 = (y0 * input.width + x1) * 4
         let i01 = (y1 * input.width + x0) * 4, i11 = (y1 * input.width + x1) * 4
-        for c in 0..<4 {
+        for c in 0 ..< 4 {
             let a = input.pixels[i00 + c] + (input.pixels[i10 + c] - input.pixels[i00 + c]) * tx
             let b = input.pixels[i01 + c] + (input.pixels[i11 + c] - input.pixels[i01 + c]) * tx
             out[q + c] = a + (b - a) * ty
         }
     }
-    private static func forwardMatrix(settings: GeometrySettings, width: Int, height: Int) -> Matrix3 {
+
+    private static func forwardMatrix(settings: GeometrySettings, width _: Int, height _: Int) -> Matrix3 {
         let angle = settings.rotationDegrees * .pi / 180
         let c = cos(angle), s = sin(angle)
         let flipX = settings.flipHorizontal ? -1.0 : 1.0
@@ -306,7 +321,6 @@ enum GeometryEngine {
         let A = Matrix3(m: [aspectStretch * scale, 0, tx, 0, scale, ty, pX, pY, 1])
         return A * R * F
     }
-
 }
 
 actor GeometryAutoAnalyzer {

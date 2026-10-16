@@ -10,6 +10,7 @@ enum GPUProcessingFailure {
         var epoch: UInt64 = 0
         var message = ""
     }
+
     private static let state = State()
 
     static func checkpoint() -> UInt64 {
@@ -38,8 +39,8 @@ enum GPUProcessingFailure {
                 domain: "SpektraFilmStudio.GPUProcessingFailure", code: 1,
                 userInfo: [
                     NSLocalizedDescriptionKey:
-                        "GPU image stage failed; export/preview aborted instead of emitting partial output. \(reason)"
-                ]
+                        "GPU image stage failed; export/preview aborted instead of emitting partial output. \(reason)",
+                ],
             )
         }
     }

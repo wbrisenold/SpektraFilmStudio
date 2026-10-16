@@ -6,9 +6,9 @@ extension PixelBufferF32 {
             throw MetalExportResizer.ScaleError.oversized
         }
         if settings.resizeMode != .none {
-            guard (1...16384).contains(settings.resizeWidth),
-                (1...16384).contains(settings.resizeHeight),
-                (1...16384).contains(settings.resizeLongEdge)
+            guard (1 ... 16384).contains(settings.resizeWidth),
+                  (1 ... 16384).contains(settings.resizeHeight),
+                  (1 ... 16384).contains(settings.resizeLongEdge)
             else {
                 throw MetalExportResizer.ScaleError.oversized
             }
@@ -25,7 +25,7 @@ extension PixelBufferF32 {
             let scale = Double(edge) / Double(max(sourceW, sourceH))
             target = (
                 max(1, Int((Double(sourceW) * scale).rounded())),
-                max(1, Int((Double(sourceH) * scale).rounded()))
+                max(1, Int((Double(sourceH) * scale).rounded())),
             )
         case .width:
             let w = max(1, settings.resizeWidth)
@@ -53,13 +53,13 @@ extension PixelBufferF32 {
             let startX = (sourceW - cropW) / 2, startY = (sourceH - cropH) / 2
             let scale =
                 settings.dontEnlarge
-                ? min(1.0, min(Double(cropW) / Double(wantedW), Double(cropH) / Double(wantedH))) : 1.0
+                    ? min(1.0, min(Double(cropW) / Double(wantedW), Double(cropH) / Double(wantedH))) : 1.0
             let outputW = max(1, Int((Double(wantedW) * scale).rounded()))
             let outputH = max(1, Int((Double(wantedH) * scale).rounded()))
             return try MetalExportResizer.shared.resized(
                 self, cropX: startX, cropY: startY,
                 cropWidth: cropW, cropHeight: cropH,
-                width: outputW, height: outputH
+                width: outputW, height: outputH,
             )
         case .fitBox:
             let maxW = max(1, settings.resizeWidth)
@@ -67,12 +67,14 @@ extension PixelBufferF32 {
             let scale = min(Double(maxW) / Double(sourceW), Double(maxH) / Double(sourceH))
             target = (
                 max(1, Int((Double(sourceW) * scale).rounded())),
-                max(1, Int((Double(sourceH) * scale).rounded()))
+                max(1, Int((Double(sourceH) * scale).rounded())),
             )
         }
 
         guard let (targetW, targetH) = target else { return self }
-        if settings.dontEnlarge && targetW >= sourceW && targetH >= sourceH { return self }
+        if settings.dontEnlarge && targetW >= sourceW && targetH >= sourceH {
+            return self
+        }
         // Targets already preserve aspect ratio and are rounded once above.
         // Recomputing scale from the rounded short edge shrinks the requested long edge.
         guard targetW != sourceW || targetH != sourceH else { return self }

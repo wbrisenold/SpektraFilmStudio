@@ -15,11 +15,11 @@ enum ExposureBoundaryEngine {
     }
 
     private static func applyBoundary(
-        _ input: PixelBufferF32, look: RenderLook, preferences: AppPreferences
+        _ input: PixelBufferF32, look: RenderLook, preferences: AppPreferences,
     ) -> PixelBufferF32 {
         guard (look.tone?.autoContrast ?? false) || (look.filmTone?.autoContrast ?? false),
-            input.width > 0, input.height > 0, input.pixels.count >= 4,
-            SkinToneReference.outputRoleIndex(look) == 0
+              input.width > 0, input.height > 0, input.pixels.count >= 4,
+              SkinToneReference.outputRoleIndex(look) == 0
         else { return input }
         let space = SkinToneReference.outputSpaceIndex(look)
         guard [14, 15, 16, 17, 18, 22, 23, 24, 25].contains(space) else { return input }
@@ -27,18 +27,20 @@ enum ExposureBoundaryEngine {
         // Subsample at most ~40k pixels and reject isolated hot/dead pixels with
         // asymmetric quantiles. The statistics are *recomputed per photo*.
         let count = input.width * input.height
-        let stridePixels = max(1, count / 40_000)
+        let stridePixels = max(1, count / 40000)
         var lumas: [Float] = []
-        lumas.reserveCapacity(min(count, 40_001))
+        lumas.reserveCapacity(min(count, 40001))
         for i in stride(from: 0, to: count, by: stridePixels) {
             let p = i * 4
             guard
                 let linear = SkinToneReference.canonicalLinearSRGBUnclamped(
-                    r: input.pixels[p], g: input.pixels[p + 1], b: input.pixels[p + 2], look: look
+                    r: input.pixels[p], g: input.pixels[p + 1], b: input.pixels[p + 2], look: look,
                 )
             else { return input }
             let y = 0.2126 * linear.0 + 0.7152 * linear.1 + 0.0722 * linear.2
-            if y.isFinite { lumas.append(y) }
+            if y.isFinite {
+                lumas.append(y)
+            }
         }
         guard lumas.count >= 32 else { return input }
         lumas.sort()
@@ -62,7 +64,9 @@ enum ExposureBoundaryEngine {
             let native = (Double(output[p]), Double(output[p + 1]), Double(output[p + 2]))
             let linear = (decode(native.0, space), decode(native.1, space), decode(native.2, space))
             let y = 0.2126 * linear.0 + 0.7152 * linear.1 + 0.0722 * linear.2
-            if !y.isFinite { continue }
+            if !y.isFinite {
+                continue
+            }
             var desired = targetLow + (y - low) * scale
             // Compress statistical outliers rather than injecting hard clipping.
             if desired > targetHigh {

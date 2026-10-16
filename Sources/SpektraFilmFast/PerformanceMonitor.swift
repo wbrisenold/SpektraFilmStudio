@@ -5,13 +5,13 @@ import os.signpost
 /// Uses a custom Sendable lock wrapper around os_unfair_lock for thread-safe access.
 final class PerformanceMonitor: @unchecked Sendable {
     static let shared = PerformanceMonitor()
-    
+
     private let log = OSLog(subsystem: "com.spektrafilm", category: "performance")
     private let signpostLog = OSLog(subsystem: "com.spektrafilm", category: "signpost")
-    
-    // Use a Sendable lock wrapper around os_unfair_lock
+
+    /// Use a Sendable lock wrapper around os_unfair_lock
     private let lock = SendableLock()
-    
+
     // Cache metrics
     private var decodeCacheHits: UInt64 = 0
     private var decodeCacheMisses: UInt64 = 0
@@ -19,7 +19,7 @@ final class PerformanceMonitor: @unchecked Sendable {
     private var diskCacheMisses: UInt64 = 0
     private var textureReuses: UInt64 = 0
     private var textureAllocations: UInt64 = 0
-    
+
     // Render metrics
     private var frameCount: UInt64 = 0
     private var totalFrameTimeMs: Double = 0
@@ -27,81 +27,85 @@ final class PerformanceMonitor: @unchecked Sendable {
     private var totalPassCount: UInt64 = 0
     private var scratchReuses: UInt64 = 0
     private var scratchAllocations: UInt64 = 0
-    
+
     // Latency percentiles (simplified - track running min/max/avg)
-    private var minFrameTimeMs: Double = Double.infinity
+    private var minFrameTimeMs: Double = .infinity
     private var maxFrameTimeMs: Double = 0
-    
+
     private init() {}
-    
+
     // MARK: - Cache Metrics (thread-safe via lock)
-    
+
     func recordDecodeCacheHit() {
         lock.withLock { decodeCacheHits += 1 }
     }
-    
+
     func recordDecodeCacheMiss() {
         lock.withLock { decodeCacheMisses += 1 }
     }
-    
+
     func recordDiskCacheHit() {
         lock.withLock { diskCacheHits += 1 }
     }
-    
+
     func recordDiskCacheMiss() {
         lock.withLock { diskCacheMisses += 1 }
     }
-    
+
     func recordTextureReuse() {
         lock.withLock { textureReuses += 1 }
     }
-    
+
     func recordTextureAllocation() {
         lock.withLock { textureAllocations += 1 }
     }
-    
+
     // MARK: - Render Metrics
-    
+
     func recordFrame(frameTimeMs: Double, gpuTimeMs: Double, passCount: Int) {
         lock.withLock {
             frameCount += 1
             totalFrameTimeMs += frameTimeMs
             totalGpuTimeMs += gpuTimeMs
             totalPassCount += UInt64(passCount)
-            
-            if frameTimeMs < minFrameTimeMs { minFrameTimeMs = frameTimeMs }
-            if frameTimeMs > maxFrameTimeMs { maxFrameTimeMs = frameTimeMs }
+
+            if frameTimeMs < minFrameTimeMs {
+                minFrameTimeMs = frameTimeMs
+            }
+            if frameTimeMs > maxFrameTimeMs {
+                maxFrameTimeMs = frameTimeMs
+            }
         }
     }
-    
+
     func recordScratchReuse() {
         lock.withLock { scratchReuses += 1 }
     }
-    
+
     func recordScratchAllocation() {
         lock.withLock { scratchAllocations += 1 }
     }
-    
+
     // MARK: - Signpost Integration
-    
+
     func beginRenderSignpost(_ id: OSSignpostID, width: Int, height: Int) {
         os_signpost(.begin, log: signpostLog, name: "frame", signpostID: id, "w=%d h=%d", width, height)
     }
-    
+
     func endRenderSignpost(_ id: OSSignpostID, frameTimeMs: Double, gpuTimeMs: Double) {
         os_signpost(.end, log: signpostLog, name: "frame", signpostID: id, "cpu=%.1fms gpu=%.1fms", frameTimeMs, gpuTimeMs)
     }
-    
+
     func beginDecodeSignpost(_ id: OSSignpostID, sourceMP: Double) {
         os_signpost(.begin, log: signpostLog, name: "decode", signpostID: id, "mp=%.1f", sourceMP)
     }
-    
+
     func endDecodeSignpost(_ id: OSSignpostID, elapsedMs: Double, fromCache: Bool) {
         os_signpost(.end, log: signpostLog, name: "decode", signpostID: id, "ms=%.1f cache=%{public}s", elapsedMs, fromCache ? "hit" : "miss")
     }
-    
+
     // MARK: - Metrics Export
-    
+
     struct PerformanceReport: Codable, Sendable {
         let timestamp: Date
         let frameCount: UInt64
@@ -116,7 +120,7 @@ final class PerformanceMonitor: @unchecked Sendable {
         let scratchReuseRate: Double
         let avgPassesPerFrame: Double
     }
-    
+
     func exportReport() -> PerformanceReport {
         lock.withLock {
             let localFrameCount = self.frameCount
@@ -133,21 +137,21 @@ final class PerformanceMonitor: @unchecked Sendable {
             let localScratchAllocations = self.scratchAllocations
             let localMinFrameTimeMs = self.minFrameTimeMs
             let localMaxFrameTimeMs = self.maxFrameTimeMs
-            
+
             let localDecodeTotal = localDecodeCacheHits + localDecodeCacheMisses
             let localDiskTotal = localDiskCacheHits + localDiskCacheMisses
             let localTextureTotal = localTextureReuses + localTextureAllocations
             let localScratchTotal = localScratchReuses + localScratchAllocations
-            
+
             let localDecodeHitRate = localDecodeTotal > 0 ? Double(localDecodeCacheHits) / Double(localDecodeTotal) : 0
             let localDiskHitRate = localDiskTotal > 0 ? Double(localDiskCacheHits) / Double(localDiskTotal) : 0
             let localTextureReuseRate = localTextureTotal > 0 ? Double(localTextureReuses) / Double(localTextureTotal) : 0
             let localScratchReuseRate = localScratchTotal > 0 ? Double(localScratchReuses) / Double(localScratchTotal) : 0
-            
+
             let localAvgFrameTime = localFrameCount > 0 ? localTotalFrameTimeMs / Double(localFrameCount) : 0
             let localAvgGpuTime = localFrameCount > 0 ? localTotalGpuTimeMs / Double(localFrameCount) : 0
             let localAvgPasses = localFrameCount > 0 ? Double(localTotalPassCount) / Double(localFrameCount) : 0
-            
+
             return PerformanceReport(
                 timestamp: Date(),
                 frameCount: localFrameCount,
@@ -160,16 +164,16 @@ final class PerformanceMonitor: @unchecked Sendable {
                 diskCacheHitRate: localDiskHitRate,
                 textureReuseRate: localTextureReuseRate,
                 scratchReuseRate: localScratchReuseRate,
-                avgPassesPerFrame: localAvgPasses
+                avgPassesPerFrame: localAvgPasses,
             )
         }
     }
-    
+
     func exportJSON() throws -> Data {
         let report = exportReport()
         return try JSONEncoder().encode(report)
     }
-    
+
     func logReport() {
         let report = exportReport()
         let json = try? JSONEncoder().encode(report)
@@ -177,7 +181,7 @@ final class PerformanceMonitor: @unchecked Sendable {
             os_log(.info, log: OSLog(subsystem: "com.spektrafilm", category: "performance"), "Performance Report: %{public}s", str)
         }
     }
-    
+
     func reset() {
         lock.withLock {
             // Reset all counters
@@ -204,7 +208,7 @@ final class PerformanceMonitor: @unchecked Sendable {
 /// can be made Sendable since it doesn't capture any non-Sendable state.
 private final class SendableLock: @unchecked Sendable {
     private var lock = os_unfair_lock()
-    
+
     func withLock<T>(_ body: () throws -> T) rethrows -> T {
         os_unfair_lock_lock(&lock)
         defer { os_unfair_lock_unlock(&lock) }

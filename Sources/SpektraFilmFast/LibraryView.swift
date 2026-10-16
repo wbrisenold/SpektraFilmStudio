@@ -11,7 +11,9 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
     case needsReview = "AI Review"
     case exportQueued = "Export Queue"
     case missing = "Missing Media"
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 }
 
 struct LibraryWorkspaceView: View {
@@ -29,7 +31,8 @@ struct LibraryWorkspaceView: View {
         Group {
             if (model.project.images.isEmpty && !model.isIngesting) || model.showProjectHome {
                 StudioImportWelcomeView(
-                    model: model, showingWizard: $showingImportWizard, preferredSource: $preferredImportSource)
+                    model: model, showingWizard: $showingImportWizard, preferredSource: $preferredImportSource,
+                )
             } else {
                 HSplitView {
                     sidebar.frame(minWidth: 170, idealWidth: 190, maxWidth: 235)
@@ -42,7 +45,7 @@ struct LibraryWorkspaceView: View {
                     if showLibraryInspector {
                         inspector.frame(
                             minWidth: StudioLayout.editorInspectorWidth, idealWidth: StudioLayout.editorInspectorWidth,
-                            maxWidth: 440
+                            maxWidth: 440,
                         )
                         .padding(StudioLayout.paneInset).studioFloatingPane()
                     }
@@ -54,7 +57,9 @@ struct LibraryWorkspaceView: View {
         // Do not dismiss Home because a background import or cloud sync added photos.
         // Navigation is explicit: Library enters the grid, Home enters the launcher.
         .onChange(of: model.libraryThumbnailSize) { _, value in
-            if abs(thumbnailSizeDraft - value) > 0.5 { thumbnailSizeDraft = value }
+            if abs(thumbnailSizeDraft - value) > 0.5 {
+                thumbnailSizeDraft = value
+            }
         }
         .sheet(isPresented: $showingImportWizard) {
             StudioImportWizard(model: model, preferredSource: preferredImportSource)
@@ -263,7 +268,7 @@ struct LibraryWorkspaceView: View {
 
                     Menu("Batch") {
                         Menu("Rating") {
-                            ForEach(0...5, id: \.self) { n in
+                            ForEach(0 ... 5, id: \.self) { n in
                                 Button(n == 0 ? "Clear rating  (0)" : "\(n) star\(n == 1 ? "" : "s")  (\(n))") {
                                     model.batchSetRating(n)
                                 }
@@ -355,7 +360,8 @@ struct LibraryWorkspaceView: View {
                 if model.isCullAnalyzing {
                     ProgressView(value: model.cullAnalysisProgress).frame(width: 110)
                     Text("\(Int(model.cullAnalysisProgress * 100))%").font(.caption.monospacedDigit()).foregroundStyle(
-                        .secondary)
+                        .secondary,
+                    )
                     Button("Cancel") { model.cancelCullAnalysis() }
                 } else {
                     Button("Smart Cull", systemImage: "sparkles") { model.analyzeVisibleForCull() }
@@ -363,14 +369,16 @@ struct LibraryWorkspaceView: View {
                 HStack(spacing: 5) {
                     Slider(
                         value: $thumbnailSizeDraft,
-                        in: 120...280,
+                        in: 120 ... 280,
                         onEditingChanged: { editing in
-                            if !editing { model.libraryThumbnailSize = thumbnailSizeDraft }
-                        }
+                            if !editing {
+                                model.libraryThumbnailSize = thumbnailSizeDraft
+                            }
+                        },
                     )
                     .frame(width: 110)
                     .help(
-                        "Changes how large photos appear in the Library grid. Move left to fit more photos on screen; move right to make each thumbnail easier to inspect."
+                        "Changes how large photos appear in the Library grid. Move left to fit more photos on screen; move right to make each thumbnail easier to inspect.",
                     )
                     Button {
                         model.libraryThumbnailSize = 176
@@ -401,7 +409,8 @@ struct LibraryWorkspaceView: View {
                 VStack(spacing: 12) {
                     ContentUnavailableView(
                         "No matching photos", systemImage: "line.3.horizontal.decrease.circle",
-                        description: Text("Your photos are still in the library. Reset filters to see them."))
+                        description: Text("Your photos are still in the library. Reset filters to see them."),
+                    )
                     Button("Show All Photos") { model.resetLibraryFilters() }.buttonStyle(.borderedProminent)
                 }
             }
@@ -428,10 +437,15 @@ struct LibraryWorkspaceView: View {
                         metadataRow("Rating", image.rating == 0 ? "Unrated" : "\(image.rating) / 5")
                         metadataRow("Flag", image.flag.label)
                         metadataRow(
-                            "Capture", image.captureDate?.formatted(date: .abbreviated, time: .shortened) ?? "—")
+                            "Capture", image.captureDate?.formatted(date: .abbreviated, time: .shortened) ?? "—",
+                        )
                         if let metadata = image.metadata {
-                            if !metadata.cameraDisplay.isEmpty { metadataRow("Camera", metadata.cameraDisplay) }
-                            if let lens = metadata.lensModel { metadataRow("Lens", lens) }
+                            if !metadata.cameraDisplay.isEmpty {
+                                metadataRow("Camera", metadata.cameraDisplay)
+                            }
+                            if let lens = metadata.lensModel {
+                                metadataRow("Lens", lens)
+                            }
                             if let focal = metadata.focalLengthMM {
                                 metadataRow("Focal", String(format: "%.0f mm", focal))
                             }
@@ -441,7 +455,9 @@ struct LibraryWorkspaceView: View {
                             if let shutter = metadata.shutterSeconds {
                                 metadataRow("Shutter", Self.shutterString(shutter))
                             }
-                            if let iso = metadata.iso { metadataRow("ISO", "ISO \(iso)") }
+                            if let iso = metadata.iso {
+                                metadataRow("ISO", "ISO \(iso)")
+                            }
                             if let width = metadata.pixelWidth, let height = metadata.pixelHeight {
                                 metadataRow("Dimensions", "\(width) × \(height)")
                             }
@@ -452,7 +468,8 @@ struct LibraryWorkspaceView: View {
                             Text("SMART CULL").font(.caption2.weight(.semibold)).studioSecondaryLabel()
                             HStack(alignment: .firstTextBaseline) {
                                 Text(String(format: "%.0f", cull.score)).font(
-                                    .system(size: 30, weight: .semibold, design: .rounded))
+                                    .system(size: 30, weight: .semibold, design: .rounded),
+                                )
                                 Text(cull.recommendation.rawValue).font(.headline)
                             }
                             metadataRow("Focus", String(format: "%.0f%%", cull.sharpness * 100))
@@ -489,7 +506,9 @@ struct LibraryWorkspaceView: View {
                                 }
                             }
                         }
-                        if let note = image.note, !note.isEmpty { Divider(); Text(note).font(.caption) }
+                        if let note = image.note, !note.isEmpty {
+                            Divider(); Text(note).font(.caption)
+                        }
                     }.padding(12)
                 }
             } else {
@@ -500,7 +519,7 @@ struct LibraryWorkspaceView: View {
     }
 
     private func namingSheet(
-        title: String, placeholder: String, text: Binding<String>, onCreate: @escaping () -> Void
+        title: String, placeholder: String, text: Binding<String>, onCreate: @escaping () -> Void,
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(title).font(.headline)
@@ -511,7 +530,8 @@ struct LibraryWorkspaceView: View {
                     showingNewAlbum = false; showingNewSmartCollection = false
                 }
                 Button("Create", action: onCreate).keyboardShortcut(.defaultAction).disabled(
-                    text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                )
             }
         }.padding(20)
     }
@@ -524,7 +544,9 @@ struct LibraryWorkspaceView: View {
 
     private static func shutterString(_ seconds: Double) -> String {
         guard seconds > 0 else { return "—" }
-        if seconds >= 1 { return String(format: "%.1f s", seconds) }
+        if seconds >= 1 {
+            return String(format: "%.1f s", seconds)
+        }
         return "1/\(max(1, Int((1.0 / seconds).rounded()))) s"
     }
 
@@ -592,13 +614,19 @@ private struct LibraryPhotoCard: View {
             HStack(spacing: 5) {
                 Text(image.fileName).lineLimit(1).font(.caption)
                 Spacer()
-                if image.flag == .picked { Image(systemName: "flag.fill").help("Picked") }
-                if image.flag == .rejected { Image(systemName: "xmark.circle.fill").help("Rejected") }
+                if image.flag == .picked {
+                    Image(systemName: "flag.fill").help("Picked")
+                }
+                if image.flag == .rejected {
+                    Image(systemName: "xmark.circle.fill").help("Rejected")
+                }
             }
 
             HStack(spacing: 3) {
                 Text(image.rating == 0 ? "" : String(repeating: "★", count: image.rating)).font(.caption2)
-                if let label = image.colorLabel { Circle().fill(color(label)).frame(width: 7, height: 7) }
+                if let label = image.colorLabel {
+                    Circle().fill(color(label)).frame(width: 7, height: 7)
+                }
                 Spacer()
                 if active {
                     Image(systemName: "circle.inset.filled")
@@ -620,7 +648,7 @@ private struct LibraryPhotoCard: View {
                     highlighted
                         ? Color.accentColor.opacity(0.95)
                         : (active ? Color.primary.opacity(0.55) : Color.secondary.opacity(0.12)),
-                    lineWidth: highlighted ? 2 : (active ? 1 : 0.5)
+                    lineWidth: highlighted ? 2 : (active ? 1 : 0.5),
                 )
         }
         .contentShape(Rectangle())
@@ -646,7 +674,7 @@ private struct LibraryPhotoCard: View {
             Divider()
 
             Menu("Rating") {
-                ForEach(0...5, id: \.self) { rating in
+                ForEach(0 ... 5, id: \.self) { rating in
                     Button(rating == 0 ? "Clear Rating" : "\(rating) Star\(rating == 1 ? "" : "s")") {
                         prepareContextSelection()
                         model.batchSetRating(rating)
@@ -751,10 +779,10 @@ private struct LibraryPhotoCard: View {
 
     private func color(_ label: PhotoColorLabel) -> Color {
         switch label {
-        case .red: .red;
-        case .yellow: .yellow;
-        case .green: .green;
-        case .blue: .blue;
+        case .red: .red
+        case .yellow: .yellow
+        case .green: .green
+        case .blue: .blue
         case .purple: .purple
         }
     }

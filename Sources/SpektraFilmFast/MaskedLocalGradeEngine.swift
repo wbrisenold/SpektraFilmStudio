@@ -17,10 +17,10 @@ enum MaskedLocalGradeEngine {
             var adjustmentInput = current
             let enabled = grade.masks.sources.filter(\.enabled)
             if enabled.count == 1, let source = enabled.first, source.aiRecipe?.kind == .sky,
-                source.aiRecipe?.feather == 0, !source.inverted,
-                coverage.contains(where: { $0 >= 0.98 * Float(source.opacity) })
+               source.aiRecipe?.feather == 0, !source.inverted,
+               coverage.contains(where: { $0 >= 0.98 * Float(source.opacity) })
             {
-                let colours = (0..<(width * height)).map { i in
+                let colours = (0 ..< (width * height)).map { i in
                     SIMD3(current.pixels[i * 4], current.pixels[i * 4 + 1], current.pixels[i * 4 + 2])
                 }
                 let sky = coverage.map { $0 >= 0.98 * Float(source.opacity) }
@@ -39,9 +39,11 @@ enum MaskedLocalGradeEngine {
             let opacity = Float(max(0, min(1, grade.opacity)))
             for i in coverage.indices {
                 let a = opacity * coverage[i]
-                if a <= 0 { continue }
+                if a <= 0 {
+                    continue
+                }
                 let p = i * 4
-                for channel in 0..<3 {
+                for channel in 0 ..< 3 {
                     pixels[p + channel] += (adjusted.pixels[p + channel] - adjustmentInput.pixels[p + channel]) * a
                 }
             }
@@ -59,7 +61,7 @@ enum MaskedLocalGradeEngine {
         var detail: [Float]?
         if settings.texture != 0 || settings.clarity != 0 {
             var luma = [Float](repeating: 0, count: count)
-            for i in 0..<count {
+            for i in 0 ..< count {
                 let p = i * 4
                 luma[i] = pixels[p] * Float(0.2627) + pixels[p + 1] * Float(0.6780) + pixels[p + 2] * Float(0.0593)
             }
@@ -67,13 +69,15 @@ enum MaskedLocalGradeEngine {
             let broad = BoxFilter.blur(luma, width: image.width, height: image.height, radius: max(2, image.width / 80))
             var values = [Float](repeating: 0, count: count)
             let texture = Float(settings.texture / 100), clarity = Float(settings.clarity / 100)
-            for i in 0..<count { values[i] = (luma[i] - fine[i]) * texture + (fine[i] - broad[i]) * clarity }
+            for i in 0 ..< count {
+                values[i] = (luma[i] - fine[i]) * texture + (fine[i] - broad[i]) * clarity
+            }
             detail = values
         }
-        for i in 0..<count {
+        for i in 0 ..< count {
             let p = i * 4
             let y = pixels[p] * 0.2627 + pixels[p + 1] * 0.6780 + pixels[p + 2] * 0.0593
-            for c in 0..<3 {
+            for c in 0 ..< 3 {
                 let temperature: Float = c == 0 ? (1 + warmth) : (c == 2 ? 1 - warmth : 1)
                 pixels[p + c] = max(0, (y + (pixels[p + c] - y) * saturation + (detail?[i] ?? 0)) * temperature)
             }
@@ -83,15 +87,16 @@ enum MaskedLocalGradeEngine {
 
     /// A stack with no sources means full frame by design. A stack with only disabled
     /// sources means zero coverage, so disabling a mask never silently grades globally.
-    // Redlamp-derived coverage is the only evaluator used by local edit AND overlay.
+    /// Redlamp-derived coverage is the only evaluator used by local edit AND overlay.
     static func coverageForGrade(_ grade: LocalGradeRecord, width: Int, height: Int) -> [Float] {
         guard
             let gpu = MaskMetalEngine.shared?.renderCoverage(
-                grade: grade, width: width, height: height
+                grade: grade, width: width, height: height,
             ), gpu.count == width * height
         else {
             GPUProcessingFailure.report(
-                "Mask Metal pipeline failed. Local mask processing stopped; no CPU fallback is running.")
+                "Mask Metal pipeline failed. Local mask processing stopped; no CPU fallback is running.",
+            )
             return []
         }
         return gpu

@@ -23,12 +23,12 @@ struct StudioFloatingScopes: View {
             let height = min(CGFloat(panelHeight), max(150, canvas.height - 20))
             let cx =
                 canvas.width <= width + 16
-                ? canvas.width / 2
-                : max(width / 2 + 8, min(canvas.width - width / 2 - 8, canvas.width * CGFloat(xFraction)))
+                    ? canvas.width / 2
+                    : max(width / 2 + 8, min(canvas.width - width / 2 - 8, canvas.width * CGFloat(xFraction)))
             let cy =
                 canvas.height <= height + 16
-                ? canvas.height / 2
-                : max(height / 2 + 8, min(canvas.height - height / 2 - 8, canvas.height * CGFloat(yFraction)))
+                    ? canvas.height / 2
+                    : max(height / 2 + 8, min(canvas.height - height / 2 - 8, canvas.height * CGFloat(yFraction)))
 
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
@@ -73,14 +73,18 @@ struct StudioFloatingScopes: View {
                 .gesture(
                     DragGesture(minimumDistance: 3)
                         .onChanged { drag in
-                            if dragStart == nil { dragStart = CGPoint(x: CGFloat(xFraction), y: CGFloat(yFraction)) }
+                            if dragStart == nil {
+                                dragStart = CGPoint(x: CGFloat(xFraction), y: CGFloat(yFraction))
+                            }
                             let initial = dragStart ?? CGPoint(x: CGFloat(xFraction), y: CGFloat(yFraction))
                             xFraction = Double(
-                                max(0, min(1, initial.x + drag.translation.width / max(1, canvas.width))))
+                                max(0, min(1, initial.x + drag.translation.width / max(1, canvas.width))),
+                            )
                             yFraction = Double(
-                                max(0, min(1, initial.y + drag.translation.height / max(1, canvas.height))))
+                                max(0, min(1, initial.y + drag.translation.height / max(1, canvas.height))),
+                            )
                         }
-                        .onEnded { _ in dragStart = nil }
+                        .onEnded { _ in dragStart = nil },
                 )
                 .help("Drag to move the scopes without moving the photo")
                 Rectangle().fill(StudioPalette.divider).frame(height: 1)
@@ -94,14 +98,16 @@ struct StudioFloatingScopes: View {
                         "Clipping",
                         isOn: Binding(
                             get: { model.project.preferences.clippingEnabled },
-                            set: { model.setClippingEnabled($0) }
-                        ))
+                            set: { model.setClippingEnabled($0) },
+                        ),
+                    )
                     Toggle(
                         "Skin",
                         isOn: Binding(
                             get: { model.project.preferences.skinCheckEnabled },
-                            set: { model.setSkinCheckEnabled($0) }
-                        ))
+                            set: { model.setSkinCheckEnabled($0) },
+                        ),
+                    )
                     Spacer(minLength: 0)
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
                         .font(.system(size: 11))
@@ -118,7 +124,7 @@ struct StudioFloatingScopes: View {
                                     panelWidth = min(650, max(260, Double(start.width + value.translation.width)))
                                     panelHeight = min(680, max(245, Double(start.height + value.translation.height)))
                                 }
-                                .onEnded { _ in resizeStart = nil }
+                                .onEnded { _ in resizeStart = nil },
                         )
                         .help("Drag to resize the scopes")
                 }

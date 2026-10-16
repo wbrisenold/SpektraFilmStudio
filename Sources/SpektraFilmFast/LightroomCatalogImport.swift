@@ -39,10 +39,10 @@ struct LightroomCatalogImport: Sendable {
 
         var errorDescription: String? {
             switch self {
-            case .notLRCat: return "Choose a Lightroom Classic .lrcat catalog."
-            case .openFailed(let message): return "Could not open Lightroom catalog: \(message)"
-            case .unsupportedSchema(let missing):
-                return "Unsupported Lightroom catalog schema. Missing: \(missing.joined(separator: ", "))."
+            case .notLRCat: "Choose a Lightroom Classic .lrcat catalog."
+            case let .openFailed(message): "Could not open Lightroom catalog: \(message)"
+            case let .unsupportedSchema(missing):
+                "Unsupported Lightroom catalog schema. Missing: \(missing.joined(separator: ", "))."
             }
         }
     }
@@ -51,10 +51,12 @@ struct LightroomCatalogImport: Sendable {
         guard url.pathExtension.lowercased() == "lrcat" else { throw ImportError.notLRCat }
         var db: OpaquePointer?
         guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nil) == SQLITE_OK,
-            let db
+              let db
         else {
             let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown SQLite error"
-            if let db { sqlite3_close(db) }
+            if let db {
+                sqlite3_close(db)
+            }
             throw ImportError.openFailed(message)
         }
         defer { sqlite3_close(db) }
@@ -81,17 +83,19 @@ struct LightroomCatalogImport: Sendable {
             }
         }
 
-        return Snapshot(
+        return try Snapshot(
             photos: photos,
-            collections: try readCollections(db, tables: tables),
-            warnings: warnings
+            collections: readCollections(db, tables: tables),
+            warnings: warnings,
         )
     }
 
     private func tableNames(_ db: OpaquePointer) throws -> Set<String> {
         var out = Set<String>()
         try rows(db, "SELECT name FROM sqlite_master WHERE type='table'") { s in
-            if let p = sqlite3_column_text(s, 0) { out.insert(String(cString: p)) }
+            if let p = sqlite3_column_text(s, 0) {
+                out.insert(String(cString: p))
+            }
         }
         return out
     }
@@ -99,7 +103,9 @@ struct LightroomCatalogImport: Sendable {
     private func columns(_ db: OpaquePointer, table: String) throws -> Set<String> {
         var out = Set<String>()
         try rows(db, "PRAGMA table_info(\(quoted(table)))") { s in
-            if let p = sqlite3_column_text(s, 1) { out.insert(String(cString: p)) }
+            if let p = sqlite3_column_text(s, 1) {
+                out.insert(String(cString: p))
+            }
         }
         return out
     }
@@ -114,15 +120,15 @@ struct LightroomCatalogImport: Sendable {
         let ext = fc.contains("extension") ? "f.extension" : "NULL"
 
         let sql = """
-            SELECT i.id_local, i.rootFile, \(i("masterImage")), \(i("copyName")),
-                   COALESCE(r.absolutePath,''), COALESCE(o.pathFromRoot,''), COALESCE(\(base),''), \(ext),
-                   \(i("captureTime")), COALESCE(\(i("pick","0")),0), COALESCE(\(i("rating","0")),0), \(i("colorLabels"))
-            FROM Adobe_images i
-            JOIN AgLibraryFile f ON f.id_local = i.rootFile
-            JOIN AgLibraryFolder o ON o.id_local = f.folder
-            JOIN AgLibraryRootFolder r ON r.id_local = o.rootFolder
-            ORDER BY i.id_local
-            """
+        SELECT i.id_local, i.rootFile, \(i("masterImage")), \(i("copyName")),
+               COALESCE(r.absolutePath,''), COALESCE(o.pathFromRoot,''), COALESCE(\(base),''), \(ext),
+               \(i("captureTime")), COALESCE(\(i("pick", "0")),0), COALESCE(\(i("rating", "0")),0), \(i("colorLabels"))
+        FROM Adobe_images i
+        JOIN AgLibraryFile f ON f.id_local = i.rootFile
+        JOIN AgLibraryFolder o ON o.id_local = f.folder
+        JOIN AgLibraryRootFolder r ON r.id_local = o.rootFolder
+        ORDER BY i.id_local
+        """
 
         var out: [Photo] = []
         try rows(db, sql) { s in
@@ -148,14 +154,15 @@ struct LightroomCatalogImport: Sendable {
                     latestDevelopText: nil,
                     processVersion: nil,
                     keywords: [],
-                    collectionIDs: []
-                ))
+                    collectionIDs: [],
+                ),
+            )
         }
         return out
     }
 
     private func readLatestDevelop(
-        _ db: OpaquePointer, tables: Set<String>, warnings: inout [String]
+        _ db: OpaquePointer, tables: Set<String>, warnings: inout [String],
     ) throws -> [Int64: (String?, String?)] {
         guard tables.contains("Adobe_imageDevelopSettings") else {
             warnings.append("No Adobe_imageDevelopSettings table; develop settings were skipped.")
@@ -165,11 +172,11 @@ struct LightroomCatalogImport: Sendable {
         guard cols.contains("image"), cols.contains("text") else { return [:] }
         let pv = cols.contains("processVersion") ? "d.processVersion" : "NULL"
         let sql = """
-            SELECT d.image, d.text, \(pv)
-            FROM Adobe_imageDevelopSettings d
-            JOIN (SELECT image, MAX(rowid) newest FROM Adobe_imageDevelopSettings GROUP BY image) x
-              ON x.newest = d.rowid
-            """
+        SELECT d.image, d.text, \(pv)
+        FROM Adobe_imageDevelopSettings d
+        JOIN (SELECT image, MAX(rowid) newest FROM Adobe_imageDevelopSettings GROUP BY image) x
+          ON x.newest = d.rowid
+        """
         var out: [Int64: (String?, String?)] = [:]
         try rows(db, sql) { s in out[sqlite3_column_int64(s, 0)] = (text(s, 1), text(s, 2)) }
         return out
@@ -182,7 +189,7 @@ struct LightroomCatalogImport: Sendable {
         var out: [Int64: [String]] = [:]
         try rows(
             db,
-            "SELECT m.image,k.\(quoted(name)) FROM AgLibraryKeywordImage m JOIN AgLibraryKeyword k ON k.id_local=m.tag"
+            "SELECT m.image,k.\(quoted(name)) FROM AgLibraryKeywordImage m JOIN AgLibraryKeyword k ON k.id_local=m.tag",
         ) { s in
             if let keyword = text(s, 1), !keyword.isEmpty {
                 out[sqlite3_column_int64(s, 0), default: []].append(keyword)
@@ -200,7 +207,9 @@ struct LightroomCatalogImport: Sendable {
             out.append(
                 .init(
                     id: sqlite3_column_int64(s, 0), parentID: nullableInt64(s, 1),
-                    name: text(s, 2) ?? "Untitled Collection"))
+                    name: text(s, 2) ?? "Untitled Collection",
+                ),
+            )
         }
         return out
     }
@@ -209,7 +218,7 @@ struct LightroomCatalogImport: Sendable {
         guard tables.contains("AgLibraryCollectionImage") else { return [:] }
         let c = try columns(db, table: "AgLibraryCollectionImage")
         guard let image = ["image", "imageId"].first(where: { c.contains($0) }),
-            let collection = ["collection", "collectionId"].first(where: { c.contains($0) })
+              let collection = ["collection", "collectionId"].first(where: { c.contains($0) })
         else { return [:] }
         var out: [Int64: [Int64]] = [:]
         try rows(db, "SELECT \(quoted(image)),\(quoted(collection)) FROM AgLibraryCollectionImage") { s in
@@ -236,13 +245,17 @@ struct LightroomCatalogImport: Sendable {
         }
     }
 
-    private func quoted(_ value: String) -> String { "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
+    private func quoted(_ value: String) -> String {
+        "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+    }
+
     private func text(_ stmt: OpaquePointer, _ index: Int32) -> String? {
         guard sqlite3_column_type(stmt, index) != SQLITE_NULL, let p = sqlite3_column_text(stmt, index) else {
             return nil
         }
         return String(cString: p)
     }
+
     private func nullableInt64(_ stmt: OpaquePointer, _ index: Int32) -> Int64? {
         sqlite3_column_type(stmt, index) == SQLITE_NULL ? nil : sqlite3_column_int64(stmt, index)
     }

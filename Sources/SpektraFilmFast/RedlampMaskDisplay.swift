@@ -15,23 +15,27 @@ enum RedlampMaskDisplayStyle: String, CaseIterable, Identifiable, Sendable {
     case imageOnWhite = "Image on White"
     case blackAndWhite = "Mask B&W"
     case imageOnBW = "Image on B&W"
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 }
 
-struct RedlampMaskDisplay {
+enum RedlampMaskDisplay {
     static func rgbaBytes(_ image: CGImage) -> [UInt8]? {
         let width = image.width, height = image.height
         guard width > 0, height > 0, width <= 16384, height <= 16384 else { return nil }
         var rgba = [UInt8](repeating: 0, count: width * height * 4)
         let space = image.colorSpace ?? (CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB())
         let bitmap = CGBitmapInfo(
-            rawValue: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)
+            rawValue: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue,
+        )
         let ok = rgba.withUnsafeMutableBytes { ptr in
             guard let address = ptr.baseAddress,
-                let context = CGContext(
-                    data: address, width: width, height: height,
-                    bitsPerComponent: 8, bytesPerRow: width * 4,
-                    space: space, bitmapInfo: bitmap.rawValue)
+                  let context = CGContext(
+                      data: address, width: width, height: height,
+                      bitsPerComponent: 8, bytesPerRow: width * 4,
+                      space: space, bitmapInfo: bitmap.rawValue,
+                  )
             else { return false }
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
             return true
@@ -43,11 +47,11 @@ struct RedlampMaskDisplay {
         rgba: [UInt8], displayWidth: Int, displayHeight: Int,
         grade: LocalGradeRecord, preGeometryWidth: Int, preGeometryHeight: Int,
         geometry: GeometrySettings?, style: RedlampMaskDisplayStyle,
-        opacity: Float = 0.73
+        opacity: Float = 0.73,
     ) -> [UInt8]? {
         guard displayWidth > 0, displayHeight > 0,
-            rgba.count == displayWidth * displayHeight * 4,
-            preGeometryWidth > 0, preGeometryHeight > 0
+              rgba.count == displayWidth * displayHeight * 4,
+              preGeometryWidth > 0, preGeometryHeight > 0
         else { return nil }
         // No fake coverage: raster masks and local grades run through exactly the
         // same evaluator as export. Geometry is the identical non-destructive transform.
@@ -65,7 +69,7 @@ struct RedlampMaskDisplay {
             return nil
         }
         var maskPixels = [Float](repeating: 0, count: w * h * 4)
-        for i in 0..<coverage.count {
+        for i in 0 ..< coverage.count {
             let q = i * 4
             maskPixels[q] = coverage[i]
             maskPixels[q + 1] = coverage[i]
@@ -78,10 +82,12 @@ struct RedlampMaskDisplay {
         guard mw > 0, mh > 0 else { return nil }
         var result = rgba
         let appliedOpacity = max(0, min(1, opacity))
-        for y in 0..<displayHeight {
-            if (y & 31) == 0 && Task.isCancelled { return nil }
+        for y in 0 ..< displayHeight {
+            if (y & 31) == 0, Task.isCancelled {
+                return nil
+            }
             let my = min(mh - 1, Int((Double(y) + 0.5) * Double(mh) / Double(displayHeight)))
-            for x in 0..<displayWidth {
+            for x in 0 ..< displayWidth {
                 let mx = min(mw - 1, Int((Double(x) + 0.5) * Double(mw) / Double(displayWidth)))
                 let cover = max(0, min(1, mapped.pixels[(my * mw + mx) * 4]))
                 let o = (y * displayWidth + x) * 4
@@ -94,14 +100,14 @@ struct RedlampMaskDisplay {
                     out = (
                         r * (1 - alpha) + 0.95 * alpha,
                         g * (1 - alpha) + 0.18 * alpha,
-                        b * (1 - alpha) + 0.18 * alpha
+                        b * (1 - alpha) + 0.18 * alpha,
                     )
                 case .colorOnBW:
                     let alpha = cover * appliedOpacity
                     out = (
                         gray * (1 - alpha) + 0.95 * alpha,
                         gray * (1 - alpha) + 0.18 * alpha,
-                        gray * (1 - alpha) + 0.18 * alpha
+                        gray * (1 - alpha) + 0.18 * alpha,
                     )
                 case .imageOnBlack: out = (r * cover, g * cover, b * cover)
                 case .imageOnWhite:
@@ -111,7 +117,7 @@ struct RedlampMaskDisplay {
                     out = (
                         gray * (1 - cover) + r * cover,
                         gray * (1 - cover) + g * cover,
-                        gray * (1 - cover) + b * cover
+                        gray * (1 - cover) + b * cover,
                     )
                 }
                 result[o] = UInt8(clamping: Int((max(0, min(1, out.0)) * 255).rounded()))
@@ -125,14 +131,16 @@ struct RedlampMaskDisplay {
 
     static func image(width: Int, height: Int, rgba: [UInt8], colorSpace: CGColorSpace? = nil) -> CGImage? {
         guard width > 0, height > 0, rgba.count == width * height * 4,
-            let provider = CGDataProvider(data: Data(rgba) as CFData)
+              let provider = CGDataProvider(data: Data(rgba) as CFData)
         else { return nil }
         return CGImage(
             width: width, height: height,
             bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
             space: colorSpace ?? (CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()),
             bitmapInfo: CGBitmapInfo(
-                rawValue: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue),
-            provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+                rawValue: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue,
+            ),
+            provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent,
+        )
     }
 }

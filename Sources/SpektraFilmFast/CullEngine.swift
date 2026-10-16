@@ -14,11 +14,13 @@ struct DetectedFace: Sendable {
 }
 
 // MARK: - Facet-style technical metrics ported from ncoevoet/facet
+
 // analyzers/technical.py: sharpness (Laplacian variance), exposure (clipping),
 // color harmony (HSV entropy), dynamic range (p2/p98 stops), noise (Immerkaer),
 // contrast (percentile + RMS).
 
 // MARK: - Facet-style composition metrics ported from ncoevoet/facet
+
 // analyzers/composition.py: subject-region detection (edge contour + saliency),
 // rule-of-thirds placement score, leading-lines detection (Hough-like).
 
@@ -56,32 +58,37 @@ extension CullEngine {
                 let mx = max(r, g, b), mn = min(r, g, b)
                 let d = mx - mn
                 let s = mx > 0 ? d / mx : 0
-                var h2: Double
-                if d == 0 {
-                    h2 = 0
+                var h2: Double = if d == 0 {
+                    0
                 } else if mx == r {
-                    h2 = ((g - b) / d).truncatingRemainder(dividingBy: 6) + (g < b ? 6 : 0)
+                    ((g - b) / d).truncatingRemainder(dividingBy: 6) + (g < b ? 6 : 0)
                 } else if mx == g {
-                    h2 = ((b - r) / d) + 2
+                    ((b - r) / d) + 2
                 } else {
-                    h2 = ((r - g) / d) + 4
+                    ((r - g) / d) + 4
                 }
                 h2 *= 60
-                if h2 < 0 { h2 += 360 }
-                let hi = Int(h2 / 360.0 * Double(binH)).clamped(to: 0..<binH)
-                let si = Int(s * 255).clamped(to: 0..<binS)
+                if h2 < 0 {
+                    h2 += 360
+                }
+                let hi = Int(h2 / 360.0 * Double(binH)).clamped(to: 0 ..< binH)
+                let si = Int(s * 255).clamped(to: 0 ..< binS)
                 hist[hi * binS + si] += 1
                 sampled += 1
             }
         }
         guard sampled > 0 else { return 0 }
         var sum = 0.0
-        for v in hist { sum += v }
+        for v in hist {
+            sum += v
+        }
         guard sum > 0 else { return 0 }
         var entropy = 0.0
         for v in hist {
             let p = v / sum
-            if p > 0 { entropy -= p * log2(p) }
+            if p > 0 {
+                entropy -= p * log2(p)
+            }
         }
         // Facet caps at 15.5 bits max entropy for 180*256 bins
         let normalized = min(10.0, entropy * 10.0 / 15.5)
@@ -98,35 +105,37 @@ extension CullEngine {
         var histogram = [Int](repeating: 0, count: bins)
         for v in luma {
             let clamped = max(0.0, min(1.0, v / 255.0))
-            let idx = min(bins - 1, Int(clamped * Double(bins - 1)).clamped(to: 0..<bins))
+            let idx = min(bins - 1, Int(clamped * Double(bins - 1)).clamped(to: 0 ..< bins))
             histogram[idx] += 1
         }
         let total = count
         // Find p2 (2nd percentile)
-        var p2: Double = 0
-        {
+        let p2: Double = {
             var cumulative = 0
             let target = Int(Double(total) * 0.02)
+            var result = 0.0
             for (i, count) in histogram.enumerated() {
                 cumulative += count
                 if cumulative >= target {
-                    p2 = Double(i) / Double(bins - 1) * 255.0
+                    result = Double(i) / Double(bins - 1) * 255.0
                     break
                 }
             }
+            return result
         }()
         // Find p98 (98th percentile)
-        var p98: Double = 255.0
-        {
+        let p98: Double = {
             var cumulative = 0
             let target = Int(Double(total) * 0.98)
+            var result = 255.0
             for (i, count) in histogram.enumerated() {
                 cumulative += count
                 if cumulative >= target {
-                    p98 = Double(i) / Double(bins - 1) * 255.0
+                    result = Double(i) / Double(bins - 1) * 255.0
                     break
                 }
             }
+            return result
         }()
         let base = max(p2, 1.0)
         return log2(max(p98, 1.0) / base)
@@ -137,8 +146,8 @@ extension CullEngine {
     /// Uses subsampling for performance; noise at thumbnail scale is adequately
     /// estimated at reduced resolution.
     private static func facetNoiseEstimate(luma: [Double], width: Int, height: Int) -> Double {
-        guard width > 2 && height > 2 else { return 0 }
-        let M: [Int] = [-1, 2, -1, 2, -4, 2, -1, 2, -1]  // 3x3 Immerkaer kernel
+        guard width > 2, height > 2 else { return 0 }
+        let M: [Int] = [-1, 2, -1, 2, -4, 2, -1, 2, -1] // 3x3 Immerkaer kernel
         // Subsample for performance: step of 2 gives 1/4 pixels, sufficient for noise est
         let step = 2
         var sigma = 0.0
@@ -164,8 +173,7 @@ extension CullEngine {
         // Scale back to full-resolution equivalent
         let scale = Double(step * step)
         let w = Double(width - 2), h = Double(height - 2)
-        let noise = sigma * sqrt(0.5 * .pi) / (6.0 * w * h) * scale
-        return noise
+        return sigma * sqrt(0.5 * .pi) / (6.0 * w * h) * scale
     }
 
     /// Facet-style contrast: percentile (p5/p95) + RMS, from
@@ -179,7 +187,9 @@ extension CullEngine {
         // RMS: std dev / 255
         let mean = luma.reduce(0, +) / Double(count)
         var varSum = 0.0
-        for v in luma { varSum += (v - mean) * (v - mean) }
+        for v in luma {
+            varSum += (v - mean) * (v - mean)
+        }
         let rms = sqrt(varSum / Double(count)) / 255.0
         // Facet: min(10, percentile*5 + rms*20)
         return min(10.0, percentileContrast * 5.0 + rms * 20.0) / 10.0
@@ -189,25 +199,24 @@ extension CullEngine {
     private static func percentile(_ sorted: [Double], p: Double) -> Double {
         guard !sorted.isEmpty else { return 0 }
         let idx = (Double(sorted.count - 1) * p).rounded(.toNearestOrEven)
-        let i = Int(idx).clamped(to: 0..<sorted.count)
+        let i = Int(idx).clamped(to: 0 ..< sorted.count)
         return sorted[i]
     }
 }
 
 extension Int {
     func clamped(to range: Range<Int>) -> Int {
-        return Swift.min(Swift.max(self, range.lowerBound), range.upperBound - 1)
+        Swift.min(Swift.max(self, range.lowerBound), range.upperBound - 1)
     }
 }
 
 extension Double {
     func clamped(to range: Range<Double>) -> Double {
-        return Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
+        Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
     }
 }
 
 actor CullEngine {
-
     struct Result: Sendable {
         let record: CullAnalysisRecord
     }
@@ -219,19 +228,19 @@ actor CullEngine {
         // Parallel Vision requests: face detection + face quality + aesthetics
         async let facesTask =
             cgImage != nil
-            ? Task.detached(priority: .utility) {
-                Self.detectFacesVisionWithImage(cgImage!, width: payload.width, height: payload.height)
-            }.value : []
+                ? Task.detached(priority: .utility) {
+                    Self.detectFacesVisionWithImage(cgImage!, width: payload.width, height: payload.height)
+                }.value : []
         async let faceCaptureQualityTask =
             cgImage != nil
-            ? Task.detached(priority: .utility) {
-                Self.faceCaptureQualityWithImage(cgImage!)
-            }.value : nil
+                ? Task.detached(priority: .utility) {
+                    Self.faceCaptureQualityWithImage(cgImage!)
+                }.value : nil
         async let aestheticScoreTask =
             cgImage != nil
-            ? Task.detached(priority: .utility) {
-                Self.aestheticQualityWithImage(cgImage!)
-            }.value : nil
+                ? Task.detached(priority: .utility) {
+                    Self.aestheticQualityWithImage(cgImage!)
+                }.value : nil
 
         async let technicalTask = Task.detached(priority: .utility) {
             (Self.imageMetrics(payload), Self.dHash(payload))
@@ -262,10 +271,12 @@ actor CullEngine {
 
         let subjectRegion = await subjectRegionTask
         let (compScore, _, _, _) = Self.placementScore(
-            region: subjectRegion, imgW: payload.width, imgH: payload.height)
+            region: subjectRegion, imgW: payload.width, imgH: payload.height,
+        )
         let (leadingLinesScore, _) = await leadingLinesTask
         let integratedComp = Self.integrateLeadingLines(
-            baseScore: compScore, leadingLinesScore: leadingLinesScore, hasFaces: face.count > 0)
+            baseScore: compScore, leadingLinesScore: leadingLinesScore, hasFaces: face.count > 0,
+        )
 
         return try await Task.detached(priority: .utility) {
             try Task.checkCancellation()
@@ -274,8 +285,12 @@ actor CullEngine {
             let noiseQuality = max(0, min(1, 1.0 - metrics.noise * 2.2))
             let contrastQuality = max(0, min(1, metrics.contrast * 1.7))
             var score = (focus * 55.0) + (exposure * 20.0) + (noiseQuality * 15.0) + (contrastQuality * 10.0)
-            if face.count > 0, face.sharpness < 0.35 { score -= 22 }
-            if face.possibleBlink { score -= 15 }
+            if face.count > 0, face.sharpness < 0.35 {
+                score -= 22
+            }
+            if face.possibleBlink {
+                score -= 15
+            }
             if let faceCaptureQuality, face.count > 0 {
                 // Vision quality offers independent portrait/burst evidence.
                 // Low-quality portraits are demoted; require higher bar for positive contribution.
@@ -292,14 +307,24 @@ actor CullEngine {
                 if aestheticScore >= 0.45 {
                     score += (aestheticScore - 0.45) * 25
                 } else if aestheticScore < -0.2 {
-                    score += aestheticScore * 16  // negative
+                    score += aestheticScore * 16 // negative
                 }
             }
-            if metrics.highlightClip > 0.05 { score -= metrics.highlightClip * 100 }
-            if metrics.shadowClip > 0.3 { score -= metrics.shadowClip * 50 }
-            if contrastFacet < 0.4 { score -= (0.4 - contrastFacet) * 30 }
-            if dynamicRange < 6.0 { score -= (6.0 - dynamicRange) * 2 }
-            if noiseEstimateFacet > 6.0 { score -= (noiseEstimateFacet - 6.0) * 3 }
+            if metrics.highlightClip > 0.05 {
+                score -= metrics.highlightClip * 100
+            }
+            if metrics.shadowClip > 0.3 {
+                score -= metrics.shadowClip * 50
+            }
+            if contrastFacet < 0.4 {
+                score -= (0.4 - contrastFacet) * 30
+            }
+            if dynamicRange < 6.0 {
+                score -= (6.0 - dynamicRange) * 2
+            }
+            if noiseEstimateFacet > 6.0 {
+                score -= (noiseEstimateFacet - 6.0) * 3
+            }
             score = max(0, min(100, score))
 
             var reasons: [String] = []
@@ -308,45 +333,66 @@ actor CullEngine {
             } else if focus < 0.32 {
                 reasons.append("Soft focus")
             }
-            if metrics.highlightClip > 0.025 { reasons.append("Heavy highlight clipping") }
-            if metrics.shadowClip > 0.20 { reasons.append("Deep shadow clipping") }
-            if face.count > 0 { reasons.append("\(face.count) face\(face.count == 1 ? "" : "s") detected") }
-            if face.possibleBlink { reasons.append("Possible blink") }
+            if metrics.highlightClip > 0.025 {
+                reasons.append("Heavy highlight clipping")
+            }
+            if metrics.shadowClip > 0.20 {
+                reasons.append("Deep shadow clipping")
+            }
+            if face.count > 0 {
+                reasons.append("\(face.count) face\(face.count == 1 ? "" : "s") detected")
+            }
+            if face.possibleBlink {
+                reasons.append("Possible blink")
+            }
             if let faceCaptureQuality, face.count > 0 {
                 reasons.append(
                     faceCaptureQuality >= 0.75
                         ? "Strong Vision face capture"
-                        : (faceCaptureQuality < 0.45 ? "Weak Vision face capture" : "Moderate Vision face capture"))
+                        : (faceCaptureQuality < 0.45 ? "Weak Vision face capture" : "Moderate Vision face capture"),
+                )
             }
             if let aestheticScore {
                 reasons.append(
                     aestheticScore >= 0.30
                         ? "Strong aesthetic composition"
-                        : (aestheticScore < -0.30 ? "Lower aesthetic model score" : "Moderate aesthetic model score"))
+                        : (aestheticScore < -0.30 ? "Lower aesthetic model score" : "Moderate aesthetic model score"),
+                )
             }
-            if metrics.noise > 0.35 { reasons.append("High fine-detail noise") }
-            if contrastFacet < 0.40 { reasons.append("Low contrast") }
-            if dynamicRange < 6.0 { reasons.append("Narrow dynamic range") }
-            if colorHarmony > 0.70 { reasons.append("Rich color variety") }
-            if noiseEstimateFacet > 6.0 { reasons.append("High sensor noise (Immerkaer)") }
+            if metrics.noise > 0.35 {
+                reasons.append("High fine-detail noise")
+            }
+            if contrastFacet < 0.40 {
+                reasons.append("Low contrast")
+            }
+            if dynamicRange < 6.0 {
+                reasons.append("Narrow dynamic range")
+            }
+            if colorHarmony > 0.70 {
+                reasons.append("Rich color variety")
+            }
+            if noiseEstimateFacet > 6.0 {
+                reasons.append("High sensor noise (Immerkaer)")
+            }
             if integratedComp >= 8.0 {
                 reasons.append("Strong composition")
             } else if integratedComp < 5.0 {
                 reasons.append("Weak composition")
             }
-            if reasons.isEmpty { reasons.append("Balanced technical quality") }
+            if reasons.isEmpty {
+                reasons.append("Balanced technical quality")
+            }
 
-            let recommendation: CullRecommendation
-            if score >= 86, !face.possibleBlink,
-                (face.count == 0 || (face.sharpness >= 0.45 && (faceCaptureQuality ?? 0.5) >= 0.35))
+            let recommendation: CullRecommendation = if score >= 86, !face.possibleBlink,
+                                                        face.count == 0 || (face.sharpness >= 0.45 && (faceCaptureQuality ?? 0.5) >= 0.35)
             {
-                recommendation = .keep
+                .keep
             } else if score < 55
                 || (face.count > 0 && (face.sharpness < 0.3 || (faceCaptureQuality ?? 1.0) < 0.3))
             {
-                recommendation = .reject
+                .reject
             } else {
-                recommendation = .review
+                .review
             }
 
             let record = CullAnalysisRecord(
@@ -373,7 +419,7 @@ actor CullEngine {
                 dynamicRangeStops: dynamicRange,
                 colorHarmony: colorHarmony,
                 reasons: reasons,
-                analyzedAt: Date()
+                analyzedAt: Date(),
             )
             return Result(record: record)
         }.value
@@ -399,7 +445,7 @@ actor CullEngine {
         // The noise estimation only needs ~1/4 of pixels (stride 2), but the histogram
         // and contrast need all pixels. Float precision is sufficient for 8-bit source.
         var luma = [Float](repeating: 0, count: totalPixels)
-        for i in 0..<totalPixels {
+        for i in 0 ..< totalPixels {
             let p = i * 4
             let r = Double(payload.rgba[p]) / 255.0
             let g = Double(payload.rgba[p + 1]) / 255.0
@@ -411,27 +457,28 @@ actor CullEngine {
             sumLumaSq += lumD * lumD
             // Histogram for dynamic range
             let clamped = max(0.0, min(1.0, lumD / 255.0))
-            let idx = min(bins - 1, Int(clamped * Double(bins - 1)).clamped(to: 0..<bins))
+            let idx = min(bins - 1, Int(clamped * Double(bins - 1)).clamped(to: 0 ..< bins))
             histogram[idx] += 1
             // Color harmony subsampling (from RGB, not luma)
             if (i % colorStep) == 0 {
                 let mx = max(r, g, b), mn = min(r, g, b)
                 let d = mx - mn
                 let s = mx > 0 ? d / mx : 0
-                var h2: Double
-                if d == 0 {
-                    h2 = 0
+                var h2: Double = if d == 0 {
+                    0
                 } else if mx == r {
-                    h2 = ((g - b) / d).truncatingRemainder(dividingBy: 6) + (g < b ? 6 : 0)
+                    ((g - b) / d).truncatingRemainder(dividingBy: 6) + (g < b ? 6 : 0)
                 } else if mx == g {
-                    h2 = ((b - r) / d) + 2
+                    ((b - r) / d) + 2
                 } else {
-                    h2 = ((r - g) / d) + 4
+                    ((r - g) / d) + 4
                 }
                 h2 *= 60
-                if h2 < 0 { h2 += 360 }
-                let hi = Int(h2 / 360.0 * 180.0).clamped(to: 0..<180)
-                let si = Int(s * 255).clamped(to: 0..<256)
+                if h2 < 0 {
+                    h2 += 360
+                }
+                let hi = Int(h2 / 360.0 * 180.0).clamped(to: 0 ..< 180)
+                let si = Int(s * 255).clamped(to: 0 ..< 256)
                 colorHarmonyHist[hi * 256 + si] += 1
                 colorSampled += 1
             }
@@ -454,30 +501,32 @@ actor CullEngine {
         guard count > 0 else { return 0 }
         let bins = histogram.count
         // Find p2 (2nd percentile)
-        var p2: Double = 0
-        {
+        let p2: Double = {
             var cumulative = 0
             let target = Int(Double(count) * 0.02)
+            var result = 0.0
             for (i, cnt) in histogram.enumerated() {
                 cumulative += cnt
                 if cumulative >= target {
-                    p2 = Double(i) / Double(bins - 1) * 255.0
+                    result = Double(i) / Double(bins - 1) * 255.0
                     break
                 }
             }
+            return result
         }()
         // Find p98 (98th percentile)
-        var p98: Double = 255.0
-        {
+        let p98: Double = {
             var cumulative = 0
             let target = Int(Double(count) * 0.98)
+            var result = 255.0
             for (i, cnt) in histogram.enumerated() {
                 cumulative += cnt
                 if cumulative >= target {
-                    p98 = Double(i) / Double(bins - 1) * 255.0
+                    result = Double(i) / Double(bins - 1) * 255.0
                     break
                 }
             }
+            return result
         }()
         let base = max(p2, 1.0)
         return log2(max(p98, 1.0) / base)
@@ -487,12 +536,16 @@ actor CullEngine {
     private static func computeColorHarmonyEntropy(_ hist: [Double], count: Int) -> Double {
         guard count > 0 else { return 0 }
         var sum = 0.0
-        for v in hist { sum += v }
+        for v in hist {
+            sum += v
+        }
         guard sum > 0 else { return 0 }
         var entropy = 0.0
         for v in hist {
             let p = v / sum
-            if p > 0 { entropy -= p * log2(p) }
+            if p > 0 {
+                entropy -= p * log2(p)
+            }
         }
         // Facet caps at 15.5 bits max entropy for 180*256 bins
         let normalized = min(10.0, entropy * 10.0 / 15.5)
@@ -502,7 +555,7 @@ actor CullEngine {
     /// Immerkaer noise estimation using pre-built luma array with subsampling.
     /// PERF-12: accepts Float luma (4 bytes per pixel vs 8 for Double).
     private static func facetNoiseEstimateFromLuma(luma: [Float], width: Int, height: Int) -> Double {
-        guard width > 2 && height > 2 else { return 0 }
+        guard width > 2, height > 2 else { return 0 }
         let M: [Int] = [-1, 2, -1, 2, -4, 2, -1, 2, -1]
         let step = 2
         var sigma = 0.0
@@ -527,8 +580,7 @@ actor CullEngine {
         guard count > 0 else { return 0 }
         let scale = Double(step * step)
         let w = Double(width - 2), h = Double(height - 2)
-        let noise = sigma * sqrt(0.5 * .pi) / (6.0 * w * h) * scale
-        return noise
+        return sigma * sqrt(0.5 * .pi) / (6.0 * w * h) * scale
     }
 
     private struct BasicMetrics {
@@ -579,8 +631,12 @@ actor CullEngine {
                 lapSum += lap
                 lapSq += lap * lap
                 noiseSum += abs(c - (l + r + u + d) * 0.25)
-                if c >= 0.985 { highlight += 1 }
-                if c <= 0.018 { shadow += 1 }
+                if c >= 0.985 {
+                    highlight += 1
+                }
+                if c <= 0.018 {
+                    shadow += 1
+                }
                 mean += c
                 meanSq += c * c
                 samples += 1
@@ -606,7 +662,7 @@ actor CullEngine {
             highlightClip: Double(highlight) / n,
             shadowClip: Double(shadow) / n,
             noise: noise,
-            contrast: contrast
+            contrast: contrast,
         )
     }
 
@@ -620,7 +676,7 @@ actor CullEngine {
                 x: face.bounds.minX / Double(payload.width),
                 y: face.bounds.minY / Double(payload.height),
                 width: face.bounds.width / Double(payload.width),
-                height: face.bounds.height / Double(payload.height)
+                height: face.bounds.height / Double(payload.height),
             )
             largestFaceArea = max(largestFaceArea, normalized.width * normalized.height)
             sharpness = max(sharpness, regionalSharpness(payload, normalizedRect: normalized, topLeftOrigin: true))
@@ -641,7 +697,7 @@ actor CullEngine {
     }
 
     private nonisolated static func eyeRegionDetail(
-        _ payload: ThumbnailPayload, center: CGPoint, radius: Double
+        _ payload: ThumbnailPayload, center: CGPoint, radius: Double,
     ) -> Double {
         let x0 = max(1, Int(center.x - radius))
         let x1 = min(payload.width - 2, Int(center.x + radius))
@@ -650,8 +706,8 @@ actor CullEngine {
         guard x1 > x0, y1 > y0 else { return 1 }
         var gradient = 0.0
         var count = 0.0
-        for y in y0...y1 {
-            for x in x0...x1 {
+        for y in y0 ... y1 {
+            for x in x0 ... x1 {
                 let gx = luma(payload, x + 1, y) - luma(payload, x - 1, y)
                 let gy = luma(payload, x, y + 1) - luma(payload, x, y - 1)
                 gradient += sqrt(gx * gx + gy * gy)
@@ -664,7 +720,7 @@ actor CullEngine {
     private nonisolated static func regionalSharpness(
         _ payload: ThumbnailPayload,
         normalizedRect: CGRect,
-        topLeftOrigin: Bool = false
+        topLeftOrigin: Bool = false,
     ) -> Double {
         let w = payload.width, h = payload.height
         let x0 = max(1, Int(normalizedRect.minX * Double(w)))
@@ -699,12 +755,14 @@ actor CullEngine {
 
     private nonisolated static func dHash(_ payload: ThumbnailPayload) -> UInt64 {
         var hash: UInt64 = 0
-        for y in 0..<8 {
+        for y in 0 ..< 8 {
             let py = min(payload.height - 1, Int((Double(y) + 0.5) * Double(payload.height) / 8.0))
-            for x in 0..<8 {
+            for x in 0 ..< 8 {
                 let aX = min(payload.width - 1, Int(Double(x) * Double(payload.width - 1) / 8.0))
                 let bX = min(payload.width - 1, Int(Double(x + 1) * Double(payload.width - 1) / 8.0))
-                if luma(payload, aX, py) > luma(payload, bX, py) { hash |= (1 << UInt64(y * 8 + x)) }
+                if luma(payload, aX, py) > luma(payload, bX, py) {
+                    hash |= (1 << UInt64(y * 8 + x))
+                }
             }
         }
         return hash
@@ -734,7 +792,7 @@ actor CullEngine {
     private nonisolated static func aestheticQualityWithImage(_ cgImage: CGImage) -> Double? {
         let request = VNCalculateImageAestheticsScoresRequest()
         guard (try? VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])) != nil,
-            let result = request.results?.first
+              let result = request.results?.first
         else { return nil }
         return Double(result.overallScore)
     }
@@ -758,7 +816,7 @@ actor CullEngine {
                         x: bounds.minX * w,
                         y: (1 - bounds.maxY) * h,
                         width: bounds.width * w,
-                        height: bounds.height * h
+                        height: bounds.height * h,
                     )
                     let leftEye = CGPoint(x: rect.minX + rect.width * 0.3, y: rect.minY + rect.height * 0.35)
                     let rightEye = CGPoint(x: rect.minX + rect.width * 0.7, y: rect.minY + rect.height * 0.35)
@@ -773,8 +831,9 @@ actor CullEngine {
                             nose: nose,
                             rightMouth: rightMouth,
                             leftMouth: leftMouth,
-                            confidence: 1.0
-                        ))
+                            confidence: 1.0,
+                        ),
+                    )
                 }
             }
         } catch {

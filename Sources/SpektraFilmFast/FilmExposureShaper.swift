@@ -10,8 +10,8 @@ extension PixelBufferF32 {
         guard let settings else { return self }
         let hasManual =
             abs(settings.highlights) > 1e-9 || abs(settings.shadows) > 1e-9 || abs(settings.whites) > 1e-9
-            || abs(settings.blacks) > 1e-9 || abs(settings.brightness) > 1e-9 || abs(settings.contrast) > 1e-9
-            || settings.highlightRecovery > 1e-9 || settings.shadowRecovery > 1e-9
+                || abs(settings.blacks) > 1e-9 || abs(settings.brightness) > 1e-9 || abs(settings.contrast) > 1e-9
+                || settings.highlightRecovery > 1e-9 || settings.shadowRecovery > 1e-9
         guard hasManual || settings.autoContrast else { return self }
         guard width > 0, height > 0, pixels.count == width * height * 4 else { return self }
 
@@ -21,11 +21,10 @@ extension PixelBufferF32 {
         // is a different measurement, not a tolerance difference — it made the
         // fused-vs-staged parity gate fail at 0.26 relative error. Reusing
         // AutoContrastMath.bounds also means the two can never drift apart again.
-        let autoMap: (low: Double, high: Double)?
-        if settings.autoContrast, let metered = AutoContrastMath.bounds(pixels) {
-            autoMap = (metered.black, metered.white)
+        let autoMap: (low: Double, high: Double)? = if settings.autoContrast, let metered = AutoContrastMath.bounds(pixels) {
+            (metered.black, metered.white)
         } else {
-            autoMap = nil
+            nil
         }
         // PERF-10: when autoMap is nil every write to `out` above is skipped, so
         // the loop only burns a full-frame copy + 7 exp() per pixel for nothing.

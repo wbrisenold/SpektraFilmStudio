@@ -44,7 +44,9 @@ enum LookCopyCategory: String, CaseIterable, Identifiable, Sendable {
     case colorDensity = "Color Density"
     case film = "Film / Print / Effects"
     case geometry = "Crop / Geometry"
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 }
 
 struct LookCopyOptions: Equatable, Sendable {
@@ -124,8 +126,13 @@ final class PreviewFrameState: ObservableObject {
 @MainActor
 final class AppModel: ObservableObject {
     @Published var page: WorkspacePage = .library {
-        didSet { if page != .library { showProjectHome = false } }
+        didSet {
+            if page != .library {
+                showProjectHome = false
+            }
+        }
     }
+
     @Published var project = SpektraProjectDocument()
     var workspaceGeneration = UUID()
     private var projectOpenGeneration = UUID()
@@ -135,10 +142,12 @@ final class AppModel: ObservableObject {
         get { frameState.renderedPreview }
         set { frameState.renderedPreview = newValue }
     }
+
     var sourcePreview: CGImage? {
         get { frameState.sourcePreview }
         set { frameState.sourcePreview = newValue }
     }
+
     @Published var analysisOverlay: CGImage?
     @Published var scopeTrace: CGImage?
     @Published var analysisMetrics = StudioAnalysisMetrics()
@@ -149,6 +158,7 @@ final class AppModel: ObservableObject {
         get { frameState.isRendering }
         set { frameState.isRendering = newValue }
     }
+
     @Published var isAnalyzing = false
     @Published var isExporting = false
     @Published var exportProgress = 0.0
@@ -160,22 +170,26 @@ final class AppModel: ObservableObject {
         get { frameState.status }
         set { frameState.status = newValue }
     }
+
     @Published var showingBefore = false
     var diagnostics: RenderDiagnosticsView {
         get { frameState.diagnostics }
         set { frameState.diagnostics = newValue }
     }
+
     @Published var presetSearch = ""
     @Published var presetCategoryFilter = "All"
     @Published var isPresetSidebarVisible: Bool = {
         // New installations show the Presets / Photos tabbed sidebar by default;
         // existing users' explicit sidebar choice is preserved.
-        if UserDefaults.standard.object(forKey: "SpektraFilmFast.isPresetSidebarVisible") == nil { return true }
+        if UserDefaults.standard.object(forKey: "SpektraFilmFast.isPresetSidebarVisible") == nil {
+            return true
+        }
         return UserDefaults.standard.bool(forKey: "SpektraFilmFast.isPresetSidebarVisible")
-    }()
-    {
+    }() {
         didSet { UserDefaults.standard.set(isPresetSidebarVisible, forKey: "SpektraFilmFast.isPresetSidebarVisible") }
     }
+
     @Published var presets: [SpektraPreset] = []
     @Published var rendererAvailable = false
     @Published var rendererError: String?
@@ -186,14 +200,16 @@ final class AppModel: ObservableObject {
     @Published var cacheDirectoryParentPath = UserDefaults.standard.string(forKey: "SpektraFilmFast.cacheDirectoryParentPath") ?? ""
     @Published var cacheMemoryMode: PreviewCacheMemoryMode = {
         guard let raw = UserDefaults.standard.string(forKey: "SpektraFilmFast.cacheMemoryMode"),
-            let value = PreviewCacheMemoryMode(rawValue: raw)
+              let value = PreviewCacheMemoryMode(rawValue: raw)
         else { return .automatic }
         return value
     }()
+
     @Published var localDiskCacheGB: Int = {
         let stored = UserDefaults.standard.integer(forKey: "SpektraFilmFast.localDiskCacheGB")
         return stored == 0 ? 15 : min(100, max(2, stored))
     }()
+
     @Published var autoWhiteBalanceStatus = ""
     private var queuedImportCalibrations: [UUID] = []
     private var importCalibrationWorker: Task<Void, Never>?
@@ -207,9 +223,9 @@ final class AppModel: ObservableObject {
     private var whiteBalanceBaseTemperature: Double = 5500
     private var whiteBalanceBaseTint: Double = 0
 
-    // Library / Cull workspace state lives outside the project document so browsing
-    // filters do not dirty a project merely because the photographer changes views.
-    // Project launchers are always available, even with a populated photo library.
+    /// Library / Cull workspace state lives outside the project document so browsing
+    /// filters do not dirty a project merely because the photographer changes views.
+    /// Project launchers are always available, even with a populated photo library.
     @Published var showProjectHome = true
 
     // Cache for visibleImages to avoid recomputing on every filter change.
@@ -315,16 +331,19 @@ final class AppModel: ObservableObject {
     private var latestWorkingFilmRenderedBuffer: PixelBufferF32?
     private var latestFilmRenderedBuffer: PixelBufferF32?
 
-    // The source and local grade live BEFORE crop, rotation and keystone.
-    // A displayed Before frame is already geometrically transformed: its size cannot
-    // serve as the authoritative pre-geometry mask dimensions.
+    /// The source and local grade live BEFORE crop, rotation and keystone.
+    /// A displayed Before frame is already geometrically transformed: its size cannot
+    /// serve as the authoritative pre-geometry mask dimensions.
     var maskSourceDimensions: (width: Int, height: Int)? {
-        if let source = latestSourceBuffer { return (source.width, source.height) }
+        if let source = latestSourceBuffer {
+            return (source.width, source.height)
+        }
         if let film = latestWorkingFilmRenderedBuffer ?? latestFilmRenderedBuffer {
             return (film.width, film.height)
         }
         return nil
     }
+
     private var latestWorkingRenderedLook: RenderLook?
     private var lastSourcePreviewKey: SourcePreviewKey?
 
@@ -417,24 +436,23 @@ final class AppModel: ObservableObject {
         }
         Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(900))
-            guard let self, self.project.images.isEmpty, !self.isProjectDirty,
-                !self.didStartProjectWorkflow
+            guard let self, project.images.isEmpty, !self.isProjectDirty,
+                  !self.didStartProjectWorkflow
             else { return }
-            await self.restoreCloudLibraryIfPossible()
+            await restoreCloudLibraryIfPossible()
         }
 
         projectChangeCancellable = $project.dropFirst().sink { [weak self] _ in
             guard let self, !self.suppressDirtyTracking else { return }
-            self.projectDidChange()
+            projectDidChange()
         }
         memoryPressureMonitor = MemoryPressureMonitor { [weak self] event in
-            let level: CachePressureLevel
-            if event.contains(.critical) {
-                level = .critical
+            let level: CachePressureLevel = if event.contains(.critical) {
+                .critical
             } else if event.contains(.warning) {
-                level = .warning
+                .warning
             } else {
-                level = .normal
+                .normal
             }
             Task { @MainActor [weak self] in
                 self?.handleMemoryPressure(level)
@@ -449,8 +467,8 @@ final class AppModel: ObservableObject {
                 .receive(on: RunLoop.main)
                 .sink { [weak self] _ in
                     guard let self else { return }
-                    self.configureCaches(force: true)
-                    self.refreshCacheStatus()
+                    configureCaches(force: true)
+                    refreshCacheStatus()
                 }
                 .store(in: &cacheVolumeCancellables)
         }
@@ -470,8 +488,8 @@ final class AppModel: ObservableObject {
 
     func applyLookToPreviousImage() {
         guard let target = previousLookTargetID,
-            let source = selectedImage,
-            let index = project.images.firstIndex(where: { $0.id == target })
+              let source = selectedImage,
+              let index = project.images.firstIndex(where: { $0.id == target })
         else { return }
         project.images[index].look = source.look
         status = "Settings applied to the previous photo"
@@ -482,8 +500,8 @@ final class AppModel: ObservableObject {
         guard let i = selectedIndex else { return nil }
         var image = project.images[i]
         if image.cloudRelativePath != nil,
-            let external = stagedCloudOriginals[image.id],
-            FileManager.default.fileExists(atPath: external.path)
+           let external = stagedCloudOriginals[image.id],
+           FileManager.default.fileExists(atPath: external.path)
         {
             // Transient session location: NEVER write this local path to the synced catalog.
             image.sourcePath = external.path
@@ -492,7 +510,9 @@ final class AppModel: ObservableObject {
     }
 
     var selectedLook: RenderLook {
-        if let gestureWorkingLook { return gestureWorkingLook }
+        if let gestureWorkingLook {
+            return gestureWorkingLook
+        }
         return selectedImage?.look ?? .defaults()
     }
 
@@ -517,11 +537,11 @@ final class AppModel: ObservableObject {
             search: librarySearch, filter: libraryFilter, folder: libraryFolderFilter,
             album: libraryAlbumFilter, smart: librarySmartCollectionFilter,
             people: libraryPeopleGroupFilter, rating: project.filterRating,
-            flag: project.filterFlag
+            flag: project.filterFlag,
         )
         if let cached = visibleImagesCache,
-            visibleImagesCacheGeneration == workspaceGeneration,
-            lastVisibleFilterState == currentFilterState
+           visibleImagesCacheGeneration == workspaceGeneration,
+           lastVisibleFilterState == currentFilterState
         {
             return cached
         }
@@ -533,28 +553,34 @@ final class AppModel: ObservableObject {
             let ratingPass = project.filterRating == 0 || image.rating >= project.filterRating
             let flagPass = project.filterFlag == nil || image.flag == project.filterFlag
             let folderPass = libraryFolderFilter == nil || image.url.deletingLastPathComponent().path == libraryFolderFilter
-            let libraryPass: Bool = {
-                switch libraryFilter {
-                case .all: return true
-                case .picked: return image.flag == .picked
-                case .clientPicks: return image.clientPicked
-                case .rejected: return image.flag == .rejected
-                case .unrated: return image.rating == 0
-                case .fiveStar: return image.rating == 5
-                case .needsReview: return image.cullAnalysis?.recommendation == .review
-                case .exportQueued: return image.selectedForExport
-                case .missing: return !FileManager.default.fileExists(atPath: image.sourcePath)
-                }
-            }()
+            let libraryPass: Bool = switch libraryFilter {
+            case .all: true
+            case .picked: image.flag == .picked
+            case .clientPicks: image.clientPicked
+            case .rejected: image.flag == .rejected
+            case .unrated: image.rating == 0
+            case .fiveStar: image.rating == 5
+            case .needsReview: image.cullAnalysis?.recommendation == .review
+            case .exportQueued: image.selectedForExport
+            case .missing: !FileManager.default.fileExists(atPath: image.sourcePath)
+            }
             let searchPass: Bool = Self.matchesLibrarySearchCache(image, query: query)
             let albumPass = activeAlbumIDs == nil || activeAlbumIDs!.contains(image.id)
             let peoplePass = activePeopleIDs == nil || activePeopleIDs!.contains(image.id)
             let smartPass: Bool = {
                 guard let smart = activeSmart else { return true }
-                if smart.minimumRating > 0 && image.rating < smart.minimumRating { return false }
-                if let flag = smart.flag, image.flag != flag { return false }
-                if let label = smart.colorLabel, image.colorLabel != label { return false }
-                if let recommendation = smart.cullRecommendation, image.cullAnalysis?.recommendation != recommendation { return false }
+                if smart.minimumRating > 0, image.rating < smart.minimumRating {
+                    return false
+                }
+                if let flag = smart.flag, image.flag != flag {
+                    return false
+                }
+                if let label = smart.colorLabel, image.colorLabel != label {
+                    return false
+                }
+                if let recommendation = smart.cullRecommendation, image.cullAnalysis?.recommendation != recommendation {
+                    return false
+                }
                 let smartQuery = smart.searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 return Self.matchesLibrarySearchCache(image, query: smartQuery)
             }()
@@ -581,7 +607,7 @@ final class AppModel: ObservableObject {
             search: librarySearch, filter: libraryFilter, folder: libraryFolderFilter,
             album: libraryAlbumFilter, smart: librarySmartCollectionFilter,
             people: libraryPeopleGroupFilter, rating: project.filterRating,
-            flag: project.filterFlag
+            flag: project.filterFlag,
         )
         return values
     }
@@ -607,25 +633,55 @@ final class AppModel: ObservableObject {
         guard !query.isEmpty else { return true }
         // Use pre-computed lowercase fields when available
         if let searchable = image.searchableFields {
-            if searchable.fileNameLower.contains(query) { return true }
-            if searchable.folderNameLower.contains(query) { return true }
-            if let note = searchable.noteLower, note.contains(query) { return true }
-            if let keywords = searchable.keywordsLower, keywords.contains(where: { $0.contains(query) }) { return true }
-            if let camera = searchable.cameraDisplayLower, camera.contains(query) { return true }
-            if let lens = searchable.lensModelLower, lens.contains(query) { return true }
-            if let iso = searchable.isoString, iso.contains(query) { return true }
-            if let focal = searchable.focalLengthString, focal.contains(query) { return true }
+            if searchable.fileNameLower.contains(query) {
+                return true
+            }
+            if searchable.folderNameLower.contains(query) {
+                return true
+            }
+            if let note = searchable.noteLower, note.contains(query) {
+                return true
+            }
+            if let keywords = searchable.keywordsLower, keywords.contains(where: { $0.contains(query) }) {
+                return true
+            }
+            if let camera = searchable.cameraDisplayLower, camera.contains(query) {
+                return true
+            }
+            if let lens = searchable.lensModelLower, lens.contains(query) {
+                return true
+            }
+            if let iso = searchable.isoString, iso.contains(query) {
+                return true
+            }
+            if let focal = searchable.focalLengthString, focal.contains(query) {
+                return true
+            }
         } else {
             // Fallback for images without pre-computed fields
-            if image.fileName.lowercased().contains(query) { return true }
-            if image.url.deletingLastPathComponent().lastPathComponent.lowercased().contains(query) { return true }
-            if image.note?.lowercased().contains(query) == true { return true }
-            if image.keywords?.contains(where: { $0.lowercased().contains(query) }) == true { return true }
-            if image.metadata?.cameraDisplay.lowercased().contains(query) == true { return true }
-            if image.metadata?.lensModel?.lowercased().contains(query) == true { return true }
-            if let iso = image.metadata?.iso, "iso \(iso)".contains(query) || "\(iso)" == query { return true }
+            if image.fileName.lowercased().contains(query) {
+                return true
+            }
+            if image.url.deletingLastPathComponent().lastPathComponent.lowercased().contains(query) {
+                return true
+            }
+            if image.note?.lowercased().contains(query) == true {
+                return true
+            }
+            if image.keywords?.contains(where: { $0.lowercased().contains(query) }) == true {
+                return true
+            }
+            if image.metadata?.cameraDisplay.lowercased().contains(query) == true {
+                return true
+            }
+            if image.metadata?.lensModel?.lowercased().contains(query) == true {
+                return true
+            }
+            if let iso = image.metadata?.iso, "iso \(iso)".contains(query) || query == "\(iso)" {
+                return true
+            }
             if let focal = image.metadata?.focalLengthMM, focal.isFinite, focal >= 0, focal < 1_000_000,
-                "\(Int(focal.rounded()))mm".contains(query)
+               "\(Int(focal.rounded()))mm".contains(query)
             {
                 return true
             }
@@ -647,7 +703,7 @@ final class AppModel: ObservableObject {
         guard let index = sorted.firstIndex(where: { $0.id == selected.id }) else { return [selected] }
         let lower = max(0, index - 3)
         let upper = min(sorted.count, index + 5)
-        return Array(sorted[lower..<upper])
+        return Array(sorted[lower ..< upper])
     }
 
     var presetCategories: [String] {
@@ -663,7 +719,9 @@ final class AppModel: ObservableObject {
 
     func newProject() {
         confirmDestructiveTransitionIfNeeded { [weak self] allowed in
-            if allowed { self?.createNewProject() }
+            if allowed {
+                self?.createNewProject()
+            }
         }
     }
 
@@ -704,13 +762,15 @@ final class AppModel: ObservableObject {
     func standalonePhotoMode() {
         SpektraFilePanel.chooseFiles(title: "Open Standalone Photo", types: [.image, .rawImage]) { [weak self] urls in
             guard let self, let url = urls.first else { return }
-            self.standalonePhotoMode(at: url)
+            standalonePhotoMode(at: url)
         }
     }
 
     func standalonePhotoMode(at url: URL) {
         confirmDestructiveTransitionIfNeeded { [weak self] allowed in
-            if allowed { self?.openStandalonePhoto(at: url) }
+            if allowed {
+                self?.openStandalonePhoto(at: url)
+            }
         }
     }
 
@@ -739,7 +799,7 @@ final class AppModel: ObservableObject {
     func importImages() {
         SpektraFilePanel.chooseFiles(title: "Import Photos", types: [.image, .rawImage], multiple: true) { [weak self] urls in
             guard let self, !urls.isEmpty else { return }
-            self.addImages(urls: urls)
+            addImages(urls: urls)
         }
     }
 
@@ -780,20 +840,22 @@ final class AppModel: ObservableObject {
                 at: folder,
                 includingPropertiesForKeys: keys,
                 options: [.skipsHiddenFiles, .skipsPackageDescendants],
-                errorHandler: { _, _ in true }
+                errorHandler: { _, _ in true },
             )
         else { return [] }
 
         var urls: [URL] = []
         urls.reserveCapacity(1024)
         for case let url as URL in enumerator {
-            if Task.isCancelled { break }
+            if Task.isCancelled {
+                break
+            }
             guard let values = try? url.resourceValues(forKeys: Set(keys)),
-                values.isRegularFile == true,
-                values.isHidden != true
+                  values.isRegularFile == true,
+                  values.isHidden != true
             else { continue }
             if let type = values.contentType,
-                type.conforms(to: .image) || type.conforms(to: .rawImage)
+               type.conforms(to: .image) || type.conforms(to: .rawImage)
             {
                 urls.append(url)
                 continue
@@ -854,7 +916,7 @@ final class AppModel: ObservableObject {
 
     private func startBackgroundImportHydration(_ imported: [(UUID, URL)]) {
         importHydrationTask?.cancel()
-        let urls = imported.map { $0.1 }
+        let urls = imported.map(\.1)
         let generation = projectGeneration
         var indexByID = Dictionary(uniqueKeysWithValues: project.images.indices.map { (project.images[$0].id, $0) })
 
@@ -867,23 +929,27 @@ final class AppModel: ObservableObject {
             while offset < imported.count, !Task.isCancelled {
                 guard generation == projectGeneration else { return }
                 let end = min(imported.count, offset + batchSize)
-                let batch = Array(imported[offset..<end])
+                let batch = Array(imported[offset ..< end])
 
                 var results: [(UUID, PhotoMetadata?, XMPSidecarState?)] = []
                 results.reserveCapacity(batch.count)
-                let metadataService = self.metadataService
-                let xmpService = self.xmpService
+                let metadataService = metadataService
+                let xmpService = xmpService
                 await withTaskGroup(of: (UUID, PhotoMetadata?, XMPSidecarState?).self) { group in
                     for (id, url) in batch {
                         group.addTask { [metadataService, xmpService] in
-                            if Task.isCancelled { return (id, nil, nil) }
+                            if Task.isCancelled {
+                                return (id, nil, nil)
+                            }
                             async let metadata = metadataService.metadata(url: url)
                             async let xmp = xmpService.read(for: url)
-                            return (id, await metadata, await xmp)
+                            return await (id, metadata, xmp)
                         }
                     }
                     for await result in group {
-                        if Task.isCancelled { break }
+                        if Task.isCancelled {
+                            break
+                        }
                         results.append(result)
                     }
                 }
@@ -896,8 +962,8 @@ final class AppModel: ObservableObject {
                 for (id, metadata, xmp) in results {
                     let index: Int
                     if let known = indexByID[id],
-                        known < project.images.count,
-                        project.images[known].id == id
+                       known < project.images.count,
+                       project.images[known].id == id
                     {
                         index = known
                     } else if let found = project.images.firstIndex(where: { $0.id == id }) {
@@ -928,7 +994,9 @@ final class AppModel: ObservableObject {
                             changed = true
                         }
                     }
-                    if changed { project.images[index] = record }
+                    if changed {
+                        project.images[index] = record
+                    }
                 }
                 offset = end
             }
@@ -936,7 +1004,7 @@ final class AppModel: ObservableObject {
             _ = await thumbnailWarmup
             guard !Task.isCancelled, generation == projectGeneration else { return }
             if project.preferences.autoAnalyzeCull {
-                analyzeForCull(ids: imported.map { $0.0 })
+                analyzeForCull(ids: imported.map(\.0))
                 status = "Import ready · thumbnails cached · Smart Cull started"
             } else if page == .library {
                 status = "Import ready · \(imported.count) image\(imported.count == 1 ? "" : "s") cached"
@@ -948,8 +1016,23 @@ final class AppModel: ObservableObject {
     /// expensive film renderer. Entering Edit restores an exact adjusted preview from RAM/SSD
     /// first and invokes the normal preview renderer only on a true cache miss.
     func workspaceDidChange(_ destination: WorkspacePage) {
-        if destination != .edit { isCropToolActive = false }
-        if page != destination { page = destination }
+        // Drain every replaceable task before the @Published teardown for the
+        // destination view. A cancelled-but-unwound task that still holds a weak
+        // self reference can publish into a torn-down model and hit freed memory
+        // in the next draw cycle (the RAW-edit EXC_BAD_ACCESS).
+        cancelIdleRefinement()
+        refinementTask?.cancel()
+        refinementTask = nil
+        scopeTask?.cancel()
+        scopeTask = nil
+        skinWhiteBalanceTask?.cancel()
+        skinWhiteBalanceTask = nil
+        if destination != .edit {
+            isCropToolActive = false
+        }
+        if page != destination {
+            page = destination
+        }
         switch destination {
         case .library, .cull, .proofs, .export:
             if !stagedCloudOriginals.isEmpty {
@@ -973,13 +1056,27 @@ final class AppModel: ObservableObject {
                 Task { await refreshProofGalleries() }
             }
         case .edit:
+            // Drain the replaceable preview tasks before the @Published teardown
+            // for the Edit view. A cancelled-but-unwound continuation that still
+            // holds a weak self reference can publish into a torn-down model and hit
+            // freed memory in the next draw cycle (the RAW-edit EXC_BAD_ACCESS).
+            cancelIdleRefinement()
+            refinementTask?.cancel()
+            refinementTask = nil
+            scopeTask?.cancel()
+            scopeTask = nil
+            skinWhiteBalanceTask?.cancel()
+            skinWhiteBalanceTask = nil
+
             guard let image = selectedImage else {
                 renderedPreview = nil
                 sourcePreview = nil
                 status = "Select a photo in Library or Cull"
                 return
             }
-            if deferPreviewForCloudOriginalIfNeeded(image, renderPreview: true) { return }
+            if deferPreviewForCloudOriginalIfNeeded(image, renderPreview: true) {
+                return
+            }
             guard FileManager.default.fileExists(atPath: image.sourcePath) else {
                 status = "Missing media · use Relink Missing Media…"
                 return
@@ -989,9 +1086,9 @@ final class AppModel: ObservableObject {
         }
     }
 
-    // Darktable channelmixerrgb gray-edge illuminant inference and exposure.c
-    // percentile metering adapted to the per-image D65 linear Rec.2020 contract.
-    // Import analysis is deliberately low priority and never runs per slider tick.
+    /// Darktable channelmixerrgb gray-edge illuminant inference and exposure.c
+    /// percentile metering adapted to the per-image D65 linear Rec.2020 contract.
+    /// Import analysis is deliberately low priority and never runs per slider tick.
     private func scheduleImportCalibrations(for photos: [ProjectImageRecord]) {
         for photo in photos where photo.look.importCalibration == nil {
             if project.selectedImageID == photo.id {
@@ -1013,26 +1110,27 @@ final class AppModel: ObservableObject {
                     scheduleImportCalibrations(for: [])
                 }
             }
-            while !Task.isCancelled && workspaceGeneration == workspace && !queuedImportCalibrations.isEmpty {
+            while !Task.isCancelled, workspaceGeneration == workspace, !queuedImportCalibrations.isEmpty {
                 let id = queuedImportCalibrations.removeFirst()
                 guard let photo = project.images.first(where: { $0.id == id }),
-                    photo.look.importCalibration == nil,
-                    !project.preferences.bypassImportTransform,
-                    FileManager.default.fileExists(atPath: photo.sourcePath)
+                      photo.look.importCalibration == nil,
+                      !project.preferences.bypassImportTransform,
+                      FileManager.default.fileExists(atPath: photo.sourcePath)
                 else { continue }
                 do {
                     let sample = try await decoder.decode(
                         url: photo.url, longEdge: 320, raw: photo.look.raw,
                         bypassImportTransform: project.preferences.bypassImportTransform,
-                        cacheMode: .conservative)
+                        cacheMode: .conservative,
+                    )
                     var baseline = await Task.detached(priority: .utility) {
                         StudioImportCalibrationEstimator.estimate(sample)
                     }.value
                     baseline.sourceRaw = photo.look.raw
                     guard workspaceGeneration == workspace,
-                        let i = project.images.firstIndex(where: { $0.id == photo.id }),
-                        project.images[i].look.importCalibration == nil,
-                        project.images[i].look.raw == photo.look.raw
+                          let i = project.images.firstIndex(where: { $0.id == photo.id }),
+                          project.images[i].look.importCalibration == nil,
+                          project.images[i].look.raw == photo.look.raw
                     else { continue }
                     project.images[i].look.importCalibration = baseline
                     isProjectDirty = true
@@ -1051,7 +1149,7 @@ final class AppModel: ObservableObject {
 
     func setImportCalibrationEnabled(_ enabled: Bool) {
         guard let index = selectedIndex,
-            project.images[index].look.importCalibration != nil
+              project.images[index].look.importCalibration != nil
         else { return }
         undoStack.append(project.images[index].look)
         redoStack.removeAll()
@@ -1070,6 +1168,21 @@ final class AppModel: ObservableObject {
     }
 
     func selectImage(_ id: UUID, renderPreview: Bool = true) {
+        // Drain every replaceable task before the @Published teardown for the
+        // selected image. A cancelled-but-unwound task that still holds a weak
+        // self reference can publish into a torn-down model and hit freed memory.
+        cancelIdleRefinement()
+        refinementTask?.cancel()
+        refinementTask = nil
+        scopeTask?.cancel()
+        scopeTask = nil
+        skinWhiteBalanceTask?.cancel()
+        skinWhiteBalanceTask = nil
+        interactiveProxyTask?.cancel()
+        interactiveProxyTask = nil
+        gpuPreviewTask?.cancel()
+        gpuPreviewTask = nil
+
         let changed = project.selectedImageID != id
         if changed {
             if !stagedCloudOriginals.isEmpty {
@@ -1089,6 +1202,7 @@ final class AppModel: ObservableObject {
             semanticMaskTask = nil
             semanticMasks = nil
             semanticAnalysisDeferred = false
+            semanticAnalysisDeferred = false
             pendingNewSemanticKind = nil
             pendingSemanticComponent = nil
             latestSkinMaskWidth = 0
@@ -1098,6 +1212,7 @@ final class AppModel: ObservableObject {
             gpuPreviewGeneration &+= 1
             pendingGPUPreview = nil
             gpuPreviewTask?.cancel()
+            gpuPreviewTask = nil
             liveGPUFrame = nil
             gestureWorkingLook = nil
             activeEditBaseline = nil
@@ -1124,7 +1239,9 @@ final class AppModel: ObservableObject {
         }
 
         guard let image = selectedImage else { return }
-        if deferPreviewForCloudOriginalIfNeeded(image, renderPreview: renderPreview) { return }
+        if deferPreviewForCloudOriginalIfNeeded(image, renderPreview: renderPreview) {
+            return
+        }
         refreshWhiteBalanceReference(for: image)
         if image.look.importCalibration == nil {
             scheduleImportCalibrations(for: [image])
@@ -1156,7 +1273,9 @@ final class AppModel: ObservableObject {
     private func warmEditorSourceAfterSelectionIdle(_ image: ProjectImageRecord) {
         editorWarmupTask?.cancel()
         // Library/Cull must never trigger iCloud File Provider RAW downloads.
-        if image.cloudRelativePath != nil { return }
+        if image.cloudRelativePath != nil {
+            return
+        }
         let prefs = project.preferences
         // Only the focused local photo is warmed, never its neighbors.
         let candidates: [ProjectImageRecord] = [image]
@@ -1168,7 +1287,7 @@ final class AppModel: ObservableObject {
                 guard !Task.isCancelled, project.selectedImageID == image.id, page != .edit else { return }
                 // Build the persistent linear workfile for the active photo and its nearest
                 // neighbors. These are temporary cache files only; the originals stay untouched.
-                let decoder = self.decoder
+                let decoder = decoder
                 await withTaskGroup(of: Void.self) { group in
                     for candidate in candidates {
                         group.addTask { [decoder] in
@@ -1177,7 +1296,7 @@ final class AppModel: ObservableObject {
                                 longEdge: max(prefs.workingFileLongEdge, prefs.previewLongEdge),
                                 raw: candidate.look.raw,
                                 bypassImportTransform: prefs.bypassImportTransform,
-                                cacheMode: memoryMode
+                                cacheMode: memoryMode,
                             )
                         }
                     }
@@ -1200,7 +1319,7 @@ final class AppModel: ObservableObject {
             look: image.look,
             previewLongEdge: longEdge,
             fullResolution: false,
-            bypassImportTransform: prefs.bypassImportTransform
+            bypassImportTransform: prefs.bypassImportTransform,
         )
 
         let memoryCached = renderedFrameCache[key]
@@ -1220,17 +1339,17 @@ final class AppModel: ObservableObject {
             var adjustedHit = memoryCached != nil
 
             if memoryCached == nil,
-                let disk = await renderedDiskCache.bestPreview(
-                    url: url,
-                    look: image.look,
-                    longEdge: longEdge,
-                    bypassImportTransform: prefs.bypassImportTransform
-                ),
-                !Task.isCancelled,
-                generation == selectionPresentationGeneration,
-                project.selectedImageID == image.id,
-                let buffer = disk.payload.makePixelBuffer(),
-                let cg = disk.payload.makeCGImage(colorSpace: OutputColorProfile.forLook(image.look).cgColorSpace)
+               let disk = await renderedDiskCache.bestPreview(
+                   url: url,
+                   look: image.look,
+                   longEdge: longEdge,
+                   bypassImportTransform: prefs.bypassImportTransform,
+               ),
+               !Task.isCancelled,
+               generation == selectionPresentationGeneration,
+               project.selectedImageID == image.id,
+               let buffer = disk.payload.makePixelBuffer(),
+               let cg = disk.payload.makeCGImage(colorSpace: OutputColorProfile.forLook(image.look).cgColorSpace)
             {
                 let cached = CachedRenderedFrame(rendered: cg, source: nil, buffer: buffer, quality: disk.quality)
                 publishCachedRenderedFrame(cached, look: image.look)
@@ -1242,10 +1361,10 @@ final class AppModel: ObservableObject {
             // Source/Before presentation is independent from the adjusted cache. Loading this
             // lightweight embedded/cached thumbnail must never block edit readiness.
             if let payload = try? await thumbnails.thumbnail(url: url, maxPixel: 1280),
-                !Task.isCancelled,
-                generation == selectionPresentationGeneration,
-                project.selectedImageID == image.id,
-                let cg = payload.makeCGImage()
+               !Task.isCancelled,
+               generation == selectionPresentationGeneration,
+               project.selectedImageID == image.id,
+               let cg = payload.makeCGImage()
             {
                 sourcePreview = cg
                 if !adjustedHit, latestRenderedBuffer == nil {
@@ -1262,10 +1381,10 @@ final class AppModel: ObservableObject {
             }
 
             guard renderOnMiss,
-                !Task.isCancelled,
-                generation == selectionPresentationGeneration,
-                project.selectedImageID == image.id,
-                (page == .edit || (page == .export && isCropToolActive))
+                  !Task.isCancelled,
+                  generation == selectionPresentationGeneration,
+                  project.selectedImageID == image.id,
+                  page == .edit || (page == .export && isCropToolActive)
             else { return }
             scheduleRender(
                 interactive: false,
@@ -1273,7 +1392,7 @@ final class AppModel: ObservableObject {
                 fullResolutionRequest: false,
                 cacheResult: true,
                 reason: "cache miss · exact preview",
-                useInteractiveRenderPolicy: false
+                useInteractiveRenderPolicy: false,
             )
         }
     }
@@ -1299,7 +1418,7 @@ final class AppModel: ObservableObject {
             look: image.look,
             previewLongEdge: prefs.previewLongEdge,
             fullResolution: false,
-            bypassImportTransform: prefs.bypassImportTransform
+            bypassImportTransform: prefs.bypassImportTransform,
         )
         guard let cached = renderedFrameCache[key] else { return false }
         touchRenderedFrameCache(key)
@@ -1319,13 +1438,13 @@ final class AppModel: ObservableObject {
                     longEdge: prefs.previewLongEdge,
                     raw: image.look.raw,
                     bypassImportTransform: prefs.bypassImportTransform,
-                    cacheMode: cacheMemoryMode
+                    cacheMode: cacheMemoryMode,
                 )
             else { return }
             guard !Task.isCancelled, project.selectedImageID == imageID else { return }
             latestSourceBuffer = source
             latestSourceRaw = image.look.raw
-            maskOverlayRevision &+= 1  // Recompose a cached viewer frame with valid source dimensions.
+            maskOverlayRevision &+= 1 // Recompose a cached viewer frame with valid source dimensions.
         }
     }
 
@@ -1345,13 +1464,17 @@ final class AppModel: ObservableObject {
     func setRating(_ rating: Int) {
         mutateSelected { $0.rating = max(0, min(5, rating)) }
         writeSelectedXMPIfEnabled()
-        if project.preferences.autoAdvanceRatings { selectRelative(1) }
+        if project.preferences.autoAdvanceRatings {
+            selectRelative(1)
+        }
     }
 
     func setFlag(_ flag: ProjectFlag) {
         mutateSelected { $0.flag = flag }
         writeSelectedXMPIfEnabled()
-        if project.preferences.autoAdvanceRatings { selectRelative(1) }
+        if project.preferences.autoAdvanceRatings {
+            selectRelative(1)
+        }
     }
 
     private func writeSelectedXMPIfEnabled() {
@@ -1370,7 +1493,9 @@ final class AppModel: ObservableObject {
 
     func beginEditGesture() {
         cancelIdleRefinement()
-        if project.preferences.fullResolutionPreview { project.preferences.fullResolutionPreview = false }
+        if project.preferences.fullResolutionPreview {
+            project.preferences.fullResolutionPreview = false
+        }
         invalidateNativePreviewForInteraction()
         guard let i = selectedIndex else { return }
         if activeEditBaseline == nil {
@@ -1411,11 +1536,10 @@ final class AppModel: ObservableObject {
         var committedLook = gestureWorkingLook ?? project.images[i].look
         committedLook.normalizeForProOnly()
         let settledParameter = activeEditChangedParameter
-        let rawField: RawInteractiveField?
-        switch settledParameter {
-        case "rawTemperature": rawField = .temperature
-        case "rawTint": rawField = .tint
-        default: rawField = nil
+        let rawField: RawInteractiveField? = switch settledParameter {
+        case "rawTemperature": .temperature
+        case "rawTint": .tint
+        default: nil
         }
 
         if let baselineLook, baselineLook != committedLook {
@@ -1425,8 +1549,8 @@ final class AppModel: ObservableObject {
             propagateBatchEdit(from: committedLook, activeIndex: i, changedParameter: settledParameter)
             status =
                 batchEditIDs.count > 1
-                ? "Edit committed to \(batchEditIDs.count) photos · rendering exact preview…"
-                : "Edit committed · rendering exact preview…"
+                    ? "Edit committed to \(batchEditIDs.count) photos · rendering exact preview…"
+                    : "Edit committed · rendering exact preview…"
         }
 
         activeEditBaseline = nil
@@ -1449,18 +1573,20 @@ final class AppModel: ObservableObject {
             baselineRaw: rawField == nil ? nil : baselineLook.raw,
             rawField: rawField,
             changedParameter: settledParameter,
-            delayMilliseconds: 80
+            delayMilliseconds: 80,
         )
     }
 
-    func setSelectedLooksPack(_ id: String) {
+    func setSelectedLooksPack(_: String) {
         status = "Look packs removed — native spectral film is now the only film stage"
     }
 
     func setParameter(_ name: String, value: ParameterValue, interactive: Bool) {
         guard let i = selectedIndex else { return }
         if interactive {
-            if gestureWorkingLook == nil { beginEditGesture() }
+            if gestureWorkingLook == nil {
+                beginEditGesture()
+            }
             gestureWorkingLook?.values[name] = value
             if name == "filmExposureEv" || name == "autoExposure" {
                 gestureWorkingLook?.clearingAutoContrastResolution()
@@ -1495,7 +1621,9 @@ final class AppModel: ObservableObject {
         redoStack.removeAll()
         var grade = LocalGradeRecord(name: "Local Grade \((project.images[i].look.localGrades?.count ?? 0) + 1)")
         grade.normalize()
-        if project.images[i].look.localGrades == nil { project.images[i].look.localGrades = [] }
+        if project.images[i].look.localGrades == nil {
+            project.images[i].look.localGrades = []
+        }
         project.images[i].look.localGrades?.append(grade)
         maskOverlayRevision &+= 1
         requestPreviewRefresh()
@@ -1506,8 +1634,14 @@ final class AppModel: ObservableObject {
         mutateMaskLook { look in look.localGrades?.removeAll { $0.id == gradeID } }
     }
 
-    func setLocalGradeEnabled(_ gradeID: UUID, _ enabled: Bool) { mutateGrade(gradeID) { $0.enabled = enabled } }
-    func setLocalGradeOpacity(_ gradeID: UUID, _ value: Double) { mutateGrade(gradeID) { $0.opacity = min(1, max(0, value)) } }
+    func setLocalGradeEnabled(_ gradeID: UUID, _ enabled: Bool) {
+        mutateGrade(gradeID) { $0.enabled = enabled }
+    }
+
+    func setLocalGradeOpacity(_ gradeID: UUID, _ value: Double) {
+        mutateGrade(gradeID) { $0.opacity = min(1, max(0, value)) }
+    }
+
     var activeLocalGrade: LocalGradeRecord? {
         guard let id = activeLocalGradeID else { return nil }
         return (selectedLook.localGrades ?? []).first(where: { $0.id == id })
@@ -1539,9 +1673,11 @@ final class AppModel: ObservableObject {
 
     func setLocalTone(_ gradeID: UUID, _ key: String, _ value: Double, interactive: Bool = false) {
         if interactive {
-            if gestureWorkingLook == nil { beginEditGesture() }
+            if gestureWorkingLook == nil {
+                beginEditGesture()
+            }
             guard var working = gestureWorkingLook,
-                let index = working.localGrades?.firstIndex(where: { $0.id == gradeID })
+                  let index = working.localGrades?.firstIndex(where: { $0.id == gradeID })
             else { return }
             var tone = working.localGrades![index].tone ?? ToneSettings()
             assignLocalTone(&tone, key: key, value: value)
@@ -1590,9 +1726,9 @@ final class AppModel: ObservableObject {
                 worker.cancel()
             }
             guard (try? GPUProcessingFailure.requireSuccess(after: checkpoint)) != nil,
-                !Task.isCancelled, generation == interactiveProxyGeneration,
-                project.selectedImageID == imageID, gestureWorkingLook == look,
-                let image = payload?.makeCGImage(colorSpace: profile.cgColorSpace)
+                  !Task.isCancelled, generation == interactiveProxyGeneration,
+                  project.selectedImageID == imageID, gestureWorkingLook == look,
+                  let image = payload?.makeCGImage(colorSpace: profile.cgColorSpace)
             else { return }
             renderedPreview = image
             latestRenderedBuffer = output
@@ -1601,6 +1737,7 @@ final class AppModel: ObservableObject {
             requestEditorScopeUpdate()
         }
     }
+
     func setLocalDensity(_ gradeID: UUID, _ value: Double) {
         mutateGrade(gradeID) { grade in
             var density = grade.colorDensity ?? ColorDensitySettings()
@@ -1622,8 +1759,14 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func removeMaskSource(gradeID: UUID, maskID: UUID) { mutateGrade(gradeID) { $0.masks.sources.removeAll { $0.id == maskID } } }
-    func setMaskEnabled(gradeID: UUID, maskID: UUID, _ value: Bool) { mutateMask(gradeID, maskID) { $0.enabled = value } }
+    func removeMaskSource(gradeID: UUID, maskID: UUID) {
+        mutateGrade(gradeID) { $0.masks.sources.removeAll { $0.id == maskID } }
+    }
+
+    func setMaskEnabled(gradeID: UUID, maskID: UUID, _ value: Bool) {
+        mutateMask(gradeID, maskID) { $0.enabled = value }
+    }
+
     func setGradientEndpoints(gradeID: UUID, maskID: UUID, start: NormalizedPoint, end: NormalizedPoint) {
         mutateMask(gradeID, maskID) { source in
             guard source.kind == .linearGradient else { return }
@@ -1633,6 +1776,7 @@ final class AppModel: ObservableObject {
             source.linearGradient = geometry
         }
     }
+
     func setGradientCoordinate(gradeID: UUID, maskID: UUID, axis: String, value: Double) {
         mutateMask(gradeID, maskID) { source in
             guard source.kind == .linearGradient else { return }
@@ -1648,15 +1792,27 @@ final class AppModel: ObservableObject {
             source.linearGradient = geometry
         }
     }
+
     @Published var isGradientMaskEditing = false
     @Published var activeLocalGradeID: UUID?
     @Published var isLensCenterEditing = false
     @Published var selectedGradientMaskID: UUID?
 
-    func setMaskInverted(gradeID: UUID, maskID: UUID, _ value: Bool) { mutateMask(gradeID, maskID) { $0.inverted = value } }
-    func setMaskOpacity(gradeID: UUID, maskID: UUID, _ value: Double) { mutateMask(gradeID, maskID) { $0.opacity = min(1, max(0, value)) } }
-    func setMaskFeather(gradeID: UUID, maskID: UUID, _ value: Double) { mutateMask(gradeID, maskID) { $0.feather = min(1, max(0, value)) } }
-    func setMaskBlendMode(gradeID: UUID, maskID: UUID, _ value: MaskBlendMode) { mutateMask(gradeID, maskID) { $0.blendMode = value } }
+    func setMaskInverted(gradeID: UUID, maskID: UUID, _ value: Bool) {
+        mutateMask(gradeID, maskID) { $0.inverted = value }
+    }
+
+    func setMaskOpacity(gradeID: UUID, maskID: UUID, _ value: Double) {
+        mutateMask(gradeID, maskID) { $0.opacity = min(1, max(0, value)) }
+    }
+
+    func setMaskFeather(gradeID: UUID, maskID: UUID, _ value: Double) {
+        mutateMask(gradeID, maskID) { $0.feather = min(1, max(0, value)) }
+    }
+
+    func setMaskBlendMode(gradeID: UUID, maskID: UUID, _ value: MaskBlendMode) {
+        mutateMask(gradeID, maskID) { $0.blendMode = value }
+    }
 
     func setRasterMask(gradeID: UUID, maskID: UUID, width: Int, height: Int, alpha: [UInt8]) {
         mutateMask(gradeID, maskID) { source in
@@ -1692,6 +1848,7 @@ final class AppModel: ObservableObject {
     }
 
     // MARK: - Stage 3 canonical semantic masks
+
     // Monotonic mask-geometry revision. Do NOT use the large raster arrays as a SwiftUI
     // task/hash identity: that rehashes megabytes of mask data on every viewer update.
     @Published var maskOverlayRevision = 0
@@ -1707,9 +1864,11 @@ final class AppModel: ObservableObject {
     // is decoded. Queue analysis for the NEXT true pre-geometry source frame.
     private var semanticAnalysisDeferred = false
 
-    var isObjectMaskPicking: Bool { objectMaskPickGradeID != nil }
+    var isObjectMaskPicking: Bool {
+        objectMaskPickGradeID != nil
+    }
 
-    // Called from the Masks tab. Does not require returning to Main Image.
+    /// Called from the Masks tab. Does not require returning to Main Image.
     func createSemanticLocalGrade(_ kind: SemanticMaskKind) {
         guard semanticMasks?.alpha(kind) != nil else {
             pendingNewSemanticKind = kind
@@ -1757,8 +1916,12 @@ final class AppModel: ObservableObject {
         // This CGImage uses the same PRE-geometry coordinates as local grade and export.
         semanticMaskStatus = "Analyzing skin / requested selection…"
         var requested: Set<SemanticMaskKind> = [.skin]
-        if let kind = pendingNewSemanticKind { requested.insert(kind) }
-        if let component = pendingSemanticComponent { requested.insert(component.kind) }
+        if let kind = pendingNewSemanticKind {
+            requested.insert(kind)
+        }
+        if let component = pendingSemanticComponent {
+            requested.insert(component.kind)
+        }
         semanticMaskTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -1836,7 +1999,7 @@ final class AppModel: ObservableObject {
         maskBrushTask = Task { [weak self] in
             await previous?.value
             guard let self, project.selectedImageID == imageID,
-                let grade = selectedLook.localGrades?.first(where: { $0.id == gradeID })
+                  let grade = selectedLook.localGrades?.first(where: { $0.id == gradeID })
             else { return }
             let existing = grade.masks.sources.last(where: { $0.name == name && $0.aiRecipe == nil && $0.kind == .raster })
             let oppositeName = blend == .subtract ? "Brush Add" : "Brush Subtract"
@@ -1847,10 +2010,12 @@ final class AppModel: ObservableObject {
             do {
                 let (raster, clearedOpposite) = try await Task.detached(priority: .userInitiated) {
                     let raster = try MaskBrushEngine.shared.paint(
-                        existing?.raster, width: width, height: height, points: points, radius: radius)
+                        existing?.raster, width: width, height: height, points: points, radius: radius,
+                    )
                     let cleared = try opposite?.raster.map { prior in
                         try MaskBrushEngine.shared.paint(
-                            prior, width: prior.width, height: prior.height, points: points, radius: radius, erase: true)
+                            prior, width: prior.width, height: prior.height, points: points, radius: radius, erase: true,
+                        )
                     }
                     return (raster, cleared)
                 }.value
@@ -1895,9 +2060,10 @@ final class AppModel: ObservableObject {
 
     private func maskSourcePoint(_ point: CGPoint) -> ImagePoint? {
         guard let source = latestSourceBuffer,
-            let converted = GeometryEngine.sourceNormalizedPoint(
-                fromDisplay: point,
-                sourceWidth: source.width, sourceHeight: source.height, settings: selectedLook.geometry)
+              let converted = GeometryEngine.sourceNormalizedPoint(
+                  fromDisplay: point,
+                  sourceWidth: source.width, sourceHeight: source.height, settings: selectedLook.geometry,
+              )
         else { return nil }
         return ImagePoint(x: converted.x, y: converted.y)
     }
@@ -1914,10 +2080,11 @@ final class AppModel: ObservableObject {
             do {
                 try await Task.sleep(for: .milliseconds(160))
                 let mask = try await RedlampMaskService.shared.previewObject(
-                    AIMaskRecipe(kind: .objects, prompts: [source]), url: image.url)
+                    AIMaskRecipe(kind: .objects, prompts: [source]), url: image.url,
+                )
                 guard !Task.isCancelled, generation == objectHoverGeneration, project.selectedImageID == image.id else { return }
                 objectHoverMask = RasterMaskPayload(width: mask.width, height: mask.height, alpha: mask.pixels)
-            } catch { /* Hover is provisional; clicking reports actionable errors. */  }
+            } catch { /* Hover is provisional; clicking reports actionable errors. */ }
         }
     }
 
@@ -1939,19 +2106,26 @@ final class AppModel: ObservableObject {
             guard let source = activeLocalGrade?.masks.sources.last(where: { $0.aiRecipe != nil }) else { return }
             refineAIMask(
                 gradeID: gradeID, sourceID: source.id,
-                stroke: BrushStroke(points: converted, size: 0.025))
+                stroke: BrushStroke(points: converted, size: 0.025),
+            )
             return
         }
         if !box, let existing = activeLocalGrade?.masks.sources.last(where: { $0.aiRecipe?.kind == .objects }),
-            var recipe = existing.aiRecipe
+           var recipe = existing.aiRecipe
         {
             let count = min(8, converted.count)
-            let samples = (0..<count).map { converted[$0 * max(1, converted.count - 1) / max(1, count - 1)] }
-            if subtract { recipe.excluded.append(contentsOf: samples) } else { recipe.prompts.append(contentsOf: samples) }
+            let samples = (0 ..< count).map { converted[$0 * max(1, converted.count - 1) / max(1, count - 1)] }
+            if subtract {
+                recipe.excluded.append(contentsOf: samples)
+            } else {
+                recipe.prompts.append(contentsOf: samples)
+            }
             let reserved = recipe.box == nil ? 0 : 2
             recipe.excluded = Array(recipe.excluded.suffix(7))
             let room = max(1, 16 - reserved - recipe.excluded.count)
-            if recipe.prompts.count > room { recipe.prompts = [recipe.prompts[0]] + recipe.prompts.suffix(room - 1) }
+            if recipe.prompts.count > room {
+                recipe.prompts = [recipe.prompts[0]] + recipe.prompts.suffix(room - 1)
+            }
             createAIMask(recipe, gradeID: gradeID, sourceID: existing.id)
             return
         }
@@ -1962,13 +2136,13 @@ final class AppModel: ObservableObject {
         } else {
             // SAM accepts at most 16 prompts. Spread brush samples over the stroke.
             let count = min(16, converted.count)
-            recipe.prompts = (0..<count).map { converted[$0 * max(1, converted.count - 1) / max(1, count - 1)] }
+            recipe.prompts = (0 ..< count).map { converted[$0 * max(1, converted.count - 1) / max(1, count - 1)] }
         }
         createAIMask(recipe, gradeID: gradeID, blend: subtract ? .subtract : objectMaskPickBlendMode)
     }
 
     func createAIMask(
-        _ recipe: AIMaskRecipe, gradeID: UUID? = nil, blend: MaskBlendMode = .add, presetTone: ToneSettings? = nil, sourceID: UUID? = nil
+        _ recipe: AIMaskRecipe, gradeID: UUID? = nil, blend: MaskBlendMode = .add, presetTone: ToneSettings? = nil, sourceID: UUID? = nil,
     ) {
         guard let image = selectedImage else { semanticMaskStatus = "Select a photo first"; return }
         semanticMaskTask?.cancel()
@@ -1986,7 +2160,9 @@ final class AppModel: ObservableObject {
                             grade.name =
                                 recipe.kind == .people ? (recipe.part.name + (result.instance.map { " \($0)" } ?? "")) : recipe.kind.name
                         }
-                        if let presetTone { grade.tone = presetTone }
+                        if let presetTone {
+                            grade.tone = presetTone
+                        }
                         var source = MaskSourceRecord(name: recipe.kind.name, kind: .raster)
                         var stored = recipe
                         stored.instance = result.instance; stored.provider = result.provider
@@ -2004,7 +2180,11 @@ final class AppModel: ObservableObject {
                     }
                 }
                 semanticMaskStatus = "\(recipe.kind.name) ready · saved with the photo"
-            } catch { if !Task.isCancelled { semanticMaskStatus = String(describing: error) } }
+            } catch {
+                if !Task.isCancelled {
+                    semanticMaskStatus = String(describing: error)
+                }
+            }
         }
     }
 
@@ -2024,7 +2204,8 @@ final class AppModel: ObservableObject {
                         let masks = try await RedlampMaskService.shared.compute(recipe, url: image.url)
                         guard let mask = masks.first(where: { $0.instance == recipe.instance })?.mask ?? masks.first?.mask else { continue }
                         replacements.append(
-                            (grade.id, source.id, RasterMaskPayload(width: mask.width, height: mask.height, alpha: mask.pixels)))
+                            (grade.id, source.id, RasterMaskPayload(width: mask.width, height: mask.height, alpha: mask.pixels)),
+                        )
                         try Task.checkCancellation()
                     }
                 }
@@ -2033,13 +2214,17 @@ final class AppModel: ObservableObject {
                 mutateMaskLook { look in
                     for (gradeID, sourceID, payload) in replacements {
                         guard let g = look.localGrades?.firstIndex(where: { $0.id == gradeID }),
-                            let m = look.localGrades?[g].masks.sources.firstIndex(where: { $0.id == sourceID })
+                              let m = look.localGrades?[g].masks.sources.firstIndex(where: { $0.id == sourceID })
                         else { continue }
                         look.localGrades![g].masks.sources[m].raster = payload
                     }
                 }
                 semanticMaskStatus = "Updated \(replacements.count) AI masks"
-            } catch { if !Task.isCancelled { semanticMaskStatus = "Masks kept · \(error)" } }
+            } catch {
+                if !Task.isCancelled {
+                    semanticMaskStatus = "Masks kept · \(error)"
+                }
+            }
         }
     }
 
@@ -2065,18 +2250,25 @@ final class AppModel: ObservableObject {
                     guard let first = masks.first?.mask else { throw MaskComputationError.nothingFound(recipe.kind) }
                     let combined = masks.dropFirst().reduce(first) { $0.union($1.mask) }
                     grade.masks.sources[index].raster = RasterMaskPayload(
-                        width: combined.width, height: combined.height, alpha: combined.pixels)
+                        width: combined.width, height: combined.height, alpha: combined.pixels,
+                    )
                 }
                 try Task.checkCancellation()
                 guard project.selectedImageID == image.id else { return }
                 let completed = grade
                 mutateMaskLook { look in
-                    if look.localGrades == nil { look.localGrades = [] }
+                    if look.localGrades == nil {
+                        look.localGrades = []
+                    }
                     look.localGrades!.append(completed)
                 }
                 selectLocalGrade(grade.id)
                 semanticMaskStatus = "\(preset.name) applied"
-            } catch { if !Task.isCancelled { semanticMaskStatus = "Preset unavailable · \(error)" } }
+            } catch {
+                if !Task.isCancelled {
+                    semanticMaskStatus = "Preset unavailable · \(error)"
+                }
+            }
         }
     }
 
@@ -2097,10 +2289,14 @@ final class AppModel: ObservableObject {
     func setDepthMaskRange(gradeID: UUID, sourceID: UUID, lower: Double? = nil, upper: Double? = nil) {
         mutateGrade(gradeID) { grade in
             guard let index = grade.masks.sources.firstIndex(where: { $0.id == sourceID }),
-                var recipe = grade.masks.sources[index].aiRecipe
+                  var recipe = grade.masks.sources[index].aiRecipe
             else { return }
-            if let lower { recipe.depthLower = min(recipe.depthUpper, max(0, lower)) }
-            if let upper { recipe.depthUpper = max(recipe.depthLower, min(1, upper)) }
+            if let lower {
+                recipe.depthLower = min(recipe.depthUpper, max(0, lower))
+            }
+            if let upper {
+                recipe.depthUpper = max(recipe.depthLower, min(1, upper))
+            }
             grade.masks.sources[index].aiRecipe = recipe
         }
     }
@@ -2108,20 +2304,26 @@ final class AppModel: ObservableObject {
     func setAIMaskShape(gradeID: UUID, sourceID: UUID, feather: Double? = nil, edge: Double? = nil) {
         mutateGrade(gradeID) { grade in
             guard let m = grade.masks.sources.firstIndex(where: { $0.id == sourceID }),
-                var recipe = grade.masks.sources[m].aiRecipe
+                  var recipe = grade.masks.sources[m].aiRecipe
             else { return }
-            if let feather { recipe.feather = min(100, max(0, feather)) }
-            if let edge { recipe.edge = min(100, max(-100, edge)) }
+            if let feather {
+                recipe.feather = min(100, max(0, feather))
+            }
+            if let edge {
+                recipe.edge = min(100, max(-100, edge))
+            }
             grade.masks.sources[m].aiRecipe = recipe
         }
     }
 
     func refineAIMask(gradeID: UUID, sourceID: UUID, stroke: BrushStroke? = nil) {
         guard let image = selectedImage,
-            let source = image.look.localGrades?.first(where: { $0.id == gradeID })?.masks.sources.first(where: { $0.id == sourceID }),
-            let raster = source.raster, var recipe = source.aiRecipe
+              let source = image.look.localGrades?.first(where: { $0.id == gradeID })?.masks.sources.first(where: { $0.id == sourceID }),
+              let raster = source.raster, var recipe = source.aiRecipe
         else { return }
-        if let stroke { recipe.refineStrokes.append(stroke) }
+        if let stroke {
+            recipe.refineStrokes.append(stroke)
+        }
         semanticMaskTask?.cancel()
         semanticMaskStatus = "Refining edges…"
         let savedRecipe = recipe
@@ -2129,16 +2331,22 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             do {
                 let refined = try await RedlampMaskService.shared.refine(
-                    raster, recipe: savedRecipe, url: image.url, onlyStrokes: stroke != nil)
+                    raster, recipe: savedRecipe, url: image.url, onlyStrokes: stroke != nil,
+                )
                 guard !Task.isCancelled, project.selectedImageID == image.id else { return }
                 mutateGrade(gradeID) { grade in
                     guard let index = grade.masks.sources.firstIndex(where: { $0.id == sourceID }) else { return }
                     grade.masks.sources[index].raster = RasterMaskPayload(
-                        width: refined.width, height: refined.height, alpha: refined.pixels)
+                        width: refined.width, height: refined.height, alpha: refined.pixels,
+                    )
                     grade.masks.sources[index].aiRecipe = savedRecipe
                 }
                 semanticMaskStatus = "Edges refined"
-            } catch { if !Task.isCancelled { semanticMaskStatus = "Edges kept · \(error)" } }
+            } catch {
+                if !Task.isCancelled {
+                    semanticMaskStatus = "Edges kept · \(error)"
+                }
+            }
         }
     }
 
@@ -2154,7 +2362,11 @@ final class AppModel: ObservableObject {
         let imageID = image.id
         Task { [weak self] in
             guard let self else { return }
-            defer { if project.selectedImageID == imageID { isPreparingRawDenoise = false } }
+            defer {
+                if project.selectedImageID == imageID {
+                    isPreparingRawDenoise = false
+                }
+            }
             do {
                 let url = try await rawDenoiseService.prepare(source: image.url, raw: image.look.raw, iso: image.metadata?.iso)
                 guard project.selectedImageID == imageID else { return }
@@ -2171,8 +2383,10 @@ final class AppModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await rawDenoiseService.clear(); rawDenoiseStatus = "RAW denoise cache cleared";
-                if let id = project.selectedImageID { removeRenderedFrames(for: id) }; requestPreviewRefresh()
+                try await rawDenoiseService.clear(); rawDenoiseStatus = "RAW denoise cache cleared"
+                if let id = project.selectedImageID {
+                    removeRenderedFrames(for: id)
+                }; requestPreviewRefresh()
             } catch { rawDenoiseStatus = error.localizedDescription }
         }
     }
@@ -2184,25 +2398,41 @@ final class AppModel: ObservableObject {
     func setRawDenoiseMode(_ mode: RawDenoiseMode) {
         setRawSettings({ $0.denoiseMode = mode }, interactive: false)
         semanticMasks = nil
-        if let image = selectedImage { Task { await semanticMaskEngine.invalidate(imageURL: image.url) } }
+        if let image = selectedImage {
+            Task { await semanticMaskEngine.invalidate(imageURL: image.url) }
+        }
         rawDenoiseStatus = mode == .off ? "RAW denoise off" : "Denoise settings changed · prepare cache to activate"
-        if mode == .auto { prepareRawDenoiseForSelected() }
+        if mode == .auto {
+            prepareRawDenoiseForSelected()
+        }
     }
-    func setRawDenoiseLuma(_ value: Double) { setRawSettings({ $0.denoiseLuma = min(1, max(0, value)) }, interactive: false) }
-    func setRawDenoiseChroma(_ value: Double) { setRawSettings({ $0.denoiseChroma = min(1, max(0, value)) }, interactive: false) }
+
+    func setRawDenoiseLuma(_ value: Double) {
+        setRawSettings({ $0.denoiseLuma = min(1, max(0, value)) }, interactive: false)
+    }
+
+    func setRawDenoiseChroma(_ value: Double) {
+        setRawSettings({ $0.denoiseChroma = min(1, max(0, value)) }, interactive: false)
+    }
 
     func setLensEffectsSettings(interactive: Bool = false, _ body: (inout LensEffectsSettings) -> Void) {
         guard let i = selectedIndex else { return }
         if interactive {
-            if gestureWorkingLook == nil { beginEditGesture() }
-            if gestureWorkingLook?.lensEffects == nil { gestureWorkingLook?.lensEffects = LensEffectsSettings() }
+            if gestureWorkingLook == nil {
+                beginEditGesture()
+            }
+            if gestureWorkingLook?.lensEffects == nil {
+                gestureWorkingLook?.lensEffects = LensEffectsSettings()
+            }
             body(&gestureWorkingLook!.lensEffects!)
             activeEditChangedParameter = "lensEffects"
             Task { @MainActor in await publishInteractiveProxy(changedParameter: "lensEffects", rawField: nil) }
             return
         }
         undoStack.append(project.images[i].look); redoStack.removeAll()
-        if project.images[i].look.lensEffects == nil { project.images[i].look.lensEffects = LensEffectsSettings() }
+        if project.images[i].look.lensEffects == nil {
+            project.images[i].look.lensEffects = LensEffectsSettings()
+        }
         body(&project.images[i].look.lensEffects!)
         semanticMasks = nil
         let imageURL = project.images[i].url
@@ -2213,15 +2443,23 @@ final class AppModel: ObservableObject {
     func setFilmEffectsSettings(interactive: Bool = false, _ body: (inout FilmEffectsSettings) -> Void) {
         guard let i = selectedIndex else { return }
         if interactive {
-            if gestureWorkingLook == nil { beginEditGesture() }
-            if gestureWorkingLook?.filmEffects == nil { gestureWorkingLook?.filmEffects = FilmEffectsSettings() }
+            if gestureWorkingLook == nil {
+                beginEditGesture()
+            }
+            if gestureWorkingLook?.filmEffects == nil {
+                gestureWorkingLook?.filmEffects = FilmEffectsSettings()
+            }
             body(&gestureWorkingLook!.filmEffects!)
             activeEditChangedParameter = "filmEffects"
-            if let look = gestureWorkingLook { publishLocalGradePreview(look: look) }
+            if let look = gestureWorkingLook {
+                publishLocalGradePreview(look: look)
+            }
             return
         }
         undoStack.append(project.images[i].look); redoStack.removeAll()
-        if project.images[i].look.filmEffects == nil { project.images[i].look.filmEffects = FilmEffectsSettings() }
+        if project.images[i].look.filmEffects == nil {
+            project.images[i].look.filmEffects = FilmEffectsSettings()
+        }
         body(&project.images[i].look.filmEffects!)
         semanticMasks = nil
         let imageURL = project.images[i].url
@@ -2240,15 +2478,18 @@ final class AppModel: ObservableObject {
         }
         parts.append(
             renderRoot?.standardizedFileURL.path == rawRoot.standardizedFileURL.path
-                ? "ERROR: RawForge overlaps render cache" : "RawForge cache isolated")
+                ? "ERROR: RawForge overlaps render cache" : "RawForge cache isolated",
+        )
         if let aiRoot {
             parts.append(
                 aiRoot.standardizedFileURL.path == rawRoot.standardizedFileURL.path
-                    ? "ERROR: AI models overlap RawForge cache" : "AI models isolated")
+                    ? "ERROR: AI models overlap RawForge cache" : "AI models isolated",
+            )
         }
         parts.append("semantic masks: memory-only cache")
         cacheHealthStatus = parts.joined(separator: " · ")
     }
+
     func refreshWhiteBalanceReference(for imageOverride: ProjectImageRecord? = nil) {
         guard let image = imageOverride ?? selectedImage else { return }
         let raw = image.look.raw
@@ -2270,8 +2511,8 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             let reference = await decoder.whiteBalanceReference(url: image.url, raw: raw)
             guard !Task.isCancelled,
-                generation == whiteBalanceReferenceGeneration,
-                project.selectedImageID == image.id
+                  generation == whiteBalanceReferenceGeneration,
+                  project.selectedImageID == image.id
             else { return }
             let baseTemperature = PixelBufferF32.clampedKelvin(reference.temperature)
             let baseTint = reference.tint.isFinite ? reference.tint : 0
@@ -2279,7 +2520,7 @@ final class AppModel: ObservableObject {
             whiteBalanceBaseTint = baseTint
             whiteBalanceDisplayTemperature = PixelBufferF32.kelvin(
                 baseKelvin: baseTemperature,
-                miredOffset: raw.temperatureOffsetMired ?? 0
+                miredOffset: raw.temperatureOffsetMired ?? 0,
             )
             whiteBalanceDisplayTint = baseTint + (raw.tintOffset ?? 0)
             isResolvingWhiteBalanceReference = false
@@ -2312,7 +2553,7 @@ final class AppModel: ObservableObject {
                 fullResolutionRequest: false,
                 cacheResult: true,
                 reason: "Custom WB preview",
-                useInteractiveRenderPolicy: false
+                useInteractiveRenderPolicy: false,
             )
             return
         }
@@ -2331,13 +2572,13 @@ final class AppModel: ObservableObject {
                 removeRenderedFrames(for: image.id)
                 let resolution = await decoder.autoWhiteBalanceResolution(
                     url: image.url,
-                    lensCorrection: image.look.raw.lensCorrection
+                    lensCorrection: image.look.raw.lensCorrection,
                 )
                 guard project.selectedImageID == image.id else { return }
                 autoWhiteBalanceStatus =
                     resolution.method == .cameraNeutral
-                    ? "Auto WB · camera-space neutral detected"
-                    : "Auto WB · robust working-space fallback"
+                        ? "Auto WB · camera-space neutral detected"
+                        : "Auto WB · robust working-space fallback"
             } else {
                 autoWhiteBalanceStatus = ""
             }
@@ -2357,7 +2598,7 @@ final class AppModel: ObservableObject {
                 fullResolutionRequest: false,
                 cacheResult: true,
                 reason: mode == .auto ? "Auto WB preview" : "As Shot WB preview",
-                useInteractiveRenderPolicy: false
+                useInteractiveRenderPolicy: false,
             )
         }
     }
@@ -2376,12 +2617,12 @@ final class AppModel: ObservableObject {
         project.images[i].look.raw.whiteBalanceMode = baseMode
         project.images[i].look.raw.temperatureOffsetMired =
             abs(preset.temperatureOffsetMired) < 1.0e-9
-            ? nil
-            : preset.temperatureOffsetMired
+                ? nil
+                : preset.temperatureOffsetMired
         project.images[i].look.raw.tintOffset =
             abs(preset.tintOffset) < 1.0e-9
-            ? nil
-            : preset.tintOffset
+                ? nil
+                : preset.tintOffset
         let image = project.images[i]
         isResolvingWhiteBalanceReference = true
 
@@ -2393,36 +2634,36 @@ final class AppModel: ObservableObject {
                 // underneath the relative preset.
                 let resolution = await decoder.autoWhiteBalanceResolution(
                     url: image.url,
-                    lensCorrection: image.look.raw.lensCorrection
+                    lensCorrection: image.look.raw.lensCorrection,
                 )
                 guard !Task.isCancelled,
-                    generation == whiteBalanceReferenceGeneration,
-                    project.selectedImageID == image.id
+                      generation == whiteBalanceReferenceGeneration,
+                      project.selectedImageID == image.id
                 else { return }
                 autoWhiteBalanceStatus =
                     resolution.method == .cameraNeutral
-                    ? "Auto WB · camera-space neutral detected"
-                    : "Auto WB · robust working-space fallback"
+                        ? "Auto WB · camera-space neutral detected"
+                        : "Auto WB · robust working-space fallback"
             } else {
                 autoWhiteBalanceStatus = ""
             }
 
             guard !Task.isCancelled,
-                generation == whiteBalanceReferenceGeneration,
-                project.selectedImageID == image.id,
-                let current = selectedImage
+                  generation == whiteBalanceReferenceGeneration,
+                  project.selectedImageID == image.id,
+                  let current = selectedImage
             else { return }
             let reference = await decoder.whiteBalanceReference(url: current.url, raw: current.look.raw)
             guard !Task.isCancelled,
-                generation == whiteBalanceReferenceGeneration,
-                project.selectedImageID == image.id
+                  generation == whiteBalanceReferenceGeneration,
+                  project.selectedImageID == image.id
             else { return }
 
             whiteBalanceBaseTemperature = PixelBufferF32.clampedKelvin(reference.temperature)
             whiteBalanceBaseTint = reference.tint.isFinite ? reference.tint : 0
             whiteBalanceDisplayTemperature = PixelBufferF32.kelvin(
                 baseKelvin: whiteBalanceBaseTemperature,
-                miredOffset: preset.temperatureOffsetMired
+                miredOffset: preset.temperatureOffsetMired,
             )
             whiteBalanceDisplayTint = whiteBalanceBaseTint + preset.tintOffset
             isResolvingWhiteBalanceReference = false
@@ -2433,7 +2674,7 @@ final class AppModel: ObservableObject {
                 fullResolutionRequest: false,
                 cacheResult: true,
                 reason: "relative WB preset",
-                useInteractiveRenderPolicy: false
+                useInteractiveRenderPolicy: false,
             )
         }
     }
@@ -2449,20 +2690,20 @@ final class AppModel: ObservableObject {
             removeRenderedFrames(for: image.id)
             let resolution = await decoder.autoWhiteBalanceResolution(
                 url: image.url,
-                lensCorrection: image.look.raw.lensCorrection
+                lensCorrection: image.look.raw.lensCorrection,
             )
             guard project.selectedImageID == image.id, let current = selectedImage else { return }
             autoWhiteBalanceStatus =
                 resolution.method == .cameraNeutral
-                ? "Auto WB · camera-space neutral detected"
-                : "Auto WB · robust working-space fallback"
+                    ? "Auto WB · camera-space neutral detected"
+                    : "Auto WB · robust working-space fallback"
             let reference = await decoder.whiteBalanceReference(url: current.url, raw: current.look.raw)
             guard project.selectedImageID == image.id else { return }
             whiteBalanceBaseTemperature = PixelBufferF32.clampedKelvin(reference.temperature)
             whiteBalanceBaseTint = reference.tint.isFinite ? reference.tint : 0
             whiteBalanceDisplayTemperature = PixelBufferF32.kelvin(
                 baseKelvin: whiteBalanceBaseTemperature,
-                miredOffset: current.look.raw.temperatureOffsetMired ?? 0
+                miredOffset: current.look.raw.temperatureOffsetMired ?? 0,
             )
             whiteBalanceDisplayTint = whiteBalanceBaseTint + (current.look.raw.tintOffset ?? 0)
             isResolvingWhiteBalanceReference = false
@@ -2472,15 +2713,15 @@ final class AppModel: ObservableObject {
                 fullResolutionRequest: false,
                 cacheResult: true,
                 reason: "recalculated Auto WB",
-                useInteractiveRenderPolicy: false
+                useInteractiveRenderPolicy: false,
             )
         }
     }
 
     func autoWhiteBalanceToSkin() {
         guard !isSkinWhiteBalanceRunning,
-            let i = selectedIndex,
-            let exactRenderer
+              let i = selectedIndex,
+              let exactRenderer
         else { return }
 
         let image = project.images[i]
@@ -2523,7 +2764,7 @@ final class AppModel: ObservableObject {
                 let reference = await decoder.whiteBalanceReference(url: image.url, raw: asShotRaw)
                 try Task.checkCancellation()
                 guard generation == skinWhiteBalanceGeneration,
-                    project.selectedImageID == imageID
+                      project.selectedImageID == imageID
                 else { throw CancellationError() }
 
                 let solverEdge = min(720, max(480, project.preferences.previewLongEdge))
@@ -2536,7 +2777,8 @@ final class AppModel: ObservableObject {
                 guard let solverSet = solverSemantic, let solverSkin = solverSet.alpha(.skin) else {
                     throw NSError(
                         domain: "SpektraFilmFast.SkinWB", code: 10,
-                        userInfo: [NSLocalizedDescriptionKey: "Canonical Skin Only mask is unavailable. Run Analyze Masks first."])
+                        userInfo: [NSLocalizedDescriptionKey: "Canonical Skin Only mask is unavailable. Run Analyze Masks first."],
+                    )
                 }
                 let solverSkinPayload = CanonicalSkinMaskPayload(width: solverSet.width, height: solverSet.height, alpha: solverSkin)
 
@@ -2549,7 +2791,7 @@ final class AppModel: ObservableObject {
                 @MainActor func sample(mired: Double, tint: Double) async throws -> (Double, StudioAnalysisMetrics, RawSettings) {
                     try Task.checkCancellation()
                     guard generation == skinWhiteBalanceGeneration,
-                        project.selectedImageID == imageID
+                          project.selectedImageID == imageID
                     else { throw CancellationError() }
 
                     var raw = asShotRaw
@@ -2567,12 +2809,13 @@ final class AppModel: ObservableObject {
                         longEdge: solverEdge,
                         raw: raw,
                         bypassImportTransform: project.preferences.bypassImportTransform,
-                        cacheMode: .conservative
+                        cacheMode: .conservative,
                     )
                     let prepared = await Task.detached(priority: .userInitiated) {
                         exactLinear.applyingHostAndFilmGrade(
                             tone: look.tone,
-                            density: look.colorDensity, film: look.filmTone)
+                            density: look.colorDensity, film: look.filmTone,
+                        )
                     }.value
                     try Task.checkCancellation()
                     let (filmOutput, _) = try await exactRenderer.render(prepared, look: look)
@@ -2585,22 +2828,22 @@ final class AppModel: ObservableObject {
                         look: look,
                         preferences: analysisPrefs,
                         maxLongEdge: 640,
-                        canonicalSkinMask: solverSkinPayload
+                        canonicalSkinMask: solverSkinPayload,
                     )
                     return (payload.metrics.skinMeanDeviationDegrees, payload.metrics, raw)
                 }
 
                 let baseline = try await sample(mired: 0, tint: 0)
                 guard baseline.1.skinCandidatePercent >= 0.02,
-                    baseline.1.skinMeasurementConfidencePercent >= 4.0
+                      baseline.1.skinMeasurementConfidencePercent >= 4.0
                 else {
                     throw NSError(
                         domain: "SpektraFilmFast.SkinWB",
                         code: 1,
                         userInfo: [
                             NSLocalizedDescriptionKey:
-                                "No reliable skin sample was found. Skin WB left the photo unchanged."
-                        ]
+                                "No reliable skin sample was found. Skin WB left the photo unchanged.",
+                        ],
                     )
                 }
 
@@ -2624,8 +2867,8 @@ final class AppModel: ObservableObject {
                         code: 2,
                         userInfo: [
                             NSLocalizedDescriptionKey:
-                                "Skin direction was not responsive enough to white balance. No change was made."
-                        ]
+                                "Skin direction was not responsive enough to white balance. No change was made.",
+                        ],
                     )
                 }
 
@@ -2635,7 +2878,7 @@ final class AppModel: ObservableObject {
 
                 func consider(_ candidate: (Double, StudioAnalysisMetrics, RawSettings), mired: Double, tint: Double) {
                     let reliable = candidate.1.skinMeasurementConfidencePercent >= 3.0
-                    if reliable && abs(candidate.0) < abs(best.0) {
+                    if reliable, abs(candidate.0) < abs(best.0) {
                         best = candidate
                         bestMired = mired
                         bestTint = tint
@@ -2655,7 +2898,9 @@ final class AppModel: ObservableObject {
                     let tint = proposedTint * fraction
                     let candidate = try await sample(mired: mired, tint: tint)
                     consider(candidate, mired: mired, tint: tint)
-                    if abs(best.0) <= 1.5 { break }
+                    if abs(best.0) <= 1.5 {
+                        break
+                    }
                 }
 
                 guard abs(best.0) + 0.5 < abs(startError) else {
@@ -2664,15 +2909,15 @@ final class AppModel: ObservableObject {
                         code: 3,
                         userInfo: [
                             NSLocalizedDescriptionKey:
-                                "A safer skin-based WB correction could not improve this frame. No change was made."
-                        ]
+                                "A safer skin-based WB correction could not improve this frame. No change was made.",
+                        ],
                     )
                 }
 
                 try Task.checkCancellation()
                 guard generation == skinWhiteBalanceGeneration,
-                    project.selectedImageID == imageID,
-                    let currentIndex = project.images.firstIndex(where: { $0.id == imageID })
+                      project.selectedImageID == imageID,
+                      let currentIndex = project.images.firstIndex(where: { $0.id == imageID })
                 else {
                     throw CancellationError()
                 }
@@ -2685,7 +2930,7 @@ final class AppModel: ObservableObject {
                 whiteBalanceBaseTint = reference.tint.isFinite ? reference.tint : 0
                 whiteBalanceDisplayTemperature = PixelBufferF32.kelvin(
                     baseKelvin: whiteBalanceBaseTemperature,
-                    miredOffset: bestMired
+                    miredOffset: bestMired,
                 )
                 whiteBalanceDisplayTint = whiteBalanceBaseTint + bestTint
                 autoWhiteBalanceStatus = ""
@@ -2694,7 +2939,7 @@ final class AppModel: ObservableObject {
                 let tintDirection = bestTint < -0.5 ? "toward green" : (bestTint > 0.5 ? "toward magenta" : "same tint")
                 skinWhiteBalanceStatus = String(
                     format: "As Shot → %@, %@ · skin error %+.1f° → %+.1f°",
-                    tempDirection, tintDirection, startError, best.0
+                    tempDirection, tintDirection, startError, best.0,
                 )
                 status = "Skin WB applied · \(skinWhiteBalanceStatus)"
                 scheduleRender(
@@ -2703,7 +2948,7 @@ final class AppModel: ObservableObject {
                     fullResolutionRequest: false,
                     cacheResult: true,
                     reason: "Skin WB exact preview",
-                    useInteractiveRenderPolicy: false
+                    useInteractiveRenderPolicy: false,
                 )
             } catch is CancellationError {
             } catch {
@@ -2723,10 +2968,11 @@ final class AppModel: ObservableObject {
                 } else {
                     raw.temperatureOffsetMired = PixelBufferF32.miredOffset(
                         baseKelvin: self.whiteBalanceBaseTemperature,
-                        targetKelvin: target
+                        targetKelvin: target,
                     )
                 }
-            }, interactive: interactive, field: .temperature)
+            }, interactive: interactive, field: .temperature,
+        )
     }
 
     func setWhiteBalanceTint(_ tint: Double, interactive: Bool) {
@@ -2739,17 +2985,20 @@ final class AppModel: ObservableObject {
                 } else {
                     raw.tintOffset = target - self.whiteBalanceBaseTint
                 }
-            }, interactive: interactive, field: .tint)
+            }, interactive: interactive, field: .tint,
+        )
     }
 
     func setRawSettings(
         _ mutate: (inout RawSettings) -> Void,
         interactive: Bool,
-        field: RawInteractiveField? = nil
+        field: RawInteractiveField? = nil,
     ) {
         guard let i = selectedIndex else { return }
         if interactive {
-            if gestureWorkingLook == nil { beginEditGesture() }
+            if gestureWorkingLook == nil {
+                beginEditGesture()
+            }
             if var working = gestureWorkingLook {
                 mutate(&working.raw)
                 gestureWorkingLook = working
@@ -2767,16 +3016,15 @@ final class AppModel: ObservableObject {
         }
 
         cancelIdleRefinement()
-        if activeEditBaseline == nil {  
+        if activeEditBaseline == nil {
             undoStack.append(project.images[i].look)
             redoStack.removeAll()
         }
         mutate(&project.images[i].look.raw)
-        let batchParameter: String
-        switch field {
-        case .temperature: batchParameter = "rawTemperature"
-        case .tint: batchParameter = "rawTint"
-        case nil: batchParameter = "raw"
+        let batchParameter = switch field {
+        case .temperature: "rawTemperature"
+        case .tint: "rawTint"
+        case nil: "raw"
         }
         propagateBatchEdit(from: project.images[i].look, activeIndex: i, changedParameter: batchParameter)
         refreshWhiteBalanceReference(for: project.images[i])
@@ -2786,7 +3034,9 @@ final class AppModel: ObservableObject {
     private func mutateRawDevelop(interactive: Bool, changedParameter: String, _ mutate: (inout RawSettings) -> Void) {
         guard let i = selectedIndex else { return }
         if interactive {
-            if gestureWorkingLook == nil { beginEditGesture() }
+            if gestureWorkingLook == nil {
+                beginEditGesture()
+            }
             guard var working = gestureWorkingLook else { return }
             mutate(&working.raw)
             gestureWorkingLook = working
@@ -2795,7 +3045,9 @@ final class AppModel: ObservableObject {
             return
         }
         cancelIdleRefinement()
-        if activeEditBaseline == nil { undoStack.append(project.images[i].look); redoStack.removeAll() }
+        if activeEditBaseline == nil {
+            undoStack.append(project.images[i].look); redoStack.removeAll()
+        }
         mutate(&project.images[i].look.raw)
         propagateBatchEdit(from: project.images[i].look, activeIndex: i, changedParameter: changedParameter)
         scheduleIdleRefinement(changedParameter: changedParameter, delayMilliseconds: 20)
@@ -2804,7 +3056,7 @@ final class AppModel: ObservableObject {
     func setRawDevelopExposure(_ value: Double, interactive: Bool) {
         mutateRawDevelop(interactive: interactive, changedParameter: "rawDevelopExposure") {
             $0.developExposureEV = min(5, max(-5, value))
-            $0.autoExposureApplied = false  // manual drag invalidates the one-shot auto
+            $0.autoExposureApplied = false // manual drag invalidates the one-shot auto
         }
     }
 
@@ -2817,12 +3069,11 @@ final class AppModel: ObservableObject {
         }
         var didMeter = false
         // Legacy native auto-exposure flag: meter once, store the EV, clear the flag.
-        let nativeAutoExposure: Bool
-        switch working.values["autoExposure"] {
-        case .bool(let on): nativeAutoExposure = on
-        case .int(let v): nativeAutoExposure = v != 0
-        case .scalar(let x): nativeAutoExposure = x != 0
-        case .none, .vector2, .vector3: nativeAutoExposure = false
+        let nativeAutoExposure: Bool = switch working.values["autoExposure"] {
+        case let .bool(on): on
+        case let .int(v): v != 0
+        case let .scalar(x): x != 0
+        case .none, .vector2, .vector3: false
         }
         if !working.raw.autoExposureApplied, nativeAutoExposure {
             let ev = AutoCalibrationMath.developExposureEV(pixels: buffer.pixels)
@@ -2834,7 +3085,7 @@ final class AppModel: ObservableObject {
         // Host auto contrast: meter once into resolved bounds; film auto keeps its own
         // log2-luma percentile meter, so only the host tone is resolved with linear bounds.
         if working.tone?.autoContrast == true, working.tone?.isAutoContrastResolved != true,
-            let bounds = AutoCalibrationMath.resolveContrast(pixels: buffer.pixels)
+           let bounds = AutoCalibrationMath.resolveContrast(pixels: buffer.pixels)
         {
             working.tone = (working.tone ?? ToneSettings())
                 .applyingResolvedAutoContrast(black: bounds.black, white: bounds.white)
@@ -2863,7 +3114,7 @@ final class AppModel: ObservableObject {
         // Same buffer + already applied = no-op (no undo push, no re-render).
         guard
             ev != project.images[i].look.raw.developExposureEV
-                || !project.images[i].look.raw.autoExposureApplied
+            || !project.images[i].look.raw.autoExposureApplied
         else { return }
         cancelIdleRefinement()
         if activeEditBaseline == nil {
@@ -2891,7 +3142,7 @@ final class AppModel: ObservableObject {
         }
         guard
             let gains = AutoCalibrationMath.whiteBalanceGains(
-                width: buffer.width, height: buffer.height, pixels: buffer.pixels
+                width: buffer.width, height: buffer.height, pixels: buffer.pixels,
             )
         else {
             status = "Auto WB · no neutral candidate"
@@ -2906,7 +3157,7 @@ final class AppModel: ObservableObject {
         if project.images[i].look.raw.whiteBalanceMode == .custom {
             // Custom already holds absolute temp/tint: shift it by the measured offset.
             project.images[i].look.raw.temperature = PixelBufferF32.kelvin(
-                baseKelvin: whiteBalanceBaseTemperature, miredOffset: offsets.mired
+                baseKelvin: whiteBalanceBaseTemperature, miredOffset: offsets.mired,
             )
             project.images[i].look.raw.tint = whiteBalanceBaseTint + offsets.tint
             project.images[i].look.raw.temperatureOffsetMired = nil
@@ -2917,7 +3168,7 @@ final class AppModel: ObservableObject {
             project.images[i].look.raw.temperatureOffsetMired = offsets.mired
             project.images[i].look.raw.tintOffset = offsets.tint
             whiteBalanceDisplayTemperature = PixelBufferF32.kelvin(
-                baseKelvin: whiteBalanceBaseTemperature, miredOffset: offsets.mired
+                baseKelvin: whiteBalanceBaseTemperature, miredOffset: offsets.mired,
             )
             whiteBalanceDisplayTint = whiteBalanceBaseTint + offsets.tint
         }
@@ -2925,32 +3176,43 @@ final class AppModel: ObservableObject {
         refreshWhiteBalanceReference(for: project.images[i])
         scheduleIdleRefinement(changedParameter: "rawWhiteBalance", delayMilliseconds: 20)
     }
+
     func setRawDevelopGlobalTone(_ value: Double, interactive: Bool) {
         mutateRawDevelop(interactive: interactive, changedParameter: "rawDevelopGlobalTone") {
             $0.developGlobalTone = min(1, max(0, value))
         }
     }
+
     func setRawDevelopShadowBoost(_ value: Double, interactive: Bool) {
         mutateRawDevelop(interactive: interactive, changedParameter: "rawDevelopShadowBoost") {
             $0.developShadowBoost = min(2, max(0, value))
         }
     }
+
     func setRawDevelopHighlightHeadroom(_ value: Double, interactive: Bool) {
         mutateRawDevelop(interactive: interactive, changedParameter: "rawDevelopHeadroom") {
             $0.developHighlightHeadroom = min(2, max(0, value))
         }
     }
+
     func setRawDevelopCurvePoints(_ points: [ToneCurvePoint], interactive: Bool) {
-        let n = ToneCurveMath.normalize(points);
+        let n = ToneCurveMath.normalize(points)
         mutateRawDevelop(interactive: interactive, changedParameter: "rawDevelopCurve") { $0.developCurvePoints = n }
     }
-    func applyRawDevelopCurvePreset(_ preset: ToneCurvePreset) { setRawDevelopCurvePoints(preset.points, interactive: false) }
-    func resetRawDevelopCurve() { setRawDevelopCurvePoints([.init(x: 0, y: 0), .init(x: 1, y: 1)], interactive: false) }
+
+    func applyRawDevelopCurvePreset(_ preset: ToneCurvePreset) {
+        setRawDevelopCurvePoints(preset.points, interactive: false)
+    }
+
+    func resetRawDevelopCurve() {
+        setRawDevelopCurvePoints([.init(x: 0, y: 0), .init(x: 1, y: 1)], interactive: false)
+    }
+
     func resetRawDevelop() {
         guard let i = selectedIndex else { return }
         cancelIdleRefinement(); undoStack.append(project.images[i].look); redoStack.removeAll()
-        project.images[i].look.raw.developExposureEV = 0; project.images[i].look.raw.developGlobalTone = 1;
-        project.images[i].look.raw.developShadowBoost = 1; project.images[i].look.raw.developHighlightHeadroom = 0;
+        project.images[i].look.raw.developExposureEV = 0; project.images[i].look.raw.developGlobalTone = 1
+        project.images[i].look.raw.developShadowBoost = 1; project.images[i].look.raw.developHighlightHeadroom = 0
         project.images[i].look.raw.developCurvePoints = [.init(x: 0, y: 0), .init(x: 1, y: 1)]; project.images[i].look.tone = ToneSettings()
         scheduleIdleRefinement(changedParameter: "rawDevelopReset", delayMilliseconds: 20)
     }
@@ -3012,8 +3274,8 @@ final class AppModel: ObservableObject {
         scheduleIdleRefinement(changedParameter: groupID, delayMilliseconds: 20)
     }
 
-    // Film-feed adjustments are intentionally distinct from the scene grade.
-    // They settle through the exact spectral renderer; never persist a proxy.
+    /// Film-feed adjustments are intentionally distinct from the scene grade.
+    /// They settle through the exact spectral renderer; never persist a proxy.
     func setFilmToneValue(_ key: String, value: Double, interactive: Bool) {
         guard let i = selectedIndex else { return }
         func change(_ tone: inout ToneSettings) {
@@ -3033,12 +3295,16 @@ final class AppModel: ObservableObject {
             }
         }
         if interactive {
-            if gestureWorkingLook == nil { beginEditGesture() }
+            if gestureWorkingLook == nil {
+                beginEditGesture()
+            }
             guard var working = gestureWorkingLook else { return }
             var film = working.filmTone ?? ToneSettings()
             change(&film)
             working.filmTone = film
-            if key != "autoContrast" { working.clearingAutoContrastResolution() }
+            if key != "autoContrast" {
+                working.clearingAutoContrastResolution()
+            }
             gestureWorkingLook = working
             activeEditChangedParameter = "filmStockShape." + key
             // Immediate proxy, followed by an accurate coalesced render through the same
@@ -3056,7 +3322,9 @@ final class AppModel: ObservableObject {
         change(&film)
         var look = project.images[i].look
         look.filmTone = film
-        if key != "autoContrast" { look.clearingAutoContrastResolution() }
+        if key != "autoContrast" {
+            look.clearingAutoContrastResolution()
+        }
         project.images[i].look = look
         scheduleIdleRefinement(changedParameter: "filmStockShape." + key, delayMilliseconds: 40)
     }
@@ -3086,7 +3354,7 @@ final class AppModel: ObservableObject {
         // Meter once on enable so the first render already carries concrete bounds.
         // Pre-correction source keeps repeated presses idempotent.
         if let buffer = latestSourceBuffer ?? gestureSettleBaselineBuffer ?? gestureBaselineRenderedBuffer ?? latestRenderedBuffer,
-            let bounds = AutoCalibrationMath.resolveContrast(pixels: buffer.pixels)
+           let bounds = AutoCalibrationMath.resolveContrast(pixels: buffer.pixels)
         {
             mutateTone(interactive: interactive, changedParameter: "hostAutoContrast") {
                 $0 = $0.applyingResolvedAutoContrast(black: bounds.black, white: bounds.white)
@@ -3154,7 +3422,9 @@ final class AppModel: ObservableObject {
         cancelIdleRefinement()
         undoStack.append(project.images[i].look)
         redoStack.removeAll()
-        if project.images[i].look.tone == nil { project.images[i].look.tone = ToneSettings() }
+        if project.images[i].look.tone == nil {
+            project.images[i].look.tone = ToneSettings()
+        }
         project.images[i].look.tone?.curvePoints = preset.points
         status = "Curve preset · \(preset.rawValue)"
         scheduleIdleRefinement(changedParameter: "hostToneCurve", delayMilliseconds: 30)
@@ -3167,15 +3437,19 @@ final class AppModel: ObservableObject {
     private func mutateTone(
         interactive: Bool,
         changedParameter: String,
-        _ mutate: (inout ToneSettings) -> Void
+        _ mutate: (inout ToneSettings) -> Void,
     ) {
         guard let i = selectedIndex else { return }
         if interactive {
-            if gestureWorkingLook == nil { beginEditGesture() }
+            if gestureWorkingLook == nil {
+                beginEditGesture()
+            }
             guard var working = gestureWorkingLook else { return }
             var tone = working.tone ?? ToneSettings()
             mutate(&tone)
-            if changedParameter != "hostAutoContrast" { tone = tone.clearingAutoContrast() }
+            if changedParameter != "hostAutoContrast" {
+                tone = tone.clearingAutoContrast()
+            }
             working.tone = tone
             gestureWorkingLook = working
             activeEditChangedParameter = changedParameter
@@ -3192,7 +3466,9 @@ final class AppModel: ObservableObject {
         }
         var tone = project.images[i].look.tone ?? ToneSettings()
         mutate(&tone)
-        if changedParameter != "hostAutoContrast" { tone = tone.clearingAutoContrast() }
+        if changedParameter != "hostAutoContrast" {
+            tone = tone.clearingAutoContrast()
+        }
         project.images[i].look.tone = tone
         propagateBatchEdit(from: project.images[i].look, activeIndex: i, changedParameter: changedParameter)
         scheduleIdleRefinement(changedParameter: changedParameter, delayMilliseconds: 30)
@@ -3201,12 +3477,14 @@ final class AppModel: ObservableObject {
     func setColorDensity(
         _ key: String,
         value: Double,
-        interactive: Bool
+        interactive: Bool,
     ) {
         guard let i = selectedIndex else { return }
         let clamped = min(0, max(-1, value))
         if interactive {
-            if gestureWorkingLook == nil { beginEditGesture() }
+            if gestureWorkingLook == nil {
+                beginEditGesture()
+            }
             guard var working = gestureWorkingLook else { return }
             var density = working.colorDensity ?? ColorDensitySettings()
             switch key {
@@ -3231,7 +3509,9 @@ final class AppModel: ObservableObject {
             undoStack.append(project.images[i].look)
             redoStack.removeAll()
         }
-        if project.images[i].look.colorDensity == nil { project.images[i].look.colorDensity = ColorDensitySettings() }
+        if project.images[i].look.colorDensity == nil {
+            project.images[i].look.colorDensity = ColorDensitySettings()
+        }
         switch key {
         case "master": project.images[i].look.colorDensity?.master = clamped
         case "red": project.images[i].look.colorDensity?.red = clamped
@@ -3245,7 +3525,7 @@ final class AppModel: ObservableObject {
         propagateBatchEdit(
             from: project.images[i].look,
             activeIndex: i,
-            changedParameter: "density.\(key)"
+            changedParameter: "density.\(key)",
         )
         scheduleIdleRefinement(changedParameter: "density.\(key)", delayMilliseconds: 30)
     }
@@ -3263,11 +3543,13 @@ final class AppModel: ObservableObject {
     func setGeometrySettings(
         interactive: Bool,
         changedParameter: String = "geometry",
-        _ mutate: (inout GeometrySettings) -> Void
+        _ mutate: (inout GeometrySettings) -> Void,
     ) {
         guard let i = selectedIndex else { return }
         if interactive {
-            if gestureWorkingLook == nil { beginEditGesture() }
+            if gestureWorkingLook == nil {
+                beginEditGesture()
+            }
             guard var working = gestureWorkingLook else { return }
             var geometry = working.geometry ?? GeometrySettings()
             let oldCrop = geometry.crop
@@ -3304,7 +3586,7 @@ final class AppModel: ObservableObject {
         propagateBatchEdit(
             from: project.images[i].look,
             activeIndex: i,
-            changedParameter: changedParameter
+            changedParameter: changedParameter,
         )
         if isCropToolActive {
             publishGeometryPreview(look: project.images[i].look)
@@ -3337,8 +3619,12 @@ final class AppModel: ObservableObject {
     func rotateCropQuarterTurn(clockwise: Bool) {
         setGeometrySettings(interactive: false, changedParameter: "geometryRotation") { geometry in
             geometry.rotationDegrees += clockwise ? 90 : -90
-            while geometry.rotationDegrees > 180 { geometry.rotationDegrees -= 360 }
-            while geometry.rotationDegrees < -180 { geometry.rotationDegrees += 360 }
+            while geometry.rotationDegrees > 180 {
+                geometry.rotationDegrees -= 360
+            }
+            while geometry.rotationDegrees < -180 {
+                geometry.rotationDegrees += 360
+            }
         }
     }
 
@@ -3416,8 +3702,8 @@ final class AppModel: ObservableObject {
                     GeometryEngine.minimumScaleToCoverCrop(
                         settings: geometry,
                         width: base.width,
-                        height: base.height
-                    )
+                        height: base.height,
+                    ),
                 )
             }
             geometry.crop = NormalizedCropRect()
@@ -3434,7 +3720,7 @@ final class AppModel: ObservableObject {
             guard !Task.isCancelled, generation == interactiveProxyGeneration else { return }
             renderedPreview =
                 payload?.makeCGImage(colorSpace: profile.cgColorSpace)
-                ?? transformed.makeCGImage8(colorSpace: profile.cgColorSpace)
+                    ?? transformed.makeCGImage8(colorSpace: profile.cgColorSpace)
             latestRenderedBuffer = transformed
             latestRenderedLook = look
             scheduleEditorScopeUpdate(force: false)
@@ -3443,10 +3729,10 @@ final class AppModel: ObservableObject {
 
     private var batchEditIDs: Set<UUID> {
         guard let active = project.selectedImageID,
-            librarySelection.count > 1,
-            librarySelection.contains(active)
+              librarySelection.count > 1,
+              librarySelection.contains(active)
         else {
-            return Set([project.selectedImageID].compactMap { $0 })
+            return Set([project.selectedImageID].compactMap(\.self))
         }
         return librarySelection
     }
@@ -3464,13 +3750,14 @@ final class AppModel: ObservableObject {
     private func propagateBatchEdit(
         from source: RenderLook,
         activeIndex: Int,
-        changedParameter: String?
+        changedParameter: String?,
     ) {
         let ids = batchEditIDs
         guard ids.count > 1 else { return }
 
         for index in project.images.indices
-        where index != activeIndex && ids.contains(project.images[index].id) {
+            where index != activeIndex && ids.contains(project.images[index].id)
+        {
             var target = project.images[index].look
             target.normalizeForProOnly()
 
@@ -3481,9 +3768,9 @@ final class AppModel: ObservableObject {
                 target.raw.lensCorrection = keepLens
 
             case "hostExposure", "hostBrightness", "hostContrast", "hostMidtones",
-                "hostHighlights", "hostShadows", "hostHighlightRecovery",
-                "hostShadowRecovery", "hostWhites", "hostBlacks",
-                "hostWhitePoint", "hostBlackPoint", "hostToneCurve", "hostAutoContrast":
+                 "hostHighlights", "hostShadows", "hostHighlightRecovery",
+                 "hostShadowRecovery", "hostWhites", "hostBlacks",
+                 "hostWhitePoint", "hostBlackPoint", "hostToneCurve", "hostAutoContrast":
                 var t = target.tone ?? ToneSettings()
                 let s = source.tone ?? ToneSettings()
                 switch changedParameter {
@@ -3522,9 +3809,9 @@ final class AppModel: ObservableObject {
                 target.colorDensity = d
 
             case "crop", "geometry", "geometryRotation", "geometryVertical",
-                "geometryHorizontal", "geometryAspect", "geometryScale",
-                "geometryXOffset", "geometryYOffset", "geometryAutoCrop",
-                "geometryFlipH", "geometryFlipV":
+                 "geometryHorizontal", "geometryAspect", "geometryScale",
+                 "geometryXOffset", "geometryYOffset", "geometryAutoCrop",
+                 "geometryFlipH", "geometryFlipV":
                 target.geometry = source.geometry
 
             case let parameter?:
@@ -3547,9 +3834,11 @@ final class AppModel: ObservableObject {
         source.normalizeForProOnly()
         target.normalizeForProOnly()
 
-        let exposureKeys: Set<String> = ["filmExposureEv", "autoExposure", "autoExposureMethod"]
+        let exposureKeys: Set = ["filmExposureEv", "autoExposure", "autoExposureMethod"]
 
-        if lookCopyOptions.whiteBalance { target.raw = source.raw }
+        if lookCopyOptions.whiteBalance {
+            target.raw = source.raw
+        }
 
         if lookCopyOptions.film {
             for (key, value) in source.values where !exposureKeys.contains(key) {
@@ -3559,7 +3848,9 @@ final class AppModel: ObservableObject {
 
         if lookCopyOptions.exposure {
             for key in exposureKeys {
-                if let value = source.values[key] { target.values[key] = value }
+                if let value = source.values[key] {
+                    target.values[key] = value
+                }
             }
             var t = target.tone ?? ToneSettings()
             let s = source.tone ?? ToneSettings()
@@ -3578,13 +3869,21 @@ final class AppModel: ObservableObject {
             }
         }
 
-        if lookCopyOptions.film { target.filmTone = source.filmTone; target.filmEffects = source.filmEffects }
-        if lookCopyOptions.colorDensity { target.colorDensity = source.colorDensity }
-        if lookCopyOptions.geometry { target.geometry = source.geometry }
-        if lookCopyOptions.film { target.lensEffects = source.lensEffects }
+        if lookCopyOptions.film {
+            target.filmTone = source.filmTone; target.filmEffects = source.filmEffects
+        }
+        if lookCopyOptions.colorDensity {
+            target.colorDensity = source.colorDensity
+        }
+        if lookCopyOptions.geometry {
+            target.geometry = source.geometry
+        }
+        if lookCopyOptions.film {
+            target.lensEffects = source.lensEffects
+        }
         if lookCopyOptions.tone {
             target.localGrades = source.localGrades
-            for g in target.localGrades?.indices ?? 0..<0 {
+            for g in target.localGrades?.indices ?? 0 ..< 0 {
                 for m in target.localGrades![g].masks.sources.indices where target.localGrades![g].masks.sources[m].aiRecipe != nil {
                     target.localGrades![g].masks.sources[m].raster = nil
                 }
@@ -3649,7 +3948,9 @@ final class AppModel: ObservableObject {
         let selectedAtPaste = project.selectedImageID
         Task { [weak self] in
             guard let self else { return }
-            for url in autoURLs { await decoder.invalidateAutoWhiteBalance(url: url) }
+            for url in autoURLs {
+                await decoder.invalidateAutoWhiteBalance(url: url)
+            }
             for image in affected {
                 for grade in image.look.localGrades ?? [] {
                     for source in grade.masks.sources {
@@ -3657,13 +3958,14 @@ final class AppModel: ObservableObject {
                         do {
                             let results = try await RedlampMaskService.shared.compute(recipe, url: image.url)
                             guard let mask = results.first?.mask,
-                                let p = project.images.firstIndex(where: { $0.id == image.id }),
-                                let g = project.images[p].look.localGrades?.firstIndex(where: { $0.id == grade.id }),
-                                let m = project.images[p].look.localGrades?[g].masks.sources.firstIndex(where: { $0.id == source.id }),
-                                project.images[p].look.localGrades?[g].masks.sources[m].aiRecipe == recipe
+                                  let p = project.images.firstIndex(where: { $0.id == image.id }),
+                                  let g = project.images[p].look.localGrades?.firstIndex(where: { $0.id == grade.id }),
+                                  let m = project.images[p].look.localGrades?[g].masks.sources.firstIndex(where: { $0.id == source.id }),
+                                  project.images[p].look.localGrades?[g].masks.sources[m].aiRecipe == recipe
                             else { continue }
                             project.images[p].look.localGrades![g].masks.sources[m].raster = RasterMaskPayload(
-                                width: mask.width, height: mask.height, alpha: mask.pixels)
+                                width: mask.width, height: mask.height, alpha: mask.pixels,
+                            )
                         } catch { semanticMaskStatus = "Some pasted masks need a model: \(error)" }
                     }
                 }
@@ -3690,7 +3992,7 @@ final class AppModel: ObservableObject {
 
     // MARK: - Latest-render-wins preview scheduler
 
-    private func scheduleLUTPrewarm(look: RenderLook, imageID: UUID, immediate: Bool = false) {
+    private func scheduleLUTPrewarm(look _: RenderLook, imageID _: UUID, immediate _: Bool = false) {
         // LUT/looks modes removed; no film LUT baking. The native spectral
         // renderer is always used and does not require prewarm.
     }
@@ -3715,7 +4017,7 @@ final class AppModel: ObservableObject {
         reason: String = "preview",
         useInteractiveRenderPolicy: Bool = false,
         baselineRawOverride: RawSettings? = nil,
-        lookOverride: RenderLook? = nil
+        lookOverride: RenderLook? = nil,
     ) {
         guard let image = selectedImage, renderer != nil else { return }
         let previewLook = lookOverride ?? gestureWorkingLook ?? selectedLook
@@ -3750,10 +4052,12 @@ final class AppModel: ObservableObject {
             longEdgeOverride: longEdgeOverride,
             fullResolutionRequest: fullResolutionRequest,
             cacheResult: cacheResult,
-            reason: reason
+            reason: reason,
         )
         pendingRenderRequest = request
-        if renderLoopTask == nil { startRenderLoop() }
+        if renderLoopTask == nil {
+            startRenderLoop()
+        }
     }
 
     private func prepareInteractiveBaseline(from buffer: PixelBufferF32, look: RenderLook) {
@@ -3768,9 +4072,9 @@ final class AppModel: ObservableObject {
                 (try? buffer.resized(longEdge: targetEdge)) ?? buffer
             }.value
             guard !Task.isCancelled,
-                generation == interactiveBaselineGeneration,
-                project.selectedImageID == imageID,
-                selectedLook == look
+                  generation == interactiveBaselineGeneration,
+                  project.selectedImageID == imageID,
+                  selectedLook == look
             else { return }
             latestInteractiveBaseBuffer = scaled
             latestInteractiveBaseLook = look
@@ -3785,26 +4089,36 @@ final class AppModel: ObservableObject {
         let bypassImportTransform: Bool
     }
 
-
     private func gpuLiveRejectionReason(for look: RenderLook) -> String {
-        if !currentSourceSupportsGPULive { return "unsupported source" }
-        if project.preferences.bypassImportTransform { return "bypass import transform" }
-        if look.localGrades?.contains(where: { $0.enabled && $0.opacity > 0 }) == true { return "local masks" }
-        if look.tone?.autoContrast == true && !(look.tone?.isAutoContrastResolved ?? false) {
+        if !currentSourceSupportsGPULive {
+            return "unsupported source"
+        }
+        if project.preferences.bypassImportTransform {
+            return "bypass import transform"
+        }
+        if look.localGrades?.contains(where: { $0.enabled && $0.opacity > 0 }) == true {
+            return "local masks"
+        }
+        if look.tone?.autoContrast == true, !(look.tone?.isAutoContrastResolved ?? false) {
             return "unresolved tone auto contrast"
         }
-        if look.filmTone?.autoContrast == true && !(look.filmTone?.isAutoContrastResolved ?? false) {
+        if look.filmTone?.autoContrast == true, !(look.filmTone?.isAutoContrastResolved ?? false) {
             return "unresolved film auto contrast"
         }
-        if look.raw.denoiseMode != .off { return "RAW denoise is on" }
-        if SkinToneReference.outputRoleIndex(look) != 0 { return "non-primary skin tone path" }
+        if look.raw.denoiseMode != .off {
+            return "RAW denoise is on"
+        }
+        if SkinToneReference.outputRoleIndex(look) != 0 {
+            return "non-primary skin tone path"
+        }
         return "GPU live is eligible"
     }
+
     private var currentSourceSupportsGPULive: Bool {
         guard let image = selectedImage else { return false }
         // Core Image can decode RAW and ordinary image files to linear Rec.2020.
         // Non-RAW camera-space WB is not silently approximated; see ImageDecoder.
-        let rawExtensions: Set<String> = [
+        let rawExtensions: Set = [
             "arw", "nef", "raf", "rw2", "orf", "dng", "cr2", "cr3", "pef",
             "srw", "iiq", "3fr", "fff", "erf", "mos", "mrw", "nrw",
             "jpg", "jpeg", "tif", "tiff", "heic", "heif", "png",
@@ -3820,12 +4134,12 @@ final class AppModel: ObservableObject {
             imageID: image.id,
             url: effectiveSourceURL(for: image),
             look: look,
-            bypassImportTransform: project.preferences.bypassImportTransform
+            bypassImportTransform: project.preferences.bypassImportTransform,
         )
         if gpuPreviewTask == nil {
             gpuPreviewTask = Task { [weak self] in
                 guard let self else { return }
-                await self.runGPULiveLoop()
+                await runGPULiveLoop()
             }
         }
     }
@@ -3845,18 +4159,35 @@ final class AppModel: ObservableObject {
             // Coalesce pointer-rate input; at most one native live render is
             // in progress, with only one replaceable pending slider state.
             try? await Task.sleep(for: .milliseconds(16))
-            if Task.isCancelled { break }
-            if pendingGPUPreview != nil { continue }
+            if Task.isCancelled {
+                break
+            }
+            if pendingGPUPreview != nil {
+                continue
+            }
+            // Re-read the generation and current selection after the coalescing
+            // window: a newer slider tick or a navigation can swap the image under
+            // the pending request, and we must not publish into the wrong
+            // @Published state.
+            if Task.isCancelled {
+                break
+            }
+            if request.generation != gpuPreviewGeneration {
+                continue
+            }
+            guard project.selectedImageID == request.imageID else {
+                continue
+            }
             do {
                 let frame = try await gpuLivePipeline.render(
                     url: request.url,
                     look: request.look,
                     bypassImportTransform: request.bypassImportTransform,
-                    decoder: decoder, longEdge: AppPreferences.editProxyLongEdge
+                    decoder: decoder, longEdge: AppPreferences.editProxyLongEdge,
                 )
                 guard !Task.isCancelled, request.generation == gpuPreviewGeneration,
-                    request.imageID == project.selectedImageID,
-                    (gestureWorkingLook ?? selectedLook) == request.look
+                      request.imageID == project.selectedImageID,
+                      (gestureWorkingLook ?? selectedLook) == request.look
                 else { continue }
                 liveGPUFrame = frame
                 rendererPathStatus = frame.rendererLabel
@@ -3880,13 +4211,13 @@ final class AppModel: ObservableObject {
 
     /// Pointer-rate feedback never enters the native spectral renderer. RapidRAW/Alcedo-style
     /// responsiveness comes from decoupling interaction from the expensive accuracy pass.
-    private func publishInteractiveProxy(changedParameter: String?, rawField: RawInteractiveField?) async {
+    private func publishInteractiveProxy(changedParameter _: String?, rawField _: RawInteractiveField?) async {
         // The live display path owns interactive edits. Exact rendering is not used
         // during dragging; low-resolution GPU composition is the contract.
         if let look = gestureWorkingLook,
-            currentSourceSupportsGPULive,
-            !project.preferences.bypassImportTransform,
-            GPULiveFramePipeline.supports(look)
+           currentSourceSupportsGPULive,
+           !project.preferences.bypassImportTransform,
+           GPULiveFramePipeline.supports(look)
         {
             rendererPathStatus = "Metal live"
             scheduleGPULivePreview(look: look)
@@ -3928,8 +4259,8 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Pointer-rate proxies are never persisted. They are display-only and are replaced by an
-    /// exact normal-resolution preview as soon as the edit gesture settles.
+    // Pointer-rate proxies are never persisted. They are display-only and are replaced by an
+    // exact normal-resolution preview as soon as the edit gesture settles.
 
     /// Discrete controls (menus, toggles, undo/redo) settle through the same exact normal-preview
     /// renderer used after slider gestures. The delay is cancellable so rapid input never queues
@@ -3938,7 +4269,7 @@ final class AppModel: ObservableObject {
         baselineRaw: RawSettings? = nil,
         rawField: RawInteractiveField? = nil,
         changedParameter: String? = nil,
-        delayMilliseconds: Int = 110
+        delayMilliseconds: Int = 110,
     ) {
         cancelIdleRefinement()
         refinementGeneration += 1
@@ -3946,7 +4277,9 @@ final class AppModel: ObservableObject {
         refinementTask = Task { [weak self] in
             guard let self else { return }
             do {
-                if delayMilliseconds > 0 { try await Task.sleep(for: .milliseconds(delayMilliseconds)) }
+                if delayMilliseconds > 0 {
+                    try await Task.sleep(for: .milliseconds(delayMilliseconds))
+                }
                 guard !Task.isCancelled, generation == refinementGeneration, page == .edit else { return }
                 scheduleRender(
                     interactive: false,
@@ -3957,7 +4290,7 @@ final class AppModel: ObservableObject {
                     cacheResult: true,
                     reason: "exact preview",
                     useInteractiveRenderPolicy: false,
-                    baselineRawOverride: baselineRaw
+                    baselineRawOverride: baselineRaw,
                 )
             } catch {
                 return
@@ -3969,13 +4302,13 @@ final class AppModel: ObservableObject {
         baselineRaw: RawSettings? = nil,
         rawField: RawInteractiveField? = nil,
         changedParameter: String? = nil,
-        delayMilliseconds: Int = 110
+        delayMilliseconds: Int = 110,
     ) {
         schedulePreviewRenderAfterIdle(
             baselineRaw: baselineRaw,
             rawField: rawField,
             changedParameter: changedParameter,
-            delayMilliseconds: delayMilliseconds
+            delayMilliseconds: delayMilliseconds,
         )
     }
 
@@ -3985,7 +4318,7 @@ final class AppModel: ObservableObject {
         refinementTask = nil
     }
 
-    private func scheduleEditorScopeUpdate(force: Bool) {
+    private func scheduleEditorScopeUpdate(force _: Bool) {
         guard latestRenderedBuffer != nil else { return }
         requestEditorScopeUpdate()
     }
@@ -3999,7 +4332,7 @@ final class AppModel: ObservableObject {
             fullResolutionRequest: false,
             cacheResult: true,
             reason: "exact preview",
-            useInteractiveRenderPolicy: false
+            useInteractiveRenderPolicy: false,
         )
     }
 
@@ -4010,7 +4343,7 @@ final class AppModel: ObservableObject {
             interactive: false,
             fullResolutionRequest: true,
             cacheResult: false,
-            reason: "explicit full-resolution preview"
+            reason: "explicit full-resolution preview",
         )
     }
 
@@ -4028,7 +4361,9 @@ final class AppModel: ObservableObject {
             if renderLoopID == loopID {
                 renderLoopTask = nil
                 renderLoopID = nil
-                if pendingRenderRequest != nil { startRenderLoop() }
+                if pendingRenderRequest != nil {
+                    startRenderLoop()
+                }
             }
         }
 
@@ -4039,8 +4374,12 @@ final class AppModel: ObservableObject {
                 // One 60-Hz coalescing window. If a newer slider value arrives during
                 // this window, discard this value without decoding or touching Metal.
                 try? await Task.sleep(for: .milliseconds(16))
-                if Task.isCancelled { break }
-                if pendingRenderRequest != nil { continue }
+                if Task.isCancelled {
+                    break
+                }
+                if pendingRenderRequest != nil {
+                    continue
+                }
             }
 
             let isFastPath = request.interactive || request.useInteractiveRenderPolicy
@@ -4055,8 +4394,8 @@ final class AppModel: ObservableObject {
 
                 let decodeStarted = ProcessInfo.processInfo.systemUptime
                 if isFastPath,
-                    request.rawField != nil,
-                    let baselineRaw = request.baselineRaw
+                   request.rawField != nil,
+                   let baselineRaw = request.baselineRaw
                 {
                     input = try await decoder.decodeInteractiveWhiteBalance(
                         url: request.url,
@@ -4064,13 +4403,13 @@ final class AppModel: ObservableObject {
                         baselineRaw: baselineRaw,
                         targetRaw: request.look.raw,
                         bypassImportTransform: request.preferences.bypassImportTransform,
-                        cacheMode: request.cacheMemoryMode
+                        cacheMode: request.cacheMemoryMode,
                     )
                 } else if useFull {
                     input = try await decoder.fullResolution(
                         url: request.url,
                         raw: request.look.raw,
-                        bypassImportTransform: request.preferences.bypassImportTransform
+                        bypassImportTransform: request.preferences.bypassImportTransform,
                     )
                 } else {
                     input = try await decoder.decode(
@@ -4078,24 +4417,28 @@ final class AppModel: ObservableObject {
                         longEdge: longEdge,
                         raw: request.look.raw,
                         bypassImportTransform: request.preferences.bypassImportTransform,
-                        cacheMode: request.cacheMemoryMode
+                        cacheMode: request.cacheMemoryMode,
                     )
                 }
                 let decodeMs = (ProcessInfo.processInfo.systemUptime - decodeStarted) * 1000.0
 
-                if Task.isCancelled { break }
+                if Task.isCancelled {
+                    break
+                }
                 // Never spend a Metal render on an interactive value that already has a
                 // newer replacement waiting.
-                if request.interactive && pendingRenderRequest != nil { continue }
+                if request.interactive && pendingRenderRequest != nil {
+                    continue
+                }
                 guard let activeRenderer = exactRenderer ?? renderer else { break }
                 let renderLook =
                     isFastPath
-                    ? InteractiveRenderPolicy.previewLook(
-                        from: request.look,
-                        changedParameter: request.changedParameter,
-                        rawField: request.rawField
-                    )
-                    : request.look
+                        ? InteractiveRenderPolicy.previewLook(
+                            from: request.look,
+                            changedParameter: request.changedParameter,
+                            rawField: request.rawField,
+                        )
+                        : request.look
                 // Exposure + tone curve are a sourced host grade before the SpektraFilm engine.
                 // Before/source preview remains the developed source, while preview/export share
                 // the same host-grade -> native-render ordering.
@@ -4103,9 +4446,11 @@ final class AppModel: ObservableObject {
                 let renderInput = try await Task.detached(priority: .userInitiated) {
                     let checkpoint = GPUProcessingFailure.checkpoint()
                     let auto = try await StudioImportCalibrationOffline.shared.render(
-                        input, calibration: request.look.importCalibration, raw: request.look.raw)
+                        input, calibration: request.look.importCalibration, raw: request.look.raw,
+                    )
                     let graded = auto.applyingHostAndFilmGrade(
-                        tone: request.look.tone, density: request.look.colorDensity, film: request.look.filmTone)
+                        tone: request.look.tone, density: request.look.colorDensity, film: request.look.filmTone,
+                    )
                     try GPUProcessingFailure.requireSuccess(after: checkpoint)
                     return graded
                 }.value
@@ -4117,7 +4462,9 @@ final class AppModel: ObservableObject {
                 filmOutput = exact.0
                 d = exact.1
                 rendererPathStatus = "Native spectral Metal · \(Int((ProcessInfo.processInfo.systemUptime - lutStart) * 1000)) ms"
-                if Task.isCancelled { break }
+                if Task.isCancelled {
+                    break
+                }
                 // Geometry is deliberately post-render and color-neutral. Crop/straighten/keystone
                 // therefore never changes SpektraFilm's spectral processing and can be previewed
                 // independently from expensive film renders.
@@ -4130,10 +4477,12 @@ final class AppModel: ObservableObject {
                     try GPUProcessingFailure.requireSuccess(after: gpuCheckpoint)
                     return result
                 }.value
-                if Task.isCancelled { break }
+                if Task.isCancelled {
+                    break
+                }
 
                 guard request.generation == renderGeneration,
-                    project.selectedImageID == request.imageID
+                      project.selectedImageID == request.imageID
                 else { continue }
 
                 let sourceKey = SourcePreviewKey(
@@ -4141,30 +4490,32 @@ final class AppModel: ObservableObject {
                     width: input.width,
                     height: input.height,
                     raw: request.look.raw,
-                    bypassImportTransform: request.preferences.bypassImportTransform
+                    bypassImportTransform: request.preferences.bypassImportTransform,
                 )
 
                 guard request.generation == renderGeneration,
-                    project.selectedImageID == request.imageID
+                      project.selectedImageID == request.imageID
                 else { continue }
 
                 var newSourcePreview = sourcePreview
                 // Building another float CGImage is unnecessary work during normal slider
                 // motion. Refresh Before only when it is visible or when the exact render settles.
-                if (!isFastPath || showingBefore || sourcePreview == nil),
-                    (sourcePreview == nil || sourceKey != lastSourcePreviewKey)
+                if !isFastPath || showingBefore || sourcePreview == nil,
+                   sourcePreview == nil || sourceKey != lastSourcePreviewKey
                 {
                     let sourceForDisplay = GeometryEngine.transformed(input, settings: request.look.geometry)
                     let sourcePayload = await Task.detached(priority: .utility) {
                         sourceForDisplay.makeFloatImagePayload()
                     }.value
-                    if Task.isCancelled { break }
+                    if Task.isCancelled {
+                        break
+                    }
                     guard request.generation == renderGeneration,
-                        project.selectedImageID == request.imageID
+                          project.selectedImageID == request.imageID
                     else { continue }
                     newSourcePreview =
                         sourcePayload?.makeCGImage(colorSpace: OutputColorProfile.inputLinearRec2020)
-                        ?? input.makeCGImage8(colorSpace: OutputColorProfile.inputLinearRec2020)
+                            ?? input.makeCGImage8(colorSpace: OutputColorProfile.inputLinearRec2020)
                     sourcePreview = newSourcePreview
                     lastSourcePreviewKey = sourceKey
                 }
@@ -4175,13 +4526,15 @@ final class AppModel: ObservableObject {
                 let renderedPayload = await Task.detached(priority: .userInitiated) {
                     output.makeFloatImagePayload()
                 }.value
-                if Task.isCancelled { break }
+                if Task.isCancelled {
+                    break
+                }
                 guard request.generation == renderGeneration,
-                    project.selectedImageID == request.imageID
+                      project.selectedImageID == request.imageID
                 else { continue }
                 guard
                     let newRenderedPreview = renderedPayload?.makeCGImage(colorSpace: profile)
-                        ?? output.makeCGImage8(colorSpace: profile)
+                    ?? output.makeCGImage8(colorSpace: profile)
                 else {
                     throw RendererError.renderFailed("Could not create preview image")
                 }
@@ -4193,10 +4546,10 @@ final class AppModel: ObservableObject {
                 }
                 latestSourceBuffer = input
                 latestSourceRaw = request.look.raw
-                maskOverlayRevision &+= 1  // Source coordinates are now authoritative.
+                maskOverlayRevision &+= 1 // Source coordinates are now authoritative.
                 // A cached on-screen image can arrive before source pixels. Resume only
                 // after the matching source frame is committed by the render loop.
-                if semanticAnalysisDeferred && project.selectedImageID == request.imageID {
+                if semanticAnalysisDeferred, project.selectedImageID == request.imageID {
                     semanticAnalysisDeferred = false
                     refreshCanonicalSemanticMasks()
                 }
@@ -4224,7 +4577,7 @@ final class AppModel: ObservableObject {
                 // frames feed the throttled scope loop but never own clipping/skin measurements.
                 diagnostics = d
 
-                if !request.interactive && request.cacheResult {
+                if !request.interactive, request.cacheResult {
                     let quality: RenderedPreviewQuality = .accurate
                     cacheRenderedFrame(
                         key: RenderedFrameKey(
@@ -4233,12 +4586,12 @@ final class AppModel: ObservableObject {
                             look: request.look,
                             previewLongEdge: longEdge,
                             fullResolution: useFull,
-                            bypassImportTransform: request.preferences.bypassImportTransform
+                            bypassImportTransform: request.preferences.bypassImportTransform,
                         ),
                         rendered: newRenderedPreview,
                         source: nil,
                         buffer: output,
-                        quality: quality
+                        quality: quality,
                     )
                     if !useFull, longEdge == request.preferences.previewLongEdge, let renderedPayload {
                         Task { [renderedDiskCache] in
@@ -4248,7 +4601,7 @@ final class AppModel: ObservableObject {
                                 look: request.look,
                                 longEdge: longEdge,
                                 bypassImportTransform: request.preferences.bypassImportTransform,
-                                quality: quality
+                                quality: quality,
                             )
                         }
                     }
@@ -4260,27 +4613,31 @@ final class AppModel: ObservableObject {
                     // preprocessing and display packaging are part of perceived latency too.
                     status = String(
                         format: "Live %.1f ms · decode/prep %.1f · GPU %.1f · %d passes",
-                        wallMs, decodeMs, d.commandBufferMs, d.passCount
+                        wallMs, decodeMs, d.commandBufferMs, d.passCount,
                     )
                 } else {
                     status = String(
                         format: "Preview %.1f ms · decode %.1f · GPU %.1f · %d passes",
-                        wallMs, decodeMs, d.commandBufferMs, d.passCount
+                        wallMs, decodeMs, d.commandBufferMs, d.passCount,
                     )
                 }
                 refreshStudioAnalysis(interactive: isFastPath)
                 requestEditorScopeUpdate()
-                if !request.interactive && !useFull {
-                    scheduleLUTPrewarm(look: request.look, imageID: request.imageID)  // no-op: LUT modes removed
+                if !request.interactive, !useFull {
+                    scheduleLUTPrewarm(look: request.look, imageID: request.imageID) // no-op: LUT modes removed
                 }
             } catch is CancellationError {
                 // Cancellation is expected when navigating or closing a project.
             } catch {
-                if request.generation == renderGeneration { status = error.localizedDescription }
+                if request.generation == renderGeneration {
+                    status = error.localizedDescription
+                }
             }
         }
 
-        if renderLoopID == loopID { isRendering = false }
+        if renderLoopID == loopID {
+            isRendering = false
+        }
     }
 
     /// A Metal command buffer may already be committed and cannot be preempted safely. Starting
@@ -4298,6 +4655,10 @@ final class AppModel: ObservableObject {
     private func cancelPreviewForNavigation() {
         rendererPathStatus = "No active frame"
         cancelIdleRefinement()
+        refinementTask?.cancel()
+        refinementTask = nil
+        scopeTask?.cancel()
+        scopeTask = nil
         renderGeneration += 1
         pendingRenderRequest = nil
         renderLoopTask?.cancel()
@@ -4318,6 +4679,10 @@ final class AppModel: ObservableObject {
     private func invalidateRendering() {
         projectGeneration += 1
         cancelPreviewForNavigation()
+        gpuPreviewTask?.cancel()
+        gpuPreviewTask = nil
+        interactiveProxyTask?.cancel()
+        interactiveProxyTask = nil
         analysisTask?.cancel()
         importHydrationTask?.cancel()
         importHydrationTask = nil
@@ -4398,15 +4763,15 @@ final class AppModel: ObservableObject {
         let generation = analysisGeneration
         let prefs = project.preferences
         // One image-specific semantic provider powers every skin-consuming tool.
-        if (prefs.skinCheckEnabled || prefs.scopeMode == .skinVectorscope),
-            semanticMasks == nil, semanticMaskTask == nil,
-            (frameState.sourcePreview ?? frameState.renderedPreview) != nil
+        if prefs.skinCheckEnabled || prefs.scopeMode == .skinVectorscope,
+           semanticMasks == nil, semanticMaskTask == nil,
+           (frameState.sourcePreview ?? frameState.renderedPreview) != nil
         {
             refreshCanonicalSemanticMasks()
         }
 
         guard prefs.clippingEnabled || prefs.skinCheckEnabled || prefs.scopeMode == .skinVectorscope || prefs.scopeMode == .histogram,
-            let buffer = latestRenderedBuffer
+              let buffer = latestRenderedBuffer
         else {
             clearStudioAnalysis()
             return
@@ -4429,14 +4794,14 @@ final class AppModel: ObservableObject {
                     look: analysisLook,
                     preferences: prefs,
                     maxLongEdge: interactive ? 480 : 1200,
-                    canonicalSkinMask: canonicalSkin
+                    canonicalSkinMask: canonicalSkin,
                 )
                 guard !Task.isCancelled, generation == analysisGeneration else { return }
                 analysisOverlay = CGImage.fromRGBA8(width: payload.overlayWidth, height: payload.overlayHeight, bytes: payload.overlayRGBA)
                 scopeTrace =
                     payload.scopeWidth > 0
-                    ? CGImage.fromRGBA8(width: payload.scopeWidth, height: payload.scopeHeight, bytes: payload.scopeRGBA)
-                    : nil
+                        ? CGImage.fromRGBA8(width: payload.scopeWidth, height: payload.scopeHeight, bytes: payload.scopeRGBA)
+                        : nil
                 latestSkinMaskWidth = payload.skinMaskWidth
                 latestSkinMaskHeight = payload.skinMaskHeight
                 latestSkinMaskAlpha = payload.skinMaskAlpha
@@ -4476,7 +4841,9 @@ final class AppModel: ObservableObject {
 
     private func removeRenderedFrames(for imageID: UUID) {
         let keys = renderedFrameCache.keys.filter { $0.imageID == imageID }
-        for key in keys { removeRenderedFrameCache(key) }
+        for key in keys {
+            removeRenderedFrameCache(key)
+        }
     }
 
     private func cacheRenderedFrame(
@@ -4484,11 +4851,15 @@ final class AppModel: ObservableObject {
         rendered: CGImage,
         source: CGImage?,
         buffer: PixelBufferF32,
-        quality: RenderedPreviewQuality
+        quality: RenderedPreviewQuality,
     ) {
         let staleKeys = renderedFrameCache.keys.filter { $0.imageID == key.imageID && $0 != key }
-        for stale in staleKeys { removeRenderedFrameCache(stale) }
-        if renderedFrameCache[key] != nil { removeRenderedFrameCache(key) }
+        for stale in staleKeys {
+            removeRenderedFrameCache(stale)
+        }
+        if renderedFrameCache[key] != nil {
+            removeRenderedFrameCache(key)
+        }
         renderedFrameCache[key] = CachedRenderedFrame(rendered: rendered, source: source, buffer: buffer, quality: quality)
         renderedFrameCacheBytes += renderedFrameBytes(rendered: rendered, source: source, buffer: buffer)
         touchRenderedFrameCache(key)
@@ -4500,7 +4871,9 @@ final class AppModel: ObservableObject {
     private func renderedFrameBytes(rendered: CGImage, source: CGImage?, buffer: PixelBufferF32) -> Int {
         var bytes = rendered.bytesPerRow * rendered.height
         bytes += buffer.pixels.count * MemoryLayout<Float>.size
-        if let source { bytes += source.bytesPerRow * source.height }
+        if let source {
+            bytes += source.bytesPerRow * source.height
+        }
         return bytes
     }
 
@@ -4587,9 +4960,9 @@ final class AppModel: ObservableObject {
         guard let recovery = await recoveryStore.latest() else { return }
         // Ignore a recovery file that is older than the already-saved project it points to.
         if let path = recovery.originalProjectPath,
-            let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-            let modified = attrs[.modificationDate] as? Date,
-            modified >= recovery.savedAt
+           let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+           let modified = attrs[.modificationDate] as? Date,
+           modified >= recovery.savedAt
         {
             await recoveryStore.clear()
             return
@@ -4618,7 +4991,9 @@ final class AppModel: ObservableObject {
             isProjectDirty = true
             legacyAutoResolvePending = true
             page = .library
-            if project.selectedImageID == nil { project.selectedImageID = project.images.first?.id }
+            if project.selectedImageID == nil {
+                project.selectedImageID = project.images.first?.id
+            }
             renderedPreview = nil
             sourcePreview = nil
             latestSourceBuffer = nil
@@ -4878,14 +5253,14 @@ final class AppModel: ObservableObject {
             let denominator = max(1, totalHits + totalMisses)
             let hitRate = Double(totalHits) / Double(denominator) * 100.0
             let disk = thumb.diskBytes + developed.diskBytes + adjusted.diskBytes + cull.diskBytes
-            let ram = decoded.memoryBytes + thumb.memoryBytes + Int64(self.renderedFrameCacheBytes)
-            self.cacheStatus = String(
+            let ram = decoded.memoryBytes + thumb.memoryBytes + Int64(renderedFrameCacheBytes)
+            cacheStatus = String(
                 format:
-                    "%@ · RAM %.0f MB · disk %.2f/%.0f GB · total %dH/%dM (%.0f%%)\nRAW RAM %dH/%dM · developed SSD %dH/%dM · thumbnails %dH/%dM · adjusted previews %dH/%dM · Smart Cull %dH/%dM · writes %d",
-                self.cacheLocationAvailable ? "Cache online" : "Cache drive unavailable",
+                "%@ · RAM %.0f MB · disk %.2f/%.0f GB · total %dH/%dM (%.0f%%)\nRAW RAM %dH/%dM · developed SSD %dH/%dM · thumbnails %dH/%dM · adjusted previews %dH/%dM · Smart Cull %dH/%dM · writes %d",
+                cacheLocationAvailable ? "Cache online" : "Cache drive unavailable",
                 Double(ram) / 1_048_576.0,
                 Double(disk) / 1_073_741_824.0,
-                Double(self.localDiskCacheGB),
+                Double(localDiskCacheGB),
                 totalHits,
                 totalMisses,
                 hitRate,
@@ -4894,7 +5269,7 @@ final class AppModel: ObservableObject {
                 thumb.hits, thumb.misses,
                 adjusted.hits, adjusted.misses,
                 cull.hits, cull.misses,
-                decoded.writes + thumb.writes + developed.writes + adjusted.writes + cull.writes
+                decoded.writes + thumb.writes + developed.writes + adjusted.writes + cull.writes,
             )
         }
     }
@@ -4919,7 +5294,7 @@ final class AppModel: ObservableObject {
                 if let enumerator = FileManager.default.enumerator(
                     at: root,
                     includingPropertiesForKeys: Array(keys),
-                    options: [.skipsHiddenFiles, .skipsPackageDescendants]
+                    options: [.skipsHiddenFiles, .skipsPackageDescendants],
                 ) {
                     // Materialize URLs synchronously to avoid async iteration issues in Swift 6.
                     var urls: [URL] = []
@@ -4927,17 +5302,20 @@ final class AppModel: ObservableObject {
                         urls.append(url)
                     }
                     for url in urls {
-                        if Task.isCancelled { break }
+                        if Task.isCancelled {
+                            break
+                        }
                         guard wantedNames.contains(url.lastPathComponent),
-                            let values = try? url.resourceValues(forKeys: keys),
-                            values.isRegularFile == true
+                              let values = try? url.resourceValues(forKeys: keys),
+                              values.isRegularFile == true
                         else { continue }
                         found[url.lastPathComponent, default: []].append(
                             (
                                 url,
                                 values.fileSize.map(Int64.init),
-                                values.contentModificationDate?.timeIntervalSince1970
-                            ))
+                                values.contentModificationDate?.timeIntervalSince1970,
+                            ),
+                        )
                     }
                 }
                 return found
@@ -4946,8 +5324,8 @@ final class AppModel: ObservableObject {
             guard !Task.isCancelled else { return }
             var relinked = 0
             var ambiguous = 0
-            self.suppressDirtyTracking = true
-            for i in self.project.images.indices where !FileManager.default.fileExists(atPath: self.project.images[i].sourcePath) {
+            suppressDirtyTracking = true
+            for i in project.images.indices where !FileManager.default.fileExists(atPath: project.images[i].sourcePath) {
                 let record = self.project.images[i]
                 let matches = candidates[record.fileName] ?? []
                 let best: (URL, Int64?, TimeInterval?)?
@@ -4978,19 +5356,21 @@ final class AppModel: ObservableObject {
                     ambiguous += 1
                 }
             }
-            self.suppressDirtyTracking = false
-            if relinked > 0 { self.projectDidChange() }
-            self.status =
-                "Relinked \(relinked) · \(self.missingMediaCount) still missing\(ambiguous > 0 ? " · \(ambiguous) ambiguous" : "")"
-            if let image = self.selectedImage, FileManager.default.fileExists(atPath: image.sourcePath) {
-                self.presentFastSelectionPreview(for: image)
-                self.scheduleIdleRefinement()
+            suppressDirtyTracking = false
+            if relinked > 0 {
+                projectDidChange()
+            }
+            status =
+                "Relinked \(relinked) · \(missingMediaCount) still missing\(ambiguous > 0 ? " · \(ambiguous) ambiguous" : "")"
+            if let image = selectedImage, FileManager.default.fileExists(atPath: image.sourcePath) {
+                presentFastSelectionPreview(for: image)
+                scheduleIdleRefinement()
             }
         }
     }
 
-    // A cloud library replaces the complete photo document. An old preview/mask render
-    // must never outlive that replacement or publish a frame for a no-longer-selected image.
+    /// A cloud library replaces the complete photo document. An old preview/mask render
+    /// must never outlive that replacement or publish a frame for a no-longer-selected image.
     func prepareForCloudProjectReplacement() {
         invalidateRendering()
         autosaveTask?.cancel()
@@ -5028,10 +5408,10 @@ final class AppModel: ObservableObject {
         }
         SpektraFilePanel.saveFile(
             title: "Save Project", types: [.spektrafilmProject],
-            filename: "\(project.name).\(UTTypeNames.projectExtension)"
+            filename: "\(project.name).\(UTTypeNames.projectExtension)",
         ) { [weak self] target in
             guard let self, let target else { completion(false); return }
-            completion(self.writeProject(to: target))
+            completion(writeProject(to: target))
         }
     }
 
@@ -5056,14 +5436,14 @@ final class AppModel: ObservableObject {
         }
     }
 
-    // Loading old projects can decode thousands of images and RLE mask payloads.
-    // Never parse/migrate them on the UI actor, and never replace the current
-    // document unless the whole decode and validation succeeds.
+    /// Loading old projects can decode thousands of images and RLE mask payloads.
+    /// Never parse/migrate them on the UI actor, and never replace the current
+    /// document unless the whole decode and validation succeeds.
     func openProject() {
         didStartProjectWorkflow = true
         SpektraFilePanel.chooseFiles(title: "Open SpektraFilm Project", types: [.spektrafilmProject]) { [weak self] urls in
             guard let self, let url = urls.first else { return }
-            self.openProject(at: url)
+            openProject(at: url)
         }
     }
 
@@ -5074,7 +5454,9 @@ final class AppModel: ObservableObject {
             return
         }
         confirmDestructiveTransitionIfNeeded { [weak self] allowed in
-            if allowed { self?.loadProject(at: url) }
+            if allowed {
+                self?.loadProject(at: url)
+            }
         }
     }
 
@@ -5091,14 +5473,20 @@ final class AppModel: ObservableObject {
                 // not shared across concurrent project/open/autosave tasks.
                 let opened = try await Task.detached(priority: .userInitiated) {
                     let accessing = url.startAccessingSecurityScopedResource()
-                    defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+                    defer {
+                        if accessing {
+                            url.stopAccessingSecurityScopedResource()
+                        }
+                    }
                     let data = try Data(contentsOf: url, options: .mappedIfSafe)
                     try Task.checkCancellation()
                     let decoder = JSONDecoder()
                     decoder.dateDecodingStrategy = .iso8601
                     var loaded = try decoder.decode(SpektraProjectDocument.self, from: data)
                     loaded.migrateForV2()
-                    if loaded.selectedImageID == nil { loaded.selectedImageID = loaded.images.first?.id }
+                    if loaded.selectedImageID == nil {
+                        loaded.selectedImageID = loaded.images.first?.id
+                    }
                     try Task.checkCancellation()
                     return loaded
                 }.value
@@ -5147,7 +5535,7 @@ final class AppModel: ObservableObject {
                 clearStudioAnalysis()
 
                 if let image = selectedImage,
-                    !FileManager.default.fileExists(atPath: image.sourcePath)
+                   !FileManager.default.fileExists(atPath: image.sourcePath)
                 {
                     status = "Opened \(url.lastPathComponent) · selected media missing · Relink Missing Media…"
                 } else {
@@ -5166,10 +5554,10 @@ final class AppModel: ObservableObject {
 
     func presetThumbnail(
         _ preset: SpektraPreset,
-        longEdge: Int = 360
+        longEdge: Int = 360,
     ) async -> CGImage? {
         guard let image = selectedImage,
-            let activeRenderer = exactRenderer ?? renderer
+              let activeRenderer = exactRenderer ?? renderer
         else {
             return nil
         }
@@ -5190,23 +5578,25 @@ final class AppModel: ObservableObject {
                 longEdge: max(160, min(720, longEdge)),
                 raw: look.raw,
                 bypassImportTransform: project.preferences.bypassImportTransform,
-                cacheMode: cacheMemoryMode
+                cacheMode: cacheMemoryMode,
             )
 
             let renderInput = try await Task.detached(priority: .utility) {
                 let checkpoint = GPUProcessingFailure.checkpoint()
                 let auto = try await StudioImportCalibrationOffline.shared.render(
-                    input, calibration: look.importCalibration, raw: look.raw)
+                    input, calibration: look.importCalibration, raw: look.raw,
+                )
                 let graded = auto.applyingHostAndFilmGrade(
                     tone: look.tone,
-                    density: look.colorDensity, film: look.filmTone)
+                    density: look.colorDensity, film: look.filmTone,
+                )
                 try GPUProcessingFailure.requireSuccess(after: checkpoint)
                 return graded
             }.value
 
             let (filmOutput, _) = try await activeRenderer.render(
                 renderInput,
-                look: look
+                look: look,
             )
 
             let exportPreviewPrefs = project.preferences
@@ -5215,10 +5605,11 @@ final class AppModel: ObservableObject {
                     GeometryEngine.transformed(
                         LensCharacterEngine.apply(
                             MaskedLocalGradeEngine.apply(filmOutput, grades: look.localGrades),
-                            settings: look.lensEffects
+                            settings: look.lensEffects,
                         ),
-                        settings: look.geometry
-                    ), look: look, preferences: exportPreviewPrefs)
+                        settings: look.geometry,
+                    ), look: look, preferences: exportPreviewPrefs,
+                )
             }.value
 
             let payload = await Task.detached(priority: .utility) {
@@ -5230,7 +5621,7 @@ final class AppModel: ObservableObject {
             let colorSpace = OutputColorProfile.forLook(look).cgColorSpace
             guard
                 let cgImage =
-                    payload?.makeCGImage(colorSpace: colorSpace)
+                payload?.makeCGImage(colorSpace: colorSpace)
                     ?? output.makeCGImage8(colorSpace: colorSpace)
             else {
                 return nil
@@ -5257,7 +5648,7 @@ final class AppModel: ObservableObject {
             cacheResult: false,
             reason: "preset preview",
             useInteractiveRenderPolicy: false,
-            lookOverride: look
+            lookOverride: look,
         )
     }
 
@@ -5270,7 +5661,7 @@ final class AppModel: ObservableObject {
             cacheResult: false,
             reason: "preset restore",
             useInteractiveRenderPolicy: false,
-            lookOverride: selectedLook
+            lookOverride: selectedLook,
         )
     }
 
@@ -5281,7 +5672,8 @@ final class AppModel: ObservableObject {
         let preset = SpektraPreset(
             name: name.isEmpty ? "Untitled Preset" : name,
             category: category.isEmpty ? "Custom" : category,
-            look: look)
+            look: look,
+        )
         presets.append(preset)
         persistPresetLibrary()
         status = "Saved preset \(preset.name)"
@@ -5307,10 +5699,10 @@ final class AppModel: ObservableObject {
     func exportPreset(_ preset: SpektraPreset) {
         SpektraFilePanel.saveFile(
             title: "Export Preset", types: [.spektrafilmPreset],
-            filename: "\(preset.name).\(UTTypeNames.presetExtension)"
+            filename: "\(preset.name).\(UTTypeNames.presetExtension)",
         ) { [weak self] url in
             guard let self, let url else { return }
-            self.exportPreset(preset, to: url)
+            exportPreset(preset, to: url)
         }
     }
 
@@ -5393,7 +5785,7 @@ final class AppModel: ObservableObject {
         ExportJobPlanner.previewNames(
             images: project.images.filter(\.selectedForExport),
             settings: project.exportSettings,
-            limit: 5
+            limit: 5,
         )
     }
 
@@ -5401,14 +5793,16 @@ final class AppModel: ObservableObject {
         guard !isExporting, exactRenderer != nil else { return }
         let selected = project.images.filter(\.selectedForExport)
         guard !selected.isEmpty else { status = "No images selected for export"; return }
-        if project.exportSettings.destinationPath.isEmpty { chooseExportDestination() }
+        if project.exportSettings.destinationPath.isEmpty {
+            chooseExportDestination()
+        }
         guard !project.exportSettings.destinationPath.isEmpty else { return }
 
         do {
             let job = try ExportJobPlanner.makeJob(
                 images: selected,
                 settings: project.exportSettings,
-                bypassImportTransform: project.preferences.bypassImportTransform
+                bypassImportTransform: project.preferences.bypassImportTransform,
             )
             activeExportJob = job
             startExport(job)
@@ -5423,7 +5817,7 @@ final class AppModel: ObservableObject {
 
     func exportImage(_ id: UUID, settings: ExportSettings) {
         guard !isExporting, exactRenderer != nil,
-            let image = project.images.first(where: { $0.id == id })
+              let image = project.images.first(where: { $0.id == id })
         else { return }
         var effective = settings
         if effective.destinationPath.isEmpty {
@@ -5436,7 +5830,7 @@ final class AppModel: ObservableObject {
             let job = try ExportJobPlanner.makeJob(
                 images: [image],
                 settings: effective,
-                bypassImportTransform: project.preferences.bypassImportTransform
+                bypassImportTransform: project.preferences.bypassImportTransform,
             )
             project.exportSettings = effective
             activeExportJob = job
@@ -5617,7 +6011,7 @@ final class AppModel: ObservableObject {
                             original: url,
                             relativePath: cloudRelative,
                             library: library,
-                            parent: URL(fileURLWithPath: scratchPath, isDirectory: true)
+                            parent: URL(fileURLWithPath: scratchPath, isDirectory: true),
                         )
                     } catch {
                         await scratch.releaseExport(item.sourceImageID)
@@ -5631,12 +6025,12 @@ final class AppModel: ObservableObject {
                 let buffer = try await decoderActor.fullResolution(
                     url: renderURL,
                     raw: raw,
-                    bypassImportTransform: bypass
+                    bypassImportTransform: bypass,
                 )
                 return ExportDecodedFrame(
                     buffer: buffer,
                     decodeMs: Self.msSince(started),
-                    originalForMetadata: original
+                    originalForMetadata: original,
                 )
             }
         }
@@ -5656,7 +6050,7 @@ final class AppModel: ObservableObject {
                 timings.outputBytes = result.outputBytes
                 timings.wallMs = max(
                     0,
-                    (result.completedUptime - pending.itemStarted) * 1000.0
+                    (result.completedUptime - pending.itemStarted) * 1000.0,
                 )
 
                 job.items[pending.index].outputBytes = result.outputBytes
@@ -5668,15 +6062,15 @@ final class AppModel: ObservableObject {
                     format: "Decode %.1fs · Host %.1fs · Film %.1fs · Post %.1fs · JPEG/write %.1fs",
                     timings.decodeMs / 1000, timings.gradeMs / 1000,
                     timings.renderMs / 1000, timings.geometryResizeMs / 1000,
-                    timings.writeMs / 1000
+                    timings.writeMs / 1000,
                 )
 
             } catch is CancellationError {
                 let destination = URL(
-                    fileURLWithPath: job.items[pending.index].destinationPath
+                    fileURLWithPath: job.items[pending.index].destinationPath,
                 )
                 if let attrs = try? FileManager.default.attributesOfItem(
-                    atPath: destination.path
+                    atPath: destination.path,
                 ),
                     let size = attrs[.size] as? NSNumber,
                     size.int64Value > 0
@@ -5702,8 +6096,8 @@ final class AppModel: ObservableObject {
                 exportFailures.append(
                     ExportFailure(
                         fileName: job.items[pending.index].sourceFileName,
-                        message: error.localizedDescription
-                    )
+                        message: error.localizedDescription,
+                    ),
                 )
             }
 
@@ -5725,9 +6119,9 @@ final class AppModel: ObservableObject {
                 let budget = Self.exportPostprocessBudgetBytes()
                 let workerLimitReached =
                     pendingPostprocess.count
-                    >= Self.exportPostprocessWorkerLimit(
-                        estimatedBytes: estimatedBytes
-                    )
+                        >= Self.exportPostprocessWorkerLimit(
+                            estimatedBytes: estimatedBytes,
+                        )
                 let memoryLimitReached =
                     bytesInFlight > 0 && (estimatedBytes > budget || bytesInFlight > budget - min(budget, estimatedBytes))
 
@@ -5762,7 +6156,7 @@ final class AppModel: ObservableObject {
                 try await makePostprocessHeadroom(
                     for: cloudOriginal
                         ? UInt64(2 * 1024 * 1024 * 1024)
-                        : Self.estimatedExportPostprocessBytes(sourceURL)
+                        : Self.estimatedExportPostprocessBytes(sourceURL),
                 )
 
                 job.items[index].state = .rendering
@@ -5797,7 +6191,7 @@ final class AppModel: ObservableObject {
                 if position + 1 < workIndices.count {
                     let nextIndex = workIndices[position + 1]
                     let nextURL = URL(
-                        fileURLWithPath: job.items[nextIndex].sourcePath
+                        fileURLWithPath: job.items[nextIndex].sourcePath,
                     )
                     // Cloud originals are never decoded in anticipation of a neighboring export.
                     let nextIsCloud =
@@ -5816,10 +6210,12 @@ final class AppModel: ObservableObject {
                 let renderInput = try await Task.detached(priority: .userInitiated) {
                     let checkpoint = GPUProcessingFailure.checkpoint()
                     let auto = try await StudioImportCalibrationOffline.shared.render(
-                        decoded.buffer, calibration: item.look.importCalibration, raw: item.look.raw)
+                        decoded.buffer, calibration: item.look.importCalibration, raw: item.look.raw,
+                    )
                     let graded = auto.applyingHostAndFilmGrade(
                         tone: item.look.tone,
-                        density: item.look.colorDensity, film: item.look.filmTone)
+                        density: item.look.colorDensity, film: item.look.filmTone,
+                    )
                     try GPUProcessingFailure.requireSuccess(after: checkpoint)
                     return graded
                 }.value
@@ -5834,7 +6230,8 @@ final class AppModel: ObservableObject {
                 let renderDiagnostics: RenderDiagnosticsView
                 let exact = try await exactRenderer.render(
                     renderInput,
-                    look: exportLook, useDensityLuts: false, useStageCache: false)
+                    look: exportLook, useDensityLuts: false, useStageCache: false,
+                )
                 filmOutput = exact.0
                 renderDiagnostics = exact.1
                 timings.renderMs = Self.msSince(renderStarted)
@@ -5870,7 +6267,7 @@ final class AppModel: ObservableObject {
                         ProcessInfo.processInfo.systemUptime
                     var working = MaskedLocalGradeEngine.apply(
                         filmOutput,
-                        grades: localGrades
+                        grades: localGrades,
                     )
                     try Task.checkCancellation()
                     working = LensCharacterEngine.apply(working, settings: lensSettings)
@@ -5880,7 +6277,7 @@ final class AppModel: ObservableObject {
                     working = ExposureBoundaryEngine.apply(
                         working,
                         look: lookForWriter,
-                        preferences: clipPreferences
+                        preferences: clipPreferences,
                     )
                     try Task.checkCancellation()
                     let output = try working.resizedForExport(settings: exportSettings)
@@ -5897,14 +6294,14 @@ final class AppModel: ObservableObject {
                         look: lookForWriter,
                         sourceURL: sourceForWriter,
                         destination: destination,
-                        settings: exportSettings
+                        settings: exportSettings,
                     )
                     let writeMs =
                         (ProcessInfo.processInfo.systemUptime - writeStarted) * 1000.0
 
                     let attrs =
                         try FileManager.default.attributesOfItem(
-                            atPath: destination.path
+                            atPath: destination.path,
                         )
                     let bytes =
                         (attrs[.size] as? NSNumber)?.int64Value ?? 0
@@ -5916,7 +6313,7 @@ final class AppModel: ObservableObject {
                         outputHeight: output.height,
                         outputBytes: bytes,
                         completedUptime:
-                            ProcessInfo.processInfo.systemUptime
+                        ProcessInfo.processInfo.systemUptime,
                     )
                 }
 
@@ -5926,8 +6323,8 @@ final class AppModel: ObservableObject {
                         retainedBytes: retainedBytes,
                         itemStarted: itemStarted,
                         timings: timings,
-                        task: postTask
-                    )
+                        task: postTask,
+                    ),
                 )
                 // Complete and release this full frame before decoding the next.
                 // This is deliberate back-pressure for crash containment, not a
@@ -5936,7 +6333,7 @@ final class AppModel: ObservableObject {
 
             } catch is CancellationError {
                 if !pendingPostprocess.contains(where: { $0.index == index }),
-                    project.images.first(where: { $0.id == job.items[index].sourceImageID })?.cloudRelativePath != nil
+                   project.images.first(where: { $0.id == job.items[index].sourceImageID })?.cloudRelativePath != nil
                 {
                     await ExternalOriginalScratch.shared.releaseExport(job.items[index].sourceImageID)
                 }
@@ -5947,7 +6344,8 @@ final class AppModel: ObservableObject {
                 await stopAndDrainPostprocess()
 
                 for i in job.items.indices
-                where job.items[i].state == .rendering {
+                    where job.items[i].state == .rendering
+                {
                     job.items[i].state = .pending
                     job.items[i].errorMessage = nil
                 }
@@ -5971,8 +6369,8 @@ final class AppModel: ObservableObject {
                 exportFailures.append(
                     ExportFailure(
                         fileName: job.items[index].sourceFileName,
-                        message: error.localizedDescription
-                    )
+                        message: error.localizedDescription,
+                    ),
                 )
                 activeExportJob = job
                 exportProgress = job.fractionComplete
@@ -6017,7 +6415,7 @@ final class AppModel: ObservableObject {
     }
 
     private static func estimatedExportPostprocessBytes(
-        _ url: URL
+        _ url: URL,
     ) -> UInt64 {
         let pixels = approximatePixelCount(url)
         guard pixels > 0 else { return 0 }
@@ -6025,7 +6423,7 @@ final class AppModel: ObservableObject {
     }
 
     private static func actualExportPostprocessBytes(
-        _ buffer: PixelBufferF32
+        _ buffer: PixelBufferF32,
     ) -> UInt64 {
         let pixels = UInt64(max(1, buffer.width * buffer.height))
         return pixels * 48
@@ -6034,10 +6432,14 @@ final class AppModel: ObservableObject {
     private static func exportPostprocessWorkerLimit(estimatedBytes: UInt64) -> Int {
         let mib = UInt64(1024 * 1024)
         let gib = UInt64(1024 * 1024 * 1024)
-        if estimatedBytes >= 640 * mib { return 1 }
+        if estimatedBytes >= 640 * mib {
+            return 1
+        }
 
         let available = availableMemoryBytes()
-        if available == 0 || available < 4 * gib { return 1 }
+        if available == 0 || available < 4 * gib {
+            return 1
+        }
         return min(2, ExportJob.postProcessWorkerCount)
     }
 
@@ -6067,7 +6469,7 @@ final class AppModel: ObservableObject {
     private static func availableMemoryBytes() -> UInt64 {
         var stats = vm_statistics64()
         var count = mach_msg_type_number_t(
-            MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size
+            MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size,
         )
         let status = withUnsafeMutablePointer(to: &stats) { raw in
             raw.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { rebound in
@@ -6105,9 +6507,11 @@ final class AppModel: ObservableObject {
 
     private func loadPresetLibrary() {
         guard let data = try? Data(contentsOf: Self.presetLibraryURL),
-            var value = try? Self.decoderJSON.decode([SpektraPreset].self, from: data)
+              var value = try? Self.decoderJSON.decode([SpektraPreset].self, from: data)
         else { return }
-        for index in value.indices { value[index].look.normalizeForProOnly() }
+        for index in value.indices {
+            value[index].look.normalizeForProOnly()
+        }
         presets = value
     }
 
@@ -6135,11 +6539,15 @@ final class AppModel: ObservableObject {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("SpektraFilm")
     }
 
-    private static var presetLibraryURL: URL { appSupportURL.appendingPathComponent("presets.json") }
+    private static var presetLibraryURL: URL {
+        appSupportURL.appendingPathComponent("presets.json")
+    }
 
     var missingMediaCount: Int {
         project.images.reduce(into: 0) { count, image in
-            if !FileManager.default.fileExists(atPath: image.sourcePath) { count += 1 }
+            if !FileManager.default.fileExists(atPath: image.sourcePath) {
+                count += 1
+            }
         }
     }
 
@@ -6148,7 +6556,7 @@ final class AppModel: ObservableObject {
         return ProjectImageRecord(
             sourcePath: url.path,
             sourceFileSize: values?.fileSize.map(Int64.init),
-            sourceModificationTime: values?.contentModificationDate?.timeIntervalSince1970
+            sourceModificationTime: values?.contentModificationDate?.timeIntervalSince1970,
         )
     }
 
@@ -6158,8 +6566,8 @@ final class AppModel: ObservableObject {
         let template = settings.filenameTemplate
         var expanded =
             template
-            .replacingOccurrences(of: "{name}", with: base)
-            .replacingOccurrences(of: "{sequence}", with: sequenceText)
+                .replacingOccurrences(of: "{name}", with: base)
+                .replacingOccurrences(of: "{sequence}", with: sequenceText)
 
         if !template.contains("{name}") && !template.contains("{sequence}") {
             expanded += "_\(sequenceText)"
@@ -6174,7 +6582,7 @@ final class AppModel: ObservableObject {
         image: ProjectImageRecord,
         sequence: Int,
         settings: ExportSettings,
-        reservedPaths: inout Set<String>
+        reservedPaths: inout Set<String>,
     ) -> URL {
         let directory = URL(fileURLWithPath: settings.destinationPath)
         let sequenceText = String(format: "%04d", sequence)
@@ -6200,13 +6608,15 @@ final class AppModel: ObservableObject {
         (ProcessInfo.processInfo.systemUptime - start) * 1000.0
     }
 
-    static var exportTimingLogPath: String { ExportTimingLog.fileURL.path }
+    static var exportTimingLogPath: String {
+        ExportTimingLog.fileURL.path
+    }
 
     private static func approximatePixelCount(_ url: URL) -> Int64 {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-            let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-            let w = props[kCGImagePropertyPixelWidth] as? NSNumber,
-            let h = props[kCGImagePropertyPixelHeight] as? NSNumber
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let w = props[kCGImagePropertyPixelWidth] as? NSNumber,
+              let h = props[kCGImagePropertyPixelHeight] as? NSNumber
         else { return 0 }
         return Int64(w.intValue) * Int64(h.intValue)
     }

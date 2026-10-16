@@ -23,9 +23,9 @@ actor RawForgeDenoiseService {
         case failed(Int32, String)
         var errorDescription: String? {
             switch self {
-            case .rawForgeMissing: return "RawForge is not installed. Run PREPARE_STAGE4_RAWFORGE.command first."
-            case .unsupportedSource: return "RAW denoise only runs on supported camera RAW/DNG sources."
-            case let .failed(code, text): return "RawForge failed (\(code)): \(text)"
+            case .rawForgeMissing: "RawForge is not installed. Run PREPARE_STAGE4_RAWFORGE.command first."
+            case .unsupportedSource: "RAW denoise only runs on supported camera RAW/DNG sources."
+            case let .failed(code, text): "RawForge failed (\(code)): \(text)"
             }
         }
     }
@@ -37,7 +37,7 @@ actor RawForgeDenoiseService {
 
     nonisolated static func cacheRoot() -> URL {
         if let external = UserDefaults.standard.string(forKey: "SpektraFilmStudio.externalOriginalScratchParent"),
-            !external.isEmpty
+           !external.isEmpty
         {
             // Do not fall back to the internal caches directory when a selected external
             // drive is disconnected. The downstream write must report a drive error.
@@ -81,19 +81,20 @@ actor RawForgeDenoiseService {
         return cacheRoot().appendingPathComponent(String(format: "%016llx.dng", hash))
     }
 
-    nonisolated static func cacheURL(source: URL, raw: RawSettings, iso: Int? = nil) -> URL? {
+    nonisolated static func cacheURL(source _: URL, raw _: RawSettings, iso _: Int? = nil) -> URL? {
         // Cached RawForge DNGs may have been CPU-produced; do not use in GPU-only mode.
-        return nil
+        nil
     }
 
-    func prepare(source: URL, raw: RawSettings, iso: Int?) async throws -> URL {
+    func prepare(source: URL, raw: RawSettings, iso _: Int?) async throws -> URL {
         guard raw.denoiseMode == .off else {
             throw NSError(
                 domain: "SpektraFilmStudio.GPUOnlyDenoise", code: 1,
                 userInfo: [
                     NSLocalizedDescriptionKey:
-                        "RAW AI denoise unavailable: this build has no verified Intel Metal denoiser."
-                ])
+                        "RAW AI denoise unavailable: this build has no verified Intel Metal denoiser.",
+                ],
+            )
         }
         return source
     }
@@ -117,13 +118,19 @@ actor RawForgeDenoiseService {
                 let wasCached = Self.cacheURL(source: image.url, raw: image.look.raw, iso: image.metadata?.iso) != nil
                 group.addTask {
                     do {
-                        _ = try await service.prepare(source: image.url, raw: image.look.raw, iso: image.metadata?.iso);
+                        _ = try await service.prepare(source: image.url, raw: image.look.raw, iso: image.metadata?.iso)
                         return (true, wasCached)
                     } catch { return (false, wasCached) }
                 }
             }
             while let item = await group.next() {
-                if item.0 { result.prepared += 1; if item.1 { result.cacheHits += 1 } } else { result.failed += 1 }
+                if item.0 {
+                    result.prepared += 1; if item.1 {
+                        result.cacheHits += 1
+                    }
+                } else {
+                    result.failed += 1
+                }
                 if next < candidates.count {
                     let image = candidates[next]; next += 1
                     let wasCached =
@@ -131,7 +138,8 @@ actor RawForgeDenoiseService {
                     group.addTask {
                         do {
                             _ = try await service.prepare(
-                                source: image.url, raw: image.look.raw, iso: image.metadata?.iso);
+                                source: image.url, raw: image.look.raw, iso: image.metadata?.iso,
+                            )
                             return (true, wasCached)
                         } catch { return (false, wasCached) }
                     }
@@ -146,7 +154,8 @@ actor RawForgeDenoiseService {
         let fm = FileManager.default, root = Self.cacheRoot()
         guard
             let e = fm.enumerator(
-                at: root, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey], options: [.skipsHiddenFiles])
+                at: root, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey], options: [.skipsHiddenFiles],
+            )
         else { return .init() }
         var out = RawForgeCacheStats()
         for case let url as URL in e {
@@ -159,14 +168,18 @@ actor RawForgeDenoiseService {
 
     func clear() throws {
         let root = Self.cacheRoot()
-        if FileManager.default.fileExists(atPath: root.path) { try FileManager.default.removeItem(at: root) }
+        if FileManager.default.fileExists(atPath: root.path) {
+            try FileManager.default.removeItem(at: root)
+        }
     }
 }
 
 private enum Stage5StableHash {
     static func fnv1a64(_ text: String) -> UInt64 {
-        var hash: UInt64 = 1469598103934665603
-        for byte in text.utf8 { hash ^= UInt64(byte); hash &*= 1099511628211 }
+        var hash: UInt64 = 1_469_598_103_934_665_603
+        for byte in text.utf8 {
+            hash ^= UInt64(byte); hash &*= 1_099_511_628_211
+        }
         return hash
     }
 }

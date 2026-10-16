@@ -21,13 +21,13 @@ enum SemanticMaskRefinement {
                     data: src,
                     height: vImagePixelCount(height),
                     width: vImagePixelCount(width),
-                    rowBytes: width
+                    rowBytes: width,
                 )
                 var output = vImage_Buffer(
                     data: dst,
                     height: vImagePixelCount(height),
                     width: vImagePixelCount(width),
-                    rowBytes: width
+                    rowBytes: width,
                 )
                 return vImageTentConvolve_Planar8(
                     &input,
@@ -38,7 +38,7 @@ enum SemanticMaskRefinement {
                     kernel,
                     kernel,
                     0,
-                    vImage_Flags(kvImageEdgeExtend)
+                    vImage_Flags(kvImageEdgeExtend),
                 )
             }
         }

@@ -3,7 +3,9 @@ import Foundation
 enum ExportPresetCategory: String, CaseIterable, Identifiable, Sendable {
     case studio = "Studio & Web"
     case social = "Social Media"
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 }
 
 struct ExportPresetDefinition: Identifiable, Hashable, Sendable {
@@ -25,11 +27,21 @@ struct ExportPresetDefinition: Identifiable, Hashable, Sendable {
 
     func applying(to existing: ExportSettings) -> ExportSettings {
         var value = existing
-        if let format { value.format = format }
-        if let jpegQuality { value.jpegQuality = jpegQuality }
-        if let tiff16Bit { value.tiff16Bit = tiff16Bit }
-        if let preserveMetadata { value.preserveMetadata = preserveMetadata }
-        if let stripGPS { value.stripGPS = stripGPS }
+        if let format {
+            value.format = format
+        }
+        if let jpegQuality {
+            value.jpegQuality = jpegQuality
+        }
+        if let tiff16Bit {
+            value.tiff16Bit = tiff16Bit
+        }
+        if let preserveMetadata {
+            value.preserveMetadata = preserveMetadata
+        }
+        if let stripGPS {
+            value.stripGPS = stripGPS
+        }
         value.resizeMode = resizeMode
         value.resizeWidth = width
         value.resizeHeight = height
@@ -45,7 +57,7 @@ struct ExportPresetDefinition: Identifiable, Hashable, Sendable {
             source: "RapidRAW default High Quality preset",
             format: .jpeg, jpegQuality: 0.95, tiff16Bit: nil,
             preserveMetadata: true, stripGPS: false,
-            resizeMode: .none, width: 2048, height: 2048, longEdge: 2048, dontEnlarge: true
+            resizeMode: .none, width: 2048, height: 2048, longEdge: 2048, dontEnlarge: true,
         ),
         .init(
             id: "rapidraw-web", name: "Fast Web", category: .studio,
@@ -53,7 +65,7 @@ struct ExportPresetDefinition: Identifiable, Hashable, Sendable {
             source: "RapidRAW default Fast (Web) preset",
             format: .jpeg, jpegQuality: 0.80, tiff16Bit: nil,
             preserveMetadata: false, stripGPS: true,
-            resizeMode: .width, width: 2048, height: 2048, longEdge: 2048, dontEnlarge: true
+            resizeMode: .width, width: 2048, height: 2048, longEdge: 2048, dontEnlarge: true,
         ),
         .init(
             id: "tiff16-master", name: "16-bit TIFF Master", category: .studio,
@@ -61,7 +73,7 @@ struct ExportPresetDefinition: Identifiable, Hashable, Sendable {
             source: "SpektraFilm verified 16-bit TIFF path",
             format: .tiff, jpegQuality: nil, tiff16Bit: true,
             preserveMetadata: true, stripGPS: false,
-            resizeMode: .none, width: 2048, height: 2048, longEdge: 2048, dontEnlarge: true
+            resizeMode: .none, width: 2048, height: 2048, longEdge: 2048, dontEnlarge: true,
         ),
         .social(id: "instagram-square", name: "Instagram Square", width: 1080, height: 1080),
         .social(id: "instagram-portrait", name: "Instagram Portrait", width: 1080, height: 1350),
@@ -85,7 +97,7 @@ struct ExportPresetDefinition: Identifiable, Hashable, Sendable {
             width: width,
             height: height,
             longEdge: max(width, height),
-            dontEnlarge: false
+            dontEnlarge: false,
         )
     }
 

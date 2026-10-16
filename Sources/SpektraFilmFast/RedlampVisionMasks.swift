@@ -88,7 +88,7 @@ public struct VisionMaskProvider: Sendable {
         let instances = VNGeneratePersonInstanceMaskRequest()
         try handler.perform([instances])
         if let observation = instances.results?.first, !observation.allInstances.isEmpty,
-            observation.allInstances.count < 4
+           observation.allInstances.count < 4
         {
             return try covering(
                 faces: observation.allInstances.sorted().enumerated().map { index, instance in
@@ -100,7 +100,8 @@ public struct VisionMaskProvider: Sendable {
                         kind: .people, provider: "apple.vision.personInstance", revision: instances.revision,
                         instance: index, part: .entirePerson, mask: GuidedFilter.refine(mask, guide: image),
                     )
-                }, image: image, handler: handler)
+                }, image: image, handler: handler,
+            )
         }
         let mask = try allPeople(image, handler: handler)
         guard mask.coveredFraction > 0.001 else { throw MaskComputationError.nothingFound(.people) }
@@ -109,8 +110,9 @@ public struct VisionMaskProvider: Sendable {
                 ProvidedMask(
                     kind: .people, provider: "apple.vision.personSegmentation", revision: 1, part: .entirePerson,
                     mask: GuidedFilter.refine(mask, guide: image),
-                )
-            ], image: image, handler: handler)
+                ),
+            ], image: image, handler: handler,
+        )
     }
 
     /// Vision's person segmentation can miss a head in a dark, low-key photo that its foreground
@@ -121,19 +123,19 @@ public struct VisionMaskProvider: Sendable {
     ) -> [ProvidedMask] {
         let request = VNDetectFaceRectanglesRequest()
         guard let first = masks.first, (try? handler.perform([request])) != nil,
-            let faces = request.results, !faces.isEmpty
+              let faces = request.results, !faces.isEmpty
         else { return masks }
         let width = first.mask.width
         let height = first.mask.height
         let everyone = masks.dropFirst().reduce(first.mask) { $0.union($1.mask) }
-        /// Vision's boxes are normalised, from the bottom left.
+        // Vision's boxes are normalised, from the bottom left.
         func pixels(_ face: VNFaceObservation) -> (x: Range<Int>, y: Range<Int>) {
             let box = face.boundingBox
             let x0 = min(max(Int(box.minX * Double(width)), 0), width - 1)
             let x1 = min(max(Int(box.maxX * Double(width)), x0 + 1), width)
             let y0 = min(max(Int((1 - box.maxY) * Double(height)), 0), height - 1)
             let y1 = min(max(Int((1 - box.minY) * Double(height)), y0 + 1), height)
-            return (x0..<x1, y0..<y1)
+            return (x0 ..< x1, y0 ..< y1)
         }
         let uncovered = faces.filter { face in
             let box = pixels(face)
@@ -146,7 +148,7 @@ public struct VisionMaskProvider: Sendable {
             return Double(sum) / Double(255 * box.x.count * box.y.count) < 0.5
         }
         guard !uncovered.isEmpty,
-            let subject = try? subject(image).mask.resized(to: PixelSize(width: width, height: height))
+              let subject = try? subject(image).mask.resized(to: PixelSize(width: width, height: height))
         else { return masks }
         var masks = masks
         for face in uncovered {
@@ -159,7 +161,8 @@ public struct VisionMaskProvider: Sendable {
             while let index = stack.popLast() {
                 let x = index % width
                 for next in [x > 0 ? index - 1 : -1, x < width - 1 ? index + 1 : -1, index - width, index + width]
-                where next >= 0 && next < part.count && part[next] == 0 && subject.pixels[next] > 127 {
+                    where next >= 0 && next < part.count && part[next] == 0 && subject.pixels[next] > 127
+                {
                     part[next] = subject.pixels[next]
                     stack.append(next)
                 }
@@ -186,7 +189,7 @@ public struct VisionMaskProvider: Sendable {
             return ImageRect(x: box.minX, y: 1 - box.maxY, width: box.width, height: box.height)
         }
         guard let observation = instances.results?.first, !observation.allInstances.isEmpty,
-            observation.allInstances.count < 4
+              observation.allInstances.count < 4
         else {
             let everyone = try allPeople(image, handler: handler)
             guard everyone.coveredFraction > 0.001, let box = Self.bounds(of: everyone) else { return [] }
@@ -197,14 +200,15 @@ public struct VisionMaskProvider: Sendable {
                 observation.generateScaledMaskForImage(
                     forInstances: IndexSet(integer: instance),
                     from: handler,
-                ))
+                ),
+            )
         }
         // Small figures' masks are soft at the face, so a face is theirs by the share it covers.
         var faceOf: [Int: Int] = [:]
         for (face, box) in faceBoxes.enumerated() {
             let shares = masks.map { Self.share(of: $0, in: box) }
             guard let person = shares.indices.max(by: { shares[$0] < shares[$1] }),
-                shares[person] > 0.2
+                  shares[person] > 0.2
             else { continue }
             if let other = faceOf[person], faceBoxes[other].width * faceBoxes[other].height > box.width * box.height {
                 continue
@@ -229,8 +233,8 @@ public struct VisionMaskProvider: Sendable {
         let y1 = min(Int(((box.y + box.height) * Double(mask.height)).rounded(.up)), mask.height)
         guard x1 > x0, y1 > y0 else { return 0 }
         var total = 0
-        for y in y0..<y1 {
-            for x in x0..<x1 {
+        for y in y0 ..< y1 {
+            for x in x0 ..< x1 {
                 total += Int(mask.pixels[y * mask.width + x])
             }
         }
@@ -240,8 +244,8 @@ public struct VisionMaskProvider: Sendable {
     /// The bounds of what `mask` covers over half, as fractions of it from the top left.
     static func bounds(of mask: GrayMask) -> ImageRect? {
         var (minX, minY, maxX, maxY) = (mask.width, mask.height, -1, -1)
-        for y in 0..<mask.height {
-            for x in 0..<mask.width where mask.pixels[y * mask.width + x] > 127 {
+        for y in 0 ..< mask.height {
+            for x in 0 ..< mask.width where mask.pixels[y * mask.width + x] > 127 {
                 minX = min(minX, x)
                 maxX = max(maxX, x)
                 minY = min(minY, y)
@@ -287,8 +291,8 @@ public struct VisionMaskProvider: Sendable {
         let pixels = part == .teeth || part == .faceSkin ? RGBImage(image, size: size) : nil
         return observations.enumerated().compactMap { index, face in
             guard let landmarks = face.landmarks,
-                var mask = FaceParts.mask(part, landmarks: landmarks, size: size, people: people, pixels: pixels),
-                mask.coveredFraction > 0
+                  var mask = FaceParts.mask(part, landmarks: landmarks, size: size, people: people, pixels: pixels),
+                  mask.coveredFraction > 0
             else { return nil }
             mask = mask.blurred(radius: max(1, size.longEdge / 1000))
             return ProvidedMask(
@@ -315,7 +319,7 @@ public struct VisionMaskProvider: Sendable {
         try VNImageRequestHandler(cgImage: image, options: [:]).perform([alone])
         var faces = (seeded.results ?? []).filter { $0.landmarks != nil }
         for face in alone.results ?? []
-        where face.landmarks != nil
+            where face.landmarks != nil
             && !faces.contains(where: { overlap($0.boundingBox, face.boundingBox) > 0.3 })
         {
             faces.append(face)
@@ -343,23 +347,23 @@ public struct VisionMaskProvider: Sendable {
         var pixels = [UInt8](repeating: 0, count: width * height)
         switch CVPixelBufferGetPixelFormatType(buffer) {
         case kCVPixelFormatType_OneComponent32Float:
-            for y in 0..<height {
+            for y in 0 ..< height {
                 let row = (base + y * rowBytes).assumingMemoryBound(to: Float.self)
-                for x in 0..<width {
+                for x in 0 ..< width {
                     pixels[y * width + x] = UInt8((min(max(row[x], 0), 1) * 255).rounded())
                 }
             }
         case kCVPixelFormatType_OneComponent16Half:
-            for y in 0..<height {
+            for y in 0 ..< height {
                 let row = (base + y * rowBytes).assumingMemoryBound(to: UInt16.self)
-                for x in 0..<width {
+                for x in 0 ..< width {
                     pixels[y * width + x] = UInt8((min(max(HalfPrecision.float(row[x]), 0), 1) * 255).rounded())
                 }
             }
         default:
-            for y in 0..<height {
+            for y in 0 ..< height {
                 let row = (base + y * rowBytes).assumingMemoryBound(to: UInt8.self)
-                for x in 0..<width {
+                for x in 0 ..< width {
                     pixels[y * width + x] = row[x]
                 }
             }

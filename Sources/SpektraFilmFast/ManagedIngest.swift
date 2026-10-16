@@ -47,7 +47,10 @@ struct ManagedIngestJob: Identifiable, Codable, Sendable, Equatable {
         updatedAt = createdAt
     }
 
-    var completedCount: Int { items.lazy.filter { $0.state == .completed }.count }
+    var completedCount: Int {
+        items.lazy.filter { $0.state == .completed }.count
+    }
+
     var fractionComplete: Double {
         guard !items.isEmpty else { return 0 }
         return Double(completedCount) / Double(items.count)
@@ -76,9 +79,9 @@ enum ManagedIngestError: LocalizedError {
             "Primary and backup destinations must not be inside the source card/folder."
         case .noPhotos:
             "No supported photos were found in the ingest source."
-        case .destinationConflict(let name):
+        case let .destinationConflict(name):
             "A different file already exists at \(name)."
-        case .verificationFailed(let name):
+        case let .verificationFailed(name):
             "Checksum verification failed for \(name)."
         }
     }
@@ -105,7 +108,7 @@ actor ManagedIngestService {
         let backup = backupRoot.standardizedFileURL
         guard primary.path != backup.path else { throw ManagedIngestError.sameDestination }
         guard !primary.path.hasPrefix(source.path + "/"),
-            !backup.path.hasPrefix(source.path + "/")
+              !backup.path.hasPrefix(source.path + "/")
         else {
             throw ManagedIngestError.destinationInsideSource
         }
@@ -124,15 +127,16 @@ actor ManagedIngestService {
                     source: url,
                     relativePath: relative,
                     primary: primaryURL,
-                    backup: backupURL
-                ))
+                    backup: backupURL,
+                ),
+            )
         }
 
         let job = ManagedIngestJob(
             sourceRoot: source,
             primaryRoot: primary,
             backupRoot: backup,
-            items: items
+            items: items,
         )
         try save(job)
         return job
@@ -147,14 +151,16 @@ actor ManagedIngestService {
 
     func run(
         job initial: ManagedIngestJob,
-        progress: @escaping @Sendable (ManagedIngestProgress) -> Void
+        progress: @escaping @Sendable (ManagedIngestProgress) -> Void,
     ) async throws -> (ManagedIngestJob, [URL]) {
         var job = initial
         let total = job.items.count
 
         for index in job.items.indices {
             try Task.checkCancellation()
-            if job.items[index].state == .completed { continue }
+            if job.items[index].state == .completed {
+                continue
+            }
 
             let source = URL(fileURLWithPath: job.items[index].sourcePath)
             let primary = URL(fileURLWithPath: job.items[index].primaryPath)
@@ -167,8 +173,9 @@ actor ManagedIngestService {
                         completed: job.completedCount,
                         total: total,
                         fileName: name,
-                        message: "Copying primary…"
-                    ))
+                        message: "Copying primary…",
+                    ),
+                )
                 let sourceHash = try await verifiedCopy(source: source, destination: primary, expectedHash: nil)
                 job.items[index].sha256 = sourceHash
                 job.items[index].state = .primaryCopied
@@ -182,8 +189,9 @@ actor ManagedIngestService {
                         completed: job.completedCount,
                         total: total,
                         fileName: name,
-                        message: "Copying verified backup…"
-                    ))
+                        message: "Copying verified backup…",
+                    ),
+                )
                 _ = try await verifiedCopy(source: source, destination: backup, expectedHash: sourceHash)
 
                 job.items[index].state = .completed
@@ -195,8 +203,9 @@ actor ManagedIngestService {
                         completed: job.completedCount,
                         total: total,
                         fileName: name,
-                        message: "Verified"
-                    ))
+                        message: "Verified",
+                    ),
+                )
             } catch is CancellationError {
                 try? save(job)
                 throw CancellationError()
@@ -221,7 +230,7 @@ actor ManagedIngestService {
     private func save(_ job: ManagedIngestJob) throws {
         try FileManager.default.createDirectory(
             at: journalURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
+            withIntermediateDirectories: true,
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -236,15 +245,15 @@ actor ManagedIngestService {
                 at: folder,
                 includingPropertiesForKeys: keys,
                 options: [.skipsHiddenFiles, .skipsPackageDescendants],
-                errorHandler: { _, _ in true }
+                errorHandler: { _, _ in true },
             )
         else { return [] }
 
         var values: [URL] = []
         for case let url as URL in enumerator {
             guard let resource = try? url.resourceValues(forKeys: Set(keys)),
-                resource.isRegularFile == true,
-                resource.isHidden != true
+                  resource.isRegularFile == true,
+                  resource.isHidden != true
             else { continue }
             if supportedExtensions.contains(url.pathExtension.lowercased()) {
                 values.append(url)
@@ -267,8 +276,11 @@ actor ManagedIngestService {
 
         if fm.fileExists(atPath: destination.path) {
             let existingHash = try await sha256(url: destination)
-            let sourceHash: String
-            if let expectedHash { sourceHash = expectedHash } else { sourceHash = try await sha256(url: source) }
+            let sourceHash: String = if let expectedHash {
+                expectedHash
+            } else {
+                try await sha256(url: source)
+            }
             guard existingHash == sourceHash else {
                 throw ManagedIngestError.destinationConflict(destination.lastPathComponent)
             }
@@ -332,11 +344,11 @@ extension AppModel {
 
         Task { @MainActor [weak self] in
             guard let self,
-                let source = await SpektraFilePanel.folder(title: "Choose Camera Card or Source Folder"),
-                let primary = await SpektraFilePanel.folder(title: "Choose Working Photo Destination"),
-                let backup = await SpektraFilePanel.folder(title: "Choose Verified Backup Folder")
+                  let source = await SpektraFilePanel.folder(title: "Choose Camera Card or Source Folder"),
+                  let primary = await SpektraFilePanel.folder(title: "Choose Working Photo Destination"),
+                  let backup = await SpektraFilePanel.folder(title: "Choose Verified Backup Folder")
             else { return }
-            self.beginManagedIngest(source: source, primary: primary, backup: backup)
+            beginManagedIngest(source: source, primary: primary, backup: backup)
         }
     }
 
@@ -354,17 +366,17 @@ extension AppModel {
                 let job = try await ManagedIngestService.shared.makeJob(
                     sourceRoot: source,
                     primaryRoot: primary,
-                    backupRoot: backup
+                    backupRoot: backup,
                 )
                 try Task.checkCancellation()
                 let (_, urls) = try await ManagedIngestService.shared.run(job: job) { progress in
                     Task { @MainActor [weak self] in
-                        guard let self, generation == self.projectGeneration else { return }
-                        self.ingestProgress =
+                        guard let self, generation == projectGeneration else { return }
+                        ingestProgress =
                             progress.total == 0
-                            ? 0
-                            : Double(progress.completed) / Double(progress.total)
-                        self.ingestStatus =
+                                ? 0
+                                : Double(progress.completed) / Double(progress.total)
+                        ingestStatus =
                             "\(progress.message) · \(progress.fileName) · \(progress.completed)/\(progress.total)"
                     }
                 }
@@ -407,12 +419,12 @@ extension AppModel {
                 }
                 let (_, urls) = try await ManagedIngestService.shared.run(job: job) { progress in
                     Task { @MainActor [weak self] in
-                        guard let self, generation == self.projectGeneration else { return }
-                        self.ingestProgress =
+                        guard let self, generation == projectGeneration else { return }
+                        ingestProgress =
                             progress.total == 0
-                            ? 0
-                            : Double(progress.completed) / Double(progress.total)
-                        self.ingestStatus =
+                                ? 0
+                                : Double(progress.completed) / Double(progress.total)
+                        ingestStatus =
                             "\(progress.message) · \(progress.fileName) · \(progress.completed)/\(progress.total)"
                     }
                 }

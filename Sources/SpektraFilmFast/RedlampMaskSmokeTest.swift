@@ -8,7 +8,7 @@ enum RedlampMaskSmokeTest {
     static func run() -> Int {
         let width = 128, height = 96
         var input = [UInt8](repeating: 0, count: width * height * 4)
-        for i in 0..<(width * height) {
+        for i in 0 ..< (width * height) {
             let o = i * 4
             input[o] = 90; input[o + 1] = 125; input[o + 2] = 180; input[o + 3] = 255
         }
@@ -20,7 +20,7 @@ enum RedlampMaskSmokeTest {
             let output = RedlampMaskDisplay.compose(
                 rgba: input, displayWidth: width, displayHeight: height,
                 grade: grade, preGeometryWidth: width, preGeometryHeight: height,
-                geometry: nil, style: .color
+                geometry: nil, style: .color,
             )
         else { return 11 }
         // On Macs with Metal, verify the installed GPU evaluator has the same coverage
@@ -41,17 +41,17 @@ enum RedlampMaskSmokeTest {
         let center = ((height / 2) * width + width / 2) * 4
         let corner = 0
         guard output[center] > input[center] + 25,
-            output[center + 2] < input[center + 2] - 10,
-            output[corner] == input[corner],
-            output[corner + 1] == input[corner + 1],
-            output[corner + 2] == input[corner + 2]
+              output[center + 2] < input[center + 2] - 10,
+              output[corner] == input[corner],
+              output[corner + 1] == input[corner + 1],
+              output[corner + 2] == input[corner + 2]
         else { return 12 }
         guard RedlampMaskDisplay.image(width: width, height: height, rgba: output) != nil else { return 13 }
         // A bitmap CGContext is capable of silently flipping a CGImage vertically.
         // The old radial-only test was symmetrical and could never detect that.
         var stripe = input
-        for y in 0..<height {
-            for x in 0..<width {
+        for y in 0 ..< height {
+            for x in 0 ..< width {
                 let i = (y * width + x) * 4
                 stripe[i] = y < height / 2 ? 230 : 25
                 stripe[i + 1] = y < height / 2 ? 25 : 230
@@ -59,13 +59,13 @@ enum RedlampMaskSmokeTest {
             }
         }
         guard let bandImage = RedlampMaskDisplay.image(width: width, height: height, rgba: stripe),
-            let roundTrip = RedlampMaskDisplay.rgbaBytes(bandImage),
-            roundTrip.count == stripe.count
+              let roundTrip = RedlampMaskDisplay.rgbaBytes(bandImage),
+              roundTrip.count == stripe.count
         else { return 17 }
         let upper = ((height / 4) * width + width / 2) * 4
         let lower = (((height * 3) / 4) * width + width / 2) * 4
         guard roundTrip[upper] > roundTrip[upper + 1],
-            roundTrip[lower] < roundTrip[lower + 1]
+              roundTrip[lower] < roundTrip[lower + 1]
         else {
             print("FAIL: CGContext image readback vertically flipped the mask canvas")
             return 18
@@ -75,20 +75,22 @@ enum RedlampMaskSmokeTest {
         var rasterGrade = LocalGradeRecord(name: "Raster parity")
         var rasterSource = MaskSourceRecord(name: "Upper half", kind: .raster)
         var alpha = [UInt8](repeating: 0, count: width * height)
-        for y in 0..<(height / 2) {
-            for x in 0..<width { alpha[y * width + x] = 255 }
+        for y in 0 ..< (height / 2) {
+            for x in 0 ..< width {
+                alpha[y * width + x] = 255
+            }
         }
         rasterSource.raster = RasterMaskPayload(width: width, height: height, alpha: alpha)
         rasterGrade.masks.sources = [rasterSource]
         guard
             let localCoverage = MaskMetalEngine.shared?.renderCoverage(
-                grade: rasterGrade, width: width, height: height
+                grade: rasterGrade, width: width, height: height,
             ), localCoverage[width / 2 + (height / 4) * width] > 0.9,
             localCoverage[width / 2 + ((height * 3) / 4) * width] < 0.1,
             let overlayFrame = RedlampMaskDisplay.compose(
                 rgba: input, displayWidth: width, displayHeight: height,
                 grade: rasterGrade, preGeometryWidth: width, preGeometryHeight: height,
-                geometry: nil, style: .color
+                geometry: nil, style: .color,
             ), overlayFrame[upper] > input[upper] + 25,
             overlayFrame[lower] == input[lower]
         else {

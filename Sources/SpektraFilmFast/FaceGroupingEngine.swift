@@ -26,6 +26,7 @@ actor FaceGroupingEngine {
             coverID = sample.photoID
             coverArea = sample.area
         }
+
         mutating func add(_ sample: Sample) {
             allPhotoIDs.insert(sample.photoID)
             if sample.area > coverArea {
@@ -34,8 +35,11 @@ actor FaceGroupingEngine {
             }
             samples.append(sample)
             samples.sort { $0.area > $1.area }
-            if samples.count > 10 { samples.removeLast(samples.count - 10) }
+            if samples.count > 10 {
+                samples.removeLast(samples.count - 10)
+            }
         }
+
         mutating func absorb(_ other: Cluster) {
             allPhotoIDs.formUnion(other.allPhotoIDs)
             if other.coverArea > coverArea {
@@ -44,7 +48,9 @@ actor FaceGroupingEngine {
             }
             samples.append(contentsOf: other.samples)
             samples.sort { $0.area > $1.area }
-            if samples.count > 12 { samples.removeLast(samples.count - 12) }
+            if samples.count > 12 {
+                samples.removeLast(samples.count - 12)
+            }
         }
     }
 
@@ -68,11 +74,14 @@ actor FaceGroupingEngine {
         for (id, url) in items {
             if Task.isCancelled {
                 return Outcome(
-                    groups: [], photosRead: photosRead, facesFound: samples.count, photosWithFace: photosWithFace)
+                    groups: [], photosRead: photosRead, facesFound: samples.count, photosWithFace: photosWithFace,
+                )
             }
             let found = featurePrints(photoID: id, url: url)
             photosRead += 1
-            if !found.isEmpty { photosWithFace += 1 }
+            if !found.isEmpty {
+                photosWithFace += 1
+            }
             samples.append(contentsOf: found)
         }
         samples.sort { $0.area > $1.area }
@@ -80,7 +89,8 @@ actor FaceGroupingEngine {
         for sample in samples {
             if Task.isCancelled {
                 return Outcome(
-                    groups: [], photosRead: photosRead, facesFound: samples.count, photosWithFace: photosWithFace)
+                    groups: [], photosRead: photosRead, facesFound: samples.count, photosWithFace: photosWithFace,
+                )
             }
             var chosen: Int?
             var best = Float.greatestFiniteMagnitude
@@ -91,16 +101,24 @@ actor FaceGroupingEngine {
                 var distances: [Float] = []
                 distances.reserveCapacity(groups[index].samples.count)
                 for otherSample in groups[index].samples {
-                    if let d = distance(otherSample, sample) { distances.append(d) }
+                    if let d = distance(otherSample, sample) {
+                        distances.append(d)
+                    }
                 }
                 distances.sort()
                 guard let nearest = distances.first else { continue }
                 let support = distances.prefix(3)
                 let mean = support.reduce(Float(0), +) / Float(support.count)
                 guard nearest < directDistance, mean < directDistance + 0.055 else { continue }
-                if mean < best { best = mean; chosen = index }
+                if mean < best {
+                    best = mean; chosen = index
+                }
             }
-            if let chosen { groups[chosen].add(sample) } else { groups.append(Cluster(sample)) }
+            if let chosen {
+                groups[chosen].add(sample)
+            } else {
+                groups.append(Cluster(sample))
+            }
         }
 
         // Consolidate split identities across different lighting/camera viewpoints.
@@ -110,12 +128,13 @@ actor FaceGroupingEngine {
         while merged {
             if Task.isCancelled {
                 return Outcome(
-                    groups: [], photosRead: photosRead, facesFound: samples.count, photosWithFace: photosWithFace)
+                    groups: [], photosRead: photosRead, facesFound: samples.count, photosWithFace: photosWithFace,
+                )
             }
             merged = false
             guard groups.count > 1 else { break }
-            outer: for a in 0..<(groups.count - 1) {
-                for b in (a + 1)..<groups.count {
+            outer: for a in 0 ..< (groups.count - 1) {
+                for b in (a + 1) ..< groups.count {
                     guard groups[a].allPhotoIDs.isDisjoint(with: groups[b].allPhotoIDs) else { continue }
                     var witnesses = Set<UUID>()
                     var peerPhotos = Set<UUID>()
@@ -153,20 +172,21 @@ actor FaceGroupingEngine {
                     name: "Person \(index + 1)",
                     imageIDs: cluster.allPhotoIDs,
                     coverImageID: cluster.coverID,
-                    detectedFaceCount: cluster.allPhotoIDs.count
+                    detectedFaceCount: cluster.allPhotoIDs.count,
                 )
             }
         return Outcome(
-            groups: ranked, photosRead: photosRead, facesFound: samples.count, photosWithFace: photosWithFace)
+            groups: ranked, photosRead: photosRead, facesFound: samples.count, photosWithFace: photosWithFace,
+        )
     }
 
     private func distance(_ a: Sample, _ b: Sample) -> Float? {
         guard !a.prints.isEmpty, !b.prints.isEmpty else { return nil }
         var distances: [Float] = []
-        for i in 0..<min(a.prints.count, b.prints.count) {
+        for i in 0 ..< min(a.prints.count, b.prints.count) {
             var value: Float = 0
             if (try? a.prints[i].computeDistance(&value, to: b.prints[i])) != nil,
-                value.isFinite
+               value.isFinite
             {
                 distances.append(value)
             }
@@ -175,7 +195,9 @@ actor FaceGroupingEngine {
         distances.sort()
         // Consistent crop pairs. Keep the tighter crop's match, but penalize a
         // contradictory second crop so background/clothing won't dominate.
-        if distances.count == 1 { return distances[0] }
+        if distances.count == 1 {
+            return distances[0]
+        }
         return distances[0] * 0.80 + distances[1] * 0.20
     }
 
@@ -193,7 +215,9 @@ actor FaceGroupingEngine {
         guard (try? VNImageRequestHandler(cgImage: image, options: [:]).perform([detector])) != nil else { return [] }
         var result: [Sample] = []
         for face in detector.results ?? [] {
-            if Task.isCancelled { break }
+            if Task.isCancelled {
+                break
+            }
             let area = Double(face.boundingBox.width * face.boundingBox.height)
             guard area >= 0.0035 else { continue }
             let faceRect = VNImageRectForNormalizedRect(face.boundingBox, image.width, image.height)
@@ -206,16 +230,18 @@ actor FaceGroupingEngine {
                     .intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
                     .integral
                 guard rect.width >= 40, rect.height >= 40,
-                    let crop = image.cropping(to: rect)
+                      let crop = image.cropping(to: rect)
                 else { continue }
                 let request = VNGenerateImageFeaturePrintRequest()
                 if (try? VNImageRequestHandler(cgImage: crop, options: [:]).perform([request])) != nil,
-                    let feature = request.results?.first
+                   let feature = request.results?.first
                 {
                     prints.append(feature)
                 }
             }
-            if !prints.isEmpty { result.append(Sample(photoID: photoID, prints: prints, area: area)) }
+            if !prints.isEmpty {
+                result.append(Sample(photoID: photoID, prints: prints, area: area))
+            }
         }
         return result
     }

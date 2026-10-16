@@ -5,30 +5,34 @@
 import Foundation
 
 enum WorkflowPreset: String, CaseIterable, Codable, Sendable, Identifiable {
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
+
     case sceneReferredFilmic = "scene-referred (filmic)"
     case sceneReferredAgX = "scene-referred (AgX)"
     case sceneReferredSigmoid = "scene-referred (sigmoid)"
     case displayReferredLegacy = "display-referred (legacy)"
-    case none = "none"
+    case none
 
     var description: String {
         switch self {
         case .sceneReferredFilmic:
-            return "Scene-referred workflow with Filmic RGB tone mapping"
+            "Scene-referred workflow with Filmic RGB tone mapping"
         case .sceneReferredAgX:
-            return "Scene-referred workflow with AgX tone mapping"
+            "Scene-referred workflow with AgX tone mapping"
         case .sceneReferredSigmoid:
-            return "Scene-referred workflow with Sigmoid tone mapping"
+            "Scene-referred workflow with Sigmoid tone mapping"
         case .displayReferredLegacy:
-            return "Legacy display-referred workflow"
+            "Legacy display-referred workflow"
         case .none:
-            return "Minimal workflow"
+            "Minimal workflow"
         }
     }
 }
 
 // MARK: - PixelpipeRegistry stub (compatibility only)
+
 // Thread-safe stub since the real registry was removed with the Darktable pipeline.
 
 final class PixelpipeRegistry: @unchecked Sendable {
@@ -37,9 +41,18 @@ final class PixelpipeRegistry: @unchecked Sendable {
     private init() {}
 
     func register(_: any Any) {}
-    func getEnabledModules() -> [any Any] { [] }
-    func getAllModules() -> [any Any] { [] }
-    func module(named _: String) -> (any Any)? { nil }
+    func getEnabledModules() -> [any Any] {
+        []
+    }
+
+    func getAllModules() -> [any Any] {
+        []
+    }
+
+    func module(named _: String) -> (any Any)? {
+        nil
+    }
+
     func setEnabled(_: String, _: Bool) {}
 
     func applyWorkflowDefaults(_: WorkflowPreset) {}

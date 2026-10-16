@@ -2,9 +2,9 @@ import Foundation
 @preconcurrency import Metal
 import simd
 
-// Linear-light geometry stage. Matches GeometryEngine's projective coordinate
-// convention and runs after Look/film/lens effects, never on the CPU preview.
-// No full-frame readback and no source-image re-decode while editing crop.
+/// Linear-light geometry stage. Matches GeometryEngine's projective coordinate
+/// convention and runs after Look/film/lens effects, never on the CPU preview.
+/// No full-frame readback and no source-image re-decode while editing crop.
 final class StudioMetalGeometry {
     private let pipeline: any MTLComputePipelineState
 
@@ -18,7 +18,7 @@ final class StudioMetalGeometry {
 
     static func targetSize(
         sourceWidth: Int, sourceHeight: Int,
-        geometry: GeometrySettings
+        geometry: GeometrySettings,
     ) -> (width: Int, height: Int) {
         var crop = geometry.crop
         crop.clamp()
@@ -32,7 +32,7 @@ final class StudioMetalGeometry {
     func encode(
         source: any MTLBuffer, destination: any MTLTexture,
         width: Int, height: Int, geometry: GeometrySettings,
-        command: any MTLCommandBuffer
+        command: any MTLCommandBuffer,
     ) throws {
         guard width > 0, height > 0 else { throw GPULiveError.unavailable("Invalid geometry dimensions") }
         var crop = geometry.crop
@@ -46,7 +46,9 @@ final class StudioMetalGeometry {
             effective.scale = max(
                 geometry.scale,
                 GeometryEngine.minimumScaleToCoverCrop(
-                    settings: geometry, width: width, height: height))
+                    settings: geometry, width: width, height: height,
+                ),
+            )
         }
         let angle = effective.rotationDegrees * .pi / 180
         let c = cos(angle), s = sin(angle)
@@ -89,43 +91,44 @@ final class StudioMetalGeometry {
         encoder.setBytes(&row2, length: MemoryLayout<SIMD4<Float>>.stride, index: 5)
         encoder.dispatchThreads(
             MTLSize(width: rect.width, height: rect.height, depth: 1),
-            threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
+            threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1),
+        )
         encoder.endEncoding()
     }
 
     private static let shader = #"""
-        #include <metal_stdlib>
-        using namespace metal;
-        kernel void studioPostFilmGeometry(
-            device const float4 *source [[buffer(0)]],
-            texture2d<float, access::write> destination [[texture(0)]],
-            constant uint2 &sourceSize [[buffer(1)]],
-            constant uint2 &cropOrigin [[buffer(2)]],
-            constant float4 &row0 [[buffer(3)]],
-            constant float4 &row1 [[buffer(4)]],
-            constant float4 &row2 [[buffer(5)]],
-            uint2 xy [[thread_position_in_grid]]) {
-            if (xy.x >= destination.get_width() || xy.y >= destination.get_height()) return;
-            float fullW = float(sourceSize.x), fullH = float(sourceSize.y);
-            float aspect = fullW / max(fullH, 1.f);
-            float nx = (float(xy.x + cropOrigin.x) / max(1.f, fullW-1.f) - 0.5f) * aspect;
-            float ny = float(xy.y + cropOrigin.y) / max(1.f, fullH-1.f) - 0.5f;
-            float3 coord = float3(nx, ny, 1.f);
-            float denominator = dot(row2.xyz, coord);
-            if (abs(denominator) < 1e-9f) { destination.write(float4(0,0,0,1), xy); return; }
-            float su = dot(row0.xyz, coord) / denominator / aspect + 0.5f;
-            float sv = dot(row1.xyz, coord) / denominator + 0.5f;
-            float sx = su * (fullW-1.f), sy = sv * (fullH-1.f);
-            if (sx < 0.f || sy < 0.f || sx > fullW-1.f || sy > fullH-1.f) {
-                destination.write(float4(0,0,0,1), xy); return;
-            }
-            uint x0=uint(floor(sx)), y0=uint(floor(sy));
-            uint x1=min(sourceSize.x-1,x0+1), y1=min(sourceSize.y-1,y0+1);
-            float tx=fract(sx), ty=fract(sy);
-            float4 p00=source[y0*sourceSize.x+x0], p10=source[y0*sourceSize.x+x1];
-            float4 p01=source[y1*sourceSize.x+x0], p11=source[y1*sourceSize.x+x1];
-            float4 px0=mix(p00,p10,tx), px1=mix(p01,p11,tx);
-            destination.write(mix(px0,px1,ty),xy);
+    #include <metal_stdlib>
+    using namespace metal;
+    kernel void studioPostFilmGeometry(
+        device const float4 *source [[buffer(0)]],
+        texture2d<float, access::write> destination [[texture(0)]],
+        constant uint2 &sourceSize [[buffer(1)]],
+        constant uint2 &cropOrigin [[buffer(2)]],
+        constant float4 &row0 [[buffer(3)]],
+        constant float4 &row1 [[buffer(4)]],
+        constant float4 &row2 [[buffer(5)]],
+        uint2 xy [[thread_position_in_grid]]) {
+        if (xy.x >= destination.get_width() || xy.y >= destination.get_height()) return;
+        float fullW = float(sourceSize.x), fullH = float(sourceSize.y);
+        float aspect = fullW / max(fullH, 1.f);
+        float nx = (float(xy.x + cropOrigin.x) / max(1.f, fullW-1.f) - 0.5f) * aspect;
+        float ny = float(xy.y + cropOrigin.y) / max(1.f, fullH-1.f) - 0.5f;
+        float3 coord = float3(nx, ny, 1.f);
+        float denominator = dot(row2.xyz, coord);
+        if (abs(denominator) < 1e-9f) { destination.write(float4(0,0,0,1), xy); return; }
+        float su = dot(row0.xyz, coord) / denominator / aspect + 0.5f;
+        float sv = dot(row1.xyz, coord) / denominator + 0.5f;
+        float sx = su * (fullW-1.f), sy = sv * (fullH-1.f);
+        if (sx < 0.f || sy < 0.f || sx > fullW-1.f || sy > fullH-1.f) {
+            destination.write(float4(0,0,0,1), xy); return;
         }
-        """#
+        uint x0=uint(floor(sx)), y0=uint(floor(sy));
+        uint x1=min(sourceSize.x-1,x0+1), y1=min(sourceSize.y-1,y0+1);
+        float tx=fract(sx), ty=fract(sy);
+        float4 p00=source[y0*sourceSize.x+x0], p10=source[y0*sourceSize.x+x1];
+        float4 p01=source[y1*sourceSize.x+x0], p11=source[y1*sourceSize.x+x1];
+        float4 px0=mix(p00,p10,tx), px1=mix(p01,p11,tx);
+        destination.write(mix(px0,px1,ty),xy);
+    }
+    """#
 }

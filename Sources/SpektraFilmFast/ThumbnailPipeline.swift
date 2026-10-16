@@ -78,7 +78,9 @@ actor ThumbnailPipeline {
             let payload = try await task.value
             inFlight[key] = nil
             releaseWorker()
-            if diskURL != nil { writes += 1 }
+            if diskURL != nil {
+                writes += 1
+            }
             insert(payload, for: key)
             return payload
         } catch {
@@ -94,21 +96,23 @@ actor ThumbnailPipeline {
         var cursor = 0
         await withTaskGroup(of: Void.self) { group in
             let initial = min(maxWorkers, urls.count)
-            for _ in 0..<initial {
+            for _ in 0 ..< initial {
                 let url = urls[cursor]; cursor += 1
                 group.addTask { [weak self] in
-                    guard let self, let base = try? await self.thumbnail(url: url, maxPixel: largest) else { return }
+                    guard let self, let base = try? await thumbnail(url: url, maxPixel: largest) else { return }
                     for size in sizes.dropFirst() where !Task.isCancelled {
                         await self.cacheDerivedThumbnailIfNeeded(source: base, url: url, maxPixel: size)
                     }
                 }
             }
             while await group.next() != nil {
-                if Task.isCancelled { group.cancelAll(); break }
+                if Task.isCancelled {
+                    group.cancelAll(); break
+                }
                 guard cursor < urls.count else { continue }
                 let url = urls[cursor]; cursor += 1
                 group.addTask { [weak self] in
-                    guard let self, let base = try? await self.thumbnail(url: url, maxPixel: largest) else { return }
+                    guard let self, let base = try? await thumbnail(url: url, maxPixel: largest) else { return }
                     for size in sizes.dropFirst() where !Task.isCancelled {
                         await self.cacheDerivedThumbnailIfNeeded(source: base, url: url, maxPixel: size)
                     }
@@ -119,27 +123,33 @@ actor ThumbnailPipeline {
 
     private func cacheDerivedThumbnailIfNeeded(source: ThumbnailPayload, url: URL, maxPixel: Int) async {
         guard max(source.width, source.height) > maxPixel,
-            let key = try? cacheKey(url: url, maxPixel: maxPixel)
+              let key = try? cacheKey(url: url, maxPixel: maxPixel)
         else { return }
-        if memory[key] != nil { touch(key); return }
+        if memory[key] != nil {
+            touch(key); return
+        }
         guard let cacheDir = cacheDirectory() else { return }
         let diskURL = cacheDir.appendingPathComponent("\(key).jpg")
-        if FileManager.default.fileExists(atPath: diskURL.path) { return }
+        if FileManager.default.fileExists(atPath: diskURL.path) {
+            return
+        }
         guard
             let derived = try? await Task.detached(
                 priority: .utility,
                 operation: {
                     try Self.resize(source, maxPixel: maxPixel)
-                }
+                },
             ).value
         else { return }
-        if (try? Self.writeJPEG(derived, to: diskURL, quality: 0.82)) != nil { writes += 1 }
+        if (try? Self.writeJPEG(derived, to: diskURL, quality: 0.82)) != nil {
+            writes += 1
+        }
         insert(derived, for: key)
     }
 
     func configure(memoryMode: PreviewCacheMemoryMode, totalDiskCacheGB: Int, root: URL?) {
         self.memoryMode = memoryMode
-        self.rootDirectory = root
+        rootDirectory = root
         diskBudgetBytes = CacheDiskBudgetPlan(totalGB: totalDiskCacheGB).thumbnailBytes
         trimMemory()
         pruneDiskIfNeeded(force: true)
@@ -167,12 +177,16 @@ actor ThumbnailPipeline {
         case .critical:
             pressureConstrained = true
             clearMemory()
-            for task in inFlight.values { task.cancel() }
+            for task in inFlight.values {
+                task.cancel()
+            }
             inFlight.removeAll()
         }
     }
 
-    func approximateMemoryBytes() -> Int { memoryBytes }
+    func approximateMemoryBytes() -> Int {
+        memoryBytes
+    }
 
     func approximateDiskUsageBytes() -> Int64 {
         guard let dir = cacheDirectory() else { return 0 }
@@ -185,7 +199,7 @@ actor ThumbnailPipeline {
             misses: misses,
             writes: writes,
             memoryBytes: Int64(memoryBytes),
-            diskBytes: approximateDiskUsageBytes()
+            diskBytes: approximateDiskUsageBytes(),
         )
     }
 
@@ -209,7 +223,9 @@ actor ThumbnailPipeline {
     }
 
     private func insert(_ payload: ThumbnailPayload, for key: String) {
-        if let old = memory[key] { memoryBytes -= old.rgba.count }
+        if let old = memory[key] {
+            memoryBytes -= old.rgba.count
+        }
         memory[key] = payload
         memoryBytes += payload.rgba.count
         touch(key)
@@ -223,7 +239,9 @@ actor ThumbnailPipeline {
             pressureConstrained ? min(normalBudget, CacheBudget.thumbnailBytes(mode: .conservative)) : normalBudget
         while memoryBytes > budget, let old = memoryOrder.first {
             memoryOrder.removeFirst()
-            if let removed = memory.removeValue(forKey: old) { memoryBytes -= removed.rgba.count }
+            if let removed = memory.removeValue(forKey: old) {
+                memoryBytes -= removed.rgba.count
+            }
         }
     }
 
@@ -237,7 +255,7 @@ actor ThumbnailPipeline {
         return String(
             format: "%016llx_%d",
             fnv1a64("\(CacheSchema.thumbnail)|\(sourceFingerprint)"),
-            maxPixel
+            maxPixel,
         )
     }
 
@@ -249,14 +267,16 @@ actor ThumbnailPipeline {
     }
 
     private func pruneDiskIfNeeded(force: Bool) {
-        if !force, Date().timeIntervalSince(lastDiskPrune) < 60 { return }
+        if !force, Date().timeIntervalSince(lastDiskPrune) < 60 {
+            return
+        }
         lastDiskPrune = Date()
         guard let dir = cacheDirectory(),
-            let files = try? FileManager.default.contentsOfDirectory(
-                at: dir,
-                includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
-                options: [.skipsHiddenFiles]
-            )
+              let files = try? FileManager.default.contentsOfDirectory(
+                  at: dir,
+                  includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
+                  options: [.skipsHiddenFiles],
+              )
         else { return }
         var entries: [(URL, Int64, Date)] = []
         var total: Int64 = 0
@@ -276,10 +296,10 @@ actor ThumbnailPipeline {
     }
 
     private func fnv1a64(_ value: String) -> UInt64 {
-        var hash: UInt64 = 0xcbf29ce484222325
+        var hash: UInt64 = 0xCBF2_9CE4_8422_2325
         for byte in value.utf8 {
             hash ^= UInt64(byte)
-            hash &*= 0x100000001b3
+            hash &*= 0x100_0000_01B3
         }
         return hash
     }
@@ -288,7 +308,8 @@ actor ThumbnailPipeline {
         try await Task.detached(priority: .utility) {
             guard
                 let source = CGImageSourceCreateWithURL(
-                    url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+                    url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary,
+                ),
                 let image = CGImageSourceCreateThumbnailAtIndex(
                     source, 0,
                     [
@@ -296,7 +317,8 @@ actor ThumbnailPipeline {
                         kCGImageSourceCreateThumbnailWithTransform: true,
                         kCGImageSourceThumbnailMaxPixelSize: maxPixel,
                         kCGImageSourceShouldCacheImmediately: true,
-                    ] as CFDictionary)
+                    ] as CFDictionary,
+                )
             else {
                 throw CocoaError(.fileReadCorruptFile)
             }
@@ -331,13 +353,15 @@ actor ThumbnailPipeline {
 
         guard
             let image = CGImageSourceCreateThumbnailAtIndex(source, 0, embeddedOptions)
-                ?? CGImageSourceCreateThumbnailAtIndex(source, 0, fallbackOptions)
+            ?? CGImageSourceCreateThumbnailAtIndex(source, 0, fallbackOptions)
         else {
             throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: url.path])
         }
         try Task.checkCancellation()
         let payload = try rasterize(image)
-        if let diskURL { try? writeJPEG(payload, to: diskURL, quality: 0.82) }
+        if let diskURL {
+            try? writeJPEG(payload, to: diskURL, quality: 0.82)
+        }
         return payload
     }
 
@@ -348,15 +372,15 @@ actor ThumbnailPipeline {
         let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
         let ok = bytes.withUnsafeMutableBytes { raw -> Bool in
             guard let base = raw.baseAddress,
-                let context = CGContext(
-                    data: base,
-                    width: width,
-                    height: height,
-                    bitsPerComponent: 8,
-                    bytesPerRow: width * 4,
-                    space: colorSpace,
-                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
-                )
+                  let context = CGContext(
+                      data: base,
+                      width: width,
+                      height: height,
+                      bitsPerComponent: 8,
+                      bytesPerRow: width * 4,
+                      space: colorSpace,
+                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue,
+                  )
             else { return false }
             context.interpolationQuality = .high
             // CGImageSourceCreateThumbnailWithTransform already applies the file's EXIF
@@ -386,13 +410,13 @@ actor ThumbnailPipeline {
                     data: UnsafeMutableRawPointer(mutating: src),
                     height: vImagePixelCount(payload.height),
                     width: vImagePixelCount(payload.width),
-                    rowBytes: payload.width * 4
+                    rowBytes: payload.width * 4,
                 )
                 var destination = vImage_Buffer(
                     data: dst,
                     height: vImagePixelCount(height),
                     width: vImagePixelCount(width),
-                    rowBytes: width * 4
+                    rowBytes: width * 4,
                 )
                 return vImageScale_ARGB8888(&source, &destination, nil, vImage_Flags(kvImageHighQualityResampling))
             }
@@ -406,12 +430,13 @@ actor ThumbnailPipeline {
     private nonisolated static func writeJPEG(_ payload: ThumbnailPayload, to url: URL, quality: Double) throws {
         let encoded = NSMutableData()
         guard let image = payload.makeCGImage(),
-            let destination = CGImageDestinationCreateWithData(encoded, UTType.jpeg.identifier as CFString, 1, nil)
+              let destination = CGImageDestinationCreateWithData(encoded, UTType.jpeg.identifier as CFString, 1, nil)
         else {
             throw CocoaError(.fileWriteUnknown)
         }
         CGImageDestinationAddImage(
-            destination, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+            destination, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary,
+        )
         guard CGImageDestinationFinalize(destination), encoded.length > 0 else { throw CocoaError(.fileWriteUnknown) }
         try (encoded as Data).write(to: url, options: .atomic)
     }
@@ -447,17 +472,23 @@ actor MediaMetadataService {
     }
 
     private func acquire() async {
-        if active < maxConcurrent { active += 1; return }
+        if active < maxConcurrent {
+            active += 1; return
+        }
         await withCheckedContinuation { waiters.append($0) }
     }
 
     private func release() {
-        if waiters.isEmpty { active = max(0, active - 1) } else { waiters.removeFirst().resume() }
+        if waiters.isEmpty {
+            active = max(0, active - 1)
+        } else {
+            waiters.removeFirst().resume()
+        }
     }
 
     private nonisolated static func readMetadata(url: URL) -> PhotoMetadata {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
-            let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
         else {
             return PhotoMetadata()
         }
@@ -466,16 +497,24 @@ actor MediaMetadataService {
         let tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any]
 
         var dates: [String] = []
-        if let value = exif?[kCGImagePropertyExifDateTimeOriginal] as? String { dates.append(value) }
-        if let value = exif?[kCGImagePropertyExifDateTimeDigitized] as? String { dates.append(value) }
-        if let value = tiff?[kCGImagePropertyTIFFDateTime] as? String { dates.append(value) }
+        if let value = exif?[kCGImagePropertyExifDateTimeOriginal] as? String {
+            dates.append(value)
+        }
+        if let value = exif?[kCGImagePropertyExifDateTimeDigitized] as? String {
+            dates.append(value)
+        }
+        if let value = tiff?[kCGImagePropertyTIFFDateTime] as? String {
+            dates.append(value)
+        }
         let captureDate = dates.lazy.compactMap(parseDate).first
 
         let iso: Int? = {
             if let values = exif?[kCGImagePropertyExifISOSpeedRatings] as? [NSNumber], let first = values.first {
                 return first.intValue
             }
-            if let value = exif?[kCGImagePropertyExifISOSpeedRatings] as? NSNumber { return value.intValue }
+            if let value = exif?[kCGImagePropertyExifISOSpeedRatings] as? NSNumber {
+                return value.intValue
+            }
             return nil
         }()
 
@@ -492,7 +531,7 @@ actor MediaMetadataService {
             shutterSeconds: (exif?[kCGImagePropertyExifExposureTime] as? NSNumber)?.doubleValue,
             focalLengthMM: (exif?[kCGImagePropertyExifFocalLength] as? NSNumber)?.doubleValue,
             pixelWidth: width,
-            pixelHeight: height
+            pixelHeight: height,
         )
     }
 
@@ -509,7 +548,9 @@ actor MediaMetadataService {
             formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.timeZone = .current
             formatter.dateFormat = format
-            if let date = formatter.date(from: value) { return date }
+            if let date = formatter.date(from: value) {
+                return date
+            }
         }
         return nil
     }

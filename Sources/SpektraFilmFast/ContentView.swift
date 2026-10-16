@@ -30,7 +30,9 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             topToolbar
-            if model.missingMediaCount > 0 { missingMediaBanner }
+            if model.missingMediaCount > 0 {
+                missingMediaBanner
+            }
             Rectangle().fill(StudioPalette.divider).frame(height: 1)
             workspace
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -93,14 +95,20 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: GPUProcessingFailure.notification)) { event in
-            if let detail = event.object as? String { model.rendererError = detail }
+            if let detail = event.object as? String {
+                model.rendererError = detail
+            }
         }
         .alert(
             "Metal Renderer",
             isPresented: Binding(
                 get: { model.rendererError != nil },
-                set: { if !$0 { model.rendererError = nil } }
-            )
+                set: {
+                    if !$0 {
+                        model.rendererError = nil
+                    }
+                },
+            ),
         ) {
             Button("OK") { model.rendererError = nil }
         } message: {
@@ -164,7 +172,8 @@ struct ContentView: View {
                             .frame(height: 29)
                             .background(
                                 selected ? StudioPalette.selected : Color.clear,
-                                in: RoundedRectangle(cornerRadius: 8))
+                                in: RoundedRectangle(cornerRadius: 8),
+                            )
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(selected ? [.isSelected] : [])
@@ -173,7 +182,7 @@ struct ContentView: View {
             .padding(4)
             .background(
                 StudioPalette.recessed,
-                in: RoundedRectangle(cornerRadius: 11)
+                in: RoundedRectangle(cornerRadius: 11),
             )
             .overlay {
                 RoundedRectangle(cornerRadius: 11)
@@ -202,7 +211,7 @@ struct ContentView: View {
                     .controlSize(.mini)
                     .help("Export in progress")
             }
-            if model.page == .library && !model.project.images.isEmpty {
+            if model.page == .library, !model.project.images.isEmpty {
                 Button {
                     model.importImages()
                 } label: {

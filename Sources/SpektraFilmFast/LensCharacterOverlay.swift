@@ -5,16 +5,22 @@ struct LensCharacterOverlay: View {
     let imageWidth: Int
     let imageHeight: Int
 
-    private var settings: LensEffectsSettings { model.selectedLook.lensEffects ?? LensEffectsSettings() }
-    private var resolved: LensEffectsResolved { settings.resolvedWithCenter }
+    private var settings: LensEffectsSettings {
+        model.selectedLook.lensEffects ?? LensEffectsSettings()
+    }
+
+    private var resolved: LensEffectsResolved {
+        settings.resolvedWithCenter
+    }
 
     var body: some View {
         GeometryReader { proxy in
             let rect = fitted(proxy.size)
-            if model.isLensCenterEditing && settings.enabled && rect.width > 0 {
+            if model.isLensCenterEditing, settings.enabled, rect.width > 0 {
                 let center = CGPoint(
                     x: rect.minX + rect.width * CGFloat(settings.centerX),
-                    y: rect.minY + rect.height * CGFloat(settings.centerY))
+                    y: rect.minY + rect.height * CGFloat(settings.centerY),
+                )
                 ZStack {
                     ring(resolved.swirlRadius, rect, center)
                         .stroke(.cyan.opacity(0.9), style: StrokeStyle(lineWidth: 1.4, dash: [6, 4]))
@@ -31,7 +37,8 @@ struct LensCharacterOverlay: View {
                                         $0.centerX = x; $0.centerY = y
                                     }
                                 }
-                                .onEnded { _ in model.endEditGesture() })
+                                .onEnded { _ in model.endEditGesture() },
+                        )
                 }
             }
         }
@@ -42,13 +49,14 @@ struct LensCharacterOverlay: View {
         let w = CGFloat(imageWidth) * f, h = CGFloat(imageHeight) * f
         return CGRect(x: (size.width - w) / 2, y: (size.height - h) / 2, width: w, height: h)
     }
+
     private func ring(_ radius: Double, _ rect: CGRect, _ center: CGPoint) -> Path {
         let a = Double(max(1, imageWidth)) / Double(max(1, imageHeight))
         let shape = max(0.5, min(2, resolved.lensShape))
         let d = sqrt(a * a / (shape * shape) + shape * shape)
         let w = rect.width * CGFloat(radius * d * shape / a)
         let h = rect.height * CGFloat(radius * d / shape)
-        var p = Path(); p.addEllipse(in: CGRect(x: center.x - w / 2, y: center.y - h / 2, width: w, height: h));
+        var p = Path(); p.addEllipse(in: CGRect(x: center.x - w / 2, y: center.y - h / 2, width: w, height: h))
         return p
     }
 }

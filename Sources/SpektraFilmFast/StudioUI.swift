@@ -9,6 +9,7 @@ import SwiftUI
 /// Eliminates duplication between StudioType/StudioLayout and RedlampMetrics.
 enum StudioDesign {
     // MARK: Layout
+
     enum Layout {
         static let toolbarHeight: CGFloat = 48
         static let statusHeight: CGFloat = 26
@@ -25,6 +26,7 @@ enum StudioDesign {
     }
 
     // MARK: Typography
+
     enum Typography {
         static let label = Font.system(size: 11)
         static let value = Font.system(size: 11).monospacedDigit()
@@ -37,6 +39,7 @@ enum StudioDesign {
     }
 
     // MARK: Metrics
+
     enum Metrics {
         static let labelWidth: CGFloat = 76
         static let valueWidth: CGFloat = 44
@@ -56,9 +59,15 @@ enum StudioDesign {
     }
 
     // MARK: Palette (neutral, non-tinting)
+
     enum Palette {
-        private static func white(_ alpha: CGFloat) -> Color { Color.white.opacity(alpha) }
-        private static func black(_ alpha: CGFloat) -> Color { Color.black.opacity(alpha) }
+        private static func white(_ alpha: CGFloat) -> Color {
+            Color.white.opacity(alpha)
+        }
+
+        private static func black(_ alpha: CGFloat) -> Color {
+            Color.black.opacity(alpha)
+        }
 
         // Text ramp
         static let label = white(0.72)
@@ -95,21 +104,20 @@ typealias StudioLayout = StudioDesign.Layout
 typealias StudioType = StudioDesign.Typography
 typealias StudioPalette = StudioDesign.Palette
 
-// Blur belongs to the interface, never to the photo or an image stage. This also
-// works on macOS 15, where the new macOS 26 native glass is not available.
-// Native Liquid Glass on macOS 26 and material fallback on macOS 15.
-// No image or output pixels are blended with these window-chrome effects.
+/// Blur belongs to the interface, never to the photo or an image stage. This also
+/// works on macOS 15, where the new macOS 26 native glass is not available.
+/// Native Liquid Glass on macOS 26 and material fallback on macOS 15.
+/// No image or output pixels are blended with these window-chrome effects.
 private struct StudioGlassPaneModifier: ViewModifier {
     let isPalette: Bool
     @AppStorage("SpektraFilmStudio.ui.glassEnabled") private var enabled = true
     @AppStorage("SpektraFilmStudio.ui.glassTransparency") private var transparency = 0.60
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
-    @ViewBuilder
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
         let opacity = isPalette ? RedlampPaletteMetrics.paneOpacity(1 - transparency) : 1 - transparency
-// RedlampPaletteMetrics is kept for palette-specific opacity calculation
+        // RedlampPaletteMetrics is kept for palette-specific opacity calculation
         if reduceTransparency || !enabled {
             content
                 .background(StudioPalette.panel, in: shape)
@@ -129,20 +137,24 @@ private struct StudioGlassPaneModifier: ViewModifier {
 }
 
 extension View {
-    // Redlamp uses one FloatingPane for every overlay panel; only the palette
-    // (⌘K) gets a different surface. Keeping these aliases distinct invited
-    // pages to drift into different corner radii.
-    func studioGlassPane() -> some View { modifier(StudioGlassPaneModifier(isPalette: false)) }
-    func studioFloatingPane() -> some View { studioGlassPane() }
-    func studioOmniPane() -> some View { modifier(StudioGlassPaneModifier(isPalette: true)) }
+    /// Redlamp uses one FloatingPane for every overlay panel; only the palette
+    /// (⌘K) gets a different surface. Keeping these aliases distinct invited
+    /// pages to drift into different corner radii.
+    func studioGlassPane() -> some View {
+        modifier(StudioGlassPaneModifier(isPalette: false))
+    }
+
+    func studioFloatingPane() -> some View {
+        studioGlassPane()
+    }
+
+    func studioOmniPane() -> some View {
+        modifier(StudioGlassPaneModifier(isPalette: true))
+    }
 }
 
 struct StudioPanel<Content: View>: View {
-    let content: Content
-
-    init(@ViewBuilder content: () -> Content) {
-        self.content = content()
-    }
+    @ViewBuilder let content: Content
 
     var body: some View {
         content
@@ -212,7 +224,8 @@ struct StudioSelectionOutline: ViewModifier {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(
                         selected ? StudioPalette.selectedBorder : StudioPalette.subtleBorder,
-                        lineWidth: selected ? 1 : 0.5)
+                        lineWidth: selected ? 1 : 0.5,
+                    )
             }
     }
 }
@@ -221,32 +234,32 @@ extension View {
     func studioSelection(_ selected: Bool) -> some View {
         modifier(StudioSelectionOutline(selected: selected))
     }
-    
+
     /// Consistent divider using design system opacity.
     func studioDivider() -> some View {
         Divider().opacity(StudioDesign.Metrics.dividerOpacity)
     }
-    
+
     /// Neutral secondary text — avoids macOS blue-tinted .secondary.
     func studioSecondaryLabel() -> some View {
         foregroundStyle(StudioPalette.secondaryLabel)
     }
-    
+
     /// Neutral tertiary text.
     func studioTertiaryLabel() -> some View {
         foregroundStyle(StudioPalette.tertiaryLabel)
     }
-    
+
     /// Standard panel corner radius (16pt).
     func studioPanelCorner() -> some View {
         clipShape(RoundedRectangle(cornerRadius: StudioLayout.panelCornerRadius, style: .continuous))
     }
-    
+
     /// Compact corner radius (8pt) for buttons, cards, small elements.
     func studioCompactCorner() -> some View {
         clipShape(RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius, style: .continuous))
     }
-    
+
     /// Card corner radius (8pt).
     func studioCardCorner() -> some View {
         clipShape(RoundedRectangle(cornerRadius: StudioDesign.Metrics.cardRadius, style: .continuous))
@@ -257,12 +270,12 @@ struct SpektraApplicationIconView: View {
     private var iconImage: NSImage {
         let bundle = Bundle.main
         if let url = bundle.url(forResource: "SpektraFilm", withExtension: "icns"),
-            let image = NSImage(contentsOfFile: url.path)
+           let image = NSImage(contentsOfFile: url.path)
         {
             return image
         }
         if let url = bundle.url(forResource: "AppIcon", withExtension: "icns"),
-            let image = NSImage(contentsOfFile: url.path)
+           let image = NSImage(contentsOfFile: url.path)
         {
             return image
         }
@@ -277,10 +290,10 @@ struct SpektraApplicationIconView: View {
     }
 }
 
-/// Redlamp draws its own slider (SliderTrackView): a 16pt rounded track at
-/// white 0.16 with a white 0.55 fill and an 11pt white 0.92 thumb. The system
-/// `Slider` is a different height, a different thumb and a blue fill, which is
-/// the most obvious remaining difference in the rail.
+// Redlamp draws its own slider (SliderTrackView): a 16pt rounded track at
+// white 0.16 with a white 0.55 fill and an 11pt white 0.92 thumb. The system
+// `Slider` is a different height, a different thumb and a blue fill, which is
+// the most obvious remaining difference in the rail.
 
 /// ⌘-scroll capture for SwiftUI views. SwiftUI has no scrollWheel hook, so a
 /// transparent NSView intercepts the event; the handler returns true to consume.
@@ -288,7 +301,9 @@ private final class CommandScrollWheelCaptureView: NSView {
     var handler: (Double, NSEvent.ModifierFlags) -> Bool = { _, _ in false }
 
     override func scrollWheel(with event: NSEvent) {
-        if handler(event.scrollingDeltaY, event.modifierFlags) { return }
+        if handler(event.scrollingDeltaY, event.modifierFlags) {
+            return
+        }
         super.scrollWheel(with: event)
     }
 }
@@ -296,13 +311,13 @@ private final class CommandScrollWheelCaptureView: NSView {
 private struct CommandScrollWheelRepresentable: NSViewRepresentable {
     let handler: (Double, NSEvent.ModifierFlags) -> Bool
 
-    func makeNSView(context: Context) -> CommandScrollWheelCaptureView {
+    func makeNSView(context _: Context) -> CommandScrollWheelCaptureView {
         let view = CommandScrollWheelCaptureView()
         view.handler = handler
         return view
     }
 
-    func updateNSView(_ nsView: CommandScrollWheelCaptureView, context: Context) {
+    func updateNSView(_ nsView: CommandScrollWheelCaptureView, context _: Context) {
         nsView.handler = handler
     }
 }
@@ -391,7 +406,9 @@ struct StudioSliderTrack: View {
                 scrollRemainder -= steps
                 let flagsNow = NSEvent.modifierFlags
                 let multiplier = flagsNow.contains(.shift) ? 10.0 : flagsNow.contains(.option) ? 0.1 : 1.0
-                if !dragging { dragging = true; onEditingChanged(true) }
+                if !dragging {
+                    dragging = true; onEditingChanged(true)
+                }
                 value = clamp(value + steps * step * multiplier)
                 return true
             }
@@ -399,7 +416,9 @@ struct StudioSliderTrack: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
                         guard enabled, span > 0 else { return }
-                        if !dragging { dragging = true; onEditingChanged(true) }
+                        if !dragging {
+                            dragging = true; onEditingChanged(true)
+                        }
                         let usable = max(1, usableWidth)
                         let t = min(1, max(0, (drag.location.x - StudioDesign.Metrics.thumbSize / 2) / usable))
                         value = clamp(range.lowerBound + t * span)
@@ -408,7 +427,7 @@ struct StudioSliderTrack: View {
                         guard dragging else { return }
                         dragging = false
                         onEditingChanged(false)
-                    }
+                    },
             )
         }
         .frame(height: StudioDesign.Metrics.controlRowMinHeight)

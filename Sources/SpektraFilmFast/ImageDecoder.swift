@@ -3,8 +3,8 @@ import CoreImage
 import Foundation
 import ImageIO
 import Metal
-import UniformTypeIdentifiers
 import os.signpost
+import UniformTypeIdentifiers
 
 let imageDecoderLog = OSLog(subsystem: "com.spektrafilm", category: "decode")
 
@@ -44,7 +44,9 @@ private struct SourceImageResult {
 private final class CIContextBox: @unchecked Sendable {
     let context: CIContext = {
         let options: [CIContextOption: Any] = [.cacheIntermediates: true, .useSoftwareRenderer: false]
-        if let device = StudioGPUDevice.shared { return CIContext(mtlDevice: device, options: options) }
+        if let device = StudioGPUDevice.shared {
+            return CIContext(mtlDevice: device, options: options)
+        }
         return CIContext(options: options)
     }()
 }
@@ -54,6 +56,7 @@ struct AutoWhiteBalanceResolution: Sendable {
         case cameraNeutral = "Camera-space neutral"
         case workingSpaceFallback = "Working-space fallback"
     }
+
     let method: Method
     let neutralX: Double?
     let neutralY: Double?
@@ -88,18 +91,19 @@ actor ImageDecoder {
         longEdge: Int,
         raw: RawSettings,
         bypassImportTransform: Bool,
-        cacheMode: PreviewCacheMemoryMode
+        cacheMode: PreviewCacheMemoryMode,
     ) async throws -> PixelBufferF32 {
         let signpostID = OSSignpostID(log: imageDecoderLog)
         os_signpost(
             .begin, log: imageDecoderLog, name: "ImageDecoder.decode", signpostID: signpostID, "path=%{public}s, longEdge=%d",
-            url.lastPathComponent, longEdge)
+            url.lastPathComponent, longEdge,
+        )
         defer { os_signpost(.end, log: imageDecoderLog, name: "ImageDecoder.decode", signpostID: signpostID) }
 
         let key = DecodeKey(
             path: url.path, longEdge: longEdge, raw: raw,
             bypassImportTransform: bypassImportTransform,
-            sourceFingerprint: Self.sourceFingerprint(url)
+            sourceFingerprint: Self.sourceFingerprint(url),
         )
         if let existing = cache[key] {
             cacheHits += 1
@@ -138,12 +142,12 @@ actor ImageDecoder {
         // This is the important app-relaunch / RAM-eviction speed path: revisit a photo and
         // the expensive CIRAWFilter stage can be skipped entirely.
         if longEdge != Int.max,
-            let disk = await developedDiskCache.buffer(
-                url: url,
-                raw: raw,
-                longEdge: longEdge,
-                bypassImportTransform: bypassImportTransform
-            )
+           let disk = await developedDiskCache.buffer(
+               url: url,
+               raw: raw,
+               longEdge: longEdge,
+               bypassImportTransform: bypassImportTransform,
+           )
         {
             try Task.checkCancellation()
             PerformanceMonitor.shared.recordDiskCacheHit()
@@ -156,8 +160,8 @@ actor ImageDecoder {
         PerformanceMonitor.shared.recordDecodeCacheMiss()
         let autoNeutral =
             raw.whiteBalanceMode == .auto
-            ? await resolvedAutoNeutralLocation(url: url, lensCorrection: raw.lensCorrection)
-            : nil
+                ? await resolvedAutoNeutralLocation(url: url, lensCorrection: raw.lensCorrection)
+                : nil
         let box = contextBox
         let task = Task.detached(priority: .userInitiated) {
             try Task.checkCancellation()
@@ -168,7 +172,7 @@ actor ImageDecoder {
                 raw: raw,
                 bypassImportTransform: bypassImportTransform,
                 fullResolution: false,
-                autoNeutralLocation: autoNeutral
+                autoNeutralLocation: autoNeutral,
             )
         }
         inFlight[key] = task
@@ -188,7 +192,7 @@ actor ImageDecoder {
                         url: url,
                         raw: raw,
                         longEdge: longEdge,
-                        bypassImportTransform: bypassImportTransform
+                        bypassImportTransform: bypassImportTransform,
                     )
                 }
             }
@@ -205,7 +209,7 @@ actor ImageDecoder {
         baselineRaw: RawSettings,
         targetRaw: RawSettings,
         bypassImportTransform: Bool,
-        cacheMode: PreviewCacheMemoryMode
+        cacheMode: PreviewCacheMemoryMode,
     ) async throws -> PixelBufferF32 {
         // Decode the committed RAW state once. Temperature/tint motion can then use a fast
         // linear Rec.2020 adaptation while the pointer is moving. The committed preview is
@@ -215,21 +219,20 @@ actor ImageDecoder {
             longEdge: longEdge,
             raw: baselineRaw,
             bypassImportTransform: bypassImportTransform,
-            cacheMode: cacheMode
+            cacheMode: cacheMode,
         )
         try Task.checkCancellation()
-        let reference: WhiteBalanceReference?
-        if baselineRaw.whiteBalanceMode == .custom {
-            reference = nil
+        let reference: WhiteBalanceReference? = if baselineRaw.whiteBalanceMode == .custom {
+            nil
         } else {
-            reference = await whiteBalanceReference(url: url, raw: baselineRaw)
+            await whiteBalanceReference(url: url, raw: baselineRaw)
         }
         try Task.checkCancellation()
         return baseline.applyingInteractiveWhiteBalance(
             from: baselineRaw,
             to: targetRaw,
             baseTemperature: reference?.temperature,
-            baseTint: reference?.tint
+            baseTint: reference?.tint,
         )
     }
 
@@ -238,17 +241,18 @@ actor ImageDecoder {
     /// Unsupported non-RAW / working-space Auto WB is NOT silently approximated.
     func decodeMetal(
         url: URL, longEdge: Int, raw: RawSettings,
-        bypassImportTransform: Bool, gpu: GPULiveDevice
+        bypassImportTransform _: Bool, gpu: GPULiveDevice,
     ) async throws -> MetalDevelopedRAW {
         try Task.checkCancellation()
         let autoNeutral =
             raw.whiteBalanceMode == .auto
-            ? await resolvedAutoNeutralLocation(url: url, lensCorrection: raw.lensCorrection)
-            : nil
+                ? await resolvedAutoNeutralLocation(url: url, lensCorrection: raw.lensCorrection)
+                : nil
         let source = try Self.sourceImage(
             url: url, raw: raw,
             draft: longEdge <= 1024,
-            autoNeutralLocation: autoNeutral)
+            autoNeutralLocation: autoNeutral,
+        )
         // Non-RAW as-shot images already carry a decoded color profile. The
         // CIContext converts them to scene-linear Rec.2020 without asking a
         // missing CIRAWFilter for camera-space WB. Custom/Auto WB still needs
@@ -258,15 +262,21 @@ actor ImageDecoder {
         }
         let extent = source.image.extent.integral
         guard extent.width.isFinite, extent.height.isFinite,
-            extent.width > 0, extent.height > 0,
-            longEdge > 0 && longEdge <= 2048
+              extent.width > 0, extent.height > 0,
+              longEdge > 0, longEdge <= 2048
         else {
             throw GPULiveError.unavailable("unsafe GPU decode dimensions")
         }
+        // A GPU-native decode owns its own Metal resource: no CIContext
+        // round-trip (GPU -> CPU float -> CIContext -> MTLTexture), no draft
+        // copy, no main-thread fence. The frame resolution is bounded by the
+        // same 2048 x 2048 live-frame limit used by the preview pipeline.
         let scale = min(1, CGFloat(longEdge) / max(extent.width, extent.height))
         let translated = source.image.transformed(
             by: CGAffineTransform(
-                translationX: -extent.minX, y: -extent.minY))
+                translationX: -extent.minX, y: -extent.minY,
+            ),
+        )
         let scaled = translated.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let width = max(1, Int((extent.width * scale).rounded()))
         let height = max(1, Int((extent.height * scale).rounded()))
@@ -275,20 +285,36 @@ actor ImageDecoder {
         }
         let d = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .rgba32Float,
-            width: width, height: height, mipmapped: false)
+            width: width, height: height, mipmapped: false,
+        )
         d.usage = [.renderTarget, .shaderRead]
         d.storageMode = .private
-        guard let texture = gpu.device.makeTexture(descriptor: d),
-            let command = gpu.queue.makeCommandBuffer()
+        guard let texture = gpu.device.makeTexture(descriptor: d)
         else {
             throw GPULiveError.unavailable("GPU RAW development allocation failed")
         }
+        // Convert the developed CIImage to a Metal texture through a dedicated
+        // command buffer. The GPU owns the frame until its completion fence
+        // returns; no synchronous CPU-side render is performed here.
+        let command = gpu.queue.makeCommandBuffer()
+        guard let command else {
+            throw GPULiveError.unavailable("GPU RAW development command allocation failed")
+        }
         let colorSpace = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
-        gpu.context.render(
+        // The CIImage is already in camera space after the CIRAWFilter chain;
+        // the display target is scene-linear Rec.2020. Metal renders the
+        // converted frame straight to the surface, avoiding any CPU float
+        // intermediate on the main thread.
+        try gpu.context.render(
             scaled, to: texture, commandBuffer: command,
             bounds: CGRect(x: 0, y: 0, width: width, height: height),
-            colorSpace: colorSpace)
-        command.commit()
+            colorSpace: colorSpace,
+        )
+        try Task.checkCancellation()
+        // The command buffer is committed on the device queue; the encoding
+        // completes asynchronously. The returned texture is retained through the
+        // GPU's completion fence by the GPULiveFrame object that consumes it.
+        return MetalDevelopedRAW(texture: texture, width: width, height: height)
         // The queue guarantees GPU ordering; do not block for the RAW command.
         try Task.checkCancellation()
         return MetalDevelopedRAW(texture: texture, width: width, height: height)
@@ -297,8 +323,8 @@ actor ImageDecoder {
     func fullResolution(url: URL, raw: RawSettings, bypassImportTransform: Bool) async throws -> PixelBufferF32 {
         let autoNeutral =
             raw.whiteBalanceMode == .auto
-            ? await resolvedAutoNeutralLocation(url: url, lensCorrection: raw.lensCorrection)
-            : nil
+                ? await resolvedAutoNeutralLocation(url: url, lensCorrection: raw.lensCorrection)
+                : nil
         let box = contextBox
         let task = Task.detached(priority: .userInitiated) {
             try Task.checkCancellation()
@@ -309,7 +335,7 @@ actor ImageDecoder {
                 raw: raw,
                 bypassImportTransform: bypassImportTransform,
                 fullResolution: true,
-                autoNeutralLocation: autoNeutral
+                autoNeutralLocation: autoNeutral,
             )
         }
         return try await withTaskCancellationHandler {
@@ -321,12 +347,12 @@ actor ImageDecoder {
 
     func autoWhiteBalanceResolution(url: URL, lensCorrection: Bool) async -> AutoWhiteBalanceResolution {
         if CIRAWFilter(imageURL: url) != nil,
-            let location = await resolvedAutoNeutralLocation(url: url, lensCorrection: lensCorrection)
+           let location = await resolvedAutoNeutralLocation(url: url, lensCorrection: lensCorrection)
         {
             return AutoWhiteBalanceResolution(
                 method: .cameraNeutral,
                 neutralX: location.x,
-                neutralY: location.y
+                neutralY: location.y,
             )
         }
         return AutoWhiteBalanceResolution(method: .workingSpaceFallback, neutralX: nil, neutralY: nil)
@@ -338,8 +364,8 @@ actor ImageDecoder {
         }
         let autoNeutral =
             raw.whiteBalanceMode == .auto
-            ? await resolvedAutoNeutralLocation(url: url, lensCorrection: raw.lensCorrection)
-            : nil
+                ? await resolvedAutoNeutralLocation(url: url, lensCorrection: raw.lensCorrection)
+                : nil
         return await Task.detached(priority: .utility) {
             guard let filter = CIRAWFilter(imageURL: url) else {
                 return WhiteBalanceReference(temperature: 6500, tint: 0)
@@ -352,7 +378,7 @@ actor ImageDecoder {
             let tint = Double(filter.neutralTint)
             return WhiteBalanceReference(
                 temperature: temperature.isFinite && temperature >= 1667 ? temperature : 6500,
-                tint: tint.isFinite ? tint : 0
+                tint: tint.isFinite ? tint : 0,
             )
         }.value
     }
@@ -367,7 +393,9 @@ actor ImageDecoder {
             autoNeutralInFlight.removeValue(forKey: neutralKey)
         }
         let decodeKeys = cache.keys.filter { $0.path == url.path && $0.raw.whiteBalanceMode == .auto }
-        for key in decodeKeys { evict(key) }
+        for key in decodeKeys {
+            evict(key)
+        }
         let inflightKeys = inFlight.keys.filter { $0.path == url.path && $0.raw.whiteBalanceMode == .auto }
         for key in inflightKeys {
             inFlight[key]?.cancel()
@@ -383,19 +411,23 @@ actor ImageDecoder {
             longEdge: longEdge,
             raw: raw,
             bypassImportTransform: bypassImportTransform,
-            cacheMode: cacheMode
+            cacheMode: cacheMode,
         )
     }
 
     func clear() {
-        for task in inFlight.values { task.cancel() }
+        for task in inFlight.values {
+            task.cancel()
+        }
         inFlight.removeAll()
         inFlightIndex.removeAll()
         cache.removeAll()
         cacheStamps.removeAll()
         cacheBytes = 0
         cacheIndex.removeAll()
-        for task in autoNeutralInFlight.values { task.cancel() }
+        for task in autoNeutralInFlight.values {
+            task.cancel()
+        }
         autoNeutralInFlight.removeAll()
         autoNeutralCache.removeAll()
     }
@@ -407,14 +439,14 @@ actor ImageDecoder {
         raw: RawSettings,
         bypassImportTransform: Bool,
         fullResolution: Bool,
-        autoNeutralLocation: AutoNeutralLocation?
+        autoNeutralLocation: AutoNeutralLocation?,
     ) throws -> PixelBufferF32 {
         try Task.checkCancellation()
         let source = try sourceImage(
             url: url,
             raw: raw,
             draft: !fullResolution && longEdge <= 1024,
-            autoNeutralLocation: autoNeutralLocation
+            autoNeutralLocation: autoNeutralLocation,
         )
         let image = source.image
         try Task.checkCancellation()
@@ -430,7 +462,7 @@ actor ImageDecoder {
 
         let outExtent = scaled.extent.integral
         guard outExtent.width.isFinite, outExtent.height.isFinite,
-            outExtent.width > 0, outExtent.height > 0
+              outExtent.width > 0, outExtent.height > 0
         else {
             // CIRAWFilter returns a degenerate (inf, inf, 0, 0) extent when the RAW
             // codec cannot read the file at all. That is an unreadable source, not
@@ -439,15 +471,17 @@ actor ImageDecoder {
                 domain: "SpektraFilm.Decode", code: 4,
                 userInfo: [
                     NSLocalizedDescriptionKey:
-                        "This RAW file could not be decoded by macOS. It may be corrupt, truncated, or an unsupported camera format."
-                ])
+                        "This RAW file could not be decoded by macOS. It may be corrupt, truncated, or an unsupported camera format.",
+                ],
+            )
         }
         guard outExtent.width <= 16384, outExtent.height <= 16384,
-            outExtent.width * outExtent.height * 16 <= Double(ProcessInfo.processInfo.physicalMemory) / 3
+              outExtent.width * outExtent.height * 16 <= Double(ProcessInfo.processInfo.physicalMemory) / 3
         else {
             throw NSError(
                 domain: "SpektraFilm.Decode", code: 3,
-                userInfo: [NSLocalizedDescriptionKey: "Photo dimensions exceed the safe decoding memory limit."])
+                userInfo: [NSLocalizedDescriptionKey: "Photo dimensions exceed the safe decoding memory limit."],
+            )
         }
         let width = max(1, Int(outExtent.width.rounded()))
         let height = max(1, Int(outExtent.height.rounded()))
@@ -461,7 +495,7 @@ actor ImageDecoder {
                 rowBytes: width * 4 * MemoryLayout<Float>.size,
                 bounds: CGRect(x: 0, y: 0, width: width, height: height),
                 format: .RGBAf,
-                colorSpace: bypassImportTransform ? nil : working
+                colorSpace: bypassImportTransform ? nil : working,
             )
         }
         try Task.checkCancellation()
@@ -470,13 +504,12 @@ actor ImageDecoder {
         // the same conservative working-space residual used by non-RAW files. The residual is
         // important in practice: camera neutralLocation can leave a small scene cast, and the old
         // implementation could appear to do nothing when As Shot was already close to neutral.
-        let baseCorrected: PixelBufferF32
-        if raw.whiteBalanceMode == .auto {
+        let baseCorrected: PixelBufferF32 = if raw.whiteBalanceMode == .auto {
             // Do not stack a second gray-world correction on top of a successful camera-space
             // neutralLocation correction. The working-space estimator is fallback-only.
-            baseCorrected = source.cameraSpaceAutoWBApplied ? decoded : decoded.applyingAutoWhiteBalance()
+            source.cameraSpaceAutoWBApplied ? decoded : decoded.applyingAutoWhiteBalance()
         } else {
-            baseCorrected = decoded
+            decoded
         }
         // Settled RAW WB belongs in CIRAWFilter/camera space. The Rec.2020
         // adaptation remains only as a fallback for non-RAW and low-confidence
@@ -487,7 +520,7 @@ actor ImageDecoder {
         return baseCorrected.applyingWhiteBalanceOffsets(
             raw,
             baseTemperature: source.baseTemperature,
-            baseTint: source.baseTint
+            baseTint: source.baseTint,
         )
     }
 
@@ -495,7 +528,7 @@ actor ImageDecoder {
         url: URL,
         raw: RawSettings,
         draft: Bool,
-        autoNeutralLocation: AutoNeutralLocation?
+        autoNeutralLocation: AutoNeutralLocation?,
     ) throws -> SourceImageResult {
         if let rawFilter = CIRAWFilter(imageURL: url) {
             rawFilter.isDraftModeEnabled = draft
@@ -520,21 +553,21 @@ actor ImageDecoder {
             let canCommitCameraSpaceWB =
                 raw.whiteBalanceMode != .auto || autoNeutralLocation != nil
 
-            if raw.whiteBalanceMode != .custom && canCommitCameraSpaceWB {
+            if raw.whiteBalanceMode != .custom, canCommitCameraSpaceWB {
                 let miredOffset = raw.temperatureOffsetMired ?? 0
                 let tintOffset = raw.tintOffset ?? 0
                 if abs(miredOffset) > 1.0e-9 || abs(tintOffset) > 1.0e-9 {
                     let safeBase = PixelBufferF32.clampedKelvin(
-                        baseTemperature.isFinite ? baseTemperature : 6500
+                        baseTemperature.isFinite ? baseTemperature : 6500,
                     )
                     rawFilter.neutralTemperature = Float(
                         PixelBufferF32.kelvin(
                             baseKelvin: safeBase,
-                            miredOffset: miredOffset
-                        )
+                            miredOffset: miredOffset,
+                        ),
                     )
                     rawFilter.neutralTint = Float(
-                        (baseTint.isFinite ? baseTint : 0) + tintOffset
+                        (baseTint.isFinite ? baseTint : 0) + tintOffset,
                     )
                 }
             }
@@ -547,11 +580,11 @@ actor ImageDecoder {
             let rawCurve = ToneCurveMath.normalize(raw.developCurvePoints)
             let identityCurve =
                 rawCurve.count == 2
-                && abs(rawCurve[0].x) < 1e-9 && abs(rawCurve[0].y) < 1e-9
-                && abs(rawCurve[1].x - 1) < 1e-9 && abs(rawCurve[1].y - 1) < 1e-9
+                    && abs(rawCurve[0].x) < 1e-9 && abs(rawCurve[0].y) < 1e-9
+                    && abs(rawCurve[1].x - 1) < 1e-9 && abs(rawCurve[1].y - 1) < 1e-9
             if !identityCurve, let curveFilter = CIFilter(name: "CIToneCurve") {
                 let cache = ToneCurveMath.buildCache(rawCurve)
-                for index in 0...4 {
+                for index in 0 ... 4 {
                     let x = Double(index) / 4.0
                     let y = min(1.0, max(0.0, ToneCurveMath.evaluate(x, points: rawCurve, cache: cache)))
                     curveFilter.setValue(CIVector(x: CGFloat(x), y: CGFloat(y)), forKey: "inputPoint\(index)")
@@ -565,10 +598,10 @@ actor ImageDecoder {
                 return SourceImageResult(
                     image: output,
                     cameraSpaceAutoWBApplied:
-                        raw.whiteBalanceMode == .auto && autoNeutralLocation != nil,
+                    raw.whiteBalanceMode == .auto && autoNeutralLocation != nil,
                     cameraSpaceWhiteBalanceApplied: canCommitCameraSpaceWB,
                     baseTemperature: baseTemperature.isFinite ? baseTemperature : nil,
-                    baseTint: baseTint.isFinite ? baseTint : nil
+                    baseTint: baseTint.isFinite ? baseTint : nil,
                 )
             }
         }
@@ -578,7 +611,8 @@ actor ImageDecoder {
                 options: [
                     .applyOrientationProperty: true,
                     .cacheImmediately: false,
-                ])
+                ],
+            )
         else {
             throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: url.path])
         }
@@ -587,15 +621,19 @@ actor ImageDecoder {
             cameraSpaceAutoWBApplied: false,
             cameraSpaceWhiteBalanceApplied: false,
             baseTemperature: raw.whiteBalanceMode == .custom ? raw.temperature : 6500,
-            baseTint: raw.whiteBalanceMode == .custom ? raw.tint : 0
+            baseTint: raw.whiteBalanceMode == .custom ? raw.tint : 0,
         )
     }
 
     private func resolvedAutoNeutralLocation(url: URL, lensCorrection: Bool) async -> AutoNeutralLocation? {
         let key = autoNeutralKey(url: url, lensCorrection: lensCorrection)
         let fingerprint = Self.sourceFingerprint(url)
-        if let cached = autoNeutralCache[key], cached.sourceFingerprint == fingerprint { return cached.location }
-        if let existing = autoNeutralInFlight[key] { return await existing.value }
+        if let cached = autoNeutralCache[key], cached.sourceFingerprint == fingerprint {
+            return cached.location
+        }
+        if let existing = autoNeutralInFlight[key] {
+            return await existing.value
+        }
 
         let box = contextBox
         let task = Task.detached(priority: .utility) {
@@ -625,7 +663,7 @@ actor ImageDecoder {
     private nonisolated static func estimateAutoNeutralLocation(
         context: CIContext,
         url: URL,
-        lensCorrection: Bool
+        lensCorrection: Bool,
     ) -> AutoNeutralLocation? {
         guard let rawFilter = CIRAWFilter(imageURL: url) else { return nil }
         rawFilter.isDraftModeEnabled = true
@@ -639,14 +677,14 @@ actor ImageDecoder {
 
         let extent = image.extent.integral
         guard extent.width.isFinite, extent.height.isFinite,
-            extent.width > 2, extent.height > 2
+              extent.width > 2, extent.height > 2
         else { return nil }
         let target = 256.0
         let scale = min(1.0, target / max(extent.width, extent.height))
         let normalized =
             image
-            .transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
-            .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+                .transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
+                .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let width = max(1, Int((extent.width * scale).rounded()))
         let height = max(1, Int((extent.height * scale).rounded()))
         var floats = [Float](repeating: 0, count: width * height * 4)
@@ -659,7 +697,7 @@ actor ImageDecoder {
                 rowBytes: width * 4 * MemoryLayout<Float>.size,
                 bounds: CGRect(x: 0, y: 0, width: width, height: height),
                 format: .RGBAf,
-                colorSpace: working
+                colorSpace: working,
             )
         }
 
@@ -669,10 +707,12 @@ actor ImageDecoder {
         var candidates = 0
         let borderX = max(2, width / 20)
         let borderY = max(2, height / 20)
-        if width <= borderX * 2 || height <= borderY * 2 { return nil }
+        if width <= borderX * 2 || height <= borderY * 2 {
+            return nil
+        }
 
-        for y in borderY..<(height - borderY) {
-            for x in borderX..<(width - borderX) {
+        for y in borderY ..< (height - borderY) {
+            for x in borderX ..< (width - borderX) {
                 let p = (y * width + x) * 4
                 let r = max(0.0, Double(floats[p]))
                 let g = max(0.0, Double(floats[p + 1]))
@@ -688,8 +728,8 @@ actor ImageDecoder {
                 // rejects single noisy pixels/specular edges that look neutral by accident.
                 var localDelta = 0.0
                 var localCount = 0.0
-                for oy in -1...1 {
-                    for ox in -1...1 where !(ox == 0 && oy == 0) {
+                for oy in -1 ... 1 {
+                    for ox in -1 ... 1 where !(ox == 0 && oy == 0) {
                         let q = ((y + oy) * width + (x + ox)) * 4
                         let qr = Double(floats[q]), qg = Double(floats[q + 1]), qb = Double(floats[q + 2])
                         localDelta += abs(qr - r) + abs(qg - g) + abs(qb - b)
@@ -713,7 +753,7 @@ actor ImageDecoder {
         let ny = (Double(bestY) + 0.5) / Double(height)
         return AutoNeutralLocation(
             x: Double(extent.minX) + nx * Double(extent.width),
-            y: Double(extent.minY) + ny * Double(extent.height)
+            y: Double(extent.minY) + ny * Double(extent.height),
         )
     }
 
@@ -733,7 +773,7 @@ actor ImageDecoder {
                 let candidateKey = DecodeKey(
                     path: requested.path, longEdge: longEdge, raw: requested.raw,
                     bypassImportTransform: requested.bypassImportTransform,
-                    sourceFingerprint: requested.sourceFingerprint
+                    sourceFingerprint: requested.sourceFingerprint,
                 )
                 if let task = inFlight[candidateKey] {
                     best = (candidateKey, task)
@@ -754,7 +794,7 @@ actor ImageDecoder {
                 let candidateKey = DecodeKey(
                     path: requested.path, longEdge: longEdge, raw: requested.raw,
                     bypassImportTransform: requested.bypassImportTransform,
-                    sourceFingerprint: requested.sourceFingerprint
+                    sourceFingerprint: requested.sourceFingerprint,
                 )
                 if let buffer = cache[candidateKey] {
                     best = (candidateKey, buffer)
@@ -767,7 +807,9 @@ actor ImageDecoder {
 
     private func insert(_ value: PixelBufferF32, key: DecodeKey, mode: PreviewCacheMemoryMode) {
         let base = baseKey(for: key)
-        if let replaced = cache[key] { cacheBytes -= byteCount(replaced) }
+        if let replaced = cache[key] {
+            cacheBytes -= byteCount(replaced)
+        }
         cache[key] = value
         cacheBytes += byteCount(value)
         cacheIndex[base, default: []].insert(key.longEdge)
@@ -789,13 +831,17 @@ actor ImageDecoder {
         case .critical:
             pressureConstrained = true
             trim(to: 0)
-            for task in inFlight.values { task.cancel() }
+            for task in inFlight.values {
+                task.cancel()
+            }
             inFlight.removeAll()
             inFlightIndex.removeAll()
         }
     }
 
-    func approximateCacheBytes() -> Int { cacheBytes }
+    func approximateCacheBytes() -> Int {
+        cacheBytes
+    }
 
     func snapshot() -> CacheStoreSnapshot {
         CacheStoreSnapshot(
@@ -803,7 +849,7 @@ actor ImageDecoder {
             misses: cacheMisses,
             writes: 0,
             memoryBytes: Int64(cacheBytes),
-            diskBytes: 0
+            diskBytes: 0,
         )
     }
 
@@ -820,9 +866,13 @@ actor ImageDecoder {
     private func evict(_ key: DecodeKey) {
         let base = baseKey(for: key)
         cacheStamps.removeValue(forKey: key)
-        if let removed = cache.removeValue(forKey: key) { cacheBytes -= byteCount(removed) }
+        if let removed = cache.removeValue(forKey: key) {
+            cacheBytes -= byteCount(removed)
+        }
         cacheIndex[base]?.remove(key.longEdge)
-        if cacheIndex[base]?.isEmpty == true { cacheIndex.removeValue(forKey: base) }
+        if cacheIndex[base]?.isEmpty == true {
+            cacheIndex.removeValue(forKey: base)
+        }
     }
 
     private func byteCount(_ value: PixelBufferF32) -> Int {
@@ -843,6 +893,8 @@ actor ImageDecoder {
         inFlight.removeValue(forKey: key)
         let base = baseKey(for: key)
         inFlightIndex[base]?.remove(key.longEdge)
-        if inFlightIndex[base]?.isEmpty == true { inFlightIndex.removeValue(forKey: base) }
+        if inFlightIndex[base]?.isEmpty == true {
+            inFlightIndex.removeValue(forKey: base)
+        }
     }
 }

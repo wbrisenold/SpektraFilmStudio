@@ -57,7 +57,8 @@ enum TextureEffectCatalog {
 
     private static func loadFrames() -> [FilmFrameAsset] {
         guard let url = Bundle.main.url(
-            forResource: "FilmFrames", withExtension: "json", subdirectory: "FilmFrames"),
+            forResource: "FilmFrames", withExtension: "json", subdirectory: "FilmFrames",
+        ),
             let data = try? Data(contentsOf: url),
             let decoded = try? JSONDecoder().decode(FilmFrameManifest.self, from: data)
         else { return [] }
@@ -73,7 +74,7 @@ enum TextureEffectCatalog {
                 windowHeight: entry.windowHeight ?? 1,
                 windowAspect: aspect,
                 canvasWidth: entry.canvasWidth ?? 1,
-                canvasHeight: entry.canvasHeight ?? 1
+                canvasHeight: entry.canvasHeight ?? 1,
             )
         }
     }
@@ -137,9 +138,12 @@ final class TextureFilmEffectsEngine: @unchecked Sendable {
     /// Metal-native decode: MTKTextureLoader straight from the file URL, no NSImage.
     private func texture(named fileName: String, subdirectory: String) -> (any MTLTexture)? {
         let key = "\(subdirectory)/\(fileName)"
-        if let cached = textures[key] { return cached }
+        if let cached = textures[key] {
+            return cached
+        }
         guard let url = Bundle.main.url(
-            forResource: fileName, withExtension: nil, subdirectory: subdirectory)
+            forResource: fileName, withExtension: nil, subdirectory: subdirectory,
+        )
         else {
             loaderQueue.sync {
                 guard !reportedMissing.contains(key) else { return }
@@ -172,9 +176,9 @@ final class TextureFilmEffectsEngine: @unchecked Sendable {
 
     private func requireDevice() -> (any MTLDevice)? {
         #if os(macOS)
-        return device ?? MTLCreateSystemDefaultDevice()
+            return device ?? MTLCreateSystemDefaultDevice()
         #else
-        return device
+            return device
         #endif
     }
 
@@ -187,19 +191,19 @@ final class TextureFilmEffectsEngine: @unchecked Sendable {
 
     func apply(_ input: PixelBufferF32, look: RenderLook) -> PixelBufferF32 {
         guard let s = look.filmEffects, Self.isActive(s),
-            SkinToneReference.outputRoleIndex(look) == 0
+              SkinToneReference.outputRoleIndex(look) == 0
         else { return input }
         let space = SkinToneReference.outputSpaceIndex(look)
         guard [14, 15, 16, 17, 18, 22, 23, 24, 25].contains(space) else { return input }
         guard let device = requireDevice(), let queue, input.width > 0, input.height > 0,
-            input.pixels.count == input.width * input.height * 4
+              input.pixels.count == input.width * input.height * 4
         else { GPUProcessingFailure.report("Texture effects GPU unavailable"); return input }
 
         let bytes = input.pixels.count * 4
         guard let source = input.pixels.withUnsafeBytes({
             device.makeBuffer(bytes: $0.baseAddress!, length: bytes, options: .storageModeShared)
         }), let destination = device.makeBuffer(length: bytes, options: .storageModeShared),
-            let command = queue.makeCommandBuffer()
+        let command = queue.makeCommandBuffer()
         else { GPUProcessingFailure.report("Texture effects GPU allocation failed"); return input }
 
         var encoded = false
@@ -208,9 +212,9 @@ final class TextureFilmEffectsEngine: @unchecked Sendable {
         var lastOutput: (any MTLBuffer)? = source
 
         if s.paperTextureIndex >= 0, s.paperTextureIndex < TextureEffectCatalog.papers.count,
-            s.paperTextureAmount > 0, let paperPipeline,
-            let texture = paperTexture(named: TextureEffectCatalog.papers[s.paperTextureIndex].fileName),
-            let encoder = command.makeComputeCommandEncoder()
+           s.paperTextureAmount > 0, let paperPipeline,
+           let texture = paperTexture(named: TextureEffectCatalog.papers[s.paperTextureIndex].fileName),
+           let encoder = command.makeComputeCommandEncoder()
         {
             let scratch = device.makeBuffer(length: bytes, options: .storageModeShared)
             guard let scratch else {
@@ -229,7 +233,8 @@ final class TextureFilmEffectsEngine: @unchecked Sendable {
             encoder.setBytes(&p, length: p.count * MemoryLayout<Float>.stride, index: 2)
             encoder.dispatchThreads(
                 MTLSize(width: input.width, height: input.height, depth: 1),
-                threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
+                threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1),
+            )
             encoder.endEncoding()
             lastOutput = scratch
             encoded = true
@@ -237,9 +242,9 @@ final class TextureFilmEffectsEngine: @unchecked Sendable {
 
         // The film border is always last: its transparent window shows everything beneath.
         if s.frameTextureIndex >= 0, s.frameTextureIndex < TextureEffectCatalog.frames.count,
-            let framePipeline,
-            let texture = frameTexture(named: TextureEffectCatalog.frames[s.frameTextureIndex].fileName),
-            let encoder = command.makeComputeCommandEncoder()
+           let framePipeline,
+           let texture = frameTexture(named: TextureEffectCatalog.frames[s.frameTextureIndex].fileName),
+           let encoder = command.makeComputeCommandEncoder()
         {
             var p: [Float] = [Float(input.width), Float(input.height)]
             encoder.setComputePipelineState(framePipeline)
@@ -249,7 +254,8 @@ final class TextureFilmEffectsEngine: @unchecked Sendable {
             encoder.setBytes(&p, length: p.count * MemoryLayout<Float>.stride, index: 2)
             encoder.dispatchThreads(
                 MTLSize(width: input.width, height: input.height, depth: 1),
-                threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
+                threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1),
+            )
             encoder.endEncoding()
             lastOutput = destination
             encoded = true
@@ -273,7 +279,10 @@ final class TextureFilmEffectsEngine: @unchecked Sendable {
             pixels: Array(
                 UnsafeBufferPointer(
                     start: result.contents().assumingMemoryBound(to: Float.self),
-                    count: input.pixels.count)))
+                    count: input.pixels.count,
+                ),
+            ),
+        )
     }
 
     // MARK: - GPU path
@@ -281,23 +290,23 @@ final class TextureFilmEffectsEngine: @unchecked Sendable {
     func encode(
         source: any MTLBuffer, destination: any MTLBuffer,
         command: any MTLCommandBuffer, width: Int, height: Int,
-        look: RenderLook
+        look: RenderLook,
     ) throws {
         guard let s = look.filmEffects, Self.isActive(s) || s.frameTextureIndex >= 0 else {
             throw GPULiveError.unavailable("inactive texture effects should skip the GPU pass")
         }
         let space = SkinToneReference.outputSpaceIndex(look)
         guard SkinToneReference.outputRoleIndex(look) == 0,
-            [14, 15, 16, 17, 18, 22, 23, 24, 25].contains(space),
-            let device, command.device.registryID == device.registryID
+              [14, 15, 16, 17, 18, 22, 23, 24, 25].contains(space),
+              let device, command.device.registryID == device.registryID
         else {
             throw GPULiveError.unavailable("texture effects require SDR display signal")
         }
         var lastOutput: (any MTLBuffer)? = source
         if s.paperTextureIndex >= 0, s.paperTextureIndex < TextureEffectCatalog.papers.count,
-            s.paperTextureAmount > 0, let paperPipeline,
-            let texture = paperTexture(named: TextureEffectCatalog.papers[s.paperTextureIndex].fileName),
-            let encoder = command.makeComputeCommandEncoder()
+           s.paperTextureAmount > 0, let paperPipeline,
+           let texture = paperTexture(named: TextureEffectCatalog.papers[s.paperTextureIndex].fileName),
+           let encoder = command.makeComputeCommandEncoder()
         {
             // Paper needs its own output before the border reads it.
             let bytes = width * height * 16
@@ -317,14 +326,15 @@ final class TextureFilmEffectsEngine: @unchecked Sendable {
             encoder.setBytes(&p, length: p.count * MemoryLayout<Float>.stride, index: 2)
             encoder.dispatchThreads(
                 MTLSize(width: width, height: height, depth: 1),
-                threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
+                threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1),
+            )
             encoder.endEncoding()
             lastOutput = scratch
         }
         if s.frameTextureIndex >= 0, s.frameTextureIndex < TextureEffectCatalog.frames.count,
-            let framePipeline,
-            let texture = frameTexture(named: TextureEffectCatalog.frames[s.frameTextureIndex].fileName),
-            let encoder = command.makeComputeCommandEncoder()
+           let framePipeline,
+           let texture = frameTexture(named: TextureEffectCatalog.frames[s.frameTextureIndex].fileName),
+           let encoder = command.makeComputeCommandEncoder()
         {
             var p: [Float] = [Float(width), Float(height)]
             encoder.setComputePipelineState(framePipeline)
@@ -334,58 +344,59 @@ final class TextureFilmEffectsEngine: @unchecked Sendable {
             encoder.setBytes(&p, length: p.count * MemoryLayout<Float>.stride, index: 2)
             encoder.dispatchThreads(
                 MTLSize(width: width, height: height, depth: 1),
-                threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
+                threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1),
+            )
             encoder.endEncoding()
         }
     }
 
     private static let shader = #"""
-            #include <metal_stdlib>
-            using namespace metal;
+    #include <metal_stdlib>
+    using namespace metal;
 
-            constexpr sampler paperSampler(coord::normalized, address::repeat, filter::linear);
-            constexpr sampler frameSampler(coord::normalized, address::clamp_to_edge, filter::linear);
+    constexpr sampler paperSampler(coord::normalized, address::repeat, filter::linear);
+    constexpr sampler frameSampler(coord::normalized, address::clamp_to_edge, filter::linear);
 
-            // Blending a scanned paper surface under the photo, sampled in frame coordinates
-            // with the scan's own texture, then mixed at `amount`.
-            kernel void paperSurface(
-                device const float4 *source [[buffer(0)]],
-                device float4 *destination [[buffer(1)]],
-                texture2d<float, access::sample> paper [[texture(0)]],
-                constant float *p [[buffer(2)]],
-                uint2 xy [[thread_position_in_grid]])
-            {
-                uint width = uint(p[0]);
-                uint height = uint(p[1]);
-                if (xy.x >= width || xy.y >= height) return;
-                float amount = p[2];
-                float4 c = source[xy.y * width + xy.x];
-                float2 uv = float2(xy) / float2(width, height);
-                // Tiled at 2x so the scan's texture reads as a surface, not one stretched blotch.
-                float2 tiled = fract(uv * 2.0);
-                float3 surface = paper.sample(paperSampler, tiled).rgb;
-                float3 mixed = mix(float3(c.rgb), surface * float3(c.rgb), amount);
-                destination[xy.y * width + xy.x] = float4(mixed, c.a);
-            }
+    // Blending a scanned paper surface under the photo, sampled in frame coordinates
+    // with the scan's own texture, then mixed at `amount`.
+    kernel void paperSurface(
+        device const float4 *source [[buffer(0)]],
+        device float4 *destination [[buffer(1)]],
+        texture2d<float, access::sample> paper [[texture(0)]],
+        constant float *p [[buffer(2)]],
+        uint2 xy [[thread_position_in_grid]])
+    {
+        uint width = uint(p[0]);
+        uint height = uint(p[1]);
+        if (xy.x >= width || xy.y >= height) return;
+        float amount = p[2];
+        float4 c = source[xy.y * width + xy.x];
+        float2 uv = float2(xy) / float2(width, height);
+        // Tiled at 2x so the scan's texture reads as a surface, not one stretched blotch.
+        float2 tiled = fract(uv * 2.0);
+        float3 surface = paper.sample(paperSampler, tiled).rgb;
+        float3 mixed = mix(float3(c.rgb), surface * float3(c.rgb), amount);
+        destination[xy.y * width + xy.x] = float4(mixed, c.a);
+    }
 
-            // A film border drawn over the photo. The border asset is RGBA: the window is
-            // transparent so the photo shows through, and the border paper is
-            // alpha-composited over it.
-            kernel void filmBorder(
-                device const float4 *source [[buffer(0)]],
-                device float4 *destination [[buffer(1)]],
-                texture2d<float, access::sample> border [[texture(0)]],
-                constant float *p [[buffer(2)]],
-                uint2 xy [[thread_position_in_grid]])
-            {
-                uint width = uint(p[0]);
-                uint height = uint(p[1]);
-                if (xy.x >= width || xy.y >= height) return;
-                float2 uv = float2(xy) / float2(width, height);
-                float4 b = border.sample(frameSampler, uv);
-                float4 c = source[xy.y * width + xy.x];
-                float3 over = b.rgb * b.a + float3(c.rgb) * (1.0 - b.a);
-                destination[xy.y * width + xy.x] = float4(over, 1.0);
-            }
-            """#
+    // A film border drawn over the photo. The border asset is RGBA: the window is
+    // transparent so the photo shows through, and the border paper is
+    // alpha-composited over it.
+    kernel void filmBorder(
+        device const float4 *source [[buffer(0)]],
+        device float4 *destination [[buffer(1)]],
+        texture2d<float, access::sample> border [[texture(0)]],
+        constant float *p [[buffer(2)]],
+        uint2 xy [[thread_position_in_grid]])
+    {
+        uint width = uint(p[0]);
+        uint height = uint(p[1]);
+        if (xy.x >= width || xy.y >= height) return;
+        float2 uv = float2(xy) / float2(width, height);
+        float4 b = border.sample(frameSampler, uv);
+        float4 c = source[xy.y * width + xy.x];
+        float3 over = b.rgb * b.a + float3(c.rgb) * (1.0 - b.a);
+        destination[xy.y * width + xy.x] = float4(over, 1.0);
+    }
+    """#
 }

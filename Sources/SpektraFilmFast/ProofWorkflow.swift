@@ -21,8 +21,8 @@ extension AppModel {
             if let gallery = selectedProofGallery {
                 proofStatus =
                     gallery.finished
-                    ? "Client finished · \(gallery.selectedCount) selected"
-                    : "\(gallery.photos.count) proofs · \(gallery.selectedCount) selected"
+                        ? "Client finished · \(gallery.selectedCount) selected"
+                        : "\(gallery.photos.count) proofs · \(gallery.selectedCount) selected"
             } else {
                 proofStatus = "ProofDock ready"
             }
@@ -37,7 +37,7 @@ extension AppModel {
         maxSelections: Int?,
         password: String,
         longEdge: Int,
-        jpegQuality: Double
+        jpegQuality: Double,
     ) {
         guard !isGeneratingProofs, let exactRenderer else { return }
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -73,7 +73,7 @@ extension AppModel {
                         longEdge: edge,
                         raw: image.look.raw,
                         bypassImportTransform: prefs.bypassImportTransform,
-                        cacheMode: memoryMode
+                        cacheMode: memoryMode,
                     )
                     let renderInput = input.applyingHostGrade(tone: image.look.tone, density: image.look.colorDensity)
                     let (filmOutput, _) = try await exactRenderer.render(renderInput, look: image.look)
@@ -93,7 +93,7 @@ extension AppModel {
                         look: image.look,
                         sourceURL: image.url,
                         destination: destination,
-                        settings: settings
+                        settings: settings,
                     )
                     seeds.append(
                         ProofGalleryPhotoSeed(
@@ -101,8 +101,9 @@ extension AppModel {
                             sourceImageID: image.id,
                             sourcePath: image.sourcePath,
                             proofPath: destination.path,
-                            originalFilename: image.fileName
-                        ))
+                            originalFilename: image.fileName,
+                        ),
+                    )
                     proofGenerationProgress = Double(index + 1) / Double(chosen.count)
                     proofStatus = "Preparing \(index + 1) / \(chosen.count) proofs…"
                 }
@@ -112,7 +113,7 @@ extension AppModel {
                     name: cleanName,
                     maxSelections: maxSelections,
                     password: password,
-                    photos: seeds
+                    photos: seeds,
                 )
                 guard generation == projectGeneration else { throw CancellationError() }
                 isGeneratingProofs = false
@@ -147,7 +148,7 @@ extension AppModel {
             do {
                 try await ProofDockService.shared.startSharing()
                 proofStatus = "Starting secure client link…"
-                for _ in 0..<45 {
+                for _ in 0 ..< 45 {
                     try? await Task.sleep(for: .milliseconds(700))
                     await refreshProofGalleries()
                     if selectedProofGallery?.publicLink != nil {

@@ -34,7 +34,7 @@ public final class SAMSegmenter: @unchecked Sendable {
                 let length = shape.reduce(1, *) * 2
                 guard offset + length <= data.count else { throw CocoaError(.fileReadCorruptFile) }
                 array.withUnsafeMutableBytes { pointer, _ in
-                    data.copyBytes(to: pointer.bindMemory(to: UInt8.self), from: offset..<offset + length)
+                    data.copyBytes(to: pointer.bindMemory(to: UInt8.self), from: offset ..< offset + length)
                 }
                 offset += length
                 return array
@@ -70,11 +70,11 @@ public final class SAMSegmenter: @unchecked Sendable {
             let bundled = directory.appendingPathComponent("\(name).mlmodelc")
             let compiled =
                 FileManager.default.fileExists(atPath: bundled.path)
-                ? bundled
-                : try CompiledModels.compiled(
-                    package: directory.appending(path: "\(name).mlpackage"),
-                    key: "\(manifest.id)-v\(manifest.version)-\(name)",
-                )
+                    ? bundled
+                    : try CompiledModels.compiled(
+                        package: directory.appending(path: "\(name).mlpackage"),
+                        key: "\(manifest.id)-v\(manifest.version)-\(name)",
+                    )
             return try Inference.shared.load(compiled, configuration: configuration)
         }
         encoder = try load("ImageEncoder")
@@ -91,7 +91,8 @@ public final class SAMSegmenter: @unchecked Sendable {
                     file.path.split(separator: "/").first.flatMap { component in
                         component.hasSuffix(".mlpackage") ? String(component.dropLast(".mlpackage".count)) : nil
                     }
-                })
+                },
+            ),
         ).sorted()
     }
 
@@ -103,17 +104,18 @@ public final class SAMSegmenter: @unchecked Sendable {
             )
         }
         guard let image = output.featureValue(for: "image_embedding")?.multiArrayValue,
-            let s0 = output.featureValue(for: "feats_s0")?.multiArrayValue,
-            let s1 = output.featureValue(for: "feats_s1")?.multiArrayValue
+              let s0 = output.featureValue(for: "feats_s0")?.multiArrayValue,
+              let s1 = output.featureValue(for: "feats_s1")?.multiArrayValue
         else { throw MaskComputationError.nothingFound(.objects) }
         for array in [image, s0, s1] {
-            for index in 0..<array.count where !array[index].doubleValue.isFinite {
+            for index in 0 ..< array.count where !array[index].doubleValue.isFinite {
                 throw NSError(
                     domain: "Spektra.ModelGPU", code: 1,
                     userInfo: [
                         NSLocalizedDescriptionKey:
-                            "The object model produced invalid values on this GPU. No mask was applied."
-                    ])
+                            "The object model produced invalid values on this GPU. No mask was applied.",
+                    ],
+                )
             }
         }
         return Embedding(image: image, featsS0: s0, featsS1: s1)
@@ -149,9 +151,10 @@ public final class SAMSegmenter: @unchecked Sendable {
                 promptEncoder,
                 from: MLDictionaryFeatureProvider(dictionary: [
                     "points": points, "labels": labels,
-                ]))
+                ]),
+            )
             guard let sparse = prompt.featureValue(for: "sparse_embeddings"),
-                let dense = prompt.featureValue(for: "dense_embeddings")
+                  let dense = prompt.featureValue(for: "dense_embeddings")
             else { throw MaskComputationError.nothingFound(.objects) }
             return try Inference.shared.predict(
                 decoder,
@@ -161,14 +164,15 @@ public final class SAMSegmenter: @unchecked Sendable {
                     "feats_s1": MLFeatureValue(multiArray: embedding.featsS1),
                     "sparse_embedding": sparse,
                     "dense_embedding": dense,
-                ]))
+                ]),
+            )
         }
         guard let scores = decoded.featureValue(for: "scores")?.multiArrayValue,
-            let masks = decoded.featureValue(for: "low_res_masks")?.multiArrayValue
+              let masks = decoded.featureValue(for: "low_res_masks")?.multiArrayValue
         else { throw MaskComputationError.nothingFound(.objects) }
         let side = 256
         guard scores.count >= 3, masks.shape.map(\.intValue) == [1, 3, 256, 256],
-            (0..<3).allSatisfy({ scores[$0].doubleValue.isFinite })
+              (0 ..< 3).allSatisfy({ scores[$0].doubleValue.isFinite })
         else { throw MaskComputationError.nothingFound(.objects) }
         func value(_ proposal: Int, _ x: Int, _ y: Int) -> Float {
             masks[[0, NSNumber(value: proposal), NSNumber(value: y), NSNumber(value: x)]].floatValue
@@ -178,11 +182,11 @@ public final class SAMSegmenter: @unchecked Sendable {
         // largest wins. With more clicks, or a box, the user has said what they mean; the best
         // score wins.
         let best =
-            (0..<3).max { a, b in
+            (0 ..< 3).max { a, b in
                 let scoreA = scores[a].floatValue
                 let scoreB = scores[b].floatValue
                 guard included.count == 1, box == nil else { return scoreA < scoreB }
-                let top = (0..<3).map { scores[$0].floatValue }.max() ?? 0
+                let top = (0 ..< 3).map { scores[$0].floatValue }.max() ?? 0
                 let closeA = scoreA >= top - 0.15
                 let closeB = scoreB >= top - 0.15
                 if closeA != closeB {
@@ -192,7 +196,8 @@ public final class SAMSegmenter: @unchecked Sendable {
                     var count = 0
                     for y in stride(from: 0, to: side, by: 4) {
                         for x in stride(from: 0, to: side, by: 4)
-                        where value(index, x, y) > 0 {
+                            where value(index, x, y) > 0
+                        {
                             count += 1
                         }
                     }
@@ -202,8 +207,8 @@ public final class SAMSegmenter: @unchecked Sendable {
             } ?? 0
         // Logits on the squashed 256² frame: a soft edge from the sigmoid, then the photo's shape.
         var coverage = [Float](repeating: 0, count: side * side)
-        for y in 0..<side {
-            for x in 0..<side {
+        for y in 0 ..< side {
+            for x in 0 ..< side {
                 let logit = value(best, x, y)
                 guard logit.isFinite else { throw MaskComputationError.nothingFound(.objects) }
                 coverage[y * side + x] = 1 / (1 + exp(-max(-80, min(80, logit * 2))))
@@ -301,9 +306,9 @@ public enum CompiledModels {
         for item in items where item.pathExtension == "mlmodelc" {
             let stem = item.deletingPathExtension().lastPathComponent
             guard stem == name || stem.hasPrefix("\(name)_"),
-                let modified = try? item.resourceValues(forKeys: [.contentModificationDateKey])
-                    .contentModificationDate,
-                now.timeIntervalSince(modified) > leftoverAge
+                  let modified = try? item.resourceValues(forKeys: [.contentModificationDateKey])
+                  .contentModificationDate,
+                  now.timeIntervalSince(modified) > leftoverAge
             else { continue }
             try? fileManager.removeItem(at: item)
         }

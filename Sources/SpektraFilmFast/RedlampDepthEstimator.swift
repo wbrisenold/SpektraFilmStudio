@@ -51,7 +51,8 @@ public final class DepthEstimator: @unchecked Sendable {
             within: PixelSize(
                 width: longEdge,
                 height: longEdge,
-            ))
+            ),
+        )
         let mask = GrayMask(
             width: CVPixelBufferGetWidth(depth),
             height: CVPixelBufferGetHeight(depth),
@@ -71,13 +72,13 @@ public final class DepthEstimator: @unchecked Sendable {
         else { throw MaskComputationError.unsupported(.depthRange) }
         var values = [Float](repeating: 0, count: width * height)
         let half = CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_OneComponent16Half
-        for y in 0..<height {
+        for y in 0 ..< height {
             let row = base + y * rowBytes
-            for x in 0..<width {
+            for x in 0 ..< width {
                 values[y * width + x] =
                     half
-                    ? HalfPrecision.float(row.load(fromByteOffset: x * 2, as: UInt16.self))
-                    : row.load(fromByteOffset: x * 4, as: Float.self)
+                        ? HalfPrecision.float(row.load(fromByteOffset: x * 2, as: UInt16.self))
+                        : row.load(fromByteOffset: x * 4, as: Float.self)
             }
         }
         return values

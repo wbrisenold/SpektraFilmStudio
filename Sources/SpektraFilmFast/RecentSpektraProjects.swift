@@ -11,7 +11,7 @@ enum RecentSpektraProjects {
             .compactMap(URL.init(string:))
             .filter(\.isFileURL)
             .prefix(12)
-            .map { $0 }
+            .map(\.self)
     }
 
     static func record(_ url: URL) {

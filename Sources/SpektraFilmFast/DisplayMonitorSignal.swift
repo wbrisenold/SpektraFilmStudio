@@ -8,17 +8,30 @@ struct DisplayMonitorSample: Sendable {
     let saturation: Float
     let peak: Float
     let floor: Float
-    var falseColorHighlightRisk: Bool { luma >= 0.88 }
-    var falseColorHighlightHard: Bool { luma >= 0.97 }
-    var falseColorShadowRisk: Bool { luma <= 0.10 }
-    var falseColorShadowHard: Bool { luma <= 0.03 }
+    var falseColorHighlightRisk: Bool {
+        luma >= 0.88
+    }
+
+    var falseColorHighlightHard: Bool {
+        luma >= 0.97
+    }
+
+    var falseColorShadowRisk: Bool {
+        luma <= 0.10
+    }
+
+    var falseColorShadowHard: Bool {
+        luma <= 0.03
+    }
 }
 
 enum DisplayMonitorSignal {
     static func code(_ value: Float, outputSpace: Int) -> Float {
         let v = max(0, min(1, value))
         if outputSpace == 14 || outputSpace == 15 || outputSpace == 16 {
-            if v < 0.018 { return 4.5 * v }
+            if v < 0.018 {
+                return 4.5 * v
+            }
             return Float(1.099 * pow(Double(v), 0.45) - 0.099)
         }
         return v
@@ -44,7 +57,8 @@ enum DisplayMonitorSignal {
         let luma = 0.2126 * m.0 + 0.7152 * m.1 + 0.0722 * m.2
         let saturation = peak > 1.0e-6 ? (peak - floor) / peak : 0
         return DisplayMonitorSample(
-            r: m.0, g: m.1, b: m.2, luma: luma, saturation: saturation, peak: peak, floor: floor)
+            r: m.0, g: m.1, b: m.2, luma: luma, saturation: saturation, peak: peak, floor: floor,
+        )
     }
 
     static func sampleDisplay(r: Float, g: Float, b: Float) -> DisplayMonitorSample {

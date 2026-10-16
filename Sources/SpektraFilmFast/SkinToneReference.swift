@@ -14,11 +14,10 @@ enum DiagnosticColorError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .unsupportedOutputSpace(let index):
-            return
-                "Skin diagnostics are not calibrated for output color-space index \(index). Use sRGB, Display P3, Linear Rec.709/2020/P3, P3-D65 Gamma, Adobe RGB, or Rec.709 Gamma."
-        case .unsupportedOutputRole(let role):
-            return "Skin diagnostics require the SDR display-output role. Current output role is \(role)."
+        case let .unsupportedOutputSpace(index):
+            "Skin diagnostics are not calibrated for output color-space index \(index). Use sRGB, Display P3, Linear Rec.709/2020/P3, P3-D65 Gamma, Adobe RGB, or Rec.709 Gamma."
+        case let .unsupportedOutputRole(role):
+            "Skin diagnostics require the SDR display-output role. Current output role is \(role)."
         }
     }
 }
@@ -72,9 +71,7 @@ enum SkinToneReference {
         0.0556434, -0.2040259, 1.0572252,
     ]
 
-    static let referenceAngleDegrees: Double = {
-        position(displayR: 1.0, displayG: 200.0 / 255.0, displayB: 160.0 / 255.0).angleDegrees
-    }()
+    static let referenceAngleDegrees: Double = position(displayR: 1.0, displayG: 200.0 / 255.0, displayB: 160.0 / 255.0).angleDegrees
 
     static func outputSpaceIndex(_ look: RenderLook) -> Int {
         Int(look.values["outputColorSpace"]?.intValue ?? 25)
@@ -99,11 +96,11 @@ enum SkinToneReference {
 
     static func canonicalLinearSRGBUnclamped(
         r: Float, g: Float, b: Float,
-        look: RenderLook
+        look: RenderLook,
     ) -> (Float, Float, Float)? {
         canonicalLinearSRGBUnclamped(
             r: r, g: g, b: b,
-            outputRole: outputRoleIndex(look), outputSpace: outputSpaceIndex(look)
+            outputRole: outputRoleIndex(look), outputSpace: outputSpaceIndex(look),
         )
     }
 
@@ -112,7 +109,7 @@ enum SkinToneReference {
     /// both reads to one place per frame keeps the math here bit-identical.
     static func canonicalLinearSRGBUnclamped(
         r: Float, g: Float, b: Float,
-        outputRole: Int, outputSpace: Int
+        outputRole: Int, outputSpace: Int,
     ) -> (Float, Float, Float)? {
         guard outputRole == 0 else { return nil }
 
@@ -120,32 +117,33 @@ enum SkinToneReference {
         let linearSRGB: (Double, Double, Double)
 
         switch outputSpace {
-        case 14:  // Linear Rec.2020
+        case 14: // Linear Rec.2020
             linearSRGB = xyzToSRGB(mul(rec2020ToXYZD65, (rr, gg, bb)))
-        case 15:  // Linear Rec.709
+        case 15: // Linear Rec.709
             linearSRGB = (rr, gg, bb)
-        case 16:  // Linear P3-D65
+        case 16: // Linear P3-D65
             linearSRGB = mul(p3ToSRGB, (rr, gg, bb))
-        case 17:  // sRGB
+        case 17: // sRGB
             linearSRGB = (
                 srgbDecode(rr),
                 srgbDecode(gg),
-                srgbDecode(bb)
+                srgbDecode(bb),
             )
-        case 18:  // Display P3, sRGB transfer
+        case 18: // Display P3, sRGB transfer
             linearSRGB = mul(
                 p3ToSRGB,
                 (
-                    srgbDecode(rr), srgbDecode(gg), srgbDecode(bb)
-                ))
-        case 19:  // ProPhoto RGB, D50
+                    srgbDecode(rr), srgbDecode(gg), srgbDecode(bb),
+                ),
+            )
+        case 19: // ProPhoto RGB, D50
             let pro = (
-                proPhotoDecode(rr), proPhotoDecode(gg), proPhotoDecode(bb)
+                proPhotoDecode(rr), proPhotoDecode(gg), proPhotoDecode(bb),
             )
             let xyzD50 = mul(proPhotoToXYZD50, pro)
             let xyzD65 = mul(d50ToD65, xyzD50)
             linearSRGB = xyzToSRGB(xyzD65)
-        case 20:  // Adobe RGB (1998)
+        case 20: // Adobe RGB (1998)
             let gamma = 563.0 / 256.0
             linearSRGB = xyzToSRGB(
                 mul(
@@ -153,35 +151,39 @@ enum SkinToneReference {
                     (
                         signedPowerDecode(rr, gamma),
                         signedPowerDecode(gg, gamma),
-                        signedPowerDecode(bb, gamma)
-                    )))
-        case 22:  // P3-D65 Gamma 2.2
+                        signedPowerDecode(bb, gamma),
+                    ),
+                ),
+            )
+        case 22: // P3-D65 Gamma 2.2
             linearSRGB = mul(
                 p3ToSRGB,
                 (
                     signedPowerDecode(rr, 2.2),
                     signedPowerDecode(gg, 2.2),
-                    signedPowerDecode(bb, 2.2)
-                ))
-        case 23:  // P3-D65 Gamma 2.6
+                    signedPowerDecode(bb, 2.2),
+                ),
+            )
+        case 23: // P3-D65 Gamma 2.6
             linearSRGB = mul(
                 p3ToSRGB,
                 (
                     signedPowerDecode(rr, 2.6),
                     signedPowerDecode(gg, 2.6),
-                    signedPowerDecode(bb, 2.6)
-                ))
-        case 24:  // Rec.709 Gamma 2.2
+                    signedPowerDecode(bb, 2.6),
+                ),
+            )
+        case 24: // Rec.709 Gamma 2.2
             linearSRGB = (
                 signedPowerDecode(rr, 2.2),
                 signedPowerDecode(gg, 2.2),
-                signedPowerDecode(bb, 2.2)
+                signedPowerDecode(bb, 2.2),
             )
-        case 25:  // Rec.709 Gamma 2.4
+        case 25: // Rec.709 Gamma 2.4
             linearSRGB = (
                 signedPowerDecode(rr, 2.4),
                 signedPowerDecode(gg, 2.4),
-                signedPowerDecode(bb, 2.4)
+                signedPowerDecode(bb, 2.4),
             )
         default:
             return nil
@@ -190,27 +192,27 @@ enum SkinToneReference {
         return (
             Float(linearSRGB.0),
             Float(linearSRGB.1),
-            Float(linearSRGB.2)
+            Float(linearSRGB.2),
         )
     }
 
     static func canonicalDisplayRGBUnclamped(
         r: Float, g: Float, b: Float,
-        look: RenderLook
+        look: RenderLook,
     ) -> (Float, Float, Float)? {
         canonicalDisplayRGBUnclamped(
             r: r, g: g, b: b,
-            outputRole: outputRoleIndex(look), outputSpace: outputSpaceIndex(look)
+            outputRole: outputRoleIndex(look), outputSpace: outputSpaceIndex(look),
         )
     }
 
     static func canonicalDisplayRGBUnclamped(
         r: Float, g: Float, b: Float,
-        outputRole: Int, outputSpace: Int
+        outputRole: Int, outputSpace: Int,
     ) -> (Float, Float, Float)? {
         guard
             let linear = canonicalLinearSRGBUnclamped(
-                r: r, g: g, b: b, outputRole: outputRole, outputSpace: outputSpace
+                r: r, g: g, b: b, outputRole: outputRole, outputSpace: outputSpace,
             )
         else {
             return nil
@@ -218,27 +220,27 @@ enum SkinToneReference {
         return (
             Float(srgbEncode(Double(linear.0))),
             Float(srgbEncode(Double(linear.1))),
-            Float(srgbEncode(Double(linear.2)))
+            Float(srgbEncode(Double(linear.2))),
         )
     }
 
     static func canonicalDisplayRGB(
         r: Float, g: Float, b: Float,
-        look: RenderLook
+        look: RenderLook,
     ) -> (Float, Float, Float)? {
         canonicalDisplayRGB(
             r: r, g: g, b: b,
-            outputRole: outputRoleIndex(look), outputSpace: outputSpaceIndex(look)
+            outputRole: outputRoleIndex(look), outputSpace: outputSpaceIndex(look),
         )
     }
 
     static func canonicalDisplayRGB(
         r: Float, g: Float, b: Float,
-        outputRole: Int, outputSpace: Int
+        outputRole: Int, outputSpace: Int,
     ) -> (Float, Float, Float)? {
         guard
             let display = canonicalDisplayRGBUnclamped(
-                r: r, g: g, b: b, outputRole: outputRole, outputSpace: outputSpace
+                r: r, g: g, b: b, outputRole: outputRole, outputSpace: outputSpace,
             )
         else {
             return nil
@@ -246,7 +248,7 @@ enum SkinToneReference {
         return (
             clamp01(display.0),
             clamp01(display.1),
-            clamp01(display.2)
+            clamp01(display.2),
         )
     }
 
@@ -263,21 +265,27 @@ enum SkinToneReference {
         let vn = max(-1.0, min(1.0, v / commonScale))
         let radius = min(1.0, hypot(un, vn))
         var angle = atan2(v, u) * 180.0 / .pi
-        if angle < 0 { angle += 360.0 }
+        if angle < 0 {
+            angle += 360.0
+        }
 
         return SkinChromaPosition(
             uNormalized: Float(un),
             vNormalized: Float(vn),
             radius: Float(radius),
             angleDegrees: angle,
-            luma: Float(y)
+            luma: Float(y),
         )
     }
 
     static func angularDifferenceDegrees(_ lhs: Double, _ rhs: Double) -> Double {
         var delta = lhs - rhs
-        while delta > 180 { delta -= 360 }
-        while delta < -180 { delta += 360 }
+        while delta > 180 {
+            delta -= 360
+        }
+        while delta < -180 {
+            delta += 360
+        }
         return delta
     }
 
@@ -289,7 +297,7 @@ enum SkinToneReference {
         (
             m[0] * v.0 + m[1] * v.1 + m[2] * v.2,
             m[3] * v.0 + m[4] * v.1 + m[5] * v.2,
-            m[6] * v.0 + m[7] * v.1 + m[8] * v.2
+            m[6] * v.0 + m[7] * v.1 + m[8] * v.2,
         )
     }
 
@@ -301,21 +309,27 @@ enum SkinToneReference {
     private static func srgbDecode(_ x: Double) -> Double {
         let sign = x < 0 ? -1.0 : 1.0
         let a = abs(x)
-        if a <= 0.04045 { return sign * (a / 12.92) }
+        if a <= 0.04045 {
+            return sign * (a / 12.92)
+        }
         return sign * pow((a + 0.055) / 1.055, 2.4)
     }
 
     private static func srgbEncode(_ x: Double) -> Double {
         let sign = x < 0 ? -1.0 : 1.0
         let a = abs(x)
-        if a <= 0.0031308 { return sign * 12.92 * a }
+        if a <= 0.0031308 {
+            return sign * 12.92 * a
+        }
         return sign * (1.055 * pow(a, 1.0 / 2.4) - 0.055)
     }
 
     private static func proPhotoDecode(_ x: Double) -> Double {
         let sign = x < 0 ? -1.0 : 1.0
         let a = abs(x)
-        if a <= 16.0 / 512.0 { return sign * (a / 16.0) }
+        if a <= 16.0 / 512.0 {
+            return sign * (a / 16.0)
+        }
         return sign * pow(a, 1.8)
     }
 

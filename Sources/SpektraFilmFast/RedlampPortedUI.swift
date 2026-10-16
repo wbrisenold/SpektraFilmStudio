@@ -10,7 +10,7 @@
 import AppKit
 import SwiftUI
 
-// Redlamp-specific metrics that differ from StudioDesign — only the unique ones.
+/// Redlamp-specific metrics that differ from StudioDesign — only the unique ones.
 enum RedlampPaletteMetrics {
     static let width: CGFloat = 620
     static let rowHeight: CGFloat = 32
@@ -106,19 +106,24 @@ struct RedlampPaletteQueryField: NSViewRepresentable {
             string: placeholder,
             attributes: [
                 .font: font, .foregroundColor: placeholderColor, .paragraphStyle: paragraph,
-            ])
+            ],
+        )
         if field.stringValue != text {
             field.stringValue = text
         }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
 
     @MainActor
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: RedlampPaletteQueryField
         var revision = 0
-        init(parent: RedlampPaletteQueryField) { self.parent = parent }
+        init(parent: RedlampPaletteQueryField) {
+            self.parent = parent
+        }
 
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
@@ -128,18 +133,22 @@ struct RedlampPaletteQueryField: NSViewRepresentable {
         func control(_: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
             let flags = NSApp.currentEvent?.modifierFlags ?? []
             var modifiers: RedlampPaletteModifiers = []
-            if flags.contains(.shift) { modifiers.insert(.shift) }
-            if flags.contains(.option) { modifiers.insert(.option) }
+            if flags.contains(.shift) {
+                modifiers.insert(.shift)
+            }
+            if flags.contains(.option) {
+                modifiers.insert(.option)
+            }
             switch selector {
             case #selector(NSResponder.moveUp(_:)), #selector(NSResponder.moveUpAndModifySelection(_:)):
                 return parent.onKey(.up)
             case #selector(NSResponder.moveDown(_:)), #selector(NSResponder.moveDownAndModifySelection(_:)):
                 return parent.onKey(.down)
             case #selector(NSResponder.moveLeft(_:)), #selector(NSResponder.moveLeftAndModifySelection(_:)),
-                #selector(NSResponder.moveWordLeft(_:)), #selector(NSResponder.moveWordLeftAndModifySelection(_:)):
+                 #selector(NSResponder.moveWordLeft(_:)), #selector(NSResponder.moveWordLeftAndModifySelection(_:)):
                 return parent.onKey(.left(modifiers))
             case #selector(NSResponder.moveRight(_:)), #selector(NSResponder.moveRightAndModifySelection(_:)),
-                #selector(NSResponder.moveWordRight(_:)), #selector(NSResponder.moveWordRightAndModifySelection(_:)):
+                 #selector(NSResponder.moveWordRight(_:)), #selector(NSResponder.moveWordRightAndModifySelection(_:)):
                 return parent.onKey(.right(modifiers))
             case #selector(NSResponder.insertNewline(_:)):
                 return parent.onKey(.submit)

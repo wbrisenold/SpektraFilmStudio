@@ -1,6 +1,6 @@
 import Accelerate
-import CSpektraBridge
 import CoreGraphics
+import CSpektraBridge
 import Darwin
 import Foundation
 import Metal
@@ -32,7 +32,7 @@ struct FloatImagePayload: Sendable {
         guard let provider = CGDataProvider(data: data as CFData) else { return nil }
         let bitmap = CGBitmapInfo(
             rawValue:
-                CGImageAlphaInfo.last.rawValue | CGBitmapInfo.floatComponents.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+            CGImageAlphaInfo.last.rawValue | CGBitmapInfo.floatComponents.rawValue | CGBitmapInfo.byteOrder32Little.rawValue,
         )
         return CGImage(
             width: width,
@@ -45,7 +45,7 @@ struct FloatImagePayload: Sendable {
             provider: provider,
             decode: nil,
             shouldInterpolate: true,
-            intent: .defaultIntent
+            intent: .defaultIntent,
         )
     }
 }
@@ -70,7 +70,7 @@ struct PixelBufferF32: Sendable {
         return FloatImagePayload(
             width: width,
             height: height,
-            data: pixels.withUnsafeBytes { Data($0) }
+            data: pixels.withUnsafeBytes { Data($0) },
         )
     }
 
@@ -91,8 +91,8 @@ struct PixelBufferF32: Sendable {
             bytes.withUnsafeMutableBufferPointer { destination in
                 scratch.withUnsafeMutableBufferPointer { temp in
                     guard let src = source.baseAddress,
-                        let dst = destination.baseAddress,
-                        let tmp = temp.baseAddress
+                          let dst = destination.baseAddress,
+                          let tmp = temp.baseAddress
                     else { return }
 
                     var offset = 0
@@ -119,7 +119,7 @@ struct PixelBufferF32: Sendable {
             provider: provider,
             decode: nil,
             shouldInterpolate: true,
-            intent: .defaultIntent
+            intent: .defaultIntent,
         )
     }
 
@@ -136,8 +136,8 @@ struct PixelBufferF32: Sendable {
             words.withUnsafeMutableBufferPointer { destination in
                 scratch.withUnsafeMutableBufferPointer { temp in
                     guard let src = source.baseAddress,
-                        let dst = destination.baseAddress,
-                        let tmp = temp.baseAddress
+                          let dst = destination.baseAddress,
+                          let tmp = temp.baseAddress
                     else { return }
 
                     var offset = 0
@@ -166,7 +166,7 @@ struct PixelBufferF32: Sendable {
             provider: provider,
             decode: nil,
             shouldInterpolate: true,
-            intent: .defaultIntent
+            intent: .defaultIntent,
         )
     }
 
@@ -184,8 +184,8 @@ enum RendererError: LocalizedError {
     case renderFailed(String)
     var errorDescription: String? {
         switch self {
-        case .unavailable(let message): "Metal renderer unavailable: \(message)"
-        case .renderFailed(let message): "Render failed: \(message)"
+        case let .unavailable(message): "Metal renderer unavailable: \(message)"
+        case let .renderFailed(message): "Render failed: \(message)"
         }
     }
 }
@@ -195,9 +195,9 @@ actor NativeRenderer {
         case exact
     }
 
-    // Immutable native handle. This is intentionally nonisolated for safe destruction
-    // under Swift 6; it is never mutated after init. See AI_PITFALLS.md.
-    nonisolated(unsafe) private let handle: SpektraRendererRef
+    /// Immutable native handle. This is intentionally nonisolated for safe destruction
+    /// under Swift 6; it is never mutated after init. See AI_PITFALLS.md.
+    private nonisolated(unsafe) let handle: SpektraRendererRef
 
     init(profile: Profile = .exact) throws {
         Self.configurePinnedCorePerformanceDefaults(profile: profile)
@@ -216,8 +216,10 @@ actor NativeRenderer {
     /// Configure the pinned native renderer for exact processing. Preview speed is handled by
     /// decode/render caching and by a transient pointer-rate proxy, not by a second approximate
     /// renderer configuration.
-    private nonisolated static func configurePinnedCorePerformanceDefaults(profile: Profile) {
-        func set(_ key: String, _ value: String) { setenv(key, value, 1) }
+    private nonisolated static func configurePinnedCorePerformanceDefaults(profile _: Profile) {
+        func set(_ key: String, _ value: String) {
+            setenv(key, value, 1)
+        }
 
         set("SPEKTRAFILM_FINAL_CORE_MODE", "fused")
         set("SPEKTRAFILM_SCANNER_IMAGE_STORAGE", "texture")
@@ -239,15 +241,20 @@ actor NativeRenderer {
     /// on an Intel machine with both integrated and discrete graphics.
     func preferredMetalDevice() throws -> GPUMetalDeviceToken {
         guard let pointer = SpektraRendererMetalDevice(handle),
-            let device = Unmanaged<AnyObject>.fromOpaque(pointer).takeUnretainedValue() as? (any MTLDevice)
+              let device = Unmanaged<AnyObject>.fromOpaque(pointer).takeUnretainedValue() as? (any MTLDevice)
         else {
             throw RendererError.unavailable("Native film Metal device not available")
         }
         return GPUMetalDeviceToken(device: device)
     }
 
-    func colorLUTBlockingReason(look: RenderLook) -> String? { nil }
-    func isColorLUTEligible(look: RenderLook) -> Bool { true }
+    func colorLUTBlockingReason(look _: RenderLook) -> String? {
+        nil
+    }
+
+    func isColorLUTEligible(look _: RenderLook) -> Bool {
+        true
+    }
 
     func releaseTransientResources() {
         SpektraRendererReleaseTransientResources(handle)
@@ -264,24 +271,25 @@ actor NativeRenderer {
         let queue = resources.queue, width = resources.width, height = resources.height
         try Task.checkCancellation()
         guard width > 0, height > 0, width <= Int(Int32.max) / 16,
-            height <= Int(Int32.max),
-            let byteCount = UInt64(exactly: width).flatMap({ w in
-                UInt64(exactly: height).flatMap({ h in
-                    w.multipliedReportingOverflow(by: h).overflow ? nil : w * h
-                })
-            }).flatMap({ count -> UInt64? in
-                let result = count.multipliedReportingOverflow(by: 16)
-                return result.overflow ? nil : result.partialValue
-            }), byteCount <= UInt64(Int.max),
-            source.length >= Int(byteCount), destination.length >= Int(byteCount),
-            ObjectIdentifier(source.device as AnyObject) == ObjectIdentifier(queue.device as AnyObject),
-            ObjectIdentifier(destination.device as AnyObject) == ObjectIdentifier(queue.device as AnyObject)
+              height <= Int(Int32.max),
+              let byteCount = UInt64(exactly: width).flatMap({ w in
+                  UInt64(exactly: height).flatMap { h in
+                      w.multipliedReportingOverflow(by: h).overflow ? nil : w * h
+                  }
+              }).flatMap({ count -> UInt64? in
+                  let result = count.multipliedReportingOverflow(by: 16)
+                  return result.overflow ? nil : result.partialValue
+              }), byteCount <= UInt64(Int.max),
+              source.length >= Int(byteCount), destination.length >= Int(byteCount),
+              ObjectIdentifier(source.device as AnyObject) == ObjectIdentifier(queue.device as AnyObject),
+              ObjectIdentifier(destination.device as AnyObject) == ObjectIdentifier(queue.device as AnyObject)
         else {
             throw RendererError.renderFailed("GPU buffer dimensions, length, or device mismatch")
         }
         SpektraRendererSetPerformanceOptions(
             handle,
-            look.values["fastSpatial"] == .bool(true) ? 1 : 0, 1)
+            look.values["fastSpatial"] == .bool(true) ? 1 : 0, 1,
+        )
         SpektraRendererSetDensityLutsEnabled(handle, 0)
         var params = SpektraAppMakeDefaultRenderParams()
         apply(look: look, to: &params)
@@ -295,21 +303,22 @@ actor NativeRenderer {
             Unmanaged.passUnretained(source as AnyObject).toOpaque(),
             Unmanaged.passUnretained(destination as AnyObject).toOpaque(),
             Unmanaged.passUnretained(queue as AnyObject).toOpaque(),
-            Int32(width), Int32(height), &params, time
+            Int32(width), Int32(height), &params, time,
         )
         guard result != 0 else {
             throw RendererError.renderFailed(
-                SpektraRendererLastError(handle).map(String.init(cString:)) ?? "Metal buffer render failed"
+                SpektraRendererLastError(handle).map(String.init(cString:)) ?? "Metal buffer render failed",
             )
         }
     }
 
     func render(
-        _ input: PixelBufferF32, look: RenderLook, time: Double = 0, useDensityLuts: Bool = false, useStageCache: Bool = true
+        _ input: PixelBufferF32, look: RenderLook, time: Double = 0, useDensityLuts: Bool = false, useStageCache: Bool = true,
     ) throws -> (PixelBufferF32, RenderDiagnosticsView) {
         let signpostID = OSSignpostID(log: nativeRendererLog)
         os_signpost(
-            .begin, log: nativeRendererLog, name: "NativeRenderer.render", signpostID: signpostID, "w=%d h=%d", input.width, input.height)
+            .begin, log: nativeRendererLog, name: "NativeRenderer.render", signpostID: signpostID, "w=%d h=%d", input.width, input.height,
+        )
         defer { os_signpost(.end, log: nativeRendererLog, name: "NativeRenderer.render", signpostID: signpostID) }
 
         // A cancelled request that was waiting for the actor must not become another
@@ -318,7 +327,8 @@ actor NativeRenderer {
 
         SpektraRendererSetPerformanceOptions(
             handle,
-            look.values["fastSpatial"] == .bool(true) ? 1 : 0, useStageCache ? 1 : 0)
+            look.values["fastSpatial"] == .bool(true) ? 1 : 0, useStageCache ? 1 : 0,
+        )
         SpektraRendererSetDensityLutsEnabled(handle, useDensityLuts ? 1 : 0)
         var params = SpektraAppMakeDefaultRenderParams()
         apply(look: look, to: &params)
@@ -342,13 +352,13 @@ actor NativeRenderer {
                     data: UnsafeMutableRawPointer(mutating: srcBase),
                     width: Int32(input.width), height: Int32(input.height),
                     rowBytes: Int32(input.width * 4 * MemoryLayout<Float>.size),
-                    components: 4, bytesPerComponent: Int32(MemoryLayout<Float>.size)
+                    components: 4, bytesPerComponent: Int32(MemoryLayout<Float>.size),
                 )
                 var destination = SpektraImageBuffer(
                     data: dstBase,
                     width: Int32(input.width), height: Int32(input.height),
                     rowBytes: Int32(input.width * 4 * MemoryLayout<Float>.size),
-                    components: 4, bytesPerComponent: Int32(MemoryLayout<Float>.size)
+                    components: 4, bytesPerComponent: Int32(MemoryLayout<Float>.size),
                 )
                 return SpektraRendererRender(handle, &source, &destination, &params, time)
             }
@@ -363,7 +373,7 @@ actor NativeRenderer {
         PerformanceMonitor.shared.recordFrame(
             frameTimeMs: d.cpuSetupMs + d.sourceCopyMs + d.commandBufferMs + d.outputCopyMs,
             gpuTimeMs: d.commandBufferMs,
-            passCount: Int(d.passCount)
+            passCount: Int(d.passCount),
         )
         return (
             PixelBufferF32(width: input.width, height: input.height, pixels: outputPixels),
@@ -373,8 +383,8 @@ actor NativeRenderer {
                 commandBufferMs: d.commandBufferMs,
                 outputCopyMs: d.outputCopyMs,
                 passCount: d.passCount,
-                uploadBytes: d.uploadBytes
-            )
+                uploadBytes: d.uploadBytes,
+            ),
         )
     }
 
@@ -382,20 +392,21 @@ actor NativeRenderer {
     /// full-frame Swift float array allocation. Copies result back once at the end.
     func renderMetal(
         _ input: PixelBufferF32, look: RenderLook, time: Double = 0,
-        useDensityLuts: Bool = false, useStageCache: Bool = true
+        useDensityLuts _: Bool = false, useStageCache _: Bool = true,
     ) throws -> (PixelBufferF32, RenderDiagnosticsView) {
         let signpostID = OSSignpostID(log: nativeRendererLog)
         os_signpost(
             .begin, log: nativeRendererLog, name: "NativeRenderer.renderMetal", signpostID: signpostID, "w=%d h=%d", input.width,
-            input.height)
+            input.height,
+        )
         defer { os_signpost(.end, log: nativeRendererLog, name: "NativeRenderer.renderMetal", signpostID: signpostID) }
 
         try Task.checkCancellation()
 
         guard let device = try? preferredMetalDevice().device,
-            let queue = device.makeCommandQueue(),
-            input.width > 0, input.height > 0,
-            input.pixels.count == input.width * input.height * 4
+              let queue = device.makeCommandQueue(),
+              input.width > 0, input.height > 0,
+              input.pixels.count == input.width * input.height * 4
         else {
             throw RendererError.renderFailed("Metal device/queue unavailable for export")
         }
@@ -403,7 +414,7 @@ actor NativeRenderer {
         let byteCount = input.width * input.height * 4 * MemoryLayout<Float>.size
         guard
             let sourceBuffer = device.makeBuffer(
-                bytes: input.pixels, length: byteCount, options: .storageModePrivate
+                bytes: input.pixels, length: byteCount, options: .storageModePrivate,
             )
         else { throw RendererError.renderFailed("Source buffer allocation failed") }
 
@@ -416,9 +427,9 @@ actor NativeRenderer {
         try enqueueMetalFilm(
             GPUMetalFilmIO(
                 source: sourceBuffer, destination: destBuffer,
-                queue: queue, width: input.width, height: input.height
+                queue: queue, width: input.width, height: input.height,
             ),
-            look: look, time: time
+            look: look, time: time,
         )
 
         // Copy back the rendered result.
@@ -430,7 +441,8 @@ actor NativeRenderer {
         let stagingBuffer = device.makeBuffer(length: byteCount, options: .storageModeShared)!
         readBlit.copy(
             from: destBuffer, sourceOffset: 0,
-            to: stagingBuffer, destinationOffset: 0, size: byteCount)
+            to: stagingBuffer, destinationOffset: 0, size: byteCount,
+        )
         readBlit.endEncoding()
         readCommand.commit()
         readCommand.waitUntilCompleted()
@@ -443,7 +455,7 @@ actor NativeRenderer {
         PerformanceMonitor.shared.recordFrame(
             frameTimeMs: diag.cpuSetupMs + diag.sourceCopyMs + diag.commandBufferMs + diag.outputCopyMs,
             gpuTimeMs: diag.commandBufferMs,
-            passCount: Int(diag.passCount)
+            passCount: Int(diag.passCount),
         )
         return (
             PixelBufferF32(width: input.width, height: input.height, pixels: outputPixels),
@@ -453,21 +465,23 @@ actor NativeRenderer {
                 commandBufferMs: diag.commandBufferMs,
                 outputCopyMs: diag.outputCopyMs,
                 passCount: diag.passCount,
-                uploadBytes: diag.uploadBytes
-            )
+                uploadBytes: diag.uploadBytes,
+            ),
         )
     }
 
     private func apply(look: RenderLook, to params: inout SpektraAppRenderParams) {
         for (name, value) in look.values {
-            if name.hasPrefix("raw") { continue }
+            if name.hasPrefix("raw") {
+                continue
+            }
             name.withCString { cName in
                 switch value {
-                case .int(let v): _ = SpektraAppSetIntParam(&params, cName, v)
-                case .bool(let v): _ = SpektraAppSetBoolParam(&params, cName, v ? 1 : 0)
-                case .scalar(let v): _ = SpektraAppSetDoubleParam(&params, cName, v)
-                case .vector2(let x, let y): _ = SpektraAppSetDouble3Param(&params, cName, x, y, 0)
-                case .vector3(let x, let y, let z): _ = SpektraAppSetDouble3Param(&params, cName, x, y, z)
+                case let .int(v): _ = SpektraAppSetIntParam(&params, cName, v)
+                case let .bool(v): _ = SpektraAppSetBoolParam(&params, cName, v ? 1 : 0)
+                case let .scalar(v): _ = SpektraAppSetDoubleParam(&params, cName, v)
+                case let .vector2(x, y): _ = SpektraAppSetDouble3Param(&params, cName, x, y, 0)
+                case let .vector3(x, y, z): _ = SpektraAppSetDouble3Param(&params, cName, x, y, z)
                 }
             }
         }

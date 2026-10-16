@@ -8,15 +8,26 @@ struct StudioExportPreview: View {
     @State private var rendering = false
     @State private var failed = false
 
-    private var settings: ExportSettings { model.project.exportSettings }
-    private var sourceWidth: Int { max(1, rendered?.width ?? image.metadata?.pixelWidth ?? 1500) }
-    private var sourceHeight: Int { max(1, rendered?.height ?? image.metadata?.pixelHeight ?? 1000) }
+    private var settings: ExportSettings {
+        model.project.exportSettings
+    }
+
+    private var sourceWidth: Int {
+        max(1, rendered?.width ?? image.metadata?.pixelWidth ?? 1500)
+    }
+
+    private var sourceHeight: Int {
+        max(1, rendered?.height ?? image.metadata?.pixelHeight ?? 1000)
+    }
+
     private var outputGeometry: StudioOutputGeometry {
         .calculate(
             sourceWidth: sourceWidth, sourceHeight: sourceHeight, mode: settings.resizeMode,
             width: settings.resizeWidth, height: settings.resizeHeight, longEdge: settings.resizeLongEdge,
-            dontEnlarge: settings.dontEnlarge)
+            dontEnlarge: settings.dontEnlarge,
+        )
     }
+
     private var targetRatio: CGFloat {
         switch settings.resizeMode {
         case .fitBox, .cropToFill:
@@ -25,14 +36,17 @@ struct StudioExportPreview: View {
             CGFloat(outputGeometry.width) / CGFloat(max(1, outputGeometry.height))
         }
     }
+
     private var displayImage: CGImage? {
         guard let rendered else { return nil }
         guard settings.resizeMode == .cropToFill else { return rendered }
         let rect = StudioOutputGeometry.centerCropRect(
             sourceWidth: rendered.width, sourceHeight: rendered.height,
-            targetWidth: max(1, settings.resizeWidth), targetHeight: max(1, settings.resizeHeight))
+            targetWidth: max(1, settings.resizeWidth), targetHeight: max(1, settings.resizeHeight),
+        )
         return rendered.cropping(to: rect) ?? rendered
     }
+
     private var token: String {
         "\(image.id)|\(image.look.hashValue)|\(settings.colorMode.rawValue)|\(model.rawDenoiseStatus)"
     }
@@ -104,6 +118,7 @@ struct StudioExportPreview: View {
         case .height: "HEIGHT · NO CROP"
         }
     }
+
     private var detailText: String {
         switch settings.resizeMode {
         case .cropToFill:
@@ -124,20 +139,27 @@ extension AppModel {
         guard !isExporting, let activeRenderer = exactRenderer else { return nil }
         do {
             var look = image.look
-            if colorMode == .sRGB { look.values["outputColorSpace"] = .int(17); look.values["outputRole"] = .int(0) }
+            if colorMode == .sRGB {
+                look.values["outputColorSpace"] = .int(17); look.values["outputRole"] = .int(0)
+            }
             let base = try await decoder.decode(
                 url: effectiveSourceURL(for: image), longEdge: AppPreferences.editProxyLongEdge,
                 raw: look.raw, bypassImportTransform: project.preferences.bypassImportTransform,
-                cacheMode: cacheMemoryMode)
+                cacheMode: cacheMemoryMode,
+            )
             let graded = base.applyingHostGrade(tone: look.tone, density: look.colorDensity).applyingFilmExposureShape(
-                look.filmTone)
+                look.filmTone,
+            )
             let film = try await activeRenderer.render(graded, look: look).0
             let prefs = project.preferences
             let output = ExposureBoundaryEngine.apply(
                 GeometryEngine.transformed(
                     LensCharacterEngine.apply(
-                        MaskedLocalGradeEngine.apply(film, grades: look.localGrades), settings: look.lensEffects),
-                    settings: look.geometry), look: look, preferences: prefs)
+                        MaskedLocalGradeEngine.apply(film, grades: look.localGrades), settings: look.lensEffects,
+                    ),
+                    settings: look.geometry,
+                ), look: look, preferences: prefs,
+            )
             return output.makeFloatImagePayload()?.makeCGImage(colorSpace: OutputColorProfile.forLook(look).cgColorSpace)
                 ?? output.makeCGImage8(colorSpace: OutputColorProfile.forLook(look).cgColorSpace)
         } catch { return nil }

@@ -9,13 +9,13 @@ extension PixelBufferF32 {
         guard width > 0, height > 0, pixels.count == width * height * 4 else { return self }
 
         let pixelCount = width * height
-        let targetSamples = 80_000
+        let targetSamples = 80000
         let sampleStride = max(1, Int((Double(pixelCount) / Double(targetSamples)).squareRoot().rounded(.down)))
 
         var redRatios: [Double] = []
         var blueRatios: [Double] = []
-        redRatios.reserveCapacity(12_000)
-        blueRatios.reserveCapacity(12_000)
+        redRatios.reserveCapacity(12000)
+        blueRatios.reserveCapacity(12000)
 
         var fallbackR = 0.0, fallbackG = 0.0, fallbackB = 0.0, fallbackWeight = 0.0
 
@@ -81,9 +81,11 @@ extension PixelBufferF32 {
         let trim = sorted.count / 10
         let lo = min(trim, sorted.count - 1)
         let hi = max(lo + 1, sorted.count - trim)
-        let kept = Array(sorted[lo..<hi])
+        let kept = Array(sorted[lo ..< hi])
         let mid = kept.count / 2
-        if kept.count % 2 == 0 { return (kept[mid - 1] + kept[mid]) * 0.5 }
+        if kept.count % 2 == 0 {
+            return (kept[mid - 1] + kept[mid]) * 0.5
+        }
         return kept[mid]
     }
 

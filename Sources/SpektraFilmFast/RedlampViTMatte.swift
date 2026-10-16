@@ -51,13 +51,13 @@ public final class ViTMatte: @unchecked Sendable {
         for y in Self.starts(size.height) {
             for x in Self.starts(size.width) {
                 let area = (width: min(Self.tile, size.width - x), height: min(Self.tile, size.height - y))
-                let unsure = (y..<y + area.height).contains { row in
-                    trimap[(row * size.width + x)..<(row * size.width + x + area.width)].contains(0.5)
+                let unsure = (y ..< y + area.height).contains { row in
+                    trimap[(row * size.width + x) ..< (row * size.width + x + area.width)].contains(0.5)
                 }
                 guard unsure else { continue }
                 let alpha = try predict(rgb, trimap: trimap, x: x, y: y, area: area)
-                for row in 0..<area.height {
-                    for column in 0..<area.width {
+                for row in 0 ..< area.height {
+                    for column in 0 ..< area.width {
                         let blend = Self.ramp(row, area.height) * Self.ramp(column, area.width)
                         let index = (y + row) * size.width + x + column
                         total[index] += alpha[row * Self.tile + column] * blend
@@ -122,8 +122,8 @@ public final class ViTMatte: @unchecked Sendable {
         let pixels = image.dataPointer.assumingMemoryBound(to: Float.self)
         let unsure = tri.dataPointer.assumingMemoryBound(to: Float.self)
         let plane = Self.tile * Self.tile
-        for row in 0..<Self.tile {
-            for column in 0..<Self.tile {
+        for row in 0 ..< Self.tile {
+            for column in 0 ..< Self.tile {
                 let inside = row < area.height && column < area.width
                 let (px, py) = (x + min(column, area.width - 1), y + min(row, area.height - 1))
                 let colour = rgb.rgb(px, py)
@@ -139,12 +139,13 @@ public final class ViTMatte: @unchecked Sendable {
                 model,
                 from: MLDictionaryFeatureProvider(dictionary: [
                     "image": MLFeatureValue(multiArray: image), "trimap": MLFeatureValue(multiArray: tri),
-                ]))
+                ]),
+            )
         }
         guard let alpha = output.featureValue(for: "alpha")?.multiArrayValue
         else { throw MaskComputationError.unsupported(.subject) }
         let values = DepthAnything3.values(alpha)
-        guard values.count == Self.tile * Self.tile, values.allSatisfy({ $0.isFinite }) else {
+        guard values.count == Self.tile * Self.tile, values.allSatisfy(\.isFinite) else {
             throw ModelStoreError.download("ViTMatte returned invalid alpha values.")
         }
         return values.map { min(max($0, 0), 1) }

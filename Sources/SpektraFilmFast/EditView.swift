@@ -7,7 +7,7 @@ import SwiftUI
 
 struct EditWorkspaceView: View {
     @ObservedObject var model: AppModel
-    // Photos now live alongside Presets in the left editor sidebar.
+    /// Photos now live alongside Presets in the left editor sidebar.
     @AppStorage("SpektraFilmStudio.ui.editLeftTab") private var editLeftTab = "photos"
     // A movable contextual-glass scope monitor overlays ONLY the photo stage.
     // It never takes width from the photo, Photos tab or RAW/FILM/MASK rail.
@@ -34,20 +34,22 @@ struct EditWorkspaceView: View {
                 // Overlay before insets so it belongs to the viewer, not the
                 // overlaid RAW/FILM/MASK inspector or Photos sidebar.
                 .overlay {
-                    if showScopes { StudioFloatingScopes(model: model, onClose: { showScopes = false }) }
+                    if showScopes {
+                        StudioFloatingScopes(model: model, onClose: { showScopes = false })
+                    }
                 }
                 .padding(.top, StudioLayout.paneInset)
                 .padding(
                     .leading,
                     model.isPresetSidebarVisible
                         ? StudioLayout.presetSidebarWidth + 2 * StudioLayout.paneInset
-                        : StudioLayout.paneInset
+                        : StudioLayout.paneInset,
                 )
                 .padding(
                     .trailing,
                     showEditorInspector
                         ? StudioLayout.editorInspectorWidth + 2 * StudioLayout.paneInset
-                        : StudioLayout.paneInset
+                        : StudioLayout.paneInset,
                 )
                 .padding(.bottom, StudioLayout.paneInset)
 
@@ -56,7 +58,9 @@ struct EditWorkspaceView: View {
                     VStack(spacing: 0) {
                         Picker("Left browser", selection: $editLeftTab) {
                             Text("Presets").tag("presets")
-                            if showFilmstrip { Text("Photos").tag("photos") }
+                            if showFilmstrip {
+                                Text("Photos").tag("photos")
+                            }
                         }
                         .pickerStyle(.segmented)
                         .labelsHidden()
@@ -64,7 +68,7 @@ struct EditWorkspaceView: View {
                         .padding(10)
 
                         Rectangle().fill(StudioPalette.divider).frame(height: 1)
-                        if editLeftTab == "photos" && showFilmstrip {
+                        if editLeftTab == "photos", showFilmstrip {
                             filmstrip
                         } else {
                             PresetBrowserView(model: model)
@@ -94,27 +98,35 @@ struct EditWorkspaceView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: StudioOmniEvents.focusAdjustment)) { note in
             guard let name = note.object as? String,
-                let item = BridgeCatalog.shared.parameters.first(where: { $0.name == name })
+                  let item = BridgeCatalog.shared.parameters.first(where: { $0.name == name })
             else { return }
             inspectorMode = ["raw", "tone", "geometry", "lens"].contains(item.group) ? .adjust : .film
             showEditorInspector = true
         }
         .onChange(of: model.activeLocalGradeID) { _, id in
-            if id != nil { inspectorMode = .masks }
+            if id != nil {
+                inspectorMode = .masks
+            }
         }
         .onChange(of: showFilmstrip) { _, visible in
-            if !visible && editLeftTab == "photos" { editLeftTab = "presets" }
+            if !visible, editLeftTab == "photos" {
+                editLeftTab = "presets"
+            }
         }
         .onChange(of: showScopes) { _, enabled in
-            if enabled { model.requestEditorScopeUpdate() }
+            if enabled {
+                model.requestEditorScopeUpdate()
+            }
         }
-
     }
 
     // Edit actions now live in the macOS Workspace / Edit Look / File menus.
     // There is no duplicate toolbar between the global page picker and viewer.
 
-    private var filmstripThumbnailHeight: CGFloat { 106 }
+    private var filmstripThumbnailHeight: CGFloat {
+        106
+    }
+
     private var filmstripThumbnailWidth: CGFloat {
         (StudioLayout.presetSidebarWidth - 42) / 2
     }
@@ -123,7 +135,9 @@ struct EditWorkspaceView: View {
         let query = editPhotosSearch.trimmingCharacters(in: .whitespacesAndNewlines)
         let matching = model.visibleImages.filter { photo in
             guard photo.rating >= editPhotosMinRating else { return false }
-            if !query.isEmpty && !photo.fileName.localizedStandardContains(query) { return false }
+            if !query.isEmpty, !photo.fileName.localizedStandardContains(query) {
+                return false
+            }
             switch editPhotosStatus {
             case "picks": return photo.flag == .picked
             case "rejected": return photo.flag == .rejected
@@ -171,7 +185,6 @@ struct EditWorkspaceView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Close left sidebar")
-
             }
             .padding(.horizontal, 10)
             .frame(height: 30)
@@ -206,7 +219,7 @@ struct EditWorkspaceView: View {
                         Text("AI Keep").tag("best")
                     }
                     Picker("Minimum rating", selection: $editPhotosMinRating) {
-                        ForEach(0..<6, id: \.self) { stars in
+                        ForEach(0 ..< 6, id: \.self) { stars in
                             Text(stars == 0 ? "Any Rating" : "\(stars)★ and up").tag(stars)
                         }
                     }
@@ -227,7 +240,8 @@ struct EditWorkspaceView: View {
                 } label: {
                     Image(
                         systemName: (editPhotosStatus == "all" && editPhotosMinRating == 0)
-                            ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                            ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill",
+                    )
                 }
                 .menuStyle(.borderlessButton)
                 .help("Filter by picks, rejection, rating, review, and sort")
@@ -239,13 +253,13 @@ struct EditWorkspaceView: View {
             if filteredEditPhotos.isEmpty {
                 ContentUnavailableView(
                     "No matching photos", systemImage: "line.3.horizontal.decrease.circle",
-                    description: Text("Try clearing the Edit photo filters.")
+                    description: Text("Try clearing the Edit photo filters."),
                 )
                 .frame(maxHeight: .infinity)
             } else {
                 ScrollView(.vertical) {
                     LazyVGrid(
-                        columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 8
+                        columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 8,
                     ) {
                         ForEach(filteredEditPhotos) { image in
                             let highlighted = model.librarySelection.contains(image.id)
@@ -310,7 +324,7 @@ struct EditWorkspaceView: View {
                                                 ? Color.accentColor
                                                 : (highlighted
                                                     ? Color.accentColor.opacity(0.58) : Color.white.opacity(0.10)),
-                                            lineWidth: active ? 2.5 : (highlighted ? 1.5 : 1)
+                                            lineWidth: active ? 2.5 : (highlighted ? 1.5 : 1),
                                         )
                                 }
 
@@ -330,7 +344,7 @@ struct EditWorkspaceView: View {
                                     image.id,
                                     additive: flags.contains(.command),
                                     range: flags.contains(.shift),
-                                    orderedIDs: filteredEditPhotos.map(\.id)
+                                    orderedIDs: filteredEditPhotos.map(\.id),
                                 )
                             }
                             .contextMenu {
@@ -363,8 +377,8 @@ private struct EditorInspectorView: View {
     @Binding var mode: StudioInspectorMode
     @AppStorage(EditorPanelVisibilityStore.key) private var hiddenEditorPanels = ""
 
-    // The inspector column is for controls only. Scopes live under the canvas so
-    // they never steal height from the sliders (Redlamp keeps them out of the rail).
+    /// The inspector column is for controls only. Scopes live under the canvas so
+    /// they never steal height from the sliders (Redlamp keeps them out of the rail).
     var body: some View {
         StudioPanel {
             VStack(spacing: 0) {
@@ -394,7 +408,7 @@ private struct EditorInspectorView: View {
                                 .foregroundStyle(mode == item ? Color.primary : StudioPalette.secondaryLabel)
                                 .background(
                                     RoundedRectangle(cornerRadius: StudioLayout.compactCornerRadius)
-                                        .fill(mode == item ? StudioPalette.selected : Color.clear)
+                                        .fill(mode == item ? StudioPalette.selected : Color.clear),
                                 )
                                 .contentShape(Rectangle())
                         }
@@ -443,5 +457,4 @@ private struct EditorInspectorView: View {
         .controlSize(.small)
         .padding(10)
     }
-
 }

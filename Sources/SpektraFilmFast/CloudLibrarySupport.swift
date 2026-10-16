@@ -17,7 +17,9 @@ enum SpektraCloudDeviceIdentity {
 
 @MainActor
 extension AppModel {
-    var isCloudLibraryConnected: Bool { cloudLibrary != nil }
+    var isCloudLibraryConnected: Bool {
+        cloudLibrary != nil
+    }
 
     func restoreCloudLibraryIfPossible() async {
         guard cloudLibrary == nil else { return }
@@ -37,7 +39,7 @@ extension AppModel {
             cloudLibraryStatus = "Opening iCloud Library…"
             let library = try await SpektraCloudLibrary.open(
                 at: root,
-                deviceID: SpektraCloudDeviceIdentity.current
+                deviceID: SpektraCloudDeviceIdentity.current,
             )
             let loaded = try await library.initialProject()
             cloudLibrary = library
@@ -76,7 +78,7 @@ extension AppModel {
                     at: root,
                     name: snapshot.name,
                     deviceID: SpektraCloudDeviceIdentity.current,
-                    project: snapshot
+                    project: snapshot,
                 ) { completed, total, fileName in
                     Task { @MainActor [weak self] in
                         guard let self else { return }
@@ -114,7 +116,7 @@ extension AppModel {
         let projectName = baseName.isEmpty ? "Lightroom Migration" : baseName
         let root = uniqueCloudLibraryURL(
             parent: parent,
-            preferredName: sanitizedCloudLibraryName(projectName)
+            preferredName: sanitizedCloudLibraryName(projectName),
         )
 
         isCloudSyncing = true
@@ -138,13 +140,13 @@ extension AppModel {
                     at: root,
                     name: projectName,
                     deviceID: SpektraCloudDeviceIdentity.current,
-                    project: empty
+                    project: empty,
                 )
 
                 let result = try await library.importLightroomClassic(
                     catalogURL: catalogURL,
                     snapshot: snapshot,
-                    projectName: projectName
+                    projectName: projectName,
                 ) { completed, total, fileName in
                     Task { @MainActor [weak self] in
                         guard let self else { return }
@@ -165,19 +167,19 @@ extension AppModel {
                 let missing = report.missingOriginals.count
                 cloudLibraryStatus =
                     missing == 0
-                    ? "Lightroom migration complete · \(report.importedPhotos) photos"
-                    : "Migration complete · \(report.importedPhotos) photos · \(missing) originals missing"
+                        ? "Lightroom migration complete · \(report.importedPhotos) photos"
+                        : "Migration complete · \(report.importedPhotos) photos · \(missing) originals missing"
                 startCloudSyncLoop()
 
                 if missing > 0 || !report.warnings.isEmpty {
                     let alert = NSAlert()
                     alert.messageText = "Lightroom migration completed with notes"
                     alert.informativeText = """
-                        Imported \(report.importedPhotos) photo records and \(report.collections) collections.
-                        Copied \(report.copiedOriginals) unique originals and reused \(report.reusedOriginals) for virtual copies.
-                        Missing originals: \(missing).
-                        Lightroom's original develop payloads were preserved in the Migration folder even when a setting could not be translated.
-                        """
+                    Imported \(report.importedPhotos) photo records and \(report.collections) collections.
+                    Copied \(report.copiedOriginals) unique originals and reused \(report.reusedOriginals) for virtual copies.
+                    Missing originals: \(missing).
+                    Lightroom's original develop payloads were preserved in the Migration folder even when a setting could not be translated.
+                    """
                     alert.addButton(withTitle: "OK")
                     alert.runModal()
                 }
@@ -206,15 +208,19 @@ extension AppModel {
         // Validate before changing the current project or disconnecting anything.
         let accessed = root.startAccessingSecurityScopedResource()
         let manifestExists = FileManager.default.fileExists(
-            atPath: root.appendingPathComponent("manifest.json").path
+            atPath: root.appendingPathComponent("manifest.json").path,
         )
-        if accessed { root.stopAccessingSecurityScopedResource() }
+        if accessed {
+            root.stopAccessingSecurityScopedResource()
+        }
         guard manifestExists else {
             cloudLibraryStatus = "Not a SpektraFilm library: select the folder containing manifest.json"
             return
         }
         confirmCloudLibraryTransition { [weak self] allowed in
-            if allowed { self?.openValidatedICloudLibrary(at: root) }
+            if allowed {
+                self?.openValidatedICloudLibrary(at: root)
+            }
         }
     }
 
@@ -228,10 +234,14 @@ extension AppModel {
                 // Load/merge away from the UI actor. Retain security access through I/O.
                 let opened = try await Task.detached(priority: .userInitiated) {
                     let accessed = root.startAccessingSecurityScopedResource()
-                    defer { if accessed { root.stopAccessingSecurityScopedResource() } }
+                    defer {
+                        if accessed {
+                            root.stopAccessingSecurityScopedResource()
+                        }
+                    }
                     let library = try await SpektraCloudLibrary.open(
                         at: root,
-                        deviceID: SpektraCloudDeviceIdentity.current
+                        deviceID: SpektraCloudDeviceIdentity.current,
                     )
                     let loaded = try await library.initialProject()
                     return (library, loaded)
@@ -283,12 +293,16 @@ extension AppModel {
     func synchronizeCloudNow(userInitiated: Bool = true) async {
         guard let library = cloudLibrary, !isCloudSyncing else { return }
         guard !isInteractiveEditActive else {
-            if userInitiated { cloudLibraryStatus = "Finish the current slider/mask gesture, then sync" }
+            if userInitiated {
+                cloudLibraryStatus = "Finish the current slider/mask gesture, then sync"
+            }
             return
         }
 
         isCloudSyncing = true
-        if userInitiated { cloudLibraryStatus = "Syncing iCloud Library…" }
+        if userInitiated {
+            cloudLibraryStatus = "Syncing iCloud Library…"
+        }
         let snapshot = project
 
         do {
@@ -298,7 +312,7 @@ extension AppModel {
                 replaceProjectFromCloud(
                     result.project,
                     preferredSelection: selected,
-                    resetWorkspace: false
+                    resetWorkspace: false,
                 )
             }
             isCloudSyncing = false
@@ -307,8 +321,8 @@ extension AppModel {
             isProjectDirty = false
             cloudLibraryStatus =
                 result.pushedOperations == 0 && result.pulledOperations == 0
-                ? "iCloud Library up to date"
-                : "Synced · ↑\(result.pushedOperations) ↓\(result.pulledOperations)"
+                    ? "iCloud Library up to date"
+                    : "Synced · ↑\(result.pushedOperations) ↓\(result.pulledOperations)"
         } catch {
             isCloudSyncing = false
             cloudLibraryStatus = "Cloud sync warning · \(error.localizedDescription)"
@@ -335,7 +349,7 @@ extension AppModel {
     func keepSelectedCloudOriginalsDownloaded() {
         // Legacy action now means only the currently edited original, never bulk pinning.
         guard page == .edit, let photo = selectedImage,
-            photo.cloudRelativePath != nil
+              photo.cloudRelativePath != nil
         else {
             cloudLibraryStatus = "Open the photo in Edit to stage its original; library browsing uses previews"
             return
@@ -364,7 +378,7 @@ extension AppModel {
     /// Library/Cull selection uses previews and never calls the RAW decoder.
     func deferPreviewForCloudOriginalIfNeeded(
         _ image: ProjectImageRecord,
-        renderPreview: Bool
+        renderPreview: Bool,
     ) -> Bool {
         guard let library = cloudLibrary, let relative = image.cloudRelativePath else { return false }
         guard renderPreview else {
@@ -372,7 +386,7 @@ extension AppModel {
             return true
         }
         if let staged = stagedCloudOriginals[image.id],
-            FileManager.default.fileExists(atPath: staged.path)
+           FileManager.default.fileExists(atPath: staged.path)
         {
             return false
         }
@@ -392,7 +406,7 @@ extension AppModel {
                 let staged = try await ExternalOriginalScratch.shared.stage(
                     photoID: imageID, fileName: image.fileName,
                     original: originalURL, relativePath: relative,
-                    library: library, parent: parent
+                    library: library, parent: parent,
                 )
                 guard project.selectedImageID == imageID, page == .edit else {
                     await ExternalOriginalScratch.shared.setEditing(nil)
@@ -418,9 +432,9 @@ extension AppModel {
         cloudSyncLoopTask = Task { [weak self] in
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(8)) } catch { return }
-                guard let self, self.cloudLibrary != nil else { return }
-                if !self.isCloudSyncing && !self.isInteractiveEditActive {
-                    await self.synchronizeCloudNow(userInitiated: false)
+                guard let self, cloudLibrary != nil else { return }
+                if !isCloudSyncing, !isInteractiveEditActive {
+                    await synchronizeCloudNow(userInitiated: false)
                 }
             }
         }
@@ -429,22 +443,24 @@ extension AppModel {
     private func replaceProjectFromCloud(
         _ incoming: SpektraProjectDocument,
         preferredSelection: UUID? = nil,
-        resetWorkspace: Bool
+        resetWorkspace: Bool,
     ) {
         let previousPage = page
         let previousSelected = project.selectedImageID
         let previousLook = selectedImage?.look
 
-        if resetWorkspace { prepareForCloudProjectReplacement() }
+        if resetWorkspace {
+            prepareForCloudProjectReplacement()
+        }
         suppressDirtyTracking = true
         var loaded = incoming
         loaded.migrateForV2()
         if let preferredSelection,
-            loaded.images.contains(where: { $0.id == preferredSelection })
+           loaded.images.contains(where: { $0.id == preferredSelection })
         {
             loaded.selectedImageID = preferredSelection
         } else if let previousSelected,
-            loaded.images.contains(where: { $0.id == previousSelected })
+                  loaded.images.contains(where: { $0.id == previousSelected })
         {
             loaded.selectedImageID = previousSelected
         } else if loaded.selectedImageID == nil {
@@ -478,8 +494,8 @@ extension AppModel {
 
     func updateCloudPreview(photoID: UUID, image: CGImage) {
         guard !cloudLibraryRootPath.isEmpty,
-            let record = project.images.first(where: { $0.id == photoID }),
-            let relative = record.cloudPreviewRelativePath
+              let record = project.images.first(where: { $0.id == photoID }),
+              let relative = record.cloudPreviewRelativePath
         else { return }
         let destination = URL(fileURLWithPath: cloudLibraryRootPath, isDirectory: true)
             .appendingPathComponent(relative)
@@ -489,7 +505,7 @@ extension AppModel {
 
     func thumbnailURL(for image: ProjectImageRecord) -> URL {
         guard let relative = image.cloudPreviewRelativePath,
-            !cloudLibraryRootPath.isEmpty
+              !cloudLibraryRootPath.isEmpty
         else { return image.url }
         let candidate = URL(fileURLWithPath: cloudLibraryRootPath, isDirectory: true)
             .appendingPathComponent(relative)
@@ -501,13 +517,13 @@ extension AppModel {
     private func cloudTargetImages() -> [ProjectImageRecord] {
         let ids =
             librarySelection.isEmpty
-            ? Set([project.selectedImageID].compactMap { $0 })
-            : librarySelection
+                ? Set([project.selectedImageID].compactMap(\.self))
+                : librarySelection
         return project.images.filter { ids.contains($0.id) && $0.cloudRelativePath != nil }
     }
 
     private func remapMissingLightroomOriginalsIfRequested(
-        snapshot: inout LightroomCatalogImport.Snapshot
+        snapshot: inout LightroomCatalogImport.Snapshot,
     ) async {
         let fm = FileManager.default
         let missingIndices = snapshot.photos.indices.filter {
@@ -516,7 +532,7 @@ extension AppModel {
         guard !missingIndices.isEmpty else { return }
 
         let oldRoot = commonParentDirectory(
-            missingIndices.map { URL(fileURLWithPath: snapshot.photos[$0].absolutePath) }
+            missingIndices.map { URL(fileURLWithPath: snapshot.photos[$0].absolutePath) },
         )
 
         let alert = NSAlert()
@@ -548,7 +564,7 @@ extension AppModel {
             }
         }
         snapshot.warnings.append(
-            "Remapped \(remapped) of \(missingIndices.count) missing Lightroom originals from \(oldRoot.path) to \(replacementRoot.path)."
+            "Remapped \(remapped) of \(missingIndices.count) missing Lightroom originals from \(oldRoot.path) to \(replacementRoot.path).",
         )
     }
 
@@ -563,7 +579,9 @@ extension AppModel {
                 count += 1
             }
             components = Array(components.prefix(count))
-            if components.isEmpty { return nil }
+            if components.isEmpty {
+                return nil
+            }
         }
         guard components.count > 1 else { return nil }
         var url = URL(fileURLWithPath: components[0], isDirectory: true)
@@ -601,7 +619,9 @@ extension AppModel {
     private func uniqueCloudLibraryURL(parent: URL, preferredName: String) -> URL {
         let fm = FileManager.default
         var candidate = parent.appendingPathComponent(preferredName, isDirectory: true)
-        if !fm.fileExists(atPath: candidate.path) { return candidate }
+        if !fm.fileExists(atPath: candidate.path) {
+            return candidate
+        }
 
         let stem = URL(fileURLWithPath: preferredName).deletingPathExtension().lastPathComponent
         let ext = URL(fileURLWithPath: preferredName).pathExtension

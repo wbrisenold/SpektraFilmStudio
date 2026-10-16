@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct EditorPanelVisibilityStore {
+enum EditorPanelVisibilityStore {
     static let key = "SpektraFilmStudio.hiddenEditorPanels"
 
     static func hidden(from serialized: String) -> Set<String> {
@@ -27,10 +27,15 @@ struct EditorPanelVisibilityMenu: View {
                             get: { !hidden.contains(panel.id) },
                             set: { visible in
                                 var next = EditorPanelVisibilityStore.hidden(from: serializedHidden)
-                                if visible { next.remove(panel.id) } else { next.insert(panel.id) }
+                                if visible {
+                                    next.remove(panel.id)
+                                } else {
+                                    next.insert(panel.id)
+                                }
                                 serializedHidden = EditorPanelVisibilityStore.serialize(next)
-                            }
-                        ))
+                            },
+                        ),
+                    )
                 }
             }
             Divider()

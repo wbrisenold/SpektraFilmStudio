@@ -19,7 +19,7 @@ final class OracleRcloneTerminal: ObservableObject {
         // Validate SSH key path to prevent path traversal attacks
         let standardizedKeyPath = URL(fileURLWithPath: configuration.sshKey).standardizedFileURL.path
         guard Self.safeHost(configuration.host), Self.safeUser(configuration.username),
-            FileManager.default.fileExists(atPath: standardizedKeyPath)
+              FileManager.default.fileExists(atPath: standardizedKeyPath)
         else {
             output = "Enter a valid Oracle host, SSH username and local private-key path first."
             return
@@ -53,7 +53,9 @@ final class OracleRcloneTerminal: ObservableObject {
             let reader = outgoing.fileHandleForReading
             while true {
                 let data = reader.availableData
-                if data.isEmpty { break }
+                if data.isEmpty {
+                    break
+                }
                 let fragment = String(decoding: data, as: UTF8.self)
                 await self?.append(fragment, session: session)
             }
@@ -64,7 +66,9 @@ final class OracleRcloneTerminal: ObservableObject {
 
     func send(_ value: String, privateInput: Bool) {
         guard running, let input else { return }
-        if privateInput, !value.isEmpty { privateValues.append(value) }
+        if privateInput, !value.isEmpty {
+            privateValues.append(value)
+        }
         // stdin only; secrets never become process arguments or logs.
         var data = Data(value.utf8)
         data.append(10)
@@ -103,12 +107,15 @@ final class OracleRcloneTerminal: ObservableObject {
         // and never "=" or ":".
         combined = combined.replacingOccurrences(
             of: #"(?im)^.*(?:cookies|token|password|secret)\s*[:=].*$"#,
-            with: "[rclone credential hidden]", options: .regularExpression)
+            with: "[rclone credential hidden]", options: .regularExpression,
+        )
         // Do not publish a partial password echo while waiting for the next read.
         var withheld = 0
         for value in privateValues where value.count > 1 {
-            for count in 1..<min(value.count, combined.count + 1) {
-                if combined.hasSuffix(value.prefix(count)) { withheld = max(withheld, count) }
+            for count in 1 ..< min(value.count, combined.count + 1) {
+                if combined.hasSuffix(value.prefix(count)) {
+                    withheld = max(withheld, count)
+                }
             }
         }
         if withheld > 0 {
@@ -147,13 +154,14 @@ final class OracleRcloneTerminal: ObservableObject {
     private static func safeHost(_ s: String) -> Bool {
         !s.isEmpty && s.count < 254 && !s.hasPrefix("-")
             && s.utf8.allSatisfy {
-                (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 46
+                (48 ... 57).contains($0) || (65 ... 90).contains($0) || (97 ... 122).contains($0) || $0 == 45 || $0 == 46
             }
     }
+
     private static func safeUser(_ s: String) -> Bool {
         !s.isEmpty && s.count < 65 && !s.hasPrefix("-")
             && s.utf8.allSatisfy {
-                (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 95
+                (48 ... 57).contains($0) || (65 ... 90).contains($0) || (97 ... 122).contains($0) || $0 == 45 || $0 == 95
             }
     }
 }
@@ -172,20 +180,20 @@ final class OracleRcloneConfigImporter: ObservableObject {
             failed = true; status = "Choose an existing rclone.conf first"; return
         }
         guard let text = try? String(contentsOfFile: localPath, encoding: .utf8),
-            text.range(of: #"(?m)^\[icloud\]\s*$"#, options: .regularExpression) != nil,
-            text.range(of: #"(?m)^\s*type\s*=\s*iclouddrive\s*$"#, options: .regularExpression) != nil
+              text.range(of: #"(?m)^\[icloud\]\s*$"#, options: .regularExpression) != nil,
+              text.range(of: #"(?m)^\s*type\s*=\s*iclouddrive\s*$"#, options: .regularExpression) != nil
         else {
             failed = true; status = "File must contain an [icloud] remote of type iclouddrive"; return
         }
         guard !configuration.host.isEmpty, configuration.host.count < 254, !configuration.host.hasPrefix("-"),
-            !configuration.username.isEmpty, configuration.username.count < 65, !configuration.username.hasPrefix("-"),
-            configuration.host.utf8.allSatisfy({
-                (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 46
-            }),
-            configuration.username.utf8.allSatisfy({
-                (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 95
-            }),
-            FileManager.default.fileExists(atPath: URL(fileURLWithPath: configuration.sshKey).standardizedFileURL.path)
+              !configuration.username.isEmpty, configuration.username.count < 65, !configuration.username.hasPrefix("-"),
+              configuration.host.utf8.allSatisfy({
+                  (48 ... 57).contains($0) || (65 ... 90).contains($0) || (97 ... 122).contains($0) || $0 == 45 || $0 == 46
+              }),
+              configuration.username.utf8.allSatisfy({
+                  (48 ... 57).contains($0) || (65 ... 90).contains($0) || (97 ... 122).contains($0) || $0 == 45 || $0 == 95
+              }),
+              FileManager.default.fileExists(atPath: URL(fileURLWithPath: configuration.sshKey).standardizedFileURL.path)
         else {
             failed = true; status = "Enter the Oracle host, SSH username and SSH key first"; return
         }
@@ -199,8 +207,8 @@ final class OracleRcloneConfigImporter: ObservableObject {
             failed = !outcome
             status =
                 outcome
-                ? "Credentials installed. Select Test iCloud to verify the login."
-                : "Credential import failed. Check your SSH connection and Oracle user permissions."
+                    ? "Credentials installed. Select Test iCloud to verify the login."
+                    : "Credential import failed. Check your SSH connection and Oracle user permissions."
             running = false
         }
     }
@@ -216,7 +224,7 @@ final class OracleRcloneConfigImporter: ObservableObject {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: program)
             process.arguments = args
-            process.standardOutput = FileHandle.nullDevice  // Drain without retaining secrets.
+            process.standardOutput = FileHandle.nullDevice // Drain without retaining secrets.
             process.standardError = FileHandle.nullDevice
             do { try process.run(); process.waitUntilExit() } catch { return false }
             return process.terminationStatus == 0
@@ -224,7 +232,8 @@ final class OracleRcloneConfigImporter: ObservableObject {
         guard
             execute(
                 "/usr/bin/ssh",
-                sshOptions + [target, "set -e; umask 077; mkdir -p ~/.config/rclone; chmod 700 ~/.config/rclone"])
+                sshOptions + [target, "set -e; umask 077; mkdir -p ~/.config/rclone; chmod 700 ~/.config/rclone"],
+            )
         else { return false }
         // Remote scratch path is in the authenticated user's home, never a shared /tmp.
         guard execute("/usr/bin/scp", sshOptions + [path, "\(target):.config/rclone/rclone.conf.spektrafilm-new"])
@@ -237,6 +246,7 @@ final class OracleRcloneConfigImporter: ObservableObject {
                 "set -e; umask 077; chmod 600 ~/.config/rclone/rclone.conf.spektrafilm-new; "
                     + "if test -e ~/.config/rclone/rclone.conf; then cp ~/.config/rclone/rclone.conf ~/.config/rclone/rclone.conf.spektrafilm-backup; chmod 600 ~/.config/rclone/rclone.conf.spektrafilm-backup; fi; "
                     + "mv ~/.config/rclone/rclone.conf.spektrafilm-new ~/.config/rclone/rclone.conf",
-            ])
+            ],
+        )
     }
 }

@@ -5,13 +5,19 @@ import Foundation
 /// Compatibility adapter for saved semantic masks and diagnostic skin overlays.
 /// The editing UI uses RedlampMaskService and its replayable recipes directly.
 actor SemanticMaskEngine {
-    func clearCache() { cache.removeAll() }
-    func invalidate(imageURL: URL) { cache = cache.filter { $0.key != imageURL } }
+    func clearCache() {
+        cache.removeAll()
+    }
+
+    func invalidate(imageURL: URL) {
+        cache = cache.filter { $0.key != imageURL }
+    }
+
     private var cache: [URL: CanonicalSemanticMaskSet] = [:]
     private var cachedStamp: Date?
 
     func analyze(
-        imageURL: URL, cgImage: CGImage, targetLongEdge: Int = 1080, requested: Set<SemanticMaskKind> = [.skin]
+        imageURL: URL, cgImage: CGImage, targetLongEdge _: Int = 1080, requested: Set<SemanticMaskKind> = [.skin],
     ) async throws -> CanonicalSemanticMaskSet {
         let image = try await RedlampMaskService.shared.analysisImage(imageURL)
         let provider = VisionMaskProvider()
@@ -36,7 +42,8 @@ actor SemanticMaskEngine {
         }
         let result = CanonicalSemanticMaskSet(
             width: size.width, height: size.height, alphaByKind: alpha,
-            provenance: ["Apple Vision · Redlamp face parts · unedited original"])
+            provenance: ["Apple Vision · Redlamp face parts · unedited original"],
+        )
         cache = [imageURL: result]
         cachedStamp = stamp
         return result
@@ -46,6 +53,7 @@ actor SemanticMaskEngine {
         try SAM2TinySegmenter().mask(image: cgImage, point: normalizedPoint)
     }
 }
+
 enum PixelMaskResize {
     static func copy(pixelBuffer: CVPixelBuffer, width: Int, height: Int) -> [UInt8] {
         CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
@@ -70,10 +78,10 @@ enum PixelMaskResize {
             }
         }
         var out = [UInt8](repeating: 0, count: width * height)
-        for y in 0..<height {
+        for y in 0 ..< height {
             let fy = (Double(y) + 0.5) * Double(sh) / Double(max(1, height)) - 0.5
             let y0 = Int(floor(fy)), y1 = y0 + 1, ty = fy - Double(y0)
-            for x in 0..<width {
+            for x in 0 ..< width {
                 let fx = (Double(x) + 0.5) * Double(sw) / Double(max(1, width)) - 0.5
                 let x0 = Int(floor(fx)), x1 = x0 + 1, tx = fx - Double(x0)
                 let a = sample(x0, y0) * (1 - tx) + sample(x1, y0) * tx

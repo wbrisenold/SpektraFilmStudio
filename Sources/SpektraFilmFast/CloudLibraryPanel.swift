@@ -34,7 +34,7 @@ struct CloudLibraryPanel: View {
                     Text(
                         model.externalOriginalScratchParent.isEmpty
                             ? "Choose an external drive before Edit/Export"
-                            : model.externalOriginalScratchParent
+                            : model.externalOriginalScratchParent,
                     )
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -77,7 +77,7 @@ struct CloudLibraryPanel: View {
                         model.importLightroomCatalogToICloud()
                     }
                     .help(
-                        "Read a Lightroom Classic .lrcat catalog, copy its originals into iCloud Drive, preserve its develop payloads, and convert the library to SpektraFilm."
+                        "Read a Lightroom Classic .lrcat catalog, copy its originals into iCloud Drive, preserve its develop payloads, and convert the library to SpektraFilm.",
                     )
 
                     Button("Move Current Library → iCloud…", systemImage: "icloud.and.arrow.up") {
@@ -99,7 +99,8 @@ struct CloudLibraryPanel: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(
                     model.isCloudLibraryConnected ? Color.blue.opacity(0.35) : StudioPalette.subtleBorder,
-                    lineWidth: 0.5)
+                    lineWidth: 0.5,
+                )
         }
     }
 }

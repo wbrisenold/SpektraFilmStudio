@@ -1,6 +1,6 @@
 // swift-tools-version: 6.0
-import PackageDescription
 import Foundation
+import PackageDescription
 
 let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 let nativeLib = root + "/.build/native"
@@ -10,24 +10,24 @@ let package = Package(
     name: "SpektraFilmStudio",
     platforms: [.macOS(.v15)],
     products: [
-        .executable(name: "SpektraFilmStudio", targets: ["SpektraFilmStudio"])
+        .executable(name: "SpektraFilmStudio", targets: ["SpektraFilmStudio"]),
     ],
     dependencies: [],
     targets: [
         .systemLibrary(
             name: "CSpektraBridge",
-            path: "Sources/CSpektraBridge"
+            path: "Sources/CSpektraBridge",
         ),
         .systemLibrary(
             name: "CSpektraStudioCore",
-            path: "Sources/CSpektraStudioCore"
+            path: "Sources/CSpektraStudioCore",
         ),
         .target(
             name: "SemanticMaskNative",
             path: "Sources/SemanticMaskNative",
             publicHeadersPath: "include",
             cxxSettings: [.unsafeFlags(["-I\(root)/Vendor/onnxruntime/include"])],
-            linkerSettings: [.unsafeFlags(["-L\(root)/Vendor/onnxruntime/lib", "-lonnxruntime"])]
+            linkerSettings: [.unsafeFlags(["-L\(root)/Vendor/onnxruntime/lib", "-lonnxruntime"])],
         ),
         .executableTarget(
             name: "SpektraFilmStudio",
@@ -50,8 +50,8 @@ let package = Package(
                 .linkedFramework("QuartzCore"),
                 .linkedFramework("UniformTypeIdentifiers"),
                 .linkedFramework("Vision"),
-            ]
-        )
+            ],
+        ),
     ],
-    cxxLanguageStandard: .cxx17
+    cxxLanguageStandard: .cxx17,
 )

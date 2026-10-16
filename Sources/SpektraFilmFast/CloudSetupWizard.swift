@@ -30,7 +30,8 @@ struct CloudSetupWizard: View {
         .init(
             host: host, username: username, sshKey: sshKeyPath,
             workerDirectory: workerPath, manifest: manifestPath,
-            allowedCDNHost: allowedHost, isBulk: transferMode == "bulk")
+            allowedCDNHost: allowedHost, isBulk: transferMode == "bulk",
+        )
     }
 
     var body: some View {
@@ -65,13 +66,14 @@ struct CloudSetupWizard: View {
                 }.padding(.vertical, 8)
             }
             HStack(spacing: 10) {
-                if runner.running { ProgressView().controlSize(.small) }
+                if runner.running {
+                    ProgressView().controlSize(.small)
+                }
                 Text(runner.status)
                     .font(.caption)
                     .foregroundStyle(runner.failed ? .red : .secondary)
                     .lineLimit(2)
                 Spacer()
-
             }
         }
         .padding(18)
@@ -92,14 +94,14 @@ struct CloudSetupWizard: View {
             title(
                 "Your iCloud Drive on this Mac",
                 caption:
-                    "Apple signs you in through macOS. There is no separate iCloud Drive API token for an ordinary personal Drive folder."
+                "Apple signs you in through macOS. There is no separate iCloud Drive API token for an ordinary personal Drive folder.",
             )
             Label(
                 FileManager.default.ubiquityIdentityToken == nil
                     ? "No macOS iCloud identity detected. Sign in under System Settings → Apple Account → iCloud."
                     : "macOS iCloud account detected.",
                 systemImage: FileManager.default.ubiquityIdentityToken == nil
-                    ? "exclamationmark.circle" : "checkmark.circle"
+                    ? "exclamationmark.circle" : "checkmark.circle",
             )
             .foregroundStyle(.secondary)
             HStack {
@@ -113,12 +115,12 @@ struct CloudSetupWizard: View {
             Divider()
             Text("Temporary RAW editing files").font(.headline)
             Text(
-                "Select an external drive for RAW scratch. macOS may still cache iCloud File Provider originals on the internal disk; this cannot be guaranteed away by an app preference."
+                "Select an external drive for RAW scratch. macOS may still cache iCloud File Provider originals on the internal disk; this cannot be guaranteed away by an app preference.",
             )
             .font(.caption).foregroundStyle(.secondary)
             Button("Choose External Scratch Drive…") { model.chooseExternalOriginalScratch() }
             Text(
-                "For a direct server-side Lightroom migration, continue to Oracle. The originals do not have to transfer through your Mac."
+                "For a direct server-side Lightroom migration, continue to Oracle. The originals do not have to transfer through your Mac.",
             )
             .font(.caption).foregroundStyle(.secondary)
         }
@@ -129,7 +131,7 @@ struct CloudSetupWizard: View {
             title(
                 "Connect your Oracle transfer server",
                 caption:
-                    "The server downloads authorized originals and uploads them to iCloud Drive. Your Mac only controls the transfer."
+                "The server downloads authorized originals and uploads them to iCloud Drive. Your Mac only controls the transfer.",
             )
             instructions([
                 "Create an Oracle Cloud account and choose an Always Free eligible compute instance in your home region.",
@@ -142,7 +144,8 @@ struct CloudSetupWizard: View {
                 "Oracle Always Free guide",
                 destination: URL(
                     string:
-                        "https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm")!
+                    "https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm",
+                )!,
             )
             VStack(alignment: .leading, spacing: 8) {
                 field("VM public IP or hostname", text: $host)
@@ -155,7 +158,9 @@ struct CloudSetupWizard: View {
             HStack {
                 Button("Inspect SSH Fingerprint") { hostKey.inspect(host: host) }
                     .disabled(hostKey.working)
-                if hostKey.working { ProgressView().controlSize(.small) }
+                if hostKey.working {
+                    ProgressView().controlSize(.small)
+                }
             }
             if !hostKey.fingerprint.isEmpty {
                 Text(hostKey.fingerprint)
@@ -163,7 +168,7 @@ struct CloudSetupWizard: View {
                     .textSelection(.enabled)
                 Toggle(
                     "I compared this SHA256 fingerprint with the VM in Oracle Console.",
-                    isOn: $hostKey.independentlyVerified
+                    isOn: $hostKey.independentlyVerified,
                 )
                 .font(.caption)
                 Button("Trust Verified SSH Key") { hostKey.trust() }
@@ -177,12 +182,12 @@ struct CloudSetupWizard: View {
                     .buttonStyle(.borderedProminent)
             }
             Text(
-                "Install rclone downloads and runs the official rclone.org installer on the Oracle VM with non-interactive sudo. This requires Python 3, curl and sudo privileges; select it only if you trust the VM and installer."
+                "Install rclone downloads and runs the official rclone.org installer on the Oracle VM with non-interactive sudo. This requires Python 3, curl and sudo privileges; select it only if you trust the VM and installer.",
             )
             .font(.caption).foregroundStyle(.secondary)
             .disabled(runner.running)
             Text(
-                "SSH strictly verifies the server's host key. Verify the VM fingerprint before accepting it; this app will not silently disable host-key checks. Once accepted, that key is trusted for every future connection to this host; if it ever changes, this app refuses it rather than reconnecting."
+                "SSH strictly verifies the server's host key. Verify the VM fingerprint before accepting it; this app will not silently disable host-key checks. Once accepted, that key is trusted for every future connection to this host; if it ever changes, this app refuses it rather than reconnecting.",
             )
             .font(.caption).foregroundStyle(.secondary)
             jobLog
@@ -194,7 +199,7 @@ struct CloudSetupWizard: View {
             title(
                 "Sign in to iCloud on Oracle",
                 caption:
-                    "Use rclone's existing iCloud backend, not an invented Apple API. Authentication includes Apple ID, password and trusted-device 2FA."
+                "Use rclone's existing iCloud backend, not an invented Apple API. Authentication includes Apple ID, password and trusted-device 2FA.",
             )
             Text("Option A · Guided sign-in without leaving SpektraFilm")
                 .font(.headline)
@@ -205,13 +210,17 @@ struct CloudSetupWizard: View {
                 "Finish the remote configuration, then select Test iCloud.",
             ])
             Text(
-                "Security: your Apple credentials will be processed by rclone on your own Oracle VM. rclone's configuration obfuscates its saved password; this is not equivalent to strong encryption. Use a VM you control and protect its disk and SSH access."
+                "Security: your Apple credentials will be processed by rclone on your own Oracle VM. rclone's configuration obfuscates its saved password; this is not equivalent to strong encryption. Use a VM you control and protect its disk and SSH access.",
             )
             .font(.caption).foregroundStyle(.orange)
             .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Button(terminal.running ? "End Sign-in" : "Begin iCloud Sign-in") {
-                    if terminal.running { terminal.stop() } else { terminal.start(configuration: config) }
+                    if terminal.running {
+                        terminal.stop()
+                    } else {
+                        terminal.start(configuration: config)
+                    }
                 }
                 .disabled(host.isEmpty || sshKeyPath.isEmpty)
                 Button("Test iCloud Connection") { runner.run(.checkICloud, configuration: config) }
@@ -220,7 +229,7 @@ struct CloudSetupWizard: View {
             ScrollView {
                 Text(
                     terminal.output.isEmpty
-                        ? "Rclone's setup questions will appear here after you start sign-in." : terminal.output
+                        ? "Rclone's setup questions will appear here after you start sign-in." : terminal.output,
                 )
                 .font(.system(size: 11, design: .monospaced))
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -250,13 +259,13 @@ struct CloudSetupWizard: View {
             Text("Option B · Import an existing rclone configuration")
                 .font(.headline)
             Text(
-                "If you already authenticated an icloud remote in rclone, choose its rclone.conf. It contains sensitive session credentials. Importing transfers it over SSH and installs it with 0600 permissions for your Oracle user."
+                "If you already authenticated an icloud remote in rclone, choose its rclone.conf. It contains sensitive session credentials. Importing transfers it over SSH and installs it with 0600 permissions for your Oracle user.",
             )
             .font(.caption).foregroundStyle(.secondary)
             fileChoice("rclone.conf", current: rcloneConfigPath) { selectSetupFile("rclone") }
             Toggle(
                 "I understand this copies iCloud session credentials onto my Oracle VM.",
-                isOn: $confirmedRemoteCredentialStorage
+                isOn: $confirmedRemoteCredentialStorage,
             )
             .font(.caption)
             Button("Install iCloud Credentials on Oracle") {
@@ -274,7 +283,7 @@ struct CloudSetupWizard: View {
             title(
                 "Choose your Lightroom source",
                 caption:
-                    "A Lightroom Cloud partner API registration alone does not give unrestricted access to RAW originals."
+                "A Lightroom Cloud partner API registration alone does not give unrestricted access to RAW originals.",
             )
             Picker("Transfer source", selection: $transferMode) {
                 Text("Adobe Download All (ZIP archives)").tag("bulk")
@@ -283,28 +292,31 @@ struct CloudSetupWizard: View {
             .pickerStyle(.radioGroup)
             if transferMode == "bulk" {
                 Text(
-                    "Use Adobe's Download All Synced Files process, then create a JSON manifest containing the authorized archive URLs. Those URLs expire and should never enter your repository."
+                    "Use Adobe's Download All Synced Files process, then create a JSON manifest containing the authorized archive URLs. Those URLs expire and should never enter your repository.",
                 )
                 .font(.caption).foregroundStyle(.secondary)
                 Link(
                     "Adobe Lightroom download",
-                    destination: URL(string: "https://lightroom.adobe.com/lightroom-library-download")!)
+                    destination: URL(string: "https://lightroom.adobe.com/lightroom-library-download")!,
+                )
             } else {
                 Text(
-                    "Only select this mode if Adobe has approved your application for Lightroom Partner APIs and you have valid, authorized original-download URLs. Ordinary API keys do not grant entitlement."
+                    "Only select this mode if Adobe has approved your application for Lightroom Partner APIs and you have valid, authorized original-download URLs. Ordinary API keys do not grant entitlement.",
                 )
                 .font(.caption).foregroundStyle(.secondary)
                 Link(
                     "Adobe entitlement requirements",
                     destination: URL(
-                        string: "https://developer.adobe.com/lightroom/lightroom-api-docs/getting-started/")!)
+                        string: "https://developer.adobe.com/lightroom/lightroom-api-docs/getting-started/",
+                    )!,
+                )
             }
             fileChoice("Authorized JSON transfer manifest", current: manifestPath) {
                 selectSetupFile("manifest")
             }
             field("Approved Adobe download hostname (optional)", text: $allowedHost)
             Text(
-                "The app transfers only the small manifest over SSH. Full RAW data flows directly from Adobe through Oracle to iCloud."
+                "The app transfers only the small manifest over SSH. Full RAW data flows directly from Adobe through Oracle to iCloud.",
             )
             .font(.caption).foregroundStyle(.secondary)
         }
@@ -314,7 +326,8 @@ struct CloudSetupWizard: View {
         VStack(alignment: .leading, spacing: 12) {
             title(
                 "Validate, pilot, then migrate",
-                caption: "Test one small batch before starting a multi-terabyte transfer.")
+                caption: "Test one small batch before starting a multi-terabyte transfer.",
+            )
             HStack {
                 Button("Validate Manifest") { runner.run(.validate, configuration: config) }
                 Button("Pilot Batch") { runner.run(.pilot, configuration: config) }
@@ -323,7 +336,7 @@ struct CloudSetupWizard: View {
             }
             .disabled(runner.running || manifestPath.isEmpty)
             Text(
-                "Do not delete originals from Lightroom until you verify full-resolution RAW files at the destination and have an independent backup. The existing transfer scripts compare sizes but do not establish destination SHA-256 equality."
+                "Do not delete originals from Lightroom until you verify full-resolution RAW files at the destination and have an independent backup. The existing transfer scripts compare sizes but do not establish destination SHA-256 equality.",
             )
             .font(.caption).foregroundStyle(.secondary)
             jobLog
@@ -339,7 +352,7 @@ struct CloudSetupWizard: View {
         ScrollView {
             Text(
                 runner.output.isEmpty
-                    ? "Connection, authentication and transfer test results appear here." : runner.output
+                    ? "Connection, authentication and transfer test results appear here." : runner.output,
             )
             .font(.system(size: 11, design: .monospaced))
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -361,7 +374,7 @@ struct CloudSetupWizard: View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(items.enumerated()), id: \.offset) { i, item in
                 HStack(alignment: .top, spacing: 8) {
-                    Text("\(i+1).")
+                    Text("\(i + 1).")
                         .font(.caption.weight(.semibold)).frame(width: 18, alignment: .trailing)
                     Text(item).font(.caption).fixedSize(horizontal: false, vertical: true)
                 }
@@ -399,7 +412,7 @@ struct CloudSetupWizard: View {
         // SSH keys and rclone.conf may not have registered macOS content types.
         SpektraFilePanel.chooseFiles(
             title: target == "ssh"
-                ? "Choose SSH Key" : target == "rclone" ? "Choose rclone.conf" : "Choose Transfer Manifest"
+                ? "Choose SSH Key" : target == "rclone" ? "Choose rclone.conf" : "Choose Transfer Manifest",
         ) { urls in
             guard let url = urls.first else { return }
             switch target {

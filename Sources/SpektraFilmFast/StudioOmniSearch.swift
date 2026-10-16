@@ -24,14 +24,18 @@ private struct OmniEntry: Identifiable {
     let icon: String
     let keywords: String
     let action: OmniCommand
-    var id: String { "\(action)" }
+    var id: String {
+        "\(action)"
+    }
 }
 
 private enum OmniMatcher {
-    // Redlamp's exact three-level word matcher, then its stable section/title order.
+    /// Redlamp's exact three-level word matcher, then its stable section/title order.
     static func rank(_ query: String, entries: [OmniEntry]) -> [OmniEntry] {
         let words = RedlampSearchMatcher.words(query)
-        if words.isEmpty { return Array(entries.prefix(36)) }
+        if words.isEmpty {
+            return Array(entries.prefix(36))
+        }
         let exact = RedlampSearchMatcher.normalized(query)
         let scored = entries.enumerated().compactMap { index, entry -> (OmniEntry, Int, Bool, Int)? in
             guard let score = RedlampSearchMatcher.score(words, terms: [entry.title, entry.context, entry.keywords])
@@ -39,8 +43,12 @@ private enum OmniMatcher {
             return (entry, score, RedlampSearchMatcher.normalized(entry.title) == exact, index)
         }
         return scored.sorted { a, b in
-            if a.1 != b.1 { return a.1 > b.1 }
-            if a.2 != b.2 { return a.2 }
+            if a.1 != b.1 {
+                return a.1 > b.1
+            }
+            if a.2 != b.2 {
+                return a.2
+            }
             return a.3 < b.3
         }.prefix(60).map(\.0)
     }
@@ -58,62 +66,76 @@ struct StudioOmniSearch: View {
         var result = WorkspacePage.allCases.map {
             OmniEntry(
                 title: $0.title, context: "Workspace", icon: $0.systemImage,
-                keywords: "navigate page", action: .workspace($0))
+                keywords: "navigate page", action: .workspace($0),
+            )
         }
         result += [
             OmniEntry(
                 title: "Scene Intelligence", context: "Scene Intelligence removed",
                 icon: "sparkles.rectangle.stack", keywords: "ai similar studio shots stock print scene",
-                action: .task("scenes")),
+                action: .task("scenes"),
+            ),
             OmniEntry(
                 title: "Import Photos", context: "Library", icon: "plus", keywords: "add files",
-                action: .task("import")
+                action: .task("import"),
             ),
             OmniEntry(
                 title: "New Project", context: "Project", icon: "folder.badge.plus", keywords: "create",
-                action: .task("new")),
+                action: .task("new"),
+            ),
             OmniEntry(
                 title: "Save Project", context: "Project", icon: "square.and.arrow.down", keywords: "save",
-                action: .task("save")),
+                action: .task("save"),
+            ),
             OmniEntry(
                 title: "Copy Look", context: "Edit", icon: "doc.on.doc", keywords: "copy settings",
-                action: .task("copy")),
+                action: .task("copy"),
+            ),
             OmniEntry(
                 title: "Paste Look", context: "Edit", icon: "doc.on.clipboard", keywords: "paste settings",
-                action: .task("paste")),
+                action: .task("paste"),
+            ),
             OmniEntry(
                 title: "Sync Look to Highlighted", context: "Edit · keep individual WB and crop",
                 icon: "square.stack.3d.up", keywords: "batch edit apply",
-                action: .task("sync")),
+                action: .task("sync"),
+            ),
             OmniEntry(
                 title: "Export Selected", context: "Export", icon: "square.and.arrow.up", keywords: "queue deliver",
-                action: .task("export")),
+                action: .task("export"),
+            ),
         ]
         result += BridgeCatalog.shared.parameters.map { parameter in
             OmniEntry(
                 title: parameter.label, context: "Adjustment · \(parameter.group)", icon: "slider.horizontal.3",
-                keywords: parameter.name + " " + parameter.group, action: .adjustment(parameter.name))
+                keywords: parameter.name + " " + parameter.group, action: .adjustment(parameter.name),
+            )
         }
         result += BridgeCatalog.shared.films.enumerated().map { i, name in
             OmniEntry(
                 title: name, context: "Film Stock · apply to selected photo", icon: "camera.filters",
-                keywords: "film stock negative", action: .film(i))
+                keywords: "film stock negative", action: .film(i),
+            )
         }
         result += BridgeCatalog.shared.papers.enumerated().map { i, name in
             OmniEntry(
                 title: name, context: "Print Paper · apply to selected photo", icon: "square.stack",
-                keywords: "print paper", action: .paper(i))
+                keywords: "print paper", action: .paper(i),
+            )
         }
         // File names are indexed without loading image data or cloud originals.
         result += model.project.images.map { image in
             OmniEntry(
                 title: image.fileName, context: "Photo", icon: "photo",
-                keywords: (image.keywords ?? []).joined(separator: " "), action: .photo(image.id))
+                keywords: (image.keywords ?? []).joined(separator: " "), action: .photo(image.id),
+            )
         }
         return result
     }
 
-    private var matches: [OmniEntry] { OmniMatcher.rank(query, entries: entries) }
+    private var matches: [OmniEntry] {
+        OmniMatcher.rank(query, entries: entries)
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -140,7 +162,7 @@ struct StudioOmniSearch: View {
                             case .deleteBackward: return false
                             case .left, .right: return false
                             }
-                        }
+                        },
                     )
                     .frame(height: 34)
                     Text("ESC").font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
@@ -170,7 +192,7 @@ struct StudioOmniSearch: View {
                                     .padding(.horizontal, 14).frame(height: RedlampPaletteMetrics.rowHeight)
                                     .background(
                                         selected == index ? StudioPalette.selected : .clear,
-                                        in: RoundedRectangle(cornerRadius: 8)
+                                        in: RoundedRectangle(cornerRadius: 8),
                                     )
                                     .contentShape(Rectangle())
                                 }
@@ -179,7 +201,8 @@ struct StudioOmniSearch: View {
                             if matches.isEmpty {
                                 ContentUnavailableView(
                                     "No matches", systemImage: "magnifyingglass",
-                                    description: Text("Try a photo name, an adjustment, a film stock, or a command."))
+                                    description: Text("Try a photo name, an adjustment, a film stock, or a command."),
+                                )
                             }
                         }.padding(8)
                     }.frame(maxHeight: RedlampPaletteMetrics.maxListHeight)
@@ -208,34 +231,36 @@ struct StudioOmniSearch: View {
         guard !matches.isEmpty else { return }
         selected = (selected + delta + matches.count) % matches.count
     }
+
     private func activateSelected() {
         guard matches.indices.contains(selected) else { return }
         activate(matches[selected])
     }
+
     private func activate(_ item: OmniEntry) {
         isPresented = false
         switch item.action {
-        case .workspace(let page): model.showProjectHome = false; model.page = page
-        case .photo(let id):
+        case let .workspace(page): model.showProjectHome = false; model.page = page
+        case let .photo(id):
             model.selectLibraryImage(id)
             model.showProjectHome = false
             model.page = .edit
-        case .film(let i):
+        case let .film(i):
             guard model.selectedImage != nil else { return }
             model.setParameter("film", value: .int(Int32(i)), interactive: false)
             model.page = .edit
             NotificationCenter.default.post(name: StudioOmniEvents.focusAdjustment, object: "film")
-        case .paper(let i):
+        case let .paper(i):
             guard model.selectedImage != nil else { return }
             model.setParameter("paper", value: .int(Int32(i)), interactive: false)
             model.page = .edit
             NotificationCenter.default.post(name: StudioOmniEvents.focusAdjustment, object: "paper")
-        case .adjustment(let name):
+        case let .adjustment(name):
             model.page = .edit
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: StudioOmniEvents.focusAdjustment, object: name)
             }
-        case .task(let command):
+        case let .task(command):
             switch command {
             case "scenes": break
             case "import": model.importImages()

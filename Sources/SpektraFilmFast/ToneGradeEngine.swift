@@ -18,7 +18,9 @@ enum ToneCurvePresetGroup: String, CaseIterable, Identifiable, Sendable {
     case filmResponse = "Film Response"
     case creative = "Creative"
 
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 }
 
 enum ToneCurvePreset: String, CaseIterable, Identifiable, Sendable {
@@ -52,43 +54,45 @@ enum ToneCurvePreset: String, CaseIterable, Identifiable, Sendable {
     case lowKey = "Low Key"
     case fadedPrint = "Faded Print"
 
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 
     var group: ToneCurvePresetGroup {
         switch self {
         case .linear, .compression, .medium, .high, .gamma20, .gamma05:
-            return .technical
+            .technical
         case .filmNegativeSoft, .filmNegativeClassic, .filmSlidePunch, .filmBWClassic:
-            return .filmResponse
+            .filmResponse
         case .cinematicSoft, .cinematicPunch, .matteFade, .airy, .dreamy,
-            .softHighlights, .deepBlacks, .noir, .highKey, .lowKey, .fadedPrint:
-            return .creative
+             .softHighlights, .deepBlacks, .noir, .highKey, .lowKey, .fadedPrint:
+            .creative
         }
     }
 
     var summary: String {
         switch self {
-        case .linear: return "Neutral point curve."
-        case .compression: return "Compresses contrast while preserving the endpoints."
-        case .medium: return "Moderate S-curve for a little more separation."
-        case .high: return "Stronger S-curve for punchier contrast."
-        case .gamma20: return "Dark gamma-style response."
-        case .gamma05: return "Bright gamma-style response."
-        case .filmNegativeSoft: return "Gentle film-like toe and shoulder with soft midtone contrast."
-        case .filmNegativeClassic: return "Classic negative-style S-curve with a firmer straight-line section."
-        case .filmSlidePunch: return "Steeper slide-film-style midtones with stronger toe and shoulder compression."
-        case .filmBWClassic: return "Traditional high-separation black-and-white negative response."
-        case .cinematicSoft: return "Subtle lifted shadows and smooth highlight compression."
-        case .cinematicPunch: return "Deeper shadows and brighter upper mids without clipping the endpoints."
-        case .matteFade: return "Lifts the black floor and softens the top end for a matte finish."
-        case .airy: return "Raises shadows and midtones for a bright, open look."
-        case .dreamy: return "Soft contrast with lifted low mids and gentle highlights."
-        case .softHighlights: return "Mostly leaves shadows alone while rolling highlights down smoothly."
-        case .deepBlacks: return "Adds weight to the dark end while keeping midtones controlled."
-        case .noir: return "Strong shadow separation and a dramatic contrast curve."
-        case .highKey: return "Pushes midtones brighter while keeping whites controlled."
-        case .lowKey: return "Darkens the body of the image while preserving highlight separation."
-        case .fadedPrint: return "Raised blacks with compressed highlights, similar to an aged print response."
+        case .linear: "Neutral point curve."
+        case .compression: "Compresses contrast while preserving the endpoints."
+        case .medium: "Moderate S-curve for a little more separation."
+        case .high: "Stronger S-curve for punchier contrast."
+        case .gamma20: "Dark gamma-style response."
+        case .gamma05: "Bright gamma-style response."
+        case .filmNegativeSoft: "Gentle film-like toe and shoulder with soft midtone contrast."
+        case .filmNegativeClassic: "Classic negative-style S-curve with a firmer straight-line section."
+        case .filmSlidePunch: "Steeper slide-film-style midtones with stronger toe and shoulder compression."
+        case .filmBWClassic: "Traditional high-separation black-and-white negative response."
+        case .cinematicSoft: "Subtle lifted shadows and smooth highlight compression."
+        case .cinematicPunch: "Deeper shadows and brighter upper mids without clipping the endpoints."
+        case .matteFade: "Lifts the black floor and softens the top end for a matte finish."
+        case .airy: "Raises shadows and midtones for a bright, open look."
+        case .dreamy: "Soft contrast with lifted low mids and gentle highlights."
+        case .softHighlights: "Mostly leaves shadows alone while rolling highlights down smoothly."
+        case .deepBlacks: "Adds weight to the dark end while keeping midtones controlled."
+        case .noir: "Strong shadow separation and a dramatic contrast curve."
+        case .highKey: "Pushes midtones brighter while keeping whites controlled."
+        case .lowKey: "Darkens the body of the image while preserving highlight separation."
+        case .fadedPrint: "Raised blacks with compressed highlights, similar to an aged print response."
         }
     }
 
@@ -120,28 +124,26 @@ enum ToneCurvePreset: String, CaseIterable, Identifiable, Sendable {
         case .gamma05:
             let x = [0.0, 0.08, 0.17, 0.50, 0.83, 0.92, 1.0]
             return x.map { ToneCurvePoint(x: $0, y: sqrt($0)) }
-
         case .filmNegativeSoft:
             return points(
                 x: [0, 0.08, 0.17, 0.33, 0.50, 0.67, 0.83, 0.92, 1],
-                y: [0, 0.0585, 0.1357, 0.3001, 0.50, 0.6999, 0.8643, 0.9415, 1]
+                y: [0, 0.0585, 0.1357, 0.3001, 0.50, 0.6999, 0.8643, 0.9415, 1],
             )
         case .filmNegativeClassic:
             return points(
                 x: [0, 0.08, 0.17, 0.33, 0.50, 0.67, 0.83, 0.92, 1],
-                y: [0, 0.0433, 0.1084, 0.2724, 0.50, 0.7276, 0.8916, 0.9567, 1]
+                y: [0, 0.0433, 0.1084, 0.2724, 0.50, 0.7276, 0.8916, 0.9567, 1],
             )
         case .filmSlidePunch:
             return points(
                 x: [0, 0.08, 0.17, 0.33, 0.50, 0.67, 0.83, 0.92, 1],
-                y: [0, 0.0222, 0.0648, 0.2166, 0.50, 0.7834, 0.9352, 0.9778, 1]
+                y: [0, 0.0222, 0.0648, 0.2166, 0.50, 0.7834, 0.9352, 0.9778, 1],
             )
         case .filmBWClassic:
             return points(
                 x: [0, 0.08, 0.17, 0.33, 0.50, 0.67, 0.83, 0.92, 1],
-                y: [0, 0.0334, 0.0890, 0.2498, 0.50, 0.7502, 0.9110, 0.9666, 1]
+                y: [0, 0.0334, 0.0890, 0.2498, 0.50, 0.7502, 0.9110, 0.9666, 1],
             )
-
         case .cinematicSoft:
             return points(x: [0, 0.08, 0.20, 0.50, 0.80, 0.94, 1], y: [0.025, 0.085, 0.19, 0.50, 0.80, 0.92, 0.985])
         case .cinematicPunch:
@@ -187,10 +189,14 @@ enum ToneCurveMath {
             guard point.x.isFinite, point.y.isFinite else { return nil }
             return ToneCurvePoint(x: min(1, max(0, point.x)), y: min(1, max(0, point.y)))
         }
-        if points.isEmpty { return ToneCurvePreset.linear.points }
+        if points.isEmpty {
+            return ToneCurvePreset.linear.points
+        }
 
         points.sort {
-            if abs($0.x - $1.x) <= epsilon { return $0.y < $1.y }
+            if abs($0.x - $1.x) <= epsilon {
+                return $0.y < $1.y
+            }
             return $0.x < $1.x
         }
 
@@ -203,7 +209,7 @@ enum ToneCurveMath {
             }
         }
         guard deduped.count >= 2,
-            deduped.last!.x - deduped.first!.x > minimumPointSpacing
+              deduped.last!.x - deduped.first!.x > minimumPointSpacing
         else {
             return ToneCurvePreset.linear.points
         }
@@ -212,10 +218,12 @@ enum ToneCurveMath {
         if deduped.count > 2 {
             for point in deduped.dropFirst().dropLast() {
                 guard point.x > normalized.last!.x + minimumPointSpacing,
-                    point.x < deduped.last!.x - minimumPointSpacing
+                      point.x < deduped.last!.x - minimumPointSpacing
                 else { continue }
                 normalized.append(point)
-                if normalized.count >= maximumControlPoints - 1 { break }
+                if normalized.count >= maximumControlPoints - 1 {
+                    break
+                }
             }
         }
         normalized.append(deduped.last!)
@@ -229,17 +237,19 @@ enum ToneCurveMath {
 
         var h = [Double](repeating: 0, count: n - 1)
         var delta = [Double](repeating: 0, count: n - 1)
-        for i in 0..<(n - 1) {
+        for i in 0 ..< (n - 1) {
             let dx = points[i + 1].x - points[i].x
             h[i] = dx
-            if abs(dx) > epsilon { delta[i] = (points[i + 1].y - points[i].y) / dx }
+            if abs(dx) > epsilon {
+                delta[i] = (points[i + 1].y - points[i].y) / dx
+            }
         }
 
         var m = [Double](repeating: 0, count: n)
         m[0] = delta[0]
         m[n - 1] = delta[n - 2]
         if n > 2 {
-            for i in 1..<(n - 1) {
+            for i in 1 ..< (n - 1) {
                 if delta[i - 1] * delta[i] <= 0 {
                     m[i] = 0
                     continue
@@ -254,7 +264,7 @@ enum ToneCurveMath {
     }
 
     static func evaluate(
-        _ value: Double, points source: [ToneCurvePoint], cache supplied: HermiteCache? = nil
+        _ value: Double, points source: [ToneCurvePoint], cache supplied: HermiteCache? = nil,
     ) -> Double {
         // PERF-11: caller already normalised and built the cache; when supplied is non-nil,
         // treat `source` as already-normalised and skip re-normalisation.
@@ -275,7 +285,7 @@ enum ToneCurveMath {
         }
 
         var index = points.count - 2
-        for i in 0..<(points.count - 1) where value < points[i + 1].x {
+        for i in 0 ..< (points.count - 1) where value < points[i + 1].x {
             index = i
             break
         }
@@ -301,23 +311,31 @@ private enum AlcedoACEScc {
     static let threshold = (-15.0 + a) / b
 
     static func encode(_ value: Double) -> Double {
-        if value < 0 { return floor + value }
-        if value < transition { return (log2(offset + value * 0.5) + a) / b }
+        if value < 0 {
+            return floor + value
+        }
+        if value < transition {
+            return (log2(offset + value * 0.5) + a) / b
+        }
         return (log2(value) + a) / b
     }
 
     static func decode(_ value: Double) -> Double {
-        if value < floor { return value - floor }
-        if value <= threshold { return (pow(2, value * b - a) - offset) * 2 }
+        if value < floor {
+            return value - floor
+        }
+        if value <= threshold {
+            return (pow(2, value * b - a) - offset) * 2
+        }
         return pow(2, value * b - a)
     }
 }
 
 private enum SourcedToneMath {
-    // RapidRAW v1.6.4 filmic Brightness: a rational luma reshape that favors midtones
-    // and keeps the top end anchored instead of behaving like a second exposure multiplier.
+    /// RapidRAW v1.6.4 filmic Brightness: a rational luma reshape that favors midtones
+    /// and keeps the top end anchored instead of behaving like a second exposure multiplier.
     static func filmicBrightness(
-        r: Double, g: Double, b: Double, value: Double
+        r: Double, g: Double, b: Double, value: Double,
     ) -> (Double, Double, Double) {
         let amount = max(-1, min(1, value / 100.0))
         guard abs(amount) > 1e-12 else { return (r, g, b) }
@@ -347,15 +365,15 @@ private enum SourcedToneMath {
         return (
             newLuma + chroma.0 * chromaScale,
             newLuma + chroma.1 * chromaScale,
-            newLuma + chroma.2 * chromaScale
+            newLuma + chroma.2 * chromaScale,
         )
     }
 
-    // Midtone luminance mask follows RapidRAW's open-source color-grading crossover model
-    // (shadow crossover 0.1, highlight crossover 0.5, 0.2 feather). The control only changes
-    // luminance, preserving the pixel's chroma around the original luma.
+    /// Midtone luminance mask follows RapidRAW's open-source color-grading crossover model
+    /// (shadow crossover 0.1, highlight crossover 0.5, 0.2 feather). The control only changes
+    /// luminance, preserving the pixel's chroma around the original luma.
     static func midtones(
-        r: Double, g: Double, b: Double, value: Double
+        r: Double, g: Double, b: Double, value: Double,
     ) -> (Double, Double, Double) {
         let amount = max(-1, min(1, value / 100.0))
         guard abs(amount) > 1e-12 else { return (r, g, b) }
@@ -371,11 +389,11 @@ private enum SourcedToneMath {
         return (r + delta, g + delta, b + delta)
     }
 
-    // Adapted from the negative/highlight-compression branch of RapidRAW's current
-    // apply_highlights_adjustment. This is deliberately separate from Highlights: Recovery
-    // only compresses the bright end and gently neutralizes severely over-range pixels.
+    /// Adapted from the negative/highlight-compression branch of RapidRAW's current
+    /// apply_highlights_adjustment. This is deliberately separate from Highlights: Recovery
+    /// only compresses the bright end and gently neutralizes severely over-range pixels.
     static func highlightRecovery(
-        r: Double, g: Double, b: Double, value: Double
+        r: Double, g: Double, b: Double, value: Double,
     ) -> (Double, Double, Double) {
         let amount = max(0, min(1, value / 100.0))
         guard amount > 1e-12 else { return (r, g, b) }
@@ -399,11 +417,11 @@ private enum SourcedToneMath {
         return (rr, gg, bb)
     }
 
-    // RapidRAW's rewritten shadow lift uses a perceptual 2.2-domain weighting so the recovery
-    // fades away before the midtones. This standalone version intentionally only lifts shadows;
-    // the existing Shadows control remains a broader creative tonal adjustment.
+    /// RapidRAW's rewritten shadow lift uses a perceptual 2.2-domain weighting so the recovery
+    /// fades away before the midtones. This standalone version intentionally only lifts shadows;
+    /// the existing Shadows control remains a broader creative tonal adjustment.
     static func shadowRecovery(
-        r: Double, g: Double, b: Double, value: Double
+        r: Double, g: Double, b: Double, value: Double,
     ) -> (Double, Double, Double) {
         let amount = max(0, min(1, value / 100.0))
         guard amount > 1e-12 else { return (r, g, b) }
@@ -419,16 +437,16 @@ private enum SourcedToneMath {
         return (
             rr + (targetLuma - rr) * desat,
             gg + (targetLuma - gg) * desat,
-            bb + (targetLuma - bb) * desat
+            bb + (targetLuma - bb) * desat,
         )
     }
 
-    // Scene-linear tonal behavior translated from RapidRAW's published tonal path.
-    // Exposure EV remains the first 2^EV light multiplier; these controls operate after it
-    // but still before the native film simulation.
+    /// Scene-linear tonal behavior translated from RapidRAW's published tonal path.
+    /// Exposure EV remains the first 2^EV light multiplier; these controls operate after it
+    /// but still before the native film simulation.
     static func applyLinearTone(
         r: Double, g: Double, b: Double,
-        contrast: Double, shadows: Double, highlights: Double
+        contrast: Double, shadows: Double, highlights: Double,
     ) -> (Double, Double, Double) {
         var rr = r, gg = g, bb = b
 
@@ -503,8 +521,8 @@ private enum SourcedToneMath {
         let targetY = y + (targetBase - y) * blend
         let ratio = targetY / max(y, 1e-12)
         var rr = r * ratio, gg = g * ratio, bb = b * ratio
-        if amount < 0 && y > 1.0 {
-            let blowout = smoothstep(1.0, 3.5, y) * (-amount) * 0.40
+        if amount < 0, y > 1.0 {
+            let blowout = smoothstep(1.0, 3.5, y) * -amount * 0.40
             rr += (targetY - rr) * blowout
             gg += (targetY - gg) * blowout
             bb += (targetY - bb) * blowout
@@ -512,9 +530,9 @@ private enum SourcedToneMath {
         return (rr, gg, bb)
     }
 
-    // Levels-style input-point remap. Positive Black Point deepens the floor; positive White
-    // Point makes the bright end reach white sooner. Extrapolation is preserved for HDR/negative
-    // values instead of clipping to 0...1.
+    /// Levels-style input-point remap. Positive Black Point deepens the floor; positive White
+    /// Point makes the bright end reach white sooner. Extrapolation is preserved for HDR/negative
+    /// values instead of clipping to 0...1.
     static func remapPoints(_ value: Double, blackPoint: Double, whitePoint: Double) -> Double {
         let black = max(-0.08, min(0.08, blackPoint * 0.0008))
         let white = 1.0 - max(-0.08, min(0.08, whitePoint * 0.0008))
@@ -532,7 +550,7 @@ private enum SourcedToneMath {
         let v = max(-100, min(100, value))
         // Current Alcedo source defines +White as 1 + value*0.005. The reciprocal branch is the
         // symmetric inverse for negative values, so both directions remain continuous at zero.
-        return v >= 0 ? 1.0 + v * 0.005 : 1.0 / (1.0 + (-v) * 0.005)
+        return v >= 0 ? 1.0 + v * 0.005 : 1.0 / (1.0 + -v * 0.005)
     }
 
     static func blackOffset(_ value: Double) -> Double {
@@ -540,9 +558,9 @@ private enum SourcedToneMath {
     }
 }
 
-// GPL-3.0 adaptation of the cone-coordinate behavior in Moaz Elgabry's
-// ME_Desatch.dctl (revision 5e57387d486e82e416cf25bc8a95aad5e7f33c7a).
-// See THIRD_PARTY/ME_Desatch/NOTICE.
+/// GPL-3.0 adaptation of the cone-coordinate behavior in Moaz Elgabry's
+/// ME_Desatch.dctl (revision 5e57387d486e82e416cf25bc8a95aad5e7f33c7a).
+/// See THIRD_PARTY/ME_Desatch/NOTICE.
 enum MEDesatchMath {
     private static let pi = Double.pi
     private static let twoPi = Double.pi * 2.0
@@ -550,7 +568,7 @@ enum MEDesatchMath {
 
     static func apply(
         _ rgb: (Double, Double, Double),
-        settings: ColorDensitySettings?
+        settings: ColorDensitySettings?,
     ) -> (Double, Double, Double) {
         guard let settings, !settings.isIdentity else { return rgb }
         var cone = rgbToCone(rgb)
@@ -564,17 +582,18 @@ enum MEDesatchMath {
     static func transfer(
         _ rgb: (Double, Double, Double),
         from before: ColorDensitySettings,
-        to after: ColorDensitySettings
+        to after: ColorDensitySettings,
     ) -> (Double, Double, Double) {
-        if before == after { return rgb }
+        if before == after {
+            return rgb
+        }
         var cone = rgbToCone(rgb)
         let oldFactor = densityFactor(hue: cone.1, polar: cone.2, settings: before)
         let newFactor = densityFactor(hue: cone.1, polar: cone.2, settings: after)
-        let denominator: Double
-        if abs(oldFactor) < 1.0e-12 {
-            denominator = oldFactor < 0 ? -1.0e-12 : 1.0e-12
+        let denominator: Double = if abs(oldFactor) < 1.0e-12 {
+            oldFactor < 0 ? -1.0e-12 : 1.0e-12
         } else {
-            denominator = oldFactor
+            oldFactor
         }
         cone.0 *= newFactor / denominator
         return coneToRGB(cone)
@@ -587,7 +606,7 @@ enum MEDesatchMath {
     private static func densityFactor(
         hue: Double,
         polar: Double,
-        settings: ColorDensitySettings
+        settings: ColorDensitySettings,
     ) -> Double {
         var factor = 1.0 + control(settings.master) * polar
         let bands: [(Double, Double)] = [
@@ -624,7 +643,7 @@ enum MEDesatchMath {
         return (
             sphericalRadius * satMagnitude,
             theta * 0.15915494309189535,
-            phi * 1.0467733744265997
+            phi * 1.0467733744265997,
         )
     }
 
@@ -632,11 +651,10 @@ enum MEDesatchMath {
         let theta = cone.1 * twoPi
         let phi = cone.2 / 1.0467733744265997
         let satMagnitude = coneSaturationMagnitude(theta: theta, phi: phi)
-        let safeSat: Double
-        if abs(satMagnitude) < 1.0e-12 {
-            safeSat = satMagnitude < 0 ? -1.0e-12 : 1.0e-12
+        let safeSat: Double = if abs(satMagnitude) < 1.0e-12 {
+            satMagnitude < 0 ? -1.0e-12 : 1.0e-12
         } else {
-            safeSat = satMagnitude
+            satMagnitude
         }
         let sphericalRadius = cone.0 / safeSat
 
@@ -648,7 +666,7 @@ enum MEDesatchMath {
         return (
             rtr * 0.81649658 + rtb * 0.57735027,
             rtr * -0.40824829 + rtg * 0.70710678 + rtb * 0.57735027,
-            rtr * -0.40824829 + rtg * -0.70710678 + rtb * 0.57735027
+            rtr * -0.40824829 + rtg * -0.70710678 + rtb * 0.57735027,
         )
     }
 
@@ -660,7 +678,7 @@ enum MEDesatchMath {
         let hueCoef2 = 2.0 * phi * sin((2.0 * pi / 3.0) - sector) / 1.7320508075688
         let hueMagnitude =
             (acos(cos(3.0 * theta + pi)) / (pi * hueCoef1) + (cornerPhi / basePhi - 1.0))
-            * hueCoef2
+                * hueCoef2
         return sin(hueMagnitude + basePhi)
     }
 }
@@ -668,7 +686,7 @@ enum MEDesatchMath {
 extension PixelBufferF32 {
     func applyingMEDesatchTransfer(
         from before: ColorDensitySettings,
-        to after: ColorDensitySettings
+        to after: ColorDensitySettings,
     ) -> PixelBufferF32 {
         guard before != after, width > 0, height > 0, pixels.count == width * height * 4 else {
             return self
@@ -679,14 +697,16 @@ extension PixelBufferF32 {
             guard let base = buffer.baseAddress, buffer.count > 0 else { return }
             let access = RowAccess(base: base, count: buffer.count)
             DispatchQueue.concurrentPerform(iterations: height) { y in
-                if Task.isCancelled { return }
+                if Task.isCancelled {
+                    return
+                }
                 let start = y * rowStride
                 let end = min(start + rowStride, access.count)
                 for p in stride(from: start, to: end, by: 4) {
                     let rgb = MEDesatchMath.transfer(
                         (Double(access.base[p]), Double(access.base[p + 1]), Double(access.base[p + 2])),
                         from: before,
-                        to: after
+                        to: after,
                     )
                     access.base[p] = Float(rgb.0)
                     access.base[p + 1] = Float(rgb.1)
@@ -694,13 +714,15 @@ extension PixelBufferF32 {
                 }
             }
         }
-        if Task.isCancelled { return self }
+        if Task.isCancelled {
+            return self
+        }
         return PixelBufferF32(width: width, height: height, pixels: output)
     }
 }
 
 enum AutoContrastMath {
-    private static let bins = 16_384
+    private static let bins = 16384
 
     static func bounds(_ pixels: [Float]) -> (black: Double, white: Double)? {
         guard pixels.count >= 4 else { return nil }
@@ -729,7 +751,7 @@ enum AutoContrastMath {
 
     static func apply(
         r: Double, g: Double, b: Double,
-        bounds: (black: Double, white: Double)
+        bounds: (black: Double, white: Double),
     ) -> (Double, Double, Double) {
         let y = 0.2627 * r + 0.6780 * g + 0.0593 * b
         let width = bounds.white - bounds.black
@@ -752,8 +774,8 @@ extension PixelBufferF32 {
         let cache = ToneCurveMath.buildCache(points)
         let identityCurve =
             points.count == 2
-            && abs(points[0].x) < 1e-9 && abs(points[0].y) < 1e-9
-            && abs(points[1].x - 1) < 1e-9 && abs(points[1].y - 1) < 1e-9
+                && abs(points[0].x) < 1e-9 && abs(points[0].y) < 1e-9
+                && abs(points[1].x - 1) < 1e-9 && abs(points[1].y - 1) < 1e-9
 
         let autoContrastBounds = tone.autoContrast ? AutoContrastMath.bounds(pixels) : nil
         let exposureScale = pow(2.0, max(-10, min(10, tone.exposureEV)))
@@ -761,13 +783,15 @@ extension PixelBufferF32 {
         let blackOffset = SourcedToneMath.blackOffset(tone.blacks)
         let toneIdentity =
             abs(tone.exposureEV) < 1e-12 && abs(tone.brightness) < 1e-12
-            && abs(tone.contrast) < 1e-12 && abs(tone.midtones) < 1e-12
-            && abs(tone.highlights) < 1e-12 && abs(tone.shadows) < 1e-12
-            && abs(tone.highlightRecovery) < 1e-12 && abs(tone.shadowRecovery) < 1e-12
-            && abs(tone.whites) < 1e-12 && abs(tone.blacks) < 1e-12
-            && abs(tone.whitePoint) < 1e-12 && abs(tone.blackPoint) < 1e-12
-            && !tone.autoContrast && identityCurve
-        if toneIdentity && (density == nil || density!.isIdentity) { return self }
+                && abs(tone.contrast) < 1e-12 && abs(tone.midtones) < 1e-12
+                && abs(tone.highlights) < 1e-12 && abs(tone.shadows) < 1e-12
+                && abs(tone.highlightRecovery) < 1e-12 && abs(tone.shadowRecovery) < 1e-12
+                && abs(tone.whites) < 1e-12 && abs(tone.blacks) < 1e-12
+                && abs(tone.whitePoint) < 1e-12 && abs(tone.blackPoint) < 1e-12
+                && !tone.autoContrast && identityCurve
+        if toneIdentity, density == nil || density!.isIdentity {
+            return self
+        }
 
         var output = pixels
         let rowStride = width * 4
@@ -775,7 +799,9 @@ extension PixelBufferF32 {
             guard let base = buffer.baseAddress, buffer.count > 0 else { return }
             let access = RowAccess(base: base, count: buffer.count)
             DispatchQueue.concurrentPerform(iterations: height) { y in
-                if Task.isCancelled { return }
+                if Task.isCancelled {
+                    return
+                }
                 let rowStart = y * rowStride
                 let rowEnd = min(rowStart + rowStride, access.count)
                 for p in stride(from: rowStart, to: rowEnd, by: 4) {
@@ -792,7 +818,7 @@ extension PixelBufferF32 {
                     (r, g, b) = SourcedToneMath.midtones(r: r, g: g, b: b, value: tone.midtones)
                     (r, g, b) = SourcedToneMath.applyLinearTone(
                         r: r, g: g, b: b,
-                        contrast: tone.contrast, shadows: tone.shadows, highlights: tone.highlights
+                        contrast: tone.contrast, shadows: tone.shadows, highlights: tone.highlights,
                     )
                     (r, g, b) = SourcedToneMath.highlightRecovery(r: r, g: g, b: b, value: tone.highlightRecovery)
                     (r, g, b) = SourcedToneMath.shadowRecovery(r: r, g: g, b: b, value: tone.shadowRecovery)
@@ -822,11 +848,13 @@ extension PixelBufferF32 {
                 }
             }
         }
-        if Task.isCancelled { return self }
+        if Task.isCancelled {
+            return self
+        }
         return PixelBufferF32(width: width, height: height, pixels: output)
     }
 
-    // Compatibility wrapper for older call sites and project tests.
+    /// Compatibility wrapper for older call sites and project tests.
     func applyingToneGrade(_ settings: ToneSettings?) -> PixelBufferF32 {
         applyingHostGrade(tone: settings, density: nil)
     }

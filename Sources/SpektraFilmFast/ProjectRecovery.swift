@@ -17,7 +17,8 @@ actor ProjectRecoveryStore {
         let data = try encoder.encode(envelope)
         let target = recoveryURL()
         try FileManager.default.createDirectory(
-            at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            at: target.deletingLastPathComponent(), withIntermediateDirectories: true,
+        )
         try data.write(to: target, options: .atomic)
     }
 
@@ -40,16 +41,19 @@ actor ProjectRecoveryStore {
         try? FileManager.default.removeItem(at: recoveryURL())
     }
 
-    nonisolated private static func recoveryURL() -> URL {
+    private nonisolated static func recoveryURL() -> URL {
         if CommandLine.arguments.contains(where: {
             ["--picker-smoke-test", "--ux-smoke-test", "--self-test", "--studio-soak-test"].contains($0)
         }) {
             return FileManager.default.temporaryDirectory.appendingPathComponent(
-                "SpektraPicker-Recovery-\(ProcessInfo.processInfo.processIdentifier).json")
+                "SpektraPicker-Recovery-\(ProcessInfo.processInfo.processIdentifier).json",
+            )
         }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent("SpektraFilm/Recovery/latest.json")
     }
 
-    private func recoveryURL() -> URL { Self.recoveryURL() }
+    private func recoveryURL() -> URL {
+        Self.recoveryURL()
+    }
 }

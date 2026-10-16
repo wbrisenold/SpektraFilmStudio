@@ -35,6 +35,7 @@ struct StudioMaskPreset: Codable, Identifiable {
         guard let data = UserDefaults.standard.data(forKey: key) else { return [] }
         return (try? JSONDecoder().decode([StudioMaskPreset].self, from: data)) ?? []
     }
+
     static func save(name: String, grade: LocalGradeRecord) {
         var saved = grade
         for index in saved.masks.sources.indices where saved.masks.sources[index].aiRecipe != nil {
@@ -42,11 +43,14 @@ struct StudioMaskPreset: Codable, Identifiable {
         }
         var presets = custom.filter { $0.name != name }
         presets.append(StudioMaskPreset(id: UUID(), name: name, grade: saved))
-        if let data = try? JSONEncoder().encode(presets) { UserDefaults.standard.set(data, forKey: key) }
+        if let data = try? JSONEncoder().encode(presets) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
     }
+
     static var builtIn: [StudioMaskPreset] {
         func make(
-            _ index: Int, _ name: String, _ recipe: AIMaskRecipe, _ configure: (inout ToneSettings) -> Void
+            _ index: Int, _ name: String, _ recipe: AIMaskRecipe, _ configure: (inout ToneSettings) -> Void,
         ) -> StudioMaskPreset {
             var tone = ToneSettings(); configure(&tone)
             var grade = LocalGradeRecord(); grade.name = name; grade.tone = tone
@@ -81,7 +85,8 @@ struct StudioMaskPreset: Codable, Identifiable {
             }
             grade.localColor = colour
             return StudioMaskPreset(
-                id: UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", index))!, name: name, grade: grade)
+                id: UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", index))!, name: name, grade: grade,
+            )
         }
         return [
             make(1, "Blue Sky", AIMaskRecipe(kind: .sky)) {

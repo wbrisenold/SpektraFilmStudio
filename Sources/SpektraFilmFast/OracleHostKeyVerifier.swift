@@ -45,7 +45,8 @@ final class OracleHostKeyVerifier: ObservableObject {
         do {
             try FileManager.default.createDirectory(
                 at: sshFolder, withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700])
+                attributes: [.posixPermissions: 0o700],
+            )
             // Reject a pre-existing host entry rather than silently replacing a host key.
             let lookup = Process()
             lookup.executableURL = URL(fileURLWithPath: "/usr/bin/ssh-keygen")
@@ -63,7 +64,8 @@ final class OracleHostKeyVerifier: ObservableObject {
                 guard
                     FileManager.default.createFile(
                         atPath: known.path, contents: nil,
-                        attributes: [.posixPermissions: 0o600])
+                        attributes: [.posixPermissions: 0o600],
+                    )
                 else {
                     status = "Cannot create ~/.ssh/known_hosts"; return
                 }
@@ -83,7 +85,7 @@ final class OracleHostKeyVerifier: ObservableObject {
     private nonisolated static func validHost(_ s: String) -> Bool {
         !s.isEmpty && s.count < 254 && !s.hasPrefix("-")
             && s.utf8.allSatisfy {
-                (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 46
+                (48 ... 57).contains($0) || (65 ... 90).contains($0) || (97 ... 122).contains($0) || $0 == 45 || $0 == 46
             }
     }
 
@@ -102,7 +104,7 @@ final class OracleHostKeyVerifier: ObservableObject {
         for line in text.split(separator: "\n") {
             let parts = line.split(separator: " ")
             guard parts.count >= 3, parts[1] == "ssh-ed25519",
-                let keyData = Data(base64Encoded: String(parts[2]))
+                  let keyData = Data(base64Encoded: String(parts[2]))
             else { continue }
             let fingerprintData = SHA256.hash(data: keyData)
             let sha = Data(fingerprintData).base64EncodedString().replacingOccurrences(of: "=", with: "")

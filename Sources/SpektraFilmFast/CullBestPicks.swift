@@ -13,7 +13,9 @@ enum CullReviewFilter: String, CaseIterable, Identifiable {
     case noise = "High Noise"
     case duplicates = "Burst / Duplicates"
     case unreviewed = "Unreviewed"
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 
     func includes(_ image: ProjectImageRecord) -> Bool {
         let a = image.cullAnalysis
@@ -37,7 +39,7 @@ enum CullReviewFilter: String, CaseIterable, Identifiable {
 /// Folder-local, non-destructive best-frame suggestions. This ranks only analyzed
 /// photos, respects explicit rejects, and takes at most one per near-duplicate burst.
 /// The final percentage is capped by the number of distinct groups.
-struct CullBestPicksEngine {
+enum CullBestPicksEngine {
     static func choose(_ images: [ProjectImageRecord], fraction: Double = 0.25) -> Set<UUID> {
         let eligible = images.filter { $0.flag != .rejected && $0.cullAnalysis != nil }
         guard !eligible.isEmpty else { return [] }
@@ -46,7 +48,9 @@ struct CullBestPicksEngine {
         let ordered = eligible.sorted {
             let lhs = effectiveScore($0)
             let rhs = effectiveScore($1)
-            if lhs != rhs { return lhs > rhs }
+            if lhs != rhs {
+                return lhs > rhs
+            }
             return $0.id.uuidString < $1.id.uuidString
         }
 
@@ -55,19 +59,23 @@ struct CullBestPicksEngine {
         for candidate in ordered {
             let overlaps = winners.contains { other in
                 if let stack = candidate.cullAnalysis?.stackID,
-                    stack == other.cullAnalysis?.stackID
+                   stack == other.cullAnalysis?.stackID
                 {
                     return true
                 }
                 guard let a = candidate.captureDate, let b = other.captureDate,
-                    abs(a.timeIntervalSince(b)) <= 4.0,
-                    let h1 = candidate.cullAnalysis?.perceptualHash,
-                    let h2 = other.cullAnalysis?.perceptualHash
+                      abs(a.timeIntervalSince(b)) <= 4.0,
+                      let h1 = candidate.cullAnalysis?.perceptualHash,
+                      let h2 = other.cullAnalysis?.perceptualHash
                 else { return false }
                 return (h1 ^ h2).nonzeroBitCount <= 16
             }
-            if !overlaps { winners.append(candidate) }
-            if winners.count >= desired { break }
+            if !overlaps {
+                winners.append(candidate)
+            }
+            if winners.count >= desired {
+                break
+            }
         }
         return Set(winners.map(\.id))
     }
@@ -82,35 +90,51 @@ struct CullBestPicksEngine {
         // Facet burst_score: aggregate is the base cull score (0-100);
         // we normalize to 0-10 to match Facet's convention.
         let aggregateNorm = cull.score / 10.0
-        let aestheticNorm = (cull.aestheticScore ?? 0) / 10.0  // Vision gives -1..1; roughly 0-10 scale
+        let aestheticNorm = (cull.aestheticScore ?? 0) / 10.0 // Vision gives -1..1; roughly 0-10 scale
         let sharpnessNorm = min(10.0, cull.sharpness * 10.0)
         let blinkScore = cull.possibleBlink ? 0 : 10.0
 
         var score =
             aggregateNorm * w.aggregate
-            + aestheticNorm * w.aesthetic
-            + sharpnessNorm * w.sharpness
-            + blinkScore * w.blink
+                + aestheticNorm * w.aesthetic
+                + sharpnessNorm * w.sharpness
+                + blinkScore * w.blink
 
         // Per-face signals (Facet eyes_open / expression) — only if available.
         if cull.faceCount > 0 {
-            if let eyes = cull.eyesOpenScore { score += eyes * w.eyes }
-            if let expr = cull.expressionScore { score += expr * w.expression }
+            if let eyes = cull.eyesOpenScore {
+                score += eyes * w.eyes
+            }
+            if let expr = cull.expressionScore {
+                score += expr * w.expression
+            }
             // Additional factors already in CullAnalysisRecord.score:
             // face sharpness, Vision face quality, possible blink penalty.
             score += cull.faceSharpness * 13
-            if let quality = cull.faceCaptureQuality { score += (quality - 0.5) * 18 }
-            if cull.possibleBlink { score -= 22 }
+            if let quality = cull.faceCaptureQuality {
+                score += (quality - 0.5) * 18
+            }
+            if cull.possibleBlink {
+                score -= 22
+            }
         }
         score -= max(0, cull.highlightClipPercent - 1) * 0.8
         score -= max(0, cull.shadowClipPercent - 10) * 0.15
         // Composition bonus from Facet-style analysis.
-        if let comp = cull.compositionScore { score += comp * 0.5 }
+        if let comp = cull.compositionScore {
+            score += comp * 0.5
+        }
         // Dynamic range bonus.
-        if let dr = cull.dynamicRangeStops { score += dr * 0.3 }
+        if let dr = cull.dynamicRangeStops {
+            score += dr * 0.3
+        }
         // Color harmony bonus.
-        if let ch = cull.colorHarmony { score += ch * 5.0 }
-        if image.flag == .picked { score += 5 }  // do not override photographer judgment
+        if let ch = cull.colorHarmony {
+            score += ch * 5.0
+        }
+        if image.flag == .picked {
+            score += 5
+        } // do not override photographer judgment
         return score
     }
 }

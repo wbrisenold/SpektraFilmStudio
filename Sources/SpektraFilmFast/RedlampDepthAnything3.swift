@@ -56,8 +56,8 @@ public final class DepthAnything3: @unchecked Sendable {
         let portrait = image.height > image.width
         let input =
             portrait
-            ? PixelSize(width: Self.inputShort, height: Self.inputLong)
-            : PixelSize(width: Self.inputLong, height: Self.inputShort)
+                ? PixelSize(width: Self.inputShort, height: Self.inputLong)
+                : PixelSize(width: Self.inputLong, height: Self.inputShort)
         let buffer = try Self.input(image, size: input)
         let output = try lock.withLock {
             try Inference.shared.predict(
@@ -66,7 +66,7 @@ public final class DepthAnything3: @unchecked Sendable {
             )
         }
         guard let depth = output.featureValue(for: "depth")?.multiArrayValue,
-            let sky = output.featureValue(for: "sky")?.multiArrayValue
+              let sky = output.featureValue(for: "sky")?.multiArrayValue
         else { throw MaskComputationError.unsupported(.depthRange) }
 
         // Depth: larger is farther. Near becomes white, between the 1st and 99th percentiles.
@@ -104,9 +104,9 @@ public final class DepthAnything3: @unchecked Sendable {
         guard let base = CVPixelBufferGetBaseAddress(buffer)
         else { throw MaskComputationError.unsupported(.depthRange) }
         let rowBytes = CVPixelBufferGetBytesPerRow(buffer)
-        for y in 0..<size.height {
+        for y in 0 ..< size.height {
             let row = (base + y * rowBytes).assumingMemoryBound(to: UInt8.self)
-            for x in 0..<size.width {
+            for x in 0 ..< size.width {
                 let rgbValue = rgb.rgb(x, y)
                 row[x * 4] = UInt8(rgbValue.z * 255)
                 row[x * 4 + 1] = UInt8(rgbValue.y * 255)
@@ -127,8 +127,8 @@ public final class DepthAnything3: @unchecked Sendable {
         let columnStride = strides[strides.count - 1]
         func read(_ element: (Int) -> Float) -> [Float] {
             var values = [Float](repeating: 0, count: width * height)
-            for y in 0..<height {
-                for x in 0..<width {
+            for y in 0 ..< height {
+                for x in 0 ..< width {
                     values[y * width + x] = element(y * rowStride + x * columnStride)
                 }
             }

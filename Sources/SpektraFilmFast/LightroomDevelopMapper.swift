@@ -15,7 +15,7 @@ enum LightroomDevelopMapper {
     static func map(
         catalogText: String?,
         sidecarURL: URL?,
-        base: RenderLook = .defaults()
+        base: RenderLook = .defaults(),
     ) -> LightroomDevelopMappingResult {
         var look = base
         var values: [String: String] = [:]
@@ -24,8 +24,8 @@ enum LightroomDevelopMapper {
             values.merge(parseKeyValues(catalogText)) { _, newer in newer }
         }
         if let sidecarURL,
-            let data = try? Data(contentsOf: sidecarURL, options: .mappedIfSafe),
-            let text = String(data: data, encoding: .utf8)
+           let data = try? Data(contentsOf: sidecarURL, options: .mappedIfSafe),
+           let text = String(data: data, encoding: .utf8)
         {
             values.merge(parseKeyValues(text)) { _, newer in newer }
         }
@@ -37,8 +37,8 @@ enum LightroomDevelopMapper {
                 guard let raw = values[name] else { continue }
                 let cleaned =
                     raw
-                    .replacingOccurrences(of: "+", with: "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .replacingOccurrences(of: "+", with: "")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
                 if let value = Double(cleaned) {
                     mapped.insert(name)
                     return value
@@ -113,16 +113,16 @@ enum LightroomDevelopMapper {
         // Lightroom crop coordinates are normalized on the upright image.
         var geometry = look.geometry ?? GeometrySettings()
         if let left = number("CropLeft"),
-            let top = number("CropTop"),
-            let right = number("CropRight"),
-            let bottom = number("CropBottom"),
-            right > left, bottom > top
+           let top = number("CropTop"),
+           let right = number("CropRight"),
+           let bottom = number("CropBottom"),
+           right > left, bottom > top
         {
             geometry.crop = NormalizedCropRect(
                 x: min(1, max(0, left)),
                 y: min(1, max(0, top)),
                 width: min(1, max(0.0001, right - left)),
-                height: min(1, max(0.0001, bottom - top))
+                height: min(1, max(0.0001, bottom - top)),
             )
             geometry.autoCrop = false
         }
@@ -149,13 +149,14 @@ enum LightroomDevelopMapper {
         let interesting = Set(
             values.keys.filter { key in
                 interestingPrefixes.contains { key.hasPrefix($0) }
-            })
+            },
+        )
         let unmapped = interesting.subtracting(mapped)
 
         return LightroomDevelopMappingResult(
             look: look,
             mappedKeys: mapped.count,
-            unmappedKeys: unmapped
+            unmappedKeys: unmapped,
         )
     }
 
@@ -193,7 +194,7 @@ enum LightroomDevelopMapper {
     private static func extract(
         pattern: String,
         from text: String,
-        body: (String, String) -> Void
+        body: (String, String) -> Void,
     ) {
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return }
         let ns = text as NSString

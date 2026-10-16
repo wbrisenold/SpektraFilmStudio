@@ -81,8 +81,8 @@ private enum SpektraStartup {
             Task {
                 let result =
                     CommandLine.arguments.contains("--studio-soak-test")
-                    ? await ProductionSelfTest.runSoak()
-                    : await ProductionSelfTest.run()
+                        ? await ProductionSelfTest.runSoak()
+                        : await ProductionSelfTest.run()
                 fflush(stdout)
                 fflush(stderr)
                 exit(result)
@@ -176,8 +176,9 @@ struct SpektraCommands: Commands {
                         category.rawValue,
                         isOn: Binding(
                             get: { model.lookCopyCategoryEnabled(category) },
-                            set: { model.setLookCopyCategory(category, enabled: $0) }
-                        ))
+                            set: { model.setLookCopyCategory(category, enabled: $0) },
+                        ),
+                    )
                 }
             }
             Button("Reset Look") { model.resetLook() }
@@ -204,8 +205,10 @@ final class SpektraApplicationDelegate: NSObject, NSApplicationDelegate {
     weak var model: AppModel?
     private var fallbackWindow: NSWindow?
 
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag, let model { presentWorkspace(model: model) }
+    func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag, let model {
+            presentWorkspace(model: model)
+        }
         return true
     }
 
@@ -218,7 +221,8 @@ final class SpektraApplicationDelegate: NSObject, NSApplicationDelegate {
         }
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false,
+        )
         window.isReleasedWhenClosed = false
         window.title = "SpektraFilm Studio"
         window.contentView = NSHostingView(rootView: ContentView(model: model))
@@ -228,12 +232,12 @@ final class SpektraApplicationDelegate: NSObject, NSApplicationDelegate {
         fallbackWindow = window
     }
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    func applicationDidFinishLaunching(_: Notification) {
         // SwiftPM is packaged into a hand-built .app bundle. Set the Dock/app-switcher
         // icon explicitly so Finder, the Dock, and the in-app brand mark all use the
         // bundled SpektraFilm artwork instead of the generic executable icon.
         if let url = Bundle.main.url(forResource: "SpektraFilm", withExtension: "icns"),
-            let icon = NSImage(contentsOfFile: url.path)
+           let icon = NSImage(contentsOfFile: url.path)
         {
             NSApp.applicationIconImage = icon
         }
@@ -273,35 +277,49 @@ final class ShortcutMonitor {
                 guard let model, !SpektraFilePanel.isPickerVisible, NSApp.keyWindow?.attachedSheet == nil, !(NSApp.keyWindow is NSPanel)
                 else { return false }
                 // Never intercept native text editing / search / numeric fields.
-                if NSApp.keyWindow?.firstResponder is NSTextView || NSApp.keyWindow?.firstResponder is NSTextField { return false }
+                if NSApp.keyWindow?.firstResponder is NSTextView || NSApp.keyWindow?.firstResponder is NSTextField {
+                    return false
+                }
                 let key = Self.keyName(event)
                 let shortcutFlags = event.modifierFlags.intersection([.command, .option, .control, .shift])
                 if model.page == .edit, shortcutFlags == .command {
-                    if key.lowercased() == "c" { model.copyLook(); return true }
-                    if key.lowercased() == "v" { model.pasteLook(); return true }
+                    if key.lowercased() == "c" {
+                        model.copyLook(); return true
+                    }
+                    if key.lowercased() == "v" {
+                        model.pasteLook(); return true
+                    }
                 }
                 let p = model.project.preferences
                 let inLibrary = model.page == .library
 
                 @MainActor func applyRating(_ value: Int) {
-                    if inLibrary { model.batchSetRating(value) } else { model.setRating(value) }
+                    if inLibrary {
+                        model.batchSetRating(value)
+                    } else {
+                        model.setRating(value)
+                    }
                 }
                 @MainActor func applyFlag(_ value: ProjectFlag) {
-                    if inLibrary { model.batchSetFlag(value) } else { model.setFlag(value) }
+                    if inLibrary {
+                        model.batchSetFlag(value)
+                    } else {
+                        model.setFlag(value)
+                    }
                 }
 
                 // Lightroom-style number keys work anywhere; in Library they apply to the
                 // highlighted set instead of silently changing only the active thumbnail.
                 if event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
-                    let value = Int(key), (0...5).contains(value)
+                   let value = Int(key), (0 ... 5).contains(value)
                 {
                     applyRating(value)
                     return true
                 }
 
                 if inLibrary,
-                    event.modifierFlags.contains(.command),
-                    key.lowercased() == "a"
+                   event.modifierFlags.contains(.command),
+                   key.lowercased() == "a"
                 {
                     model.selectAllVisible()
                     return true
@@ -322,11 +340,11 @@ final class ShortcutMonitor {
 
     private static func keyName(_ event: NSEvent) -> String {
         switch event.keyCode {
-        case 123: return "left"
-        case 124: return "right"
-        case 125: return "down"
-        case 126: return "up"
-        default: return event.charactersIgnoringModifiers ?? ""
+        case 123: "left"
+        case 124: "right"
+        case 125: "down"
+        case 126: "up"
+        default: event.charactersIgnoringModifiers ?? ""
         }
     }
 }

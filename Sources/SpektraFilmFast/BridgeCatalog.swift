@@ -5,7 +5,10 @@ enum AppFlavor: Int32, CaseIterable, Codable, Identifiable, Sendable {
     case flow = 0
     case pro = 1
     case dev = 2
-    var id: Int32 { rawValue }
+    var id: Int32 {
+        rawValue
+    }
+
     var label: String {
         switch self {
         case .flow: "Flow"
@@ -34,9 +37,12 @@ enum ParameterValue: Codable, Equatable, Hashable, Sendable {
     case vector3(Double, Double, Double)
 
     var scalarValue: Double {
-        if case let .scalar(v) = self { return v }
+        if case let .scalar(v) = self {
+            return v
+        }
         return 0
     }
+
     var intValue: Int32 {
         switch self {
         case let .int(v): v
@@ -58,10 +64,17 @@ struct ParameterDescriptor: Identifiable, Hashable, Sendable {
     let minimum: Double
     let maximum: Double
 
-    var id: String { name }
+    var id: String {
+        name
+    }
 
-    static func == (lhs: Self, rhs: Self) -> Bool { lhs.name == rhs.name }
-    func hash(into hasher: inout Hasher) { hasher.combine(name) }
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.name == rhs.name
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(name)
+    }
 
     var defaultValue: ParameterValue {
         switch kind {
@@ -94,19 +107,20 @@ final class BridgeCatalog: @unchecked Sendable {
 
     private init() {
         var g: [ParameterGroup] = []
-        for i in 0..<SpektraAppGroupCount() {
+        for i in 0 ..< SpektraAppGroupCount() {
             guard let ptr = SpektraAppGroupAt(i) else { continue }
             let raw = ptr.pointee
             g.append(
                 ParameterGroup(
                     id: raw.id.map(String.init(cString:)) ?? "group\(i)",
-                    label: raw.label.map(String.init(cString:)) ?? "Group"
-                ))
+                    label: raw.label.map(String.init(cString:)) ?? "Group",
+                ),
+            )
         }
         groups = g
 
         var p: [ParameterDescriptor] = []
-        for i in 0..<SpektraAppParamCount() {
+        for i in 0 ..< SpektraAppParamCount() {
             guard let ptr = SpektraAppParamAt(i), let kind = ParameterKind(rawValue: ptr.pointee.kind) else { continue }
             let raw = ptr.pointee
             p.append(
@@ -120,15 +134,16 @@ final class BridgeCatalog: @unchecked Sendable {
                     defaultInt: raw.defaultInt,
                     defaults: (raw.defaultValue.0, raw.defaultValue.1, raw.defaultValue.2),
                     minimum: raw.minimum,
-                    maximum: raw.maximum
-                ))
+                    maximum: raw.maximum,
+                ),
+            )
         }
         parameters = p
 
-        films = (0..<SpektraAppFilmCount()).compactMap { i in
+        films = (0 ..< SpektraAppFilmCount()).compactMap { i in
             SpektraAppFilmName(i).map(String.init(cString:))
         }
-        papers = (0..<SpektraAppPaperCount()).compactMap { i in
+        papers = (0 ..< SpektraAppPaperCount()).compactMap { i in
             SpektraAppPaperName(i).map(String.init(cString:))
         }
     }
@@ -140,13 +155,19 @@ final class BridgeCatalog: @unchecked Sendable {
     }
 
     func options(for descriptor: ParameterDescriptor) -> [String] {
-        if descriptor.kind == .filmStock { return films }
-        if descriptor.kind == .printPaper { return papers }
+        if descriptor.kind == .filmStock {
+            return films
+        }
+        if descriptor.kind == .printPaper {
+            return papers
+        }
         guard !descriptor.optionSet.isEmpty else { return [] }
-        if let cached = optionCache[descriptor.optionSet] { return cached }
+        if let cached = optionCache[descriptor.optionSet] {
+            return cached
+        }
         var result: [String] = []
         descriptor.optionSet.withCString { optionSet in
-            for i in 0..<SpektraAppOptionCount(optionSet) {
+            for i in 0 ..< SpektraAppOptionCount(optionSet) {
                 if let label = SpektraAppOptionLabel(optionSet, i) {
                     result.append(String(cString: label))
                 }

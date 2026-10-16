@@ -44,8 +44,8 @@ enum CacheLocationError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .unavailable(let path): return "Cache location is unavailable: \(path)"
-        case .notWritable(let path): return "Cache location is not writable: \(path)"
+        case let .unavailable(path): "Cache location is unavailable: \(path)"
+        case let .notWritable(path): "Cache location is not writable: \(path)"
         }
     }
 }
@@ -63,8 +63,8 @@ enum CacheLocation {
         let custom = !parentPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let parent =
             custom
-            ? URL(fileURLWithPath: parentPath, isDirectory: true).standardizedFileURL
-            : defaultParentDirectory()
+                ? URL(fileURLWithPath: parentPath, isDirectory: true).standardizedFileURL
+                : defaultParentDirectory()
 
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: parent.path, isDirectory: &isDirectory), isDirectory.boolValue
@@ -102,8 +102,8 @@ enum CacheLocation {
     static func describe(parentPath: String) -> String {
         let parent =
             parentPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? defaultParentDirectory()
-            : URL(fileURLWithPath: parentPath, isDirectory: true)
+                ? defaultParentDirectory()
+                : URL(fileURLWithPath: parentPath, isDirectory: true)
         return parent.appendingPathComponent(folderName, isDirectory: true).path
     }
 
@@ -126,15 +126,15 @@ enum CacheLocation {
 
     private static func writeMarker(root: URL, custom: Bool) {
         let text = """
-            SpektraFilmFast local cache
+        SpektraFilmFast local cache
 
-            This folder is safe to delete when SpektraFilmFast is not running.
-            It stores generated thumbnails, developed linear preview sources, exact adjusted previews,
-            and Smart Cull analysis.
-            Original photographs and project files are never stored here.
+        This folder is safe to delete when SpektraFilmFast is not running.
+        It stores generated thumbnails, developed linear preview sources, exact adjusted previews,
+        and Smart Cull analysis.
+        Original photographs and project files are never stored here.
 
-            Location type: \(custom ? "User-selected" : "macOS default cache")
-            """
+        Location type: \(custom ? "User-selected" : "macOS default cache")
+        """
         try? Data(text.utf8).write(to: root.appendingPathComponent(markerName), options: .atomic)
     }
 }
@@ -151,13 +151,12 @@ enum CacheSourceFingerprint {
         let stamp = values.contentModificationDate?.timeIntervalSince1970 ?? 0
         let size = values.fileSize ?? 0
         let documentID = values.documentIdentifier.map(String.init) ?? "no-document-id"
-        let generationHash: String
-        if let generation = values.generationIdentifier,
-            let archived = try? NSKeyedArchiver.archivedData(withRootObject: generation, requiringSecureCoding: true)
+        let generationHash = if let generation = values.generationIdentifier,
+                                let archived = try? NSKeyedArchiver.archivedData(withRootObject: generation, requiringSecureCoding: true)
         {
-            generationHash = String(format: "%016llx", fnv1a64(archived))
+            String(format: "%016llx", fnv1a64(archived))
         } else {
-            generationHash = "no-generation-id"
+            "no-generation-id"
         }
         // generationIdentifier is persistent across restarts on supporting filesystems and changes
         // with the data fork. Path/mtime/size keep this useful on FAT/exFAT and other volumes that
@@ -166,8 +165,10 @@ enum CacheSourceFingerprint {
     }
 
     private static func fnv1a64(_ data: Data) -> UInt64 {
-        var hash: UInt64 = 0xcbf29ce484222325
-        for byte in data { hash ^= UInt64(byte); hash &*= 0x100000001b3 }
+        var hash: UInt64 = 0xCBF2_9CE4_8422_2325
+        for byte in data {
+            hash ^= UInt64(byte); hash &*= 0x100_0000_01B3
+        }
         return hash
     }
 }

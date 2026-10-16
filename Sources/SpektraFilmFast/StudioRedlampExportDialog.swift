@@ -1,11 +1,11 @@
 import AppKit
 import SwiftUI
 
-// Redlamp source audit: RedlampUI/Export/ExportSheet.swift and
-// ExportSheetSections.swift @ 657beb41d148a8f66916123f961e612b95c1a047.
-// The native grouped-form/preset/footer architecture is retained, while
-// SpektraFilm adds the user-required large output preview and batch selection.
-// This view does not implement a second renderer or export worker.
+/// Redlamp source audit: RedlampUI/Export/ExportSheet.swift and
+/// ExportSheetSections.swift @ 657beb41d148a8f66916123f961e612b95c1a047.
+/// The native grouped-form/preset/footer architecture is retained, while
+/// SpektraFilm adds the user-required large output preview and batch selection.
+/// This view does not implement a second renderer or export worker.
 struct StudioRedlampExportDialog: View {
     @ObservedObject var model: AppModel
     let onClose: () -> Void
@@ -15,24 +15,39 @@ struct StudioRedlampExportDialog: View {
     @AppStorage("SpektraFilmStudio.export.savedPresets.v1") private var savedPresetsData = Data()
     @State private var currentPreset: UUID?
 
-    private var settings: Binding<ExportSettings> { $model.project.exportSettings }
+    private var settings: Binding<ExportSettings> {
+        $model.project.exportSettings
+    }
+
     private var currentPhoto: ProjectImageRecord? {
-        if let selected = model.selectedImage { return selected }
+        if let selected = model.selectedImage {
+            return selected
+        }
         return model.project.images.first(where: { $0.selectedForExport })
     }
+
     private var userPresets: [StudioExportUserPreset] {
         (try? JSONDecoder().decode([StudioExportUserPreset].self, from: savedPresetsData)) ?? []
     }
+
     private var blockReason: String? {
         let s = model.project.exportSettings
-        if model.selectedExportCount < 1 { return "Choose photos to export" }
-        if s.destinationPath.isEmpty { return "Choose an export folder" }
-        if s.sequenceStart < 1 { return "Sequence must be positive" }
-        if s.resizeMode == .longEdge && s.resizeLongEdge < 1 { return "Choose a valid long edge" }
-        if (s.resizeMode == .width || s.resizeMode == .fitBox || s.resizeMode == .cropToFill) && s.resizeWidth < 1 {
+        if model.selectedExportCount < 1 {
+            return "Choose photos to export"
+        }
+        if s.destinationPath.isEmpty {
+            return "Choose an export folder"
+        }
+        if s.sequenceStart < 1 {
+            return "Sequence must be positive"
+        }
+        if s.resizeMode == .longEdge, s.resizeLongEdge < 1 {
+            return "Choose a valid long edge"
+        }
+        if s.resizeMode == .width || s.resizeMode == .fitBox || s.resizeMode == .cropToFill, s.resizeWidth < 1 {
             return "Choose a valid width"
         }
-        if (s.resizeMode == .height || s.resizeMode == .fitBox || s.resizeMode == .cropToFill) && s.resizeHeight < 1 {
+        if s.resizeMode == .height || s.resizeMode == .fitBox || s.resizeMode == .cropToFill, s.resizeHeight < 1 {
             return "Choose a valid height"
         }
         return nil
@@ -139,7 +154,8 @@ struct StudioRedlampExportDialog: View {
                         .padding(18)
                 } else {
                     ContentUnavailableView(
-                        "No Photos Selected", systemImage: "photo", description: Text("Choose the photos to export."))
+                        "No Photos Selected", systemImage: "photo", description: Text("Choose the photos to export."),
+                    )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -193,7 +209,8 @@ struct StudioRedlampExportDialog: View {
                         }
                     } label: {
                         Text(
-                            currentPreset.flatMap { id in userPresets.first(where: { $0.id == id })?.name } ?? "Custom")
+                            currentPreset.flatMap { id in userPresets.first(where: { $0.id == id })?.name } ?? "Custom",
+                        )
                     }
                     .fixedSize()
                 }
@@ -204,7 +221,7 @@ struct StudioRedlampExportDialog: View {
                         Text(
                             model.project.exportSettings.destinationPath.isEmpty
                                 ? "Choose folder"
-                                : URL(fileURLWithPath: model.project.exportSettings.destinationPath).lastPathComponent
+                                : URL(fileURLWithPath: model.project.exportSettings.destinationPath).lastPathComponent,
                         )
                         .lineLimit(1).truncationMode(.middle)
                         Button("Choose…") { model.chooseExportDestination() }
@@ -214,7 +231,8 @@ struct StudioRedlampExportDialog: View {
                 TextField("File name", text: settings.filenameTemplate)
                 Stepper(
                     "Sequence starts at \(model.project.exportSettings.sequenceStart)",
-                    value: settings.sequenceStart, in: 1...999999)
+                    value: settings.sequenceStart, in: 1 ... 999_999,
+                )
             }
             Section("File") {
                 Picker("Format", selection: settings.format) {
@@ -223,7 +241,7 @@ struct StudioRedlampExportDialog: View {
                 if model.project.exportSettings.format != .tiff {
                     LabeledContent("Quality") {
                         HStack(spacing: 9) {
-                            Slider(value: settings.jpegQuality, in: 0.1...1.0)
+                            Slider(value: settings.jpegQuality, in: 0.1 ... 1.0)
                                 .controlSize(.small)
                             Text("\(Int((model.project.exportSettings.jpegQuality * 100).rounded()))")
                                 .frame(width: 32, alignment: .trailing)
@@ -283,9 +301,11 @@ struct StudioRedlampExportDialog: View {
                 ProgressView(value: job.fractionComplete)
                     .frame(width: 170)
                 Text("\(job.completedCount) of \(job.items.count) exported")
-                if job.failedCount > 0 { Text("\(job.failedCount) failed").foregroundStyle(.orange) }
+                if job.failedCount > 0 {
+                    Text("\(job.failedCount) failed").foregroundStyle(.orange)
+                }
                 Spacer()
-                if !model.isExporting && job.remainingCount > 0 {
+                if !model.isExporting, job.remainingCount > 0 {
                     Button("Resume") { model.resumeExport() }
                         .disabled(model.exportQueueSettingsDiffer)
                     if job.failedCount > 0 {
@@ -304,17 +324,25 @@ struct StudioRedlampExportDialog: View {
         var values = userPresets
         let new = StudioExportUserPreset(id: UUID(), name: name, settings: model.project.exportSettings)
         values.append(new)
-        if let data = try? JSONEncoder().encode(values) { savedPresetsData = data; currentPreset = new.id }
+        if let data = try? JSONEncoder().encode(values) {
+            savedPresetsData = data; currentPreset = new.id
+        }
     }
+
     private func updatePreset(_ id: UUID) {
         var values = userPresets
         guard let index = values.firstIndex(where: { $0.id == id }) else { return }
         values[index].settings = model.project.exportSettings
-        if let data = try? JSONEncoder().encode(values) { savedPresetsData = data }
+        if let data = try? JSONEncoder().encode(values) {
+            savedPresetsData = data
+        }
     }
+
     private func deletePreset(_ id: UUID) {
         let values = userPresets.filter { $0.id != id }
-        if let data = try? JSONEncoder().encode(values) { savedPresetsData = data; currentPreset = nil }
+        if let data = try? JSONEncoder().encode(values) {
+            savedPresetsData = data; currentPreset = nil
+        }
     }
 }
 
@@ -347,7 +375,7 @@ private struct StudioExportPhotoPicker: View {
                 ForEach(
                     model.project.images.filter {
                         search.isEmpty || $0.fileName.localizedCaseInsensitiveContains(search)
-                    }
+                    },
                 ) { photo in
                     HStack(spacing: 8) {
                         Toggle(
@@ -356,8 +384,8 @@ private struct StudioExportPhotoPicker: View {
                                 get: {
                                     model.project.images.first(where: { $0.id == photo.id })?.selectedForExport ?? false
                                 },
-                                set: { _ in model.toggleExportSelection(photo.id) }
-                            )
+                                set: { _ in model.toggleExportSelection(photo.id) },
+                            ),
                         ).labelsHidden().disabled(model.isExporting)
                         LocalThumbnail(url: model.thumbnailURL(for: photo), contentMode: .fit)
                             .frame(width: 50, height: 39)

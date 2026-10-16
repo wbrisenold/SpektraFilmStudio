@@ -22,8 +22,12 @@ enum RedlampSearchMatcher {
 
     static func score(_ word: String, _ term: String) -> Int {
         let termWords = term.split(separator: " ").map(String.init)
-        if termWords.contains(word) { return 3 }
-        if termWords.contains(where: { $0.hasPrefix(word) }) { return 2 }
+        if termWords.contains(word) {
+            return 3
+        }
+        if termWords.contains(where: { $0.hasPrefix(word) }) {
+            return 2
+        }
         return word.count >= 3 && term.contains(word) ? 1 : 0
     }
 

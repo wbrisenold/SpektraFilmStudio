@@ -65,7 +65,7 @@ struct SettingsView: View {
                         .studioSecondaryLabel()
                 }
                 Text(
-                    "The editor uses the native spectral renderer only. Imported LUT and Looks GPU preview paths have been removed."
+                    "The editor uses the native spectral renderer only. Imported LUT and Looks GPU preview paths have been removed.",
                 )
                 .font(.caption).studioSecondaryLabel()
                 Toggle("Paper background", isOn: $model.project.preferences.paperBackground)
@@ -77,7 +77,8 @@ struct SettingsView: View {
                 Toggle("Auto-analyze imported photos for Smart Cull", isOn: $model.project.preferences.autoAnalyzeCull)
                 Toggle(
                     "Write rating, flag, and color changes to XMP",
-                    isOn: $model.project.preferences.writeXMPAutomatically)
+                    isOn: $model.project.preferences.writeXMPAutomatically,
+                )
                 Toggle("Autosave and crash recovery", isOn: $model.project.preferences.autosaveEnabled)
 
                 Text("Editing uses a fast preview. Full-resolution preview and export use your original photo.")
@@ -90,8 +91,8 @@ struct SettingsView: View {
                     "RAM cache",
                     selection: Binding(
                         get: { model.cacheMemoryMode },
-                        set: { model.setCacheMemoryMode($0) }
-                    )
+                        set: { model.setCacheMemoryMode($0) },
+                    ),
                 ) {
                     ForEach(PreviewCacheMemoryMode.allCases) { Text($0.rawValue).tag($0) }
                 }
@@ -100,10 +101,10 @@ struct SettingsView: View {
                     "Disk budget: \(model.localDiskCacheGB) GB",
                     value: Binding(
                         get: { model.localDiskCacheGB },
-                        set: { model.setLocalDiskCacheGB($0) }
+                        set: { model.setLocalDiskCacheGB($0) },
                     ),
-                    in: 2...100,
-                    step: 1
+                    in: 2 ... 100,
+                    step: 1,
                 )
 
                 VStack(alignment: .leading, spacing: 5) {
@@ -164,7 +165,7 @@ struct SettingsView: View {
                 }
 
                 Text(
-                    "The cache can live on an internal SSD, another local volume, or a mounted external drive. SpektraFilm Studio creates a visible “SpektraFilmFast Cache” folder inside the selected location. If that drive is disconnected, disk caching is marked unavailable instead of silently moving elsewhere."
+                    "The cache can live on an internal SSD, another local volume, or a mounted external drive. SpektraFilm Studio creates a visible “SpektraFilmFast Cache” folder inside the selected location. If that drive is disconnected, disk caching is marked unavailable instead of silently moving elsewhere.",
                 )
                 .font(.caption)
                 .studioSecondaryLabel()
@@ -174,7 +175,7 @@ struct SettingsView: View {
         .padding(14)
     }
 
-    // Settings › UI changes exactly the AppStorage properties consumed by each workspace.
+    /// Settings › UI changes exactly the AppStorage properties consumed by each workspace.
     private var uiTab: some View {
         Form {
             Section("Window Appearance") {
@@ -187,7 +188,7 @@ struct SettingsView: View {
                 Toggle("Transparent glass panels", isOn: $glassEnabled)
                 HStack {
                     Text("Panel transparency")
-                    Slider(value: $glassTransparency, in: 0...0.90)
+                    Slider(value: $glassTransparency, in: 0 ... 0.90)
                         .disabled(!glassEnabled)
                     Text("\(Int((glassTransparency * 100).rounded()))%")
                         .monospacedDigit().frame(width: 46)
@@ -202,7 +203,7 @@ struct SettingsView: View {
                 Toggle("Cull inspector", isOn: $cullInspectorVisible)
                 Toggle("Export source browser", isOn: $exportBrowserVisible)
                 Text(
-                    "These toggles update the workspaces immediately. Essential photo tools remain in their workspaces."
+                    "These toggles update the workspaces immediately. Essential photo tools remain in their workspaces.",
                 )
                 .font(.caption).studioSecondaryLabel()
             }
@@ -218,7 +219,7 @@ struct SettingsView: View {
                     ]
                         + editorCatalog.groups.filter { $0.id != "raw" }.map {
                             (id: "film.\($0.id)", title: $0.label)
-                        }
+                        },
                 )
                 Button("Expand All Film Sections") { collapsedFilmSections = "" }
             }
@@ -249,18 +250,18 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
                 Text(
-                    "Scopes float over the viewer in a movable, resizable glass panel. Drag its header or bottom corner to reposition and resize. The Photos and adjustments columns remain visible, and the scopes preserve their measured aspect ratio."
+                    "Scopes float over the viewer in a movable, resizable glass panel. Drag its header or bottom corner to reposition and resize. The Photos and adjustments columns remain visible, and the scopes preserve their measured aspect ratio.",
                 )
                 .font(.caption)
                 .studioSecondaryLabel()
                 HStack {
                     Text("Floating scopes width")
-                    Slider(value: $scopesRailWidth, in: 300...500, step: 8)
+                    Slider(value: $scopesRailWidth, in: 300 ... 500, step: 8)
                     Text("\(Int(scopesRailWidth)) pt").monospacedDigit().frame(width: 54)
                 }
                 HStack {
                     Text("Floating scopes height")
-                    Slider(value: $floatingScopesHeight, in: 245...570, step: 5)
+                    Slider(value: $floatingScopesHeight, in: 245 ... 570, step: 5)
                     Text("\(Int(floatingScopesHeight)) pt").monospacedDigit().frame(width: 54)
                 }
                 Button("Reset Scopes Position") {
@@ -273,16 +274,16 @@ struct SettingsView: View {
                     "Default scope",
                     selection: Binding(
                         get: { model.project.preferences.scopeMode },
-                        set: { model.setEditorScopeMode($0) }
-                    )
+                        set: { model.setEditorScopeMode($0) },
+                    ),
                 ) {
                     ForEach(ScopeMode.allCases) { Text($0.rawValue).tag($0) }
                 }
                 Stepper(
                     "Scope refresh: \(model.project.preferences.scopeTargetFPS) fps",
                     value: $model.project.preferences.scopeTargetFPS,
-                    in: 5...30,
-                    step: 1
+                    in: 5 ... 30,
+                    step: 1,
                 )
             }
 
@@ -291,15 +292,15 @@ struct SettingsView: View {
                     "Clipping preview",
                     selection: Binding(
                         get: { model.project.preferences.clippingPreviewMode },
-                        set: { model.setClippingPreviewMode($0) }
-                    )
+                        set: { model.setClippingPreviewMode($0) },
+                    ),
                 ) {
                     ForEach(ClippingPreviewMode.allCases) { mode in
                         Text(mode.rawValue).tag(mode)
                     }
                 }
                 .help(
-                    "Darktable-style final-output clipping test. Full Gamut combines luminance, RGB-channel, and saturation/gamut warnings and is the default."
+                    "Darktable-style final-output clipping test. Full Gamut combines luminance, RGB-channel, and saturation/gamut warnings and is the default.",
                 )
 
                 LabeledContent("Bright warning") {
@@ -307,11 +308,11 @@ struct SettingsView: View {
                         Slider(
                             value: Binding(
                                 get: { model.project.preferences.exposureHighlightRiskThreshold },
-                                set: { model.setExposureHighlightRiskThreshold($0) }
-                            ), in: 0.75...0.99
+                                set: { model.setExposureHighlightRiskThreshold($0) },
+                            ), in: 0.75 ... 0.99,
                         )
                         .help(
-                            "Warns before bright detail is fully clipped. Move left to flag bright areas sooner; move right to warn only very close to white."
+                            "Warns before bright detail is fully clipped. Move left to flag bright areas sooner; move right to warn only very close to white.",
                         )
                         Button {
                             model.setExposureHighlightRiskThreshold(0.95)
@@ -321,7 +322,7 @@ struct SettingsView: View {
                         .buttonStyle(.plain).help("Reset bright warning to 95%.")
                         Text(
                             model.project.preferences.exposureHighlightRiskThreshold,
-                            format: .percent.precision(.fractionLength(0))
+                            format: .percent.precision(.fractionLength(0)),
                         )
                         .monospacedDigit().frame(width: 48)
                     }
@@ -332,11 +333,11 @@ struct SettingsView: View {
                         Slider(
                             value: Binding(
                                 get: { model.project.preferences.exposureShadowRiskThreshold },
-                                set: { model.setExposureShadowRiskThreshold($0) }
-                            ), in: 0.002...0.12
+                                set: { model.setExposureShadowRiskThreshold($0) },
+                            ), in: 0.002 ... 0.12,
                         )
                         .help(
-                            "Warns before shadow detail collapses to black. Move right to flag dark areas sooner; move left to warn only on extremely dark pixels."
+                            "Warns before shadow detail collapses to black. Move right to flag dark areas sooner; move left to warn only on extremely dark pixels.",
                         )
                         Button {
                             model.setExposureShadowRiskThreshold(0.02)
@@ -346,7 +347,7 @@ struct SettingsView: View {
                         .buttonStyle(.plain).help("Reset dark warning to 2%.")
                         Text(
                             model.project.preferences.exposureShadowRiskThreshold,
-                            format: .percent.precision(.fractionLength(1))
+                            format: .percent.precision(.fractionLength(1)),
                         )
                         .monospacedDigit().frame(width: 48)
                     }
@@ -358,8 +359,8 @@ struct SettingsView: View {
                             Slider(
                                 value: Binding(
                                     get: { model.project.preferences.clippingHighlightThreshold },
-                                    set: { model.setClippingHighlightThreshold($0) }
-                                ), in: 0.95...1.0
+                                    set: { model.setClippingHighlightThreshold($0) },
+                                ), in: 0.95 ... 1.0,
                             )
                             .help("Marks pixels that are essentially at pure white. This is the stronger red warning.")
                             Button {
@@ -368,10 +369,11 @@ struct SettingsView: View {
                                 Image(systemName: "arrow.counterclockwise")
                             }
                             .buttonStyle(.plain).help(
-                                "Reset hard highlight clipping to darktable's current source default of 99.99%.")
+                                "Reset hard highlight clipping to darktable's current source default of 99.99%.",
+                            )
                             Text(
                                 model.project.preferences.clippingHighlightThreshold,
-                                format: .percent.precision(.fractionLength(2))
+                                format: .percent.precision(.fractionLength(2)),
                             )
                             .monospacedDigit().frame(width: 58)
                         }
@@ -382,11 +384,11 @@ struct SettingsView: View {
                             Slider(
                                 value: Binding(
                                     get: { log2(max(1.0e-12, model.project.preferences.clippingShadowThreshold)) },
-                                    set: { ev in model.setClippingShadowThreshold(pow(2.0, ev)) }
-                                ), in: -22.0 ... -4.0
+                                    set: { ev in model.setClippingShadowThreshold(pow(2.0, ev)) },
+                                ), in: -22.0 ... -4.0,
                             )
                             .help(
-                                "Lower clipping threshold in EV relative to white, matching darktable's clipping-warning convention."
+                                "Lower clipping threshold in EV relative to white, matching darktable's clipping-warning convention.",
                             )
                             Button {
                                 model.setClippingShadowThreshold(pow(2.0, -12.69))
@@ -395,7 +397,7 @@ struct SettingsView: View {
                             }
                             .buttonStyle(.plain).help("Reset to -12.69 EV, darktable's 8-bit sRGB black reference.")
                             Text(
-                                "\(log2(max(1.0e-12, model.project.preferences.clippingShadowThreshold)), specifier: "%.2f") EV"
+                                "\(log2(max(1.0e-12, model.project.preferences.clippingShadowThreshold)), specifier: "%.2f") EV",
                             )
                             .monospacedDigit().frame(width: 72)
                         }
@@ -413,7 +415,7 @@ struct SettingsView: View {
                 .font(.caption2)
 
                 Text(
-                    "Hard clipping follows darktable-style Full Gamut / RGB / luminance / saturation tests with red-over and blue-under defaults. SpektraFilm Studio keeps an additional translucent risk layer before hard clipping. All tests use the final rendered image after White Balance, tone/curves, SpektraFilm stock/print processing, and Crop/Geometry; they are display-only and never exported."
+                    "Hard clipping follows darktable-style Full Gamut / RGB / luminance / saturation tests with red-over and blue-under defaults. SpektraFilm Studio keeps an additional translucent risk layer before hard clipping. All tests use the final rendered image after White Balance, tone/curves, SpektraFilm stock/print processing, and Crop/Geometry; they are display-only and never exported.",
                 )
                 .font(.caption).studioSecondaryLabel()
             }
@@ -424,11 +426,11 @@ struct SettingsView: View {
                         Slider(
                             value: Binding(
                                 get: { model.project.preferences.skinToleranceDegrees },
-                                set: { model.setSkinTolerance($0) }
-                            ), in: 1...45
+                                set: { model.setSkinTolerance($0) },
+                            ), in: 1 ... 45,
                         )
                         .help(
-                            "Sets how far skin can drift from the skin-tone reference before it is flagged. Smaller is stricter; larger allows more variation from lighting and creative color."
+                            "Sets how far skin can drift from the skin-tone reference before it is flagged. Smaller is stricter; larger allows more variation from lighting and creative color.",
                         )
                         Button {
                             model.setSkinTolerance(12)
@@ -445,11 +447,11 @@ struct SettingsView: View {
                         Slider(
                             value: Binding(
                                 get: { model.project.preferences.skinOverlayOpacity },
-                                set: { model.setSkinOverlayOpacity($0) }
-                            ), in: 0.05...0.85
+                                set: { model.setSkinOverlayOpacity($0) },
+                            ), in: 0.05 ... 0.85,
                         )
                         .help(
-                            "Controls how strongly the skin diagnostic is drawn over the photo. Lower keeps more of the photo visible; higher makes the mask easier to see."
+                            "Controls how strongly the skin diagnostic is drawn over the photo. Lower keeps more of the photo visible; higher makes the mask easier to see.",
                         )
                         Button {
                             model.setSkinOverlayOpacity(0.30)
@@ -458,13 +460,13 @@ struct SettingsView: View {
                         }
                         .buttonStyle(.plain).help("Reset skin overlay opacity to 30%.")
                         Text(
-                            model.project.preferences.skinOverlayOpacity, format: .percent.precision(.fractionLength(0))
+                            model.project.preferences.skinOverlayOpacity, format: .percent.precision(.fractionLength(0)),
                         )
                         .monospacedDigit().frame(width: 48)
                     }
                 }
                 Text(
-                    "Skin Check first isolates people with Apple Vision, then classifies skin using published open-source YCbCr and HSV ranges spanning a wide range of complexions. The Skin Vector scope uses only those detected skin pixels; the overlay is display-only and never exported."
+                    "Skin Check first isolates people with Apple Vision, then classifies skin using published open-source YCbCr and HSV ranges spanning a wide range of complexions. The Skin Vector scope uses only those detected skin pixels; the overlay is display-only and never exported.",
                 )
                 .font(.caption).studioSecondaryLabel()
             }
@@ -478,7 +480,7 @@ struct SettingsView: View {
             Section("On-device AI") {
                 LabeledContent("Object selection", value: "SAM 2.1 Tiny · 80 MB")
                 Text(
-                    "Subject and people use Apple Vision. Face parts use Vision landmarks. Hair, body skin and clothes use embedded mattes or optional SAM 3. Photos stay on this Mac."
+                    "Subject and people use Apple Vision. Face parts use Vision landmarks. Hair, body skin and clothes use embedded mattes or optional SAM 3. Photos stay on this Mac.",
                 )
                 .font(.caption).studioSecondaryLabel()
             }
@@ -510,7 +512,7 @@ struct SettingsView: View {
 private struct ShortcutCaptureField: NSViewRepresentable {
     @Binding var value: String
 
-    func makeNSView(context: Context) -> ShortcutCaptureTextField {
+    func makeNSView(context _: Context) -> ShortcutCaptureTextField {
         let field = ShortcutCaptureTextField()
         field.isEditable = false
         field.isSelectable = false
@@ -523,16 +525,18 @@ private struct ShortcutCaptureField: NSViewRepresentable {
         return field
     }
 
-    func updateNSView(_ field: ShortcutCaptureTextField, context: Context) {
+    func updateNSView(_ field: ShortcutCaptureTextField, context _: Context) {
         field.stringValue = value
     }
 }
 
 private final class ShortcutCaptureTextField: NSTextField {
     var onKey: ((String) -> Void)?
-    override var acceptsFirstResponder: Bool { true }
+    override var acceptsFirstResponder: Bool {
+        true
+    }
 
-    override func mouseDown(with event: NSEvent) {
+    override func mouseDown(with _: NSEvent) {
         window?.makeFirstResponder(self)
     }
 
@@ -541,17 +545,16 @@ private final class ShortcutCaptureTextField: NSTextField {
             window?.makeFirstResponder(nil)
             return
         }
-        let name: String
-        switch event.keyCode {
-        case 123: name = "left"
-        case 124: name = "right"
-        case 125: name = "down"
-        case 126: name = "up"
-        case 36: name = "return"
-        case 48: name = "tab"
-        case 49: name = "space"
-        case 51: name = "delete"
-        default: name = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        let name: String = switch event.keyCode {
+        case 123: "left"
+        case 124: "right"
+        case 125: "down"
+        case 126: "up"
+        case 36: "return"
+        case 48: "tab"
+        case 49: "space"
+        case 51: "delete"
+        default: event.charactersIgnoringModifiers?.lowercased() ?? ""
         }
         guard !name.isEmpty else { return }
         onKey?(name)

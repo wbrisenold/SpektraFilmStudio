@@ -159,17 +159,17 @@ actor SpektraCloudLibrary {
 
         var errorDescription: String? {
             switch self {
-            case .invalidLibrary: return "This folder is not a SpektraFilm Cloud Library."
-            case .unsupportedSchema(let version): return "This cloud library uses unsupported schema \(version)."
-            case .missingManifest: return "Cloud library manifest is missing."
-            case .createFailed(let message): return "Could not create cloud library: \(message)"
-            case .sourceMissing(let path): return "Source file is missing: \(path)"
-            case .streamOpenFailed(let path): return "Could not open cloud transfer stream: \(path)"
-            case .readFailed(let path): return "Cloud read failed: \(path)"
-            case .destinationConflict(let path):
-                return "Existing cloud file differs from the source; preserved without overwriting: \(path)"
-            case .writeFailed(let path): return "Cloud write failed: \(path)"
-            case .downloadTimedOut(let path): return "Timed out waiting for iCloud to download: \(path)"
+            case .invalidLibrary: "This folder is not a SpektraFilm Cloud Library."
+            case let .unsupportedSchema(version): "This cloud library uses unsupported schema \(version)."
+            case .missingManifest: "Cloud library manifest is missing."
+            case let .createFailed(message): "Could not create cloud library: \(message)"
+            case let .sourceMissing(path): "Source file is missing: \(path)"
+            case let .streamOpenFailed(path): "Could not open cloud transfer stream: \(path)"
+            case let .readFailed(path): "Cloud read failed: \(path)"
+            case let .destinationConflict(path):
+                "Existing cloud file differs from the source; preserved without overwriting: \(path)"
+            case let .writeFailed(path): "Cloud write failed: \(path)"
+            case let .downloadTimedOut(path): "Timed out waiting for iCloud to download: \(path)"
             }
         }
     }
@@ -203,8 +203,12 @@ actor SpektraCloudLibrary {
 
     static func looksLikeICloudDrive(_ url: URL) -> Bool {
         let path = url.standardizedFileURL.path
-        if path.contains("/Mobile Documents/com~apple~CloudDocs") { return true }
-        if (try? url.resourceValues(forKeys: [.isUbiquitousItemKey]).isUbiquitousItem) == true { return true }
+        if path.contains("/Mobile Documents/com~apple~CloudDocs") {
+            return true
+        }
+        if (try? url.resourceValues(forKeys: [.isUbiquitousItemKey]).isUbiquitousItem) == true {
+            return true
+        }
         return false
     }
 
@@ -213,7 +217,7 @@ actor SpektraCloudLibrary {
         name: String,
         deviceID: String,
         project: SpektraProjectDocument,
-        progress: (@Sendable (_ completed: Int, _ total: Int, _ fileName: String) -> Void)? = nil
+        progress: (@Sendable (_ completed: Int, _ total: Int, _ fileName: String) -> Void)? = nil,
     ) async throws -> SpektraCloudLibrary {
         let fm = FileManager.default
         do {
@@ -228,7 +232,7 @@ actor SpektraCloudLibrary {
             libraryID: UUID(),
             createdAt: Date(),
             createdByDevice: deviceID,
-            name: name
+            name: name,
         )
         try coordinatedWrite(Self.encoder.encode(manifest), to: rootURL.appendingPathComponent("manifest.json"))
         let library = SpektraCloudLibrary(rootURL: rootURL, deviceID: deviceID, manifest: manifest)
@@ -244,7 +248,7 @@ actor SpektraCloudLibrary {
         guard FileManager.default.fileExists(atPath: manifestURL.path) else { throw CloudError.missingManifest }
         let manifest = try Self.decoder.decode(
             CloudLibraryManifest.self,
-            from: coordinatedRead(manifestURL)
+            from: coordinatedRead(manifestURL),
         )
         guard manifest.schemaVersion == CloudLibraryManifest.schemaVersion else {
             throw CloudError.unsupportedSchema(manifest.schemaVersion)
@@ -261,7 +265,9 @@ actor SpektraCloudLibrary {
         self.manifest = manifest
     }
 
-    var displayName: String { manifest.name }
+    var displayName: String {
+        manifest.name
+    }
 
     private func bootstrap(project: SpektraProjectDocument) async throws {
         lastPublishedProject = project
@@ -273,16 +279,18 @@ actor SpektraCloudLibrary {
         let loaded = try await loadMergedProject()
         lastPublishedProject = loaded.project
         seenHeads = loaded.heads
-        localCounter = max(
+        localCounter = try max(
             loaded.heads[deviceID, default: 0],
-            try readDeviceHead(deviceID)
+            readDeviceHead(deviceID),
         )
     }
 
     // open(at:) already loaded and merged this snapshot in finishOpening().
     // Reading every cloud snapshot and operation again doubles peak work at launch.
     func initialProject() async throws -> SpektraProjectDocument {
-        if let lastPublishedProject { return lastPublishedProject }
+        if let lastPublishedProject {
+            return lastPublishedProject
+        }
         return try await currentProject()
     }
 
@@ -312,13 +320,13 @@ actor SpektraCloudLibrary {
             project: loaded.project,
             pushedOperations: pushed,
             pulledOperations: loaded.applied,
-            didChangeProject: loaded.project != localProject
+            didChangeProject: loaded.project != localProject,
         )
     }
 
     func adoptOriginals(
         in project: SpektraProjectDocument,
-        progress: (@Sendable (_ completed: Int, _ total: Int, _ fileName: String) -> Void)?
+        progress: (@Sendable (_ completed: Int, _ total: Int, _ fileName: String) -> Void)?,
     ) async throws -> SpektraProjectDocument {
         var result = project
         var copiedBySource: [String: String] = [:]
@@ -383,7 +391,7 @@ actor SpektraCloudLibrary {
             if FileManager.default.fileExists(atPath: sidecar.path) {
                 try? Self.streamCopy(
                     from: sidecar,
-                    to: destination.deletingPathExtension().appendingPathExtension("xmp")
+                    to: destination.deletingPathExtension().appendingPathExtension("xmp"),
                 )
             }
 
@@ -400,13 +408,13 @@ actor SpektraCloudLibrary {
         catalogURL: URL,
         snapshot: LightroomCatalogImport.Snapshot,
         projectName: String,
-        progress: (@Sendable (_ completed: Int, _ total: Int, _ fileName: String) -> Void)?
+        progress: (@Sendable (_ completed: Int, _ total: Int, _ fileName: String) -> Void)?,
     ) async throws -> (SpektraProjectDocument, LightroomCloudMigrationReport) {
         let fm = FileManager.default
         let migrationRoot =
             rootURL
-            .appendingPathComponent("Migration/Lightroom", isDirectory: true)
-            .appendingPathComponent(Self.timestampString(Date()), isDirectory: true)
+                .appendingPathComponent("Migration/Lightroom", isDirectory: true)
+                .appendingPathComponent(Self.timestampString(Date()), isDirectory: true)
         try fm.createDirectory(at: migrationRoot, withIntermediateDirectories: true)
 
         // Archive the original catalog read-only for rollback/audit. SpektraFilm never writes to it.
@@ -419,7 +427,7 @@ actor SpektraCloudLibrary {
             try await Self.materializeIfNeeded(catalogData)
             try? Self.streamCopy(
                 from: catalogData,
-                to: migrationRoot.appendingPathComponent(catalogData.lastPathComponent)
+                to: migrationRoot.appendingPathComponent(catalogData.lastPathComponent),
             )
         }
 
@@ -429,7 +437,7 @@ actor SpektraCloudLibrary {
             if fm.fileExists(atPath: companion.path) {
                 try? Self.streamCopy(
                     from: companion,
-                    to: migrationRoot.appendingPathComponent(companion.lastPathComponent)
+                    to: migrationRoot.appendingPathComponent(companion.lastPathComponent),
                 )
             }
         }
@@ -451,7 +459,7 @@ actor SpektraCloudLibrary {
             preservedDevelopPayloads: 0,
             collections: 0,
             warnings: snapshot.warnings,
-            importedAt: Date()
+            importedAt: Date(),
         )
 
         var originalByPath: [String: String] = [:]
@@ -486,7 +494,8 @@ actor SpektraCloudLibrary {
                 let xmp = source.deletingPathExtension().appendingPathExtension("xmp")
                 if fm.fileExists(atPath: xmp.path) {
                     try? Self.streamCopy(
-                        from: xmp, to: destination.deletingPathExtension().appendingPathExtension("xmp"))
+                        from: xmp, to: destination.deletingPathExtension().appendingPathExtension("xmp"),
+                    )
                     report.copiedSidecars += 1
                 }
             } else {
@@ -504,23 +513,26 @@ actor SpektraCloudLibrary {
                 } catch {
                     previewRelative = nil
                     report.warnings.append(
-                        "Preview could not be generated for \(lrPhoto.fileName): \(error.localizedDescription)")
+                        "Preview could not be generated for \(lrPhoto.fileName): \(error.localizedDescription)",
+                    )
                 }
             }
 
             var look = RenderLook.defaults()
             let sidecarURL =
                 fm.fileExists(
-                    atPath: source.deletingPathExtension().appendingPathExtension("xmp").path
+                    atPath: source.deletingPathExtension().appendingPathExtension("xmp").path,
                 ) ? source.deletingPathExtension().appendingPathExtension("xmp") : nil
 
             let mapping = LightroomDevelopMapper.map(
                 catalogText: lrPhoto.latestDevelopText,
                 sidecarURL: sidecarURL,
-                base: look
+                base: look,
             )
             look = mapping.look
-            if mapping.mappedKeys > 0 { report.mappedDevelopPhotos += 1 }
+            if mapping.mappedKeys > 0 {
+                report.mappedDevelopPhotos += 1
+            }
 
             if let text = lrPhoto.latestDevelopText, !text.isEmpty {
                 let payloadURL = developRoot.appendingPathComponent("\(lrPhoto.imageID).txt")
@@ -539,7 +551,7 @@ actor SpektraCloudLibrary {
             }
             if !mapping.unmappedKeys.isEmpty {
                 noteParts.append(
-                    "Lightroom fields preserved but not mapped: \(mapping.unmappedKeys.sorted().joined(separator: ", "))"
+                    "Lightroom fields preserved but not mapped: \(mapping.unmappedKeys.sorted().joined(separator: ", "))",
                 )
             }
 
@@ -562,7 +574,7 @@ actor SpektraCloudLibrary {
                 look: look,
                 cloudRelativePath: relative,
                 cloudPreviewRelativePath: previewRelative,
-                logicalFolderPath: source.deletingLastPathComponent().path
+                logicalFolderPath: source.deletingLastPathComponent().path,
             )
             records.append(record)
             progress?(offset + 1, snapshot.photos.count, lrPhoto.fileName)
@@ -581,8 +593,9 @@ actor SpektraCloudLibrary {
                     id: UUID(),
                     name: collection.name,
                     imageIDs: members,
-                    createdAt: Date()
-                ))
+                    createdAt: Date(),
+                ),
+            )
         }
         project.albums = albums
         report.collections = albums.count
@@ -665,7 +678,8 @@ actor SpektraCloudLibrary {
             }
             if CloudPhotoState(old) != CloudPhotoState(image) {
                 operations.append(
-                    makeOperation(kind: .photoStateUpdate, photoID: image.id, photoState: CloudPhotoState(image)))
+                    makeOperation(kind: .photoStateUpdate, photoID: image.id, photoState: CloudPhotoState(image)),
+                )
             }
         }
 
@@ -688,15 +702,21 @@ actor SpektraCloudLibrary {
     }
 
     private func mergeRemote(
-        into project: SpektraProjectDocument
+        into project: SpektraProjectDocument,
     ) async throws -> (project: SpektraProjectDocument, heads: [String: UInt64], applied: Int) {
         var merged = project
         var heads = seenHeads
         var operations = try unreadOperations(after: heads)
         operations.sort {
-            if $0.createdAt != $1.createdAt { return $0.createdAt < $1.createdAt }
-            if $0.deviceID != $1.deviceID { return $0.deviceID < $1.deviceID }
-            if $0.counter != $1.counter { return $0.counter < $1.counter }
+            if $0.createdAt != $1.createdAt {
+                return $0.createdAt < $1.createdAt
+            }
+            if $0.deviceID != $1.deviceID {
+                return $0.deviceID < $1.deviceID
+            }
+            if $0.counter != $1.counter {
+                return $0.counter < $1.counter
+            }
             return $0.id.uuidString < $1.id.uuidString
         }
 
@@ -713,24 +733,29 @@ actor SpektraCloudLibrary {
         let snapshot = try Self.decoder.decode(CloudLibrarySnapshot.self, from: Self.coordinatedRead(snapshotURL))
         guard snapshot.libraryID == manifest.libraryID else { throw CloudError.invalidLibrary }
 
-        let merged = try await mergeStarting(
+        return try await mergeStarting(
             project: snapshot.project,
-            heads: snapshot.heads
+            heads: snapshot.heads,
         )
-        return merged
     }
 
     private func mergeStarting(
         project: SpektraProjectDocument,
-        heads: [String: UInt64]
+        heads: [String: UInt64],
     ) async throws -> (project: SpektraProjectDocument, heads: [String: UInt64]) {
         var merged = project
         var cursors = heads
         var operations = try unreadOperations(after: cursors)
         operations.sort {
-            if $0.createdAt != $1.createdAt { return $0.createdAt < $1.createdAt }
-            if $0.deviceID != $1.deviceID { return $0.deviceID < $1.deviceID }
-            if $0.counter != $1.counter { return $0.counter < $1.counter }
+            if $0.createdAt != $1.createdAt {
+                return $0.createdAt < $1.createdAt
+            }
+            if $0.deviceID != $1.deviceID {
+                return $0.deviceID < $1.deviceID
+            }
+            if $0.counter != $1.counter {
+                return $0.counter < $1.counter
+            }
             return $0.id.uuidString < $1.id.uuidString
         }
         for op in operations {
@@ -755,19 +780,25 @@ actor SpektraCloudLibrary {
         case .photoDelete:
             guard let id = operation.photoID else { return }
             project.images.removeAll { $0.id == id }
-            for i in project.albums.indices { project.albums[i].imageIDs.remove(id) }
-            for i in project.peopleGroups.indices { project.peopleGroups[i].imageIDs.remove(id) }
-            if project.selectedImageID == id { project.selectedImageID = project.images.first?.id }
+            for i in project.albums.indices {
+                project.albums[i].imageIDs.remove(id)
+            }
+            for i in project.peopleGroups.indices {
+                project.peopleGroups[i].imageIDs.remove(id)
+            }
+            if project.selectedImageID == id {
+                project.selectedImageID = project.images.first?.id
+            }
 
         case .lookUpdate:
             guard let id = operation.photoID, let look = operation.look,
-                let i = project.images.firstIndex(where: { $0.id == id })
+                  let i = project.images.firstIndex(where: { $0.id == id })
             else { return }
             project.images[i].look = look
 
         case .photoStateUpdate:
             guard let id = operation.photoID, let state = operation.photoState,
-                let i = project.images.firstIndex(where: { $0.id == id })
+                  let i = project.images.firstIndex(where: { $0.id == id })
             else { return }
             state.apply(to: &project.images[i])
 
@@ -782,7 +813,7 @@ actor SpektraCloudLibrary {
         photo: ProjectImageRecord? = nil,
         look: RenderLook? = nil,
         photoState: CloudPhotoState? = nil,
-        metadata: CloudProjectMetadata? = nil
+        metadata: CloudProjectMetadata? = nil,
     ) -> CloudLibraryOperation {
         localCounter += 1
         return CloudLibraryOperation(
@@ -795,7 +826,7 @@ actor SpektraCloudLibrary {
             photo: photo,
             look: look,
             photoState: photoState,
-            metadata: metadata
+            metadata: metadata,
         )
     }
 
@@ -803,7 +834,7 @@ actor SpektraCloudLibrary {
         let dir = journalURL.appendingPathComponent(deviceID, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let file = dir.appendingPathComponent(
-            String(format: "%020llu-%@.sfop", operation.counter, operation.id.uuidString)
+            String(format: "%020llu-%@.sfop", operation.counter, operation.id.uuidString),
         )
         try Self.coordinatedWrite(Self.encoder.encode(operation), to: file)
         try writeDeviceHead(operation.counter)
@@ -815,7 +846,7 @@ actor SpektraCloudLibrary {
             let devices = try? fm.contentsOfDirectory(
                 at: journalURL,
                 includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
+                options: [.skipsHiddenFiles],
             )
         else { return [] }
 
@@ -831,7 +862,7 @@ actor SpektraCloudLibrary {
                 let files = try? fm.contentsOfDirectory(
                     at: deviceDir,
                     includingPropertiesForKeys: nil,
-                    options: [.skipsHiddenFiles]
+                    options: [.skipsHiddenFiles],
                 )
             else { continue }
 
@@ -856,12 +887,12 @@ actor SpektraCloudLibrary {
             libraryID: manifest.libraryID,
             createdAt: Date(),
             heads: heads,
-            project: project
+            project: project,
         )
         let name = "\(Self.timestampString(snapshot.createdAt))-\(UUID().uuidString).sfsnapshot"
         try Self.coordinatedWrite(
             Self.encoder.encode(snapshot),
-            to: snapshotsURL.appendingPathComponent(name)
+            to: snapshotsURL.appendingPathComponent(name),
         )
         seenHeads = heads
     }
@@ -872,15 +903,17 @@ actor SpektraCloudLibrary {
             (try? fm.contentsOfDirectory(
                 at: snapshotsURL,
                 includingPropertiesForKeys: [.contentModificationDateKey],
-                options: [.skipsHiddenFiles]
+                options: [.skipsHiddenFiles],
             ))?.filter { $0.pathExtension == "sfsnapshot" } ?? []
-        if files.isEmpty { return nil }
+        if files.isEmpty {
+            return nil
+        }
 
         var best: (url: URL, score: UInt64, created: Date)?
         for file in files {
             guard let data = try? Self.coordinatedRead(file),
-                let snapshot = try? Self.decoder.decode(CloudLibrarySnapshot.self, from: data),
-                snapshot.libraryID == manifest.libraryID
+                  let snapshot = try? Self.decoder.decode(CloudLibrarySnapshot.self, from: data),
+                  snapshot.libraryID == manifest.libraryID
             else { continue }
             let score = snapshot.heads.values.reduce(UInt64(0), +)
             if best == nil || score > best!.score || (score == best!.score && snapshot.createdAt > best!.created) {
@@ -896,7 +929,7 @@ actor SpektraCloudLibrary {
             let files = try? fm.contentsOfDirectory(
                 at: headsURL,
                 includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
+                options: [.skipsHiddenFiles],
             )
         else { return seenHeads }
 
@@ -904,7 +937,7 @@ actor SpektraCloudLibrary {
         for file in files where file.pathExtension == "json" {
             struct Head: Codable { var deviceID: String; var counter: UInt64 }
             guard let data = try? Self.coordinatedRead(file),
-                let head = try? Self.decoder.decode(Head.self, from: data)
+                  let head = try? Self.decoder.decode(Head.self, from: data)
             else { continue }
             result[head.deviceID] = max(result[head.deviceID, default: 0], head.counter)
         }
@@ -916,7 +949,7 @@ actor SpektraCloudLibrary {
         let head = Head(deviceID: deviceID, counter: counter, updatedAt: Date())
         try Self.coordinatedWrite(
             Self.encoder.encode(head),
-            to: headsURL.appendingPathComponent("\(deviceID).json")
+            to: headsURL.appendingPathComponent("\(deviceID).json"),
         )
     }
 
@@ -928,7 +961,9 @@ actor SpektraCloudLibrary {
     }
 
     private func resolveCloudPaths(in project: inout SpektraProjectDocument) {
-        for i in project.images.indices { resolveCloudPath(in: &project.images[i]) }
+        for i in project.images.indices {
+            resolveCloudPath(in: &project.images[i])
+        }
     }
 
     private func resolveCloudPath(in image: inout ProjectImageRecord) {
@@ -950,15 +985,23 @@ actor SpektraCloudLibrary {
         return "Previews/\(prefix)/\(photoID.uuidString).jpg"
     }
 
-    private var journalURL: URL { rootURL.appendingPathComponent("Journal", isDirectory: true) }
-    private var headsURL: URL { rootURL.appendingPathComponent("Heads", isDirectory: true) }
-    private var snapshotsURL: URL { rootURL.appendingPathComponent("Snapshots", isDirectory: true) }
+    private var journalURL: URL {
+        rootURL.appendingPathComponent("Journal", isDirectory: true)
+    }
+
+    private var headsURL: URL {
+        rootURL.appendingPathComponent("Heads", isDirectory: true)
+    }
+
+    private var snapshotsURL: URL {
+        rootURL.appendingPathComponent("Snapshots", isDirectory: true)
+    }
 
     private static func createStructure(_ root: URL) throws {
         for name in ["Originals", "Previews", "Journal", "Heads", "Snapshots", "Migration"] {
             try FileManager.default.createDirectory(
                 at: root.appendingPathComponent(name, isDirectory: true),
-                withIntermediateDirectories: true
+                withIntermediateDirectories: true,
             )
         }
     }
@@ -977,38 +1020,42 @@ actor SpektraCloudLibrary {
 
     private static func mapColorLabel(_ value: String?) -> PhotoColorLabel? {
         switch value?.lowercased() {
-        case "red": return .red
-        case "yellow": return .yellow
-        case "green": return .green
-        case "blue": return .blue
-        case "purple", "magenta": return .purple
-        default: return nil
+        case "red": .red
+        case "yellow": .yellow
+        case "green": .green
+        case "blue": .blue
+        case "purple", "magenta": .purple
+        default: nil
         }
     }
 
     private static func parseLightroomDate(_ value: String?) -> Date? {
         guard let value, !value.isEmpty else { return nil }
-        if let date = ISO8601DateFormatter().date(from: value) { return date }
+        if let date = ISO8601DateFormatter().date(from: value) {
+            return date
+        }
         let formats = ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd HH:mm:ss", "yyyy:MM:dd HH:mm:ss"]
         for format in formats {
             let f = DateFormatter()
             f.locale = Locale(identifier: "en_US_POSIX")
             f.dateFormat = format
-            if let date = f.date(from: value) { return date }
+            if let date = f.date(from: value) {
+                return date
+            }
         }
         return nil
     }
 
     private static func fileSize(_ url: URL) -> Int64? {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-            let value = attrs[.size] as? NSNumber
+              let value = attrs[.size] as? NSNumber
         else { return nil }
         return value.int64Value
     }
 
     private static func modificationTime(_ url: URL) -> TimeInterval? {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-            let value = attrs[.modificationDate] as? Date
+              let value = attrs[.modificationDate] as? Date
         else { return nil }
         return value.timeIntervalSince1970
     }
@@ -1042,14 +1089,14 @@ actor SpektraCloudLibrary {
 
         try FileManager.default.createDirectory(
             at: destination.deletingLastPathComponent(),
-            withIntermediateDirectories: true
+            withIntermediateDirectories: true,
         )
 
         if FileManager.default.fileExists(atPath: destination.path) {
             let sourceSize = fileSize(source)
             let destinationSize = fileSize(destination)
             if sourceSize != nil, sourceSize == destinationSize,
-                FileManager.default.contentsEqual(atPath: source.path, andPath: destination.path)
+               FileManager.default.contentsEqual(atPath: source.path, andPath: destination.path)
             {
                 return
             }
@@ -1063,7 +1110,7 @@ actor SpektraCloudLibrary {
         }
 
         guard let input = InputStream(url: source),
-            let output = OutputStream(url: temp, append: false)
+              let output = OutputStream(url: temp, append: false)
         else {
             try? FileManager.default.removeItem(at: temp)
             throw CloudError.streamOpenFailed(source.path)
@@ -1082,8 +1129,12 @@ actor SpektraCloudLibrary {
             while true {
                 try Task.checkCancellation()
                 let read = input.read(&buffer, maxLength: buffer.count)
-                if read < 0 { throw input.streamError ?? CloudError.readFailed(source.path) }
-                if read == 0 { break }
+                if read < 0 {
+                    throw input.streamError ?? CloudError.readFailed(source.path)
+                }
+                if read == 0 {
+                    break
+                }
                 copied += Int64(read)
 
                 var offset = 0
@@ -1092,14 +1143,16 @@ actor SpektraCloudLibrary {
                         guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return -1 }
                         return output.write(base.advanced(by: offset), maxLength: read - offset)
                     }
-                    if written <= 0 { throw output.streamError ?? CloudError.writeFailed(destination.path) }
+                    if written <= 0 {
+                        throw output.streamError ?? CloudError.writeFailed(destination.path)
+                    }
                     offset += written
                 }
             }
             input.close()
             output.close()
             guard let expected = fileSize(source), expected == copied,
-                fileSize(temp) == copied
+                  fileSize(temp) == copied
             else { throw CloudError.writeFailed(destination.path) }
             try FileManager.default.moveItem(at: temp, to: destination)
         } catch {
@@ -1115,12 +1168,16 @@ actor SpektraCloudLibrary {
         NSFileCoordinator().coordinate(
             writingItemAt: url,
             options: .forReplacing,
-            error: &coordinationError
+            error: &coordinationError,
         ) { coordinatedURL in
             do { try data.write(to: coordinatedURL, options: .atomic) } catch { writeError = error }
         }
-        if let coordinationError { throw coordinationError }
-        if let writeError { throw writeError }
+        if let coordinationError {
+            throw coordinationError
+        }
+        if let writeError {
+            throw writeError
+        }
     }
 
     private static func coordinatedRead(_ url: URL) throws -> Data {
@@ -1129,11 +1186,13 @@ actor SpektraCloudLibrary {
         NSFileCoordinator().coordinate(
             readingItemAt: url,
             options: [],
-            error: &coordinationError
+            error: &coordinationError,
         ) { coordinatedURL in
             readResult = Result { try Data(contentsOf: coordinatedURL, options: .mappedIfSafe) }
         }
-        if let coordinationError { throw coordinationError }
+        if let coordinationError {
+            throw coordinationError
+        }
         guard let readResult else { throw CloudError.readFailed(url.path) }
         return try readResult.get()
     }

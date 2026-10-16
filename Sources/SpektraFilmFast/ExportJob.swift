@@ -112,16 +112,28 @@ struct ExportJob: Identifiable, Codable, Sendable, Equatable {
         self.items = items
     }
 
-    var completedCount: Int { items.lazy.filter { $0.state == .completed }.count }
-    var failedCount: Int { items.lazy.filter { $0.state == .failed }.count }
-    var processedCount: Int { completedCount + failedCount }
-    var remainingCount: Int { items.count - completedCount }
+    var completedCount: Int {
+        items.lazy.filter { $0.state == .completed }.count
+    }
+
+    var failedCount: Int {
+        items.lazy.filter { $0.state == .failed }.count
+    }
+
+    var processedCount: Int {
+        completedCount + failedCount
+    }
+
+    var remainingCount: Int {
+        items.count - completedCount
+    }
+
     var fractionComplete: Double {
         guard !items.isEmpty else { return 0 }
         return Double(processedCount) / Double(items.count)
     }
 
-    // Absolute ceiling. Large full-resolution frames are dynamically limited to one.
+    /// Absolute ceiling. Large full-resolution frames are dynamically limited to one.
     static let postProcessWorkerCount = 2
 
     var estimatedRemainingSeconds: Double? {
@@ -157,14 +169,14 @@ struct ExportJob: Identifiable, Codable, Sendable, Equatable {
         // E4: Weight by output resolution ratio to avoid bias from early thumbnails.
         let samples = items.compactMap { item -> (Int64, Double)? in
             guard item.state == .completed, let bytes = item.outputBytes, bytes > 0,
-                let timings = item.timings
+                  let timings = item.timings
             else { return nil }
             let outMP = Double(timings.outputWidth * timings.outputHeight) / 1_000_000.0
             guard outMP > 0 else { return nil }
             return (bytes, outMP)
         }
         guard !samples.isEmpty else { return nil }
-        let totalMP = items.compactMap { $0.timings }.map { Double($0.outputWidth * $0.outputHeight) / 1_000_000.0 }.reduce(0, +)
+        let totalMP = items.compactMap(\.timings).map { Double($0.outputWidth * $0.outputHeight) / 1_000_000.0 }.reduce(0, +)
         let weightedSum = samples.reduce(0.0) { $0 + Double($1.0) * $1.1 }
         let meanBytesPerMP = weightedSum / max(0.001, samples.reduce(0.0) { $0 + $1.1 })
         let estimate = (meanBytesPerMP * totalMP).rounded()
@@ -189,8 +201,8 @@ struct ExportJob: Identifiable, Codable, Sendable, Equatable {
                 // destination before the job began. A non-empty final file therefore means the
                 // atomic commit completed before the crash even if the next journal write did not.
                 if let attrs = try? fm.attributesOfItem(atPath: items[index].destinationPath),
-                    let size = attrs[.size] as? NSNumber,
-                    size.int64Value > 0
+                   let size = attrs[.size] as? NSNumber,
+                   size.int64Value > 0
                 {
                     items[index].state = .completed
                     items[index].outputBytes = size.int64Value
@@ -226,13 +238,13 @@ enum ExportJobPlanner {
     static func makeJob(
         images: [ProjectImageRecord],
         settings: ExportSettings,
-        bypassImportTransform: Bool
+        bypassImportTransform: Bool,
     ) throws -> ExportJob {
         guard !images.isEmpty else { throw ExportPlanningError.noImages }
         guard !settings.destinationPath.isEmpty else { throw ExportPlanningError.noDestination }
 
         guard settings.sequenceStart >= 1,
-            !settings.sequenceStart.addingReportingOverflow(images.count - 1).overflow
+              !settings.sequenceStart.addingReportingOverflow(images.count - 1).overflow
         else {
             throw ExportPlanningError.invalidSequence
         }
@@ -247,8 +259,8 @@ enum ExportJobPlanner {
             let stem = safeStem(image: image, sequence: sequence, settings: settings, batchCount: images.count)
             var destination =
                 directory
-                .appendingPathComponent(stem)
-                .appendingPathExtension(settings.format.fileExtension)
+                    .appendingPathComponent(stem)
+                    .appendingPathExtension(settings.format.fileExtension)
 
             let originalStem = destination.deletingPathExtension().lastPathComponent
             var collision = 2
@@ -256,8 +268,8 @@ enum ExportJobPlanner {
             while reserved.contains(normalized(destination)) || fm.fileExists(atPath: destination.path) {
                 destination =
                     directory
-                    .appendingPathComponent("\(originalStem)_\(collision)")
-                    .appendingPathExtension(settings.format.fileExtension)
+                        .appendingPathComponent("\(originalStem)_\(collision)")
+                        .appendingPathExtension(settings.format.fileExtension)
                 collision += 1
             }
 
@@ -267,7 +279,7 @@ enum ExportJobPlanner {
         return ExportJob(
             settings: settings,
             bypassImportTransform: bypassImportTransform,
-            items: items
+            items: items,
         )
     }
 
@@ -276,7 +288,7 @@ enum ExportJobPlanner {
             let job = try? makeJob(
                 images: images,
                 settings: settings,
-                bypassImportTransform: false
+                bypassImportTransform: false,
             )
         else { return [] }
         return Array(job.items.prefix(max(0, limit))).map {
@@ -288,7 +300,7 @@ enum ExportJobPlanner {
         image: ProjectImageRecord,
         sequence: Int,
         settings: ExportSettings,
-        batchCount: Int
+        batchCount: Int,
     ) -> String {
         let base = image.url.deletingPathExtension().lastPathComponent
         let sequenceText = String(format: "%04lld", Int64(sequence))
@@ -299,9 +311,9 @@ enum ExportJobPlanner {
         let hasSequence = effective.contains("{sequence}")
         var expanded =
             effective
-            .replacingOccurrences(of: "{name}", with: base)
-            .replacingOccurrences(of: "{original_filename}", with: base)
-            .replacingOccurrences(of: "{sequence}", with: sequenceText)
+                .replacingOccurrences(of: "{name}", with: base)
+                .replacingOccurrences(of: "{original_filename}", with: base)
+                .replacingOccurrences(of: "{sequence}", with: sequenceText)
 
         // A title like "Wedding" is a valid batch title. It can never mean "one destination".
         if batchCount > 1 && !hasName && !hasSequence {
@@ -320,7 +332,7 @@ enum ExportJobPlanner {
             .precomposedStringWithCanonicalMapping
             .folding(
                 options: [.caseInsensitive, .diacriticInsensitive],
-                locale: Locale(identifier: "en_US_POSIX")
+                locale: Locale(identifier: "en_US_POSIX"),
             )
     }
 }
@@ -332,7 +344,7 @@ actor ExportJobJournal {
         // A real-queue smoke test must never replace the user's recovery journal.
         let args = CommandLine.arguments
         if args.contains("--export-smoke-test"), let index = args.firstIndex(of: "--export-output"),
-            index + 1 < args.count
+           index + 1 < args.count
         {
             return URL(fileURLWithPath: args[index + 1], isDirectory: true)
                 .appendingPathComponent(".export-smoke-journal", isDirectory: true)
@@ -341,7 +353,9 @@ actor ExportJobJournal {
             .appendingPathComponent("SpektraFilm/ExportJobs", isDirectory: true)
     }
 
-    private var activeURL: URL { directory.appendingPathComponent("active-export.json") }
+    private var activeURL: URL {
+        directory.appendingPathComponent("active-export.json")
+    }
 
     func save(_ job: ExportJob) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -388,7 +402,7 @@ actor ExportTimingLog {
         do {
             try fm.createDirectory(
                 at: Self.fileURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
+                withIntermediateDirectories: true,
             )
             if isNew {
                 try (ExportItemTimings.csvHeader + "\n" + row + "\n")
@@ -403,5 +417,7 @@ actor ExportTimingLog {
         }
     }
 
-    func url() -> URL { Self.fileURL }
+    func url() -> URL {
+        Self.fileURL
+    }
 }

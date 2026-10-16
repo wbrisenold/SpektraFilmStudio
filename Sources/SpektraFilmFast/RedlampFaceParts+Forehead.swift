@@ -20,32 +20,34 @@ extension FaceParts.Face {
         let xs = contour.map(\.x)
         let eyeXs = eyes.joined().map(\.x)
         guard let left = xs.min(), let right = xs.max(), let chin = contour.map(\.y).min(),
-            let eyesLeft = eyeXs.min(), let eyesRight = eyeXs.max(),
-            pixels.width == size.width, pixels.height == size.height
+              let eyesLeft = eyeXs.min(), let eyesRight = eyeXs.max(),
+              pixels.width == size.width, pixels.height == size.height
         else { return nil }
         let top = browTop
         let reach = (top - chin) * 0.8
         guard reach > 0, right > left, eyeWidth > 0,
-            let strip = FaceParts.draw(
-                size,
-                { context in
-                    context.fill(CGRect(x: eyesLeft, y: top, width: eyesRight - eyesLeft, height: eyeWidth * 0.9))
-                }),
-            let colour = FaceParts.SkinColour(strip.intersection(face), pixels: pixels),
-            let dome = FaceParts.draw(
-                size,
-                { context in
-                    context.fillEllipse(in: CGRect(x: left, y: top - reach, width: right - left, height: 2 * reach))
-                    context.setBlendMode(.clear)
-                    context.fill(CGRect(x: 0, y: 0, width: CGFloat(size.width), height: top))
-                })
+              let strip = FaceParts.draw(
+                  size,
+                  { context in
+                      context.fill(CGRect(x: eyesLeft, y: top, width: eyesRight - eyesLeft, height: eyeWidth * 0.9))
+                  },
+              ),
+              let colour = FaceParts.SkinColour(strip.intersection(face), pixels: pixels),
+              let dome = FaceParts.draw(
+                  size,
+                  { context in
+                      context.fillEllipse(in: CGRect(x: left, y: top - reach, width: right - left, height: 2 * reach))
+                      context.setBlendMode(.clear)
+                      context.fill(CGRect(x: 0, y: 0, width: CGFloat(size.width), height: top))
+                  },
+              )
         else { return nil }
         let region = ForeheadRegion(
             width: size.width, height: size.height, open: dome.pixels.map { $0 > 127 },
             base: face.pixels.map { $0 > 127 },
         )
         let lightness = BoxFilter.blur(
-            (0..<size.width * size.height).map { pixels.rgb($0 % size.width, $0 / size.width).sum() / 3 },
+            (0 ..< size.width * size.height).map { pixels.rgb($0 % size.width, $0 / size.width).sum() / 3 },
             width: size.width, height: size.height, radius: 1,
         )
         let skinlike = region.open.indices.map {

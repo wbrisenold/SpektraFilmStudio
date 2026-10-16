@@ -10,14 +10,15 @@ enum AuditRegressionTests {
             return value
         }
         guard check("damaged cache headers and valid round trips", CacheCodecAudit.run()),
-            check("HTTP length overflow and ambiguous framing", ProofDockAudit.run()),
-            check("stale Oracle session callbacks", OracleRcloneTerminal.runAuditRegressionTest())
+              check("HTTP length overflow and ambiguous framing", ProofDockAudit.run()),
+              check("stale Oracle session callbacks", OracleRcloneTerminal.runAuditRegressionTest())
         else { return false }
         guard
             check(
                 "native mask null inputs rejected",
                 sf_semantic_matte_run(nil, nil, 0, 0, nil, nil, 0) != 0
-                    && sf_semantic_labels_run(nil, 1, nil, 0, 0, nil, nil, 0) != 0)
+                    && sf_semantic_labels_run(nil, 1, nil, 0, 0, nil, nil, 0) != 0,
+            )
         else { return false }
         do {
             var project = SpektraProjectDocument()
@@ -38,7 +39,8 @@ enum AuditRegressionTests {
             settings.sequenceStart = Int.max
             do {
                 _ = try ExportJobPlanner.makeJob(
-                    images: [image, image], settings: settings, bypassImportTransform: false)
+                    images: [image, image], settings: settings, bypassImportTransform: false,
+                )
                 return check("export sequence overflow rejected", false)
             } catch ExportPlanningError.invalidSequence {}
             settings.sequenceStart = 1
@@ -51,7 +53,8 @@ enum AuditRegressionTests {
             guard check("export sequence and size overflow rejected", true) else { return false }
             let geometry = StudioOutputGeometry.calculate(
                 sourceWidth: 6000, sourceHeight: 4000,
-                mode: .longEdge, width: Int.max, height: Int.max, longEdge: Int.max, dontEnlarge: false)
+                mode: .longEdge, width: Int.max, height: Int.max, longEdge: Int.max, dontEnlarge: false,
+            )
             guard check("extreme preview dimensions bounded", geometry.width <= 16384 && geometry.height <= 16384)
             else { return false }
             let crop = try JSONDecoder().decode(ExportSettings.self, from: Data("{\"jpegQuality\":1e300}".utf8))

@@ -4,11 +4,11 @@ import ImageIO
 import Vision
 
 // MARK: - Facet-style composition analysis ported from ncoevoet/facet
+
 // analyzers/composition.py: subject-region detection (edge contour + saliency),
 // rule-of-thirds placement score, leading-lines detection.
 
 extension CullEngine {
-
     /// Detect a subject bounding box using edge-contour analysis.
     /// Ported from CompositionAnalyzer.detect_subject_region: finds the largest
     /// edge contour whose centroid is near a rule-of-thirds intersection.
@@ -16,27 +16,27 @@ extension CullEngine {
     /// Operates on the raw rgba pixels at full thumbnail resolution using a
     /// central-difference Sobel-like gradient (no OpenCV dependency).
     static func detectSubjectRegion(
-        _ payload: ThumbnailPayload
+        _ payload: ThumbnailPayload,
     ) -> CGRect? {
         let w = payload.width, h = payload.height
-        guard w > 20 && h > 20 else { return nil }
+        guard w > 20, h > 20 else { return nil }
 
         // Build grayscale luma.
         var gray = [Double](repeating: 0, count: w * h)
-        for i in 0..<(w * h) {
+        for i in 0 ..< (w * h) {
             let p = i * 4
             gray[i] =
                 0.2126 * Double(payload.rgba[p])
-                + 0.7152 * Double(payload.rgba[p + 1])
-                + 0.0722 * Double(payload.rgba[p + 2])
+                    + 0.7152 * Double(payload.rgba[p + 1])
+                    + 0.0722 * Double(payload.rgba[p + 2])
         }
 
         // Gradient magnitude via central differences.
         var gx = [Double](repeating: 0, count: w * h)
         var gy = [Double](repeating: 0, count: w * h)
         var mag = [Double](repeating: 0, count: w * h)
-        for y in 1..<(h - 1) {
-            for x in 1..<(w - 1) {
+        for y in 1 ..< (h - 1) {
+            for x in 1 ..< (w - 1) {
                 let i = y * w + x
                 gx[i] = gray[i + 1] - gray[i - 1]
                 gy[i] = gray[i + w] - gray[i - w]
@@ -47,18 +47,17 @@ extension CullEngine {
         // Simple threshold to get edge mask; use median-based adaptive threshold
         // like Facet's adaptive Canny (median * 0.5 / 1.5).
         let sortedMag = mag.filter { $0 > 0 }.sorted()
-        let medianMag: Double
-        if !sortedMag.isEmpty {
-            medianMag = sortedMag[sortedMag.count / 2]
+        let medianMag: Double = if !sortedMag.isEmpty {
+            sortedMag[sortedMag.count / 2]
         } else {
-            medianMag = 10.0
+            10.0
         }
         _ = max(0, medianMag * 0.5)
         let upper = min(255, medianMag * 1.5)
 
         // Edge mask: pixels above upper threshold are strong edges.
         var edgeMap = [Bool](repeating: false, count: w * h)
-        for i in 0..<(w * h) {
+        for i in 0 ..< (w * h) {
             edgeMap[i] = mag[i] > upper
         }
 
@@ -74,10 +73,10 @@ extension CullEngine {
         let thirdsX = [w / 3, 2 * w / 3]
         let thirdsY = [h / 3, 2 * h / 3]
 
-        for y in 0..<h {
-            for x in 0..<w {
+        for y in 0 ..< h {
+            for x in 0 ..< w {
                 let i = y * w + x
-                guard edgeMap[i] && !visited[i] else { continue }
+                guard edgeMap[i], !visited[i] else { continue }
 
                 // BFS this contour.
                 var contour = [Int]()
@@ -95,9 +94,9 @@ extension CullEngine {
                     for ni in nexts {
                         let nx = ni % w
                         let ny = ni / w
-                        guard nx >= 0 && nx < w && ny >= 0 && ny < h else { continue }
+                        guard nx >= 0, nx < w, ny >= 0, ny < h else { continue }
                         let ni2 = ny * w + nx
-                        if edgeMap[ni2] && !visited[ni2] {
+                        if edgeMap[ni2], !visited[ni2] {
                             visited[ni2] = true
                             queue.append(ni2)
                         }
@@ -141,20 +140,25 @@ extension CullEngine {
         }
         return CGRect(
             x: Double(minX), y: Double(minY),
-            width: Double(maxX - minX), height: Double(maxY - minY))
+            width: Double(maxX - minX), height: Double(maxY - minY),
+        )
     }
 
     /// Score a subject bounding box against rule-of-thirds and center composition.
     /// Ported from CompositionAnalyzer.get_placement_data.
     static func placementScore(
-        region: CGRect?, imgW: Int, imgH: Int
+        region: CGRect?, imgW: Int, imgH: Int,
     ) -> (score: Double, powerPoint: Double, lineScore: Double, centerScore: Double) {
-        if let region = region {
+        if let region {
             let cx = (region.minX + region.maxX) / 2 / Double(imgW)
             let cy = (region.minY + region.maxY) / 2 / Double(imgH)
             let thirds: [Double] = [1.0 / 3.0, 2.0 / 3.0]
             var powerPoints: [(Double, Double)] = []
-            for t1 in thirds { for t2 in thirds { powerPoints.append((t1, t2)) } }
+            for t1 in thirds {
+                for t2 in thirds {
+                    powerPoints.append((t1, t2))
+                }
+            }
             let minPowerDist = powerPoints.map { pow(cx - $0.0, 2) + pow(cy - $0.1, 2) }.min() ?? 1.0
             let powerPointScore = max(0, 10 - sqrt(minPowerDist) * 25)
 
@@ -180,7 +184,7 @@ extension CullEngine {
     /// Ported from CompositionAnalyzer.detect_leading_lines: Canny edges → Hough
     /// line segments, scored by length and diagonal angle (15-75° bonus).
     static func detectLeadingLines(
-        _ payload: ThumbnailPayload
+        _ payload: ThumbnailPayload,
     ) -> (score: Double, count: Int) {
         let w = payload.width, h = payload.height
         guard w > 30 && h > 30 else { return (0, 0) }
@@ -188,16 +192,16 @@ extension CullEngine {
         // Build edge map (reuse gradient from subject detection — but do it here
         // for simplicity since this is a separate call path).
         var gray = [Double](repeating: 0, count: w * h)
-        for i in 0..<(w * h) {
+        for i in 0 ..< (w * h) {
             let p = i * 4
             gray[i] =
                 0.2126 * Double(payload.rgba[p])
-                + 0.7152 * Double(payload.rgba[p + 1])
-                + 0.0722 * Double(payload.rgba[p + 2])
+                    + 0.7152 * Double(payload.rgba[p + 1])
+                    + 0.0722 * Double(payload.rgba[p + 2])
         }
         var mag = [Double](repeating: 0, count: w * h)
-        for y in 1..<(h - 1) {
-            for x in 1..<(w - 1) {
+        for y in 1 ..< (h - 1) {
+            for x in 1 ..< (w - 1) {
                 let i = y * w + x
                 let gx = gray[i + 1] - gray[i - 1]
                 let gy = gray[i + w] - gray[i - w]
@@ -209,15 +213,17 @@ extension CullEngine {
         _ = max(0, medianMag * 0.5)
         let upper = min(255, medianMag * 1.5)
         var edgeMap = [Bool](repeating: false, count: w * h)
-        for i in 0..<(w * h) { edgeMap[i] = mag[i] > upper }
+        for i in 0 ..< (w * h) {
+            edgeMap[i] = mag[i] > upper
+        }
 
         // Gaussian blur on edge map to reduce noise (3x3 uniform).
         var blurred = [Bool](repeating: false, count: w * h)
-        for y in 1..<(h - 1) {
-            for x in 1..<(w - 1) {
+        for y in 1 ..< (h - 1) {
+            for x in 1 ..< (w - 1) {
                 var sum = 0
-                for dy in -1...1 {
-                    for dx in -1...1 {
+                for dy in -1 ... 1 {
+                    for dx in -1 ... 1 {
                         sum += edgeMap[(y + dy) * w + (x + dx)] ? 1 : 0
                     }
                 }
@@ -228,17 +234,17 @@ extension CullEngine {
         // Hough line accumulator: vote into angle/distance bins.
         // Use a simplified approach: for each edge pixel, vote for lines through it
         // at quantized angles, then find the strongest lines.
-        let angleBins = 36  // 5° resolution
+        let angleBins = 36 // 5° resolution
         let maxDist = Int(sqrt(Double(w * w + h * h)))
         var accumulator = [Int](repeating: 0, count: angleBins * (maxDist + 1))
 
-        for y in 0..<h {
-            for x in 0..<w where blurred[y * w + x] {
-                for ai in 0..<angleBins {
+        for y in 0 ..< h {
+            for x in 0 ..< w where blurred[y * w + x] {
+                for ai in 0 ..< angleBins {
                     let theta = Double(ai) * .pi / Double(angleBins)
                     let d = Double(x) * cos(theta) + Double(y) * sin(theta)
                     let di = Int(d + Double(maxDist) * 0.5)
-                    guard di >= 0 && di <= maxDist else { continue }
+                    guard di >= 0, di <= maxDist else { continue }
                     accumulator[ai * (maxDist + 1) + di] += 1
                 }
             }
@@ -248,11 +254,11 @@ extension CullEngine {
         _ = Int(Double(min(w, h)) * 0.15)
         var foundLines = [(length: Double, angle: Double)]()
 
-        for ai in 0..<angleBins {
+        for ai in 0 ..< angleBins {
             let theta = Double(ai) * .pi / Double(angleBins)
-            for di in 0...maxDist {
+            for di in 0 ... maxDist {
                 let votes = accumulator[ai * (maxDist + 1) + di]
-                guard votes > 3 else { continue }  // low threshold
+                guard votes > 3 else { continue } // low threshold
                 // Angle in degrees.
                 let angleDeg = abs(theta * 180 / .pi)
                 let normalizedAngle = min(angleDeg, 180 - angleDeg)
@@ -266,7 +272,7 @@ extension CullEngine {
         var totalScore = 0.0
         let diagonal = sqrt(Double(w * w + h * h))
         for line in foundLines {
-            let angleBonus = (15...75).contains(Int(line.angle)) ? 1.5 : 1.0
+            let angleBonus = (15 ... 75).contains(Int(line.angle)) ? 1.5 : 1.0
             let lengthScore = (line.length / diagonal) * 10 * angleBonus
             totalScore += lengthScore
         }
@@ -278,9 +284,11 @@ extension CullEngine {
     /// Integrate leading lines bonus into composition score (landscape only).
     /// Ported from CompositionAnalyzer.integrate_leading_lines.
     static func integrateLeadingLines(
-        baseScore: Double, leadingLinesScore: Double, hasFaces: Bool
+        baseScore: Double, leadingLinesScore: Double, hasFaces: Bool,
     ) -> Double {
-        if hasFaces { return baseScore }
+        if hasFaces {
+            return baseScore
+        }
         let bonus = min(2.0, leadingLinesScore / 5.0)
         return min(10.0, baseScore + bonus)
     }

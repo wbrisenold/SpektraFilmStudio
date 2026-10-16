@@ -63,7 +63,7 @@ public enum SkyMatte {
         var seeds = [Bool](repeating: false, count: count)
         Parallel.fill(&seeds) { mask[$0] > 0.5 }
         var result = mask
-        for _ in 0..<2 {
+        for _ in 0 ..< 2 {
             let behind = SkyColour(linear, sky: sky, width: width, height: height)
             guard
                 let front = ForegroundColour(
@@ -121,7 +121,7 @@ public enum SkyMatte {
         let factor = 4
         let smallWidth = max(1, width / factor)
         let smallHeight = max(1, height / factor)
-        let small = (0..<smallWidth * smallHeight).map { index -> Float in
+        let small = (0 ..< smallWidth * smallHeight).map { index -> Float in
             let x = min((index % smallWidth) * factor + factor / 2, width - 1)
             let y = min((index / smallWidth) * factor + factor / 2, height - 1)
             return mask[y * width + x]
@@ -136,9 +136,9 @@ public enum SkyMatte {
             near: [Bool](repeating: false, count: count), far: [Bool](repeating: false, count: count),
             inside: [Bool](repeating: false, count: count),
         )
-        for y in 0..<height {
+        for y in 0 ..< height {
             let row = min(y / factor, smallHeight - 1) * smallWidth
-            for x in 0..<width {
+            for x in 0 ..< width {
                 let index = y * width + x
                 let d = distance[row + min(x / factor, smallWidth - 1)] * Float(factor)
                 let value = mask[index]
@@ -171,8 +171,9 @@ public enum SkyMatte {
                     nonisolated(unsafe) let confidenceOut = confidenceBuffer
                     nonisolated(unsafe) let offLineOut = offLineBuffer
                     DispatchQueue.concurrentPerform(iterations: height) { y in
-                        for index in y * width..<(y + 1) * width
-                        where regions.near[index] || regions.far[index] || regions.inside[index] {
+                        for index in y * width ..< (y + 1) * width
+                            where regions.near[index] || regions.far[index] || regions.inside[index]
+                        {
                             let f = front.at(index)
                             let difference = behind.at(index) - f
                             let span = simd_length_squared(difference)
@@ -186,7 +187,7 @@ public enum SkyMatte {
                             confidenceOut[index] = sure
                             offLineOut[index] =
                                 simd_length(linear[index] - f - projected * difference)
-                                / max(span.squareRoot(), 1e-4)
+                                    / max(span.squareRoot(), 1e-4)
                         }
                     }
                 }
@@ -199,7 +200,7 @@ public enum SkyMatte {
 
     /// sRGB to linear light, per pixel.
     static func linear(_ rgb: RGBImage) -> [SIMD3<Float>] {
-        let table = (0..<256).map { value -> Float in
+        let table = (0 ..< 256).map { value -> Float in
             Float(value) / 255
         }
         var out = [SIMD3<Float>](repeating: .zero, count: rgb.width * rgb.height)
@@ -226,12 +227,12 @@ public enum SkyMatte {
             smallHeight = max(1, height / factor)
             var values = [SIMD3<Float>](repeating: .zero, count: smallWidth * smallHeight)
             var weights = [Float](repeating: 0, count: smallWidth * smallHeight)
-            for y in 0..<smallHeight {
-                for x in 0..<smallWidth {
+            for y in 0 ..< smallHeight {
+                for x in 0 ..< smallWidth {
                     var sum = SIMD3<Float>.zero
                     var all = true
-                    for dy in 0..<factor {
-                        for dx in 0..<factor {
+                    for dy in 0 ..< factor {
+                        for dx in 0 ..< factor {
                             let index = min(y * factor + dy, height - 1) * width + min(x * factor + dx, width - 1)
                             sum += linear[index]
                             all = all && sky[index]
@@ -277,7 +278,7 @@ public enum SkyMatte {
             distinct.withUnsafeMutableBufferPointer { buffer in
                 nonisolated(unsafe) let out = buffer
                 DispatchQueue.concurrentPerform(iterations: height) { y in
-                    for index in y * width..<(y + 1) * width where !sky[index] {
+                    for index in y * width ..< (y + 1) * width where !sky[index] {
                         let separation = simd_length(linear[index] - behind.at(index))
                         out[index] = min(max((separation - 0.04) / 0.25, 0), 1)
                     }
@@ -316,8 +317,8 @@ public enum SkyMatte {
         let inside = mask.map { $0 > 0.5 }
         let cap = (limit + 2) * 3
         var d = [Float](repeating: cap, count: count)
-        for y in 0..<height {
-            for x in 0..<width {
+        for y in 0 ..< height {
+            for x in 0 ..< width {
                 let index = y * width + x
                 let value = inside[index]
                 if (x > 0 && inside[index - 1] != value) || (x < width - 1 && inside[index + 1] != value)
@@ -327,8 +328,8 @@ public enum SkyMatte {
                 }
             }
         }
-        for y in 0..<height {
-            for x in 0..<width {
+        for y in 0 ..< height {
+            for x in 0 ..< width {
                 let index = y * width + x
                 var value = d[index]
                 if x > 0 {
@@ -371,7 +372,7 @@ public enum SkyMatte {
     /// The pixels of `region` four-connected to a pixel of it where `seeds` holds. Seeds count as
     /// connected at once; the flood starts only from those at the edge of what they cover.
     static func connected(_ region: [Bool], seeds: [Bool], width: Int, height _: Int) -> [Bool] {
-        var connected = (0..<region.count).map { region[$0] && seeds[$0] }
+        var connected = (0 ..< region.count).map { region[$0] && seeds[$0] }
         var stack: [Int] = []
         func open(_ index: Int) -> Bool {
             region[index] && !connected[index]
@@ -416,7 +417,7 @@ enum Parallel {
             nonisolated(unsafe) let out = buffer
             let parts = max(1, min(count / 16384, ProcessInfo.processInfo.activeProcessorCount * 4))
             DispatchQueue.concurrentPerform(iterations: parts) { part in
-                for index in part * count / parts..<(part + 1) * count / parts {
+                for index in part * count / parts ..< (part + 1) * count / parts {
                     out[index] = value(index)
                 }
             }
@@ -466,8 +467,8 @@ enum PullPush {
                 nonisolated(unsafe) let valuesOut = valueBuffer
                 nonisolated(unsafe) let weightsOut = weightBuffer
                 DispatchQueue.concurrentPerform(iterations: height) { row in
-                    for y in row * 2..<min(row * 2 + 2, level.height) {
-                        for x in 0..<level.width {
+                    for y in row * 2 ..< min(row * 2 + 2, level.height) {
+                        for x in 0 ..< level.width {
                             let target = row * width + x / 2
                             valuesOut[target] += level.values[y * level.width + x]
                             weightsOut[target] += level.weights[y * level.width + x]
@@ -486,7 +487,7 @@ enum PullPush {
             // Each row writes only its own pixels.
             nonisolated(unsafe) let result = buffer
             DispatchQueue.concurrentPerform(iterations: child.height) { y in
-                for x in 0..<child.width {
+                for x in 0 ..< child.width {
                     let index = y * child.width + x
                     let weight = child.weights[index]
                     if weight >= 1 {
@@ -494,9 +495,9 @@ enum PullPush {
                         continue
                     }
                     var sum = SIMD3<Float>.zero
-                    for dy in -1...1 {
+                    for dy in -1 ... 1 {
                         let sy = min(min(max(y + dy, 0), child.height - 1) / 2, parent.height - 1)
-                        for dx in -1...1 {
+                        for dx in -1 ... 1 {
                             let sx = min(min(max(x + dx, 0), child.width - 1) / 2, parent.width - 1)
                             sum += filled[sy * parent.width + sx]
                         }

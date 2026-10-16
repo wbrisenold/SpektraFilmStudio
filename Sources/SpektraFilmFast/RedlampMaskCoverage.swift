@@ -14,20 +14,25 @@ import Foundation
 enum RedlampMaskCoverage {
     static func coverage(for grade: LocalGradeRecord, width: Int, height: Int) -> [Float] {
         guard width > 0, height > 0, width <= 16384, height <= 16384,
-            width <= Int.max / height
+              width <= Int.max / height
         else { return [] }
         let count = width * height
-        if grade.masks.sources.isEmpty { return [Float](repeating: 1, count: count) }
+        if grade.masks.sources.isEmpty {
+            return [Float](repeating: 1, count: count)
+        }
         let sources = grade.masks.sources.filter(\.enabled).map(MaskRasterProcessing.prepared).map(
-            MaskRasterProcessing.depthPrepared)
+            MaskRasterProcessing.depthPrepared,
+        )
         guard !sources.isEmpty else { return [Float](repeating: 0, count: count) }
 
         var coverage = [Float](repeating: 0, count: count)
         for (index, source) in sources.enumerated() {
-            if Task.isCancelled { return coverage }
+            if Task.isCancelled {
+                return coverage
+            }
             let samples = evaluate(source, width: width, height: height)
             guard samples.count == count else { return [Float](repeating: 0, count: count) }
-            for i in 0..<count {
+            for i in 0 ..< count {
                 // Redlamp's combineMaskCoverage: union=max, subtraction=a*(1-b),
                 // intersection=a*b. A first subtract is empty, not inverted full-frame.
                 let weight = samples[i]
@@ -60,10 +65,12 @@ enum RedlampMaskCoverage {
         let rasterAlpha = source.kind == .raster ? (raster?.decodedAlpha() ?? []) : []
         let rw = raster?.width ?? 0, rh = raster?.height ?? 0
         var values = [Float](repeating: 0, count: count)
-        for y in 0..<height {
-            if y.isMultiple(of: 16) && Task.isCancelled { return values }
+        for y in 0 ..< height {
+            if y.isMultiple(of: 16), Task.isCancelled {
+                return values
+            }
             let v = (Float(y) + 0.5) / Float(height)
-            for x in 0..<width {
+            for x in 0 ..< width {
                 let u = (Float(x) + 0.5) / Float(width)
                 let coverage: Float
                 switch source.kind {
@@ -91,10 +98,10 @@ enum RedlampMaskCoverage {
                     let tx = fx - Float(x0), ty = fy - Float(y0)
                     let a =
                         Float(rasterAlpha[y0 * rw + x0]) * (1 - tx)
-                        + Float(rasterAlpha[y0 * rw + x1]) * tx
+                            + Float(rasterAlpha[y0 * rw + x1]) * tx
                     let b =
                         Float(rasterAlpha[y1 * rw + x0]) * (1 - tx)
-                        + Float(rasterAlpha[y1 * rw + x1]) * tx
+                            + Float(rasterAlpha[y1 * rw + x1]) * tx
                     coverage = (a * (1 - ty) + b * ty) / 255
                 }
                 let value = source.inverted ? 1 - coverage : coverage
